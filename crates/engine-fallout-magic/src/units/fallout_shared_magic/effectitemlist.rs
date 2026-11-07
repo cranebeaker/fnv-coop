@@ -59,10 +59,13 @@ const EFFECT_ITEM_LIST_VTABLE: u32 = 0x0101_2508;
 /// List constructor (`BSSimpleList`), thiscall.
 const LIST_CONSTRUCT: u32 = 0x0096_a2d0;
 /// Thiscall on a list: `AL`, whether it is empty.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// Thiscall: returns `this` (on a list node: the address of its item).
+#[cfg(test)]
 const SELF: u32 = 0x0068_15c0;
 /// Thiscall: the word at +4 (on a list node: the next node).
+#[cfg(test)]
 const NEXT_NODE: u32 = 0x0072_6070;
 /// Thiscall on the list (address of the item word), `RET 4`: appends it.
 const LIST_APPEND: u32 = 0x0090_5820;
@@ -72,6 +75,7 @@ const LIST_REMOVE_FIRST: u32 = 0x0063_f7b0;
 /// through `00825c00`, folded code).
 const ITEM_EFFECT_SETTING: u32 = 0x0082_5c00;
 /// Thiscall: the word at +0xc (on an effect item: `EffectItemData::iRange`).
+#[cfg(test)]
 const WORD_AT_C: u32 = 0x0084_e3a0;
 /// `EffectItem::IsUsageMonitorEffect` (`00404730`), `EffectItem::IsHostile`
 /// (`00404710`), `EffectItem::GetArea` (`00404420`) and
@@ -138,6 +142,7 @@ const DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const TYPE_TES_FORM: u32 = 0x0118_3028;
 const TYPE_EFFECT_SETTING: u32 = 0x0118_37c4;
 /// Thiscall on a string: its characters.
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 /// The 8-byte string destructor, thiscall.
 const STRING_DESTRUCT: u32 = 0x0040_37d0;
@@ -201,7 +206,7 @@ const CHUNK_EFID: u32 = 0x4449_4645;
 /// `00726070` on `cursor + 4`, then back by 4 to the next "list" (0 at the
 /// end).
 fn next_cursor(e: &mut Engine, cursor: u32) -> u32 {
-    let next = e.call(NEXT_NODE, &args![cursor + 4]).u32();
+    let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cursor + 4));
     if next == 0 {
         0
     } else {
@@ -211,7 +216,7 @@ fn next_cursor(e: &mut Engine, cursor: u32) -> u32 {
 
 /// The item of `cursor`'s node (`006815c0` on `cursor + 4`, then the word).
 fn cursor_item(e: &mut Engine, cursor: u32) -> u32 {
-    let slot = e.call(SELF, &args![cursor + 4]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cursor + 4));
     e.mem.u32(slot)
 }
 
@@ -306,7 +311,7 @@ pub fn effect_item_list_load(e: &mut Engine, this: Ptr<EffectItemList>, file: u3
         let effect_name = name_or_unknown(name);
         e.with_stack(8, |e, text| {
             let name = e.call(SETTING_NAME_004046B0, &args![setting, text]).u32();
-            let characters = e.call(STRING_TEXT, &args![name]).u32();
+            let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
             e.call(
                 PRINT_WARNING,
                 &args![LOAD_FAILED_TEXT, characters, effect_name],
@@ -353,7 +358,11 @@ pub fn effect_item_list_is_hostile(e: &mut Engine, this: Ptr<EffectItemList>) ->
 /// (`00405e40`) nor hostile, true when none is.
 pub fn effect_item_list_can_be_poison(e: &mut Engine, this: Ptr<EffectItemList>) -> bool {
     let mut cursor = this.addr();
-    if e.call(LIST_IS_EMPTY, &args![cursor + 4]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, cursor + 4)
+    ) {
         return false;
     }
     while cursor != 0 {
@@ -389,14 +398,18 @@ pub fn fn_00405e60(e: &mut Engine, this: Ptr) -> bool {
 /// `range` (+0xc) is not flagged `0x400000`; false for an empty list.
 fn has_effect_of_range(e: &mut Engine, this: Ptr<EffectItemList>, range: u32) -> bool {
     let mut cursor = this.addr();
-    if e.call(LIST_IS_EMPTY, &args![cursor + 4]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, cursor + 4)
+    ) {
         return false;
     }
     let mut found = false;
     while cursor != 0 && !found {
         let item = cursor_item(e, cursor);
         if item != 0
-            && e.call(WORD_AT_C, &args![item]).u32() == range
+            && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item)) == range
             && !fn_00405e40(e, Ptr::new(item))
         {
             found = true;
@@ -424,7 +437,11 @@ pub fn effect_item_list_has_touch_effect(e: &mut Engine, this: Ptr<EffectItemLis
 /// `0x400000`; false for an empty list.
 pub fn fn_00406140(e: &mut Engine, this: Ptr<EffectItemList>, mask: u32) -> bool {
     let mut cursor = this.addr();
-    if e.call(LIST_IS_EMPTY, &args![cursor + 4]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, cursor + 4)
+    ) {
         return false;
     }
     let mut found = false;
@@ -449,7 +466,14 @@ pub fn fn_00406140(e: &mut Engine, this: Ptr<EffectItemList>, mask: u32) -> bool
 pub fn effect_item_list_get_usage_monitor_effect(e: &mut Engine, this: Ptr<EffectItemList>) -> u32 {
     let mut found = 0;
     let mut cursor = this.addr();
-    while cursor != 0 && !e.call(LIST_IS_EMPTY, &args![cursor + 4]).bool() && found == 0 {
+    while cursor != 0
+        && !typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, cursor + 4)
+        )
+        && found == 0
+    {
         let item = cursor_item(e, cursor);
         let setting = e.call(ITEM_EFFECT_SETTING, &args![item]).u32();
         let monitor = e.call(GET_USAGE_MONITOR_EFFECT_SETTING, &args![]).u32();
@@ -488,7 +512,11 @@ pub fn fn_00406340(e: &mut Engine, this: Ptr<EffectItemList>) {
 /// `00404040`.
 pub fn effect_item_list_get_cost(e: &mut Engine, this: Ptr<EffectItemList>, actor: u32) -> f32 {
     let mut cursor = this.addr();
-    if e.call(LIST_IS_EMPTY, &args![cursor + 4]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, cursor + 4)
+    ) {
         return 0.0;
     }
     let mut total = 0.0f32.to_bits();
@@ -537,7 +565,11 @@ pub fn effect_item_list_get_costliest_effect(
 ) -> u32 {
     let mut best_item = 0;
     let mut cursor = this.addr();
-    if e.call(LIST_IS_EMPTY, &args![cursor + 4]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, cursor + 4)
+    ) {
         return 0;
     }
     let mut best = -1i32;
@@ -548,7 +580,10 @@ pub fn effect_item_list_get_costliest_effect(
         if !fn_00405e40(e, Ptr::new(item)) && cost > best {
             let area_ok = need_area == 0 || e.call(ITEM_GET_AREA, &args![item]).i32() > 0;
             if area_ok
-                && (range == 3 || (range != 3 && e.call(WORD_AT_C, &args![item]).u32() == range))
+                && (range == 3
+                    || (range != 3
+                        && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item))
+                            == range))
             {
                 best_item = item;
                 best = cost;
@@ -647,7 +682,8 @@ pub fn effect_item_list_build_menu_string(
                     let name = e
                         .call(ITEM_GET_EFFECT_NAME, &args![item, name_string])
                         .u32();
-                    let characters = e.call(STRING_TEXT, &args![name]).u32();
+                    let characters =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
                     e.call(BUFFER_COPY_00406D30, &args![line, 0x80u32, characters]);
                     e.call(STRING_DESTRUCT, &args![name_string]);
                     if named {
@@ -662,7 +698,7 @@ pub fn effect_item_list_build_menu_string(
                     e.call(STATUS_LIST_REGISTER, &args![status_list, item]);
                 }
             }
-            node = e.call(NEXT_NODE, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let mut node = status_list + 4;
         while node != 0 && node_item(e, node) != 0 {
@@ -670,7 +706,7 @@ pub fn effect_item_list_build_menu_string(
             if has_magnitude && item_word(e, node, 0x10) != 0xffff_ffff {
                 write_effect_line(e, node, medicine, food, text, size, line);
             }
-            node = e.call(NEXT_NODE, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         e.call(STATUS_LIST_FLUSH, &args![status_list]);
     });
@@ -679,7 +715,7 @@ pub fn effect_item_list_build_menu_string(
 /// The item of a list node, read through `006815c0` as the code does each
 /// time.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(SELF, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -821,12 +857,12 @@ pub fn effect_item_list_get_effect_item_index(
     let mut index = 0u8;
     let mut node = if this.is_null() { 0 } else { this.addr() + 4 };
     while node != 0 {
-        let slot = e.call(SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if item == e.mem.u32(slot) {
             return index;
         }
         index = index.wrapping_add(1);
-        node = e.call(NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(PRINT_WARNING, &args![NOT_IN_LIST_TEXT]);
     0
@@ -865,7 +901,11 @@ pub fn fn_00405a00(e: &mut Engine, this: Ptr<EffectItemList>, other: u32) -> boo
     if other_count != count {
         return true;
     }
-    if e.call(LIST_IS_EMPTY, &args![this.addr() + 4]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.addr() + 4)
+    ) {
         return false;
     }
     let mut cursor = this.addr();
@@ -937,7 +977,8 @@ pub fn effect_item_list_get_effect_score(
                 && (actor_value == 0x4d
                     || !e.call(SETTING_HAS_ACTOR_VALUE, &args![setting]).bool()
                     || e.call(WORD_AT_9C, &args![setting]).u32() == actor_value)
-                && (range == 3 || e.call(WORD_AT_C, &args![item]).u32() == range)
+                && (range == 3
+                    || typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item)) == range)
             {
                 let duration = if e.call(ITEM_GET_DURATION, &args![item]).i32() > 0 {
                     e.call(ITEM_GET_DURATION, &args![item]).i32()
@@ -964,7 +1005,11 @@ pub fn effect_item_list_get_effect_score(
 /// `script` and the item is not flagged `0x400000` (`00405e40`).
 pub fn effect_item_list_has_script(e: &mut Engine, this: Ptr<EffectItemList>, script: u32) -> bool {
     let mut cursor = this.addr();
-    if e.call(LIST_IS_EMPTY, &args![cursor + 4]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, cursor + 4)
+    ) {
         return false;
     }
     let mut found = false;
@@ -995,7 +1040,11 @@ pub fn fn_00406090(e: &mut Engine, this: Ptr<EffectItemList>) -> bool {
 pub fn fn_004062a0(e: &mut Engine, this: Ptr<EffectItemList>) -> bool {
     let mut found = false;
     let mut cursor = this.addr();
-    if e.call(LIST_IS_EMPTY, &args![cursor + 4]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, cursor + 4)
+    ) {
         return false;
     }
     while cursor != 0 && !found {
@@ -1021,11 +1070,11 @@ pub fn effect_item_list_get_effect_item_by_index(
     let mut node = if this.is_null() { 0 } else { this.addr() + 4 };
     while node != 0 {
         if position == index {
-            let slot = e.call(SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             return e.mem.u32(slot);
         }
         position = position.wrapping_add(1);
-        node = e.call(NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(PRINT_WARNING, &args![NO_ITEM_AT_INDEX_TEXT]);
     0

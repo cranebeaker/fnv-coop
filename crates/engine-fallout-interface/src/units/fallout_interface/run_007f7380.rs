@@ -8,7 +8,9 @@ use crate::prelude::*;
 /// the next-node store (`006ecd40`, `RET 4`; the map's folded name is
 /// `CombatProcedureAttackMelee::Initialize`) and the node's deleting destructor
 /// (`004702f0`, `RET 4`).
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 const NODE_SET_NEXT: u32 = 0x006e_cd40;
 const NODE_DELETE: u32 = 0x0047_02f0;
@@ -48,13 +50,13 @@ pub fn fn_007f7380(e: &mut Engine, this: Ptr, node: u32, previous: u32) -> bool 
         return false;
     }
     let item_of = |e: &mut Engine, node: u32| {
-        let slot = e.call(NODE_SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.mem.u32(slot)
     };
     let item = item_of(e, node);
     if e.mem.u32(item) == e.mem.u32(base + 0x10) {
-        let selected = if e.call(NODE_NEXT, &args![node]).u32() != 0 {
-            let next = e.call(NODE_NEXT, &args![node]).u32();
+        let selected = if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node)) != 0 {
+            let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             let item = item_of(e, next);
             e.mem.u32(item)
         } else if previous != 0 && previous != node {
@@ -106,9 +108,9 @@ pub fn fn_007f7380(e: &mut Engine, this: Ptr, node: u32, previous: u32) -> bool 
     if node == head {
         if e.mem.u32(base + 8) != 0 {
             let second = e.mem.u32(base + 8);
-            let after = e.call(NODE_NEXT, &args![second]).u32();
+            let after = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, second));
             e.mem.set_u32(base + 8, after);
-            let slot = e.call(NODE_SELF, &args![second]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
             let moved = e.mem.u32(slot);
             e.mem.set_u32(base + 4, moved);
             e.call(NODE_SET_NEXT, &args![second, 0u32]);
@@ -119,7 +121,7 @@ pub fn fn_007f7380(e: &mut Engine, this: Ptr, node: u32, previous: u32) -> bool 
             e.mem.set_u32(base + 4, 0);
         }
     } else {
-        let after = e.call(NODE_NEXT, &args![node]).u32();
+        let after = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         e.call(NODE_SET_NEXT, &args![previous, after]);
         e.call(NODE_SET_NEXT, &args![node, 0u32]);
         // Always true here (a null node returned early); the code tests it again.

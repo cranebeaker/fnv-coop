@@ -32,6 +32,7 @@ const CONTACT_OBJECT_004B59F0: u32 = 0x004b_59f0;
 const CONTACT_OBJECT_004B5A80: u32 = 0x004b_5a80;
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map, `008d8520`,
 /// `thiscall`): the word at +0x68.
+#[cfg(test)]
 const SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// The player (`011dea3c`) and `0089f4e0` on it (`thiscall`: its word
 /// +0x638).
@@ -44,10 +45,12 @@ const ACTOR_TEST_008ACE90: u32 = 0x008a_ce90;
 const SETTING_VALUE: u32 = 0x0040_8d60;
 const DRAW_SPELL_CONTACT: u32 = 0x011d_baa4;
 /// `006815c0` (`thiscall`): answers `this`.
+#[cfg(test)]
 const SELF_006815C0: u32 = 0x0068_15c0;
 /// `00632d40` (`thiscall`, one word): copies the contact into a local.
 const COPY_CONTACT_00632D40: u32 = 0x0063_2d40;
 /// `00559450` (`thiscall`): the word at `this`.
+#[cfg(test)]
 const WORD_AT_0_00559450: u32 = 0x0055_9450;
 /// `004a3a40` (`cdecl`, one word).
 const NODE_OF_004A3A40: u32 = 0x004a_3a40;
@@ -57,12 +60,14 @@ const ALLOCATE: u32 = 0x00aa_13e0;
 const NODE_CONSTRUCT_00A5ECB0: u32 = 0x00a5_ecb0;
 /// `00416870` (`thiscall`, three floats) and `00414430` (`thiscall`, four
 /// floats): fill a local with the floats.
+#[cfg(test)]
 const SET_THREE_00416870: u32 = 0x0041_6870;
 const SET_FOUR_00414430: u32 = 0x0041_4430;
 /// `0044ddc0` (`thiscall`: the word at +8), `00436aa0` (`thiscall`:
 /// `this + 0x30`), `00624b10` (`cdecl`, two words: copies three rows),
 /// `00458620` (`cdecl`, two words: copies a point), `0043fa80` and
 /// `00440460` (`thiscall`, one word: store a rotation and a translation).
+#[cfg(test)]
 const WORD_AT_8_0044DDC0: u32 = 0x0044_ddc0;
 const PLUS_30_00436AA0: u32 = 0x0043_6aa0;
 const COPY_ROWS_00624B10: u32 = 0x0062_4b10;
@@ -133,7 +138,7 @@ pub fn fn_00807730(e: &mut Engine, _this: Ptr, body: u32) -> u32 {
 /// `[EBP-0x68]`), `scale`, `rows` and `point` the locals it fills.
 fn draw_contact_side(e: &mut Engine, holder: u32, scale: u32, rows: u32, point: u32) {
     let object = e.mem.u32(holder);
-    let held = e.call(WORD_AT_0_00559450, &args![object]).u32();
+    let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
     let parent = e.call(NODE_OF_004A3A40, &args![held]).u32();
     if parent == 0 {
         return;
@@ -144,20 +149,21 @@ fn draw_contact_side(e: &mut Engine, holder: u32, scale: u32, rows: u32, point: 
     } else {
         0
     };
-    e.call(
-        SET_THREE_00416870,
-        &args![scale, ONE_BITS, ONE_BITS, ONE_BITS],
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, scale, ONE_BITS, ONE_BITS, ONE_BITS)
     );
     e.vcall(parent, 0xd4, &args![node, scale]);
-    e.call(SELF_006815C0, &args![rows]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rows));
     let object = e.mem.u32(holder);
-    let transform = e.call(WORD_AT_8_0044DDC0, &args![object]).u32();
-    let source = e.call(SELF_006815C0, &args![transform]).u32();
+    let transform = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object));
+    let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, transform));
     e.call(COPY_ROWS_00624B10, &args![rows, source]);
     e.call(SET_ROTATE_0043FA80, &args![node, rows]);
-    e.call(SELF_006815C0, &args![point]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
     let object = e.mem.u32(holder);
-    let transform = e.call(WORD_AT_8_0044DDC0, &args![object]).u32();
+    let transform = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object));
     let source = e.call(PLUS_30_00436AA0, &args![transform]).u32();
     e.call(COPY_POINT_00458620, &args![point, source]);
     e.call(SET_TRANSLATE_00440460, &args![node, point]);
@@ -226,10 +232,10 @@ pub fn fn_008070d0(e: &mut Engine, this: Ptr, contact: u32) {
         if e.vcall(actor, 0x22c, &args![0u32]).bool() {
             return;
         }
-        if e.call(SAVED_ACQUIRE_OBJECT, &args![actor]).u32() != 0 {
-            let acquired = e.call(SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+            let acquired = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if e.vcall(acquired, 0x40c, &[]).u32() != 0 {
-                let acquired = e.call(SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+                let acquired = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 if e.vcall(acquired, 0x40c, &[]).u32() != 6 {
                     return;
                 }
@@ -256,14 +262,14 @@ pub fn fn_008070d0(e: &mut Engine, this: Ptr, contact: u32) {
         let local = |offset: u32| ebp.wrapping_sub(offset);
         let draw = e.call(SETTING_VALUE, &args![DRAW_SPELL_CONTACT]).u32();
         if e.mem.u8(draw) != 0 {
-            e.call(SELF_006815C0, &args![local(0x40)]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local(0x40)));
             e.call(COPY_CONTACT_00632D40, &args![local(0xb0), contact]);
             draw_contact_side(e, local(0x90), local(0xd0), local(0xf4), local(0x100));
             draw_contact_side(e, local(0x68), local(0x120), local(0x144), local(0x150));
         }
         let point = local(0x15c);
-        e.call(SELF_006815C0, &args![point]);
-        let source = e.call(SELF_006815C0, &args![contact]).u32();
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
+        let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, contact));
         e.call(COPY_POINT_00458620, &args![point, source]);
         let draw = e.call(SETTING_VALUE, &args![DRAW_SPELL_CONTACT]).u32();
         if e.mem.u8(draw) != 0 {

@@ -106,8 +106,8 @@ pub fn fn_006104a0(e: &mut Engine, this: Ptr) -> Ptr {
 /// engine map gives it no name.
 pub fn fn_00610430(e: &mut Engine, this: Ptr) -> u32 {
     let text = this.addr() + 0x50c;
-    if e.call(0x0055_9450, &args![text]).u32() != 0 {
-        e.call(0x0055_9450, &args![text]).u32()
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text)) != 0 {
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text))
     } else {
         0x0101_1584
     }

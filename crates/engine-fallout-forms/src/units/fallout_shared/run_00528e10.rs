@@ -38,6 +38,7 @@ const SOURCE_FILE: u32 = 0x0101_73f8;
 const LOCK_ENTER: u32 = 0x0040_fbf0;
 const LOCK_LEAVE: u32 = 0x0040_fba0;
 /// The first word of an object (`(object)`).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// A tagged pointer word without its mark bit (`*word & !1`).
 const UNTAGGED: u32 = 0x0044_dec0;
@@ -59,6 +60,7 @@ const RECORD_SET_CONSTRUCT: u32 = 0x006c_73b0;
 const BUCKET: u32 = 0x0044_ee20;
 /// An empty function (the engine map's `Error`; the place of a memory
 /// barrier).
+#[cfg(test)]
 const BARRIER: u32 = 0x0040_fbe0;
 /// Stores a tagged word into a stack temporary `(temporary, 0, word)`.
 const TAGGED_TEMPORARY: u32 = 0x006e_cba0;
@@ -115,7 +117,7 @@ pub fn fn_00528e40(e: &mut Engine, this: Ptr, keep_empty: u8) {
         }
         e.call(LOCK_ENTER, &args![base + 0x20, 0u32]);
         let records = word(e, base, 0x14);
-        let count = e.call(FIRST_WORD, &args![records]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, records));
         let records = word(e, base, 0x14);
         if records != 0 {
             fn_00529300(e, Ptr::new(records), 1);
@@ -199,12 +201,12 @@ pub fn fn_00529030(e: &mut Engine, this: Ptr, bucket_index: u32, key: u32) -> u3
             let current = e.call(UNTAGGED, &args![base + 0x14]).u32();
             let slot = word(e, base, 8);
             e.mem.set_u32(slot, current);
-            e.call(BARRIER, &args![]);
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
             let current = e.call(UNTAGGED, &args![base + 0x14]).u32();
             e.call(TAGGED_TEMPORARY, &args![first, 0u32, current]);
             let link = word(e, base, 0x10);
-            let linked = e.call(FIRST_WORD, &args![link]).u32();
-            let published = e.call(FIRST_WORD, &args![first]).u32();
+            let linked = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, link));
+            let published = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
             if linked != published {
                 continue;
             }
@@ -218,7 +220,7 @@ pub fn fn_00529030(e: &mut Engine, this: Ptr, bucket_index: u32, key: u32) -> u3
                         let next = e.call(UNTAGGED, &args![base + 0x18]).u32();
                         let slot = word(e, base, 8);
                         e.mem.set_u32(slot, next);
-                        e.call(BARRIER, &args![]);
+                        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
                     }
                     Step::Return(value) => return value,
                 }
@@ -238,10 +240,10 @@ fn walk_one(e: &mut Engine, base: u32, key: u32, current_copy: u32, next_copy: u
     let next = e.call(UNTAGGED, &args![base + 0x18]).u32();
     let slot = word(e, base, 4);
     e.mem.set_u32(slot, next);
-    e.call(BARRIER, &args![]);
-    let next_word = e.call(FIRST_WORD, &args![base + 0x18]).u32();
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
+    let next_word = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
     let node = e.call(UNTAGGED_NODE, &args![base + 0x14]).u32();
-    let node_link = e.call(FIRST_WORD, &args![node + 8]).u32();
+    let node_link = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node + 8));
     if next_word != node_link {
         return Step::Restart;
     }
@@ -250,8 +252,8 @@ fn walk_one(e: &mut Engine, base: u32, key: u32, current_copy: u32, next_copy: u
     let node = e.call(UNTAGGED, &args![base + 0x14]).u32();
     e.call(TAGGED_TEMPORARY, &args![current_copy, 0u32, node]);
     let link = word(e, base, 0x10);
-    let linked = e.call(FIRST_WORD, &args![link]).u32();
-    let published = e.call(FIRST_WORD, &args![current_copy]).u32();
+    let linked = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, link));
+    let published = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, current_copy));
     if linked != published {
         return Step::Restart;
     }
@@ -266,12 +268,12 @@ fn walk_one(e: &mut Engine, base: u32, key: u32, current_copy: u32, next_copy: u
         let node = e.call(UNTAGGED, &args![base + 0x14]).u32();
         let slot = word(e, base, 0xc);
         e.mem.set_u32(slot, node);
-        e.call(BARRIER, &args![]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     } else {
         let next = e.call(UNTAGGED, &args![base + 0x18]).u32();
         e.call(TAGGED_TEMPORARY, &args![next_copy, 0u32, next]);
-        let expected = e.call(FIRST_WORD, &args![current_copy]).u32();
-        let replacement = e.call(FIRST_WORD, &args![next_copy]).u32();
+        let expected = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, current_copy));
+        let replacement = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, next_copy));
         let link = word(e, base, 0x10);
         if !e
             .call(COMPARE_EXCHANGE, &args![link, replacement, expected])
@@ -327,7 +329,7 @@ pub fn fn_00529300(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 pub fn fn_00529330(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     let mut index = 0u32;
-    while index < e.call(FIRST_WORD, &args![this]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) {
         let records = word(e, base, 8);
         let list = word(e, records.wrapping_add(index.wrapping_mul(8)), 4);
         if list != 0 {

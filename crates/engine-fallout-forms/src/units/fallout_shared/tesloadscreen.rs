@@ -80,12 +80,16 @@ const TES_FORM_GET_FILE: u32 = 0x0048_4e60;
 /// of a form id and the file.
 const TES_FORM_ADD_COMPILE_INDEX: u32 = 0x0048_5d50;
 /// `0084e3a0`: the form's id (`ECX` = the form).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `006815c0`: returns its `ECX` (the address of a list node's item).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070`: the next list node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `008256d0`: whether a list node is empty (`ECX` = the node).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `00470470`: empties the list (`ECX` = the list head).
 const LIST_CLEAR: u32 = 0x0047_0470;
@@ -190,7 +194,7 @@ pub fn tes_load_screen_load(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
                 });
             }
             CHUNK_FNAM => {
-                let form_id = e.call(FORM_ID, &args![this]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 let editor_id = e.vcall(base, 0x130, &args![]).u32();
                 let file_name = e.call(0x0089_1170, &args![file]).u32();
                 e.call(
@@ -227,8 +231,8 @@ pub fn fn_005a6b70(e: &mut Engine, this: Ptr) {
         return;
     }
     let mut node = this.addr() + 0x2c;
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item_slot = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_slot);
         if e.mem.u32(item) != 0 {
             let compile_file = e
@@ -242,7 +246,7 @@ pub fn fn_005a6b70(e: &mut Engine, this: Ptr) {
                 .u32();
             e.call(TES_FORM_ADD_COMPILE_INDEX, &args![item + 4, compile_file]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if e.mem.u32(this.addr() + 0x34) != 0 {
         let id = e.with_stack(4, |e, local| {
@@ -266,11 +270,19 @@ pub fn fn_005a6b70(e: &mut Engine, this: Ptr) {
 /// string `01011584` when that is null. Two stack words it never reads
 /// (`RET 8`).
 pub fn fn_005a6e10(e: &mut Engine, this: Ptr, _unused_1: u32, _unused_2: u32) -> u32 {
-    let text = e.call(0x0055_9450, &args![this.byte_add(0x14)]).u32();
+    let text = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0x14))
+    );
     if text == 0 {
         EMPTY_STRING
     } else {
-        e.call(0x0055_9450, &args![this.byte_add(0x14)]).u32()
+        typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.byte_add(0x14))
+        )
     }
 }
 
@@ -279,11 +291,11 @@ pub fn fn_005a6e10(e: &mut Engine, this: Ptr, _unused_1: u32, _unused_2: u32) ->
 /// first empty node, then empties the list (`00470470`).
 pub fn fn_005a6e50(e: &mut Engine, this: Ptr) {
     let mut node = this.addr() + 0x2c;
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item_slot = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_slot);
         e.call(OPERATOR_DELETE, &args![item]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(LIST_CLEAR, &args![this.addr() + 0x2c]);
 }
@@ -311,12 +323,12 @@ pub fn tes_load_screen_can_display_for_form(e: &mut Engine, this: Ptr, form: Ptr
     match kind.wrapping_sub(0x39) {
         0 => {
             if e.call(0x0042_5fd0, &args![form]).bool() {
-                form_id = e.call(FORM_ID, &args![form]).u32();
+                form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 found = true;
             } else {
                 let world = e.call(0x0054_ddd0, &args![form]).u32();
                 if world != 0 {
-                    world_id = e.call(FORM_ID, &args![world]).u32();
+                    world_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world));
                     let y = e.call(0x0054_4c60, &args![form]).u32();
                     let x = e.call(0x0054_4c30, &args![form]).u32();
                     key = e.call(0x0058_7410, &args![x, y]).u32();
@@ -327,12 +339,12 @@ pub fn tes_load_screen_can_display_for_form(e: &mut Engine, this: Ptr, form: Ptr
         1..=7 | 0x30 => {
             let cell = e.call(0x008d_6f30, &args![form]).u32();
             if cell != 0 && e.call(0x0042_5fd0, &args![cell]).bool() {
-                form_id = e.call(FORM_ID, &args![cell]).u32();
+                form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell));
                 found = true;
             } else {
                 let world = e.call(0x0057_5d70, &args![form]).u32();
                 if world != 0 {
-                    world_id = e.call(FORM_ID, &args![world]).u32();
+                    world_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world));
                     let position = e.vcall(form.addr(), 0x1f4, &args![]).u32();
                     key = e.call(0x0058_7440, &args![position]).u32();
                     found = true;
@@ -340,7 +352,7 @@ pub fn tes_load_screen_can_display_for_form(e: &mut Engine, this: Ptr, form: Ptr
             }
         }
         8 => {
-            form_id = e.call(FORM_ID, &args![form]).u32();
+            form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             found = true;
         }
         _ => {}
@@ -349,8 +361,8 @@ pub fn tes_load_screen_can_display_for_form(e: &mut Engine, this: Ptr, form: Ptr
         return false;
     }
     let mut node = this.addr() + 0x2c;
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item_slot = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_slot);
         if form_id != 0 {
             if e.mem.u32(item) == form_id {
@@ -359,7 +371,7 @@ pub fn tes_load_screen_can_display_for_form(e: &mut Engine, this: Ptr, form: Ptr
         } else if world_id != 0 && e.mem.u32(item + 4) == world_id && e.mem.u32(item + 8) == key {
             return true;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }
@@ -421,13 +433,13 @@ pub fn fn_005a6c70(e: &mut Engine, this: Ptr, other: u32) {
     fn_005a6e50(e, this);
     let mut node = source + LOCATIONS_OFFSET;
     let mut target = this.addr() + LOCATIONS_OFFSET;
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.call(LIST_APPEND, &args![target, item]);
-        if e.call(NODE_NEXT, &args![target]).u32() != 0 {
-            target = e.call(NODE_NEXT, &args![target]).u32();
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, target)) != 0 {
+            target = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, target));
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let word = e.call(WORD_34, &args![source]).u32();
     e.call(SET_WORD_34, &args![this, word]);
@@ -453,15 +465,15 @@ pub fn fn_005a6d30(e: &mut Engine, this: Ptr, other: u32) -> bool {
     if mine != e.call(LIST_COUNT, &args![node]).u32() {
         return true;
     }
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.call(LIST_HOLDS, &args![this.addr() + LOCATIONS_OFFSET, item])
             .u32() as u8
             == 0
         {
             return true;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if e.call(COMPARE_ALL_COMPONENTS, &args![this, source]).u32() as u8 != 0 {
         return true;

@@ -33,9 +33,11 @@ const ARCHIVE_FIND_00AF7400: u32 = 0x00af_7400;
 const LIST_COUNT: u32 = 0x005a_e380;
 /// `006815c0`: returns its `ECX` unchanged (used as the address of a list
 /// node's item, the node's first word).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070`: the next list node (the node's word at +4; `ECX` = the
 /// node).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The flag `fn_005e39a0` returns.
 const USE_FILE_LISTS_FLAG: u32 = 0x011a_cdf9;
@@ -124,19 +126,19 @@ pub fn fn_005e3630(e: &mut Engine, path: Ptr) -> bool {
         }
         let mut node = list;
         while node != 0 {
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item) != 0 {
                 if choice == 0 {
-                    let item = e.call(NODE_ITEM, &args![node]).u32();
+                    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let name = e.mem.u32(item);
                     e.call(STRING_COPY, &args![path, 0x104u32, name]);
                 }
-                let item = e.call(NODE_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let name = e.mem.u32(item);
                 e.call(0x0040_1030, &args![name]);
             }
             choice = choice.wrapping_sub(1);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         e.call(0x0047_0470, &args![list]);
         e.call(0x0047_02f0, &args![list, 1u32]);
@@ -236,8 +238,16 @@ pub fn fn_005e3be0(e: &mut Engine, this: Ptr) -> Ptr {
 /// Runs `006815c0` on the members at `this + 0x2C` and `this + 0x38`.
 /// Returns `this`.
 pub fn fn_005e3c00(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(NODE_ITEM, &args![this.byte_add(0x2c)]);
-    e.call(NODE_ITEM, &args![this.byte_add(0x38)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(0x2c))
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(0x38))
+    );
     this
 }
 

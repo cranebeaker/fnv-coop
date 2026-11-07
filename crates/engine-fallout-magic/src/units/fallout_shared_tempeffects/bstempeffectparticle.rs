@@ -42,6 +42,7 @@ const BS_TEMP_EFFECT_DESTROY: u32 = 0x0068_2860;
 /// `BSTempEffect::Update` (`006828a0`, thiscall: one `float`).
 const BS_TEMP_EFFECT_UPDATE: u32 = 0x0068_28a0;
 /// `00559450` (thiscall on an `NiPointer`, returns the object; unnamed).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `0066b0d0` (thiscall on an `NiPointer`, one word: assigns it; unnamed).
 const POINTER_SET: u32 = 0x0066_b0d0;
@@ -74,6 +75,7 @@ const NI_ALLOCATE: u32 = 0x00aa_13e0;
 /// `004a4240` (no arguments, returns a `float` in `ST0`; unnamed).
 const REAL_004A4240: u32 = 0x004a_4240;
 /// `006815c0` (thiscall: constructs a local matrix here; unnamed).
+#[cfg(test)]
 const MATRIX_INIT_006815C0: u32 = 0x0068_15c0;
 /// `004a0c90` (thiscall on that matrix, one `float`; unnamed).
 const MATRIX_004A0C90: u32 = 0x004a_0c90;
@@ -97,6 +99,7 @@ const PARTICLE_CACHE_OWNER: u32 = 0x011d_ea10;
 const TES_GET_UNUSED_CACHED_PARTICLE_OBJECT: u32 = 0x0045_aba0;
 /// `00726070` (thiscall on an object, returns a word: compared with 1 and 2 as
 /// a reference count; unnamed).
+#[cfg(test)]
 const COUNT_00726070: u32 = 0x0072_6070;
 /// `004ad050` (thiscall: constructs an `NiCloningProcess` with a `float`).
 const CLONING_PROCESS_INIT: u32 = 0x004a_d050;
@@ -143,6 +146,7 @@ const CHILD_AT: u32 = 0x0043_b4a0;
 /// `00877a30` (address of an element), `0068ab60` (destroys it); `0068a8f0` fills it.
 const ARRAY_INIT_0068ABB0: u32 = 0x0068_abb0;
 const ARRAY_SIZE_00658930: u32 = 0x0065_8930;
+#[cfg(test)]
 const ARRAY_AT_00877A30: u32 = 0x0087_7a30;
 const ARRAY_DESTROY_0068AB60: u32 = 0x0068_ab60;
 const COLLECT_0068A8F0: u32 = 0x0068_a8f0;
@@ -233,7 +237,7 @@ pub fn fn_006890b0(
         let angle = e.call(REAL_004A4240, &[]).f64();
         let angle = x87_store32(angle);
         let spin = local(0x58);
-        e.call(MATRIX_INIT_006815C0, &args![spin]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, spin));
         e.call(MATRIX_004A0C90, &args![spin, x87_quiet_bits(angle)]);
         let facing = e
             .call(
@@ -338,7 +342,7 @@ pub fn bs_temp_effect_particle_init(
             .u32();
         let loaded = local(0x10);
         e.call(POINTER_INIT, &args![loaded, model]);
-        if e.call(POINTER_GET, &args![loaded]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, loaded)) == 0 {
             e.call(POINTER_DESTROY, &args![loaded]);
             return;
         }
@@ -346,7 +350,7 @@ pub fn bs_temp_effect_particle_init(
         let mut cached = 0;
         let cache = e.global::<u32>(PARTICLE_CACHE_OWNER);
         if flags & 1 != 0 && cache != 0 {
-            let object = e.call(POINTER_GET, &args![loaded]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, loaded));
             cached = e
                 .call(
                     TES_GET_UNUSED_CACHED_PARTICLE_OBJECT,
@@ -355,24 +359,24 @@ pub fn bs_temp_effect_particle_init(
                 .u32();
         }
         if cached == 0 {
-            let object = e.call(POINTER_GET, &args![loaded]).u32();
-            if e.call(COUNT_00726070, &args![object]).u32() <= 2 {
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, loaded));
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, object)) <= 2 {
                 e.call(POINTER_ASSIGN_POINTER, &args![base + 0x18, loaded]);
             } else if flags & 2 != 0 {
                 let cloning = local(0x34);
                 e.call(CLONING_PROCESS_INIT, &args![cloning, x87_store32(1.0)]);
-                let object = e.call(POINTER_GET, &args![loaded]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, loaded));
                 let clone = e.call(NI_OBJECT_CLONE, &args![object, cloning]).u32();
                 e.call(POINTER_SET, &args![base + 0x18, clone]);
                 e.call(CLONING_PROCESS_DESTROY, &args![cloning]);
             }
         }
-        if e.call(POINTER_GET, &args![base + 0x18]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18)) == 0 {
             e.call(POINTER_DESTROY, &args![loaded]);
             return;
         }
         if flags & 4 != 0 {
-            let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
             let longest = fn_00689840(e, this, object);
             let mut lifetime = x87_store32(f64::from(longest));
             let minus_one: f64 = e.global(MINUS_ONE);
@@ -386,35 +390,35 @@ pub fn bs_temp_effect_particle_init(
                 e.mem.set_u32(base + 8, x87_quiet_bits(lifetime));
             }
         }
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         let node = e.vcall(object, 0xc, &[]).u32();
         if node != 0 {
             e.call(ADD_MASTER_PARTICLE_ADDON_NODES, &args![node]);
         }
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         e.call(SET_TRANSLATE, &args![object, position]);
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         e.call(SET_ROTATE, &args![object, rotation]);
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         e.call(SET_SCALE, &args![object, x87_quiet_bits(scale.to_bits())]);
         if e.call(TEST_008C7AA0, &[]).bool() {
-            let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
             let queue = e.call(TASK_QUEUE_004537B0, &[]).u32();
             e.call(
                 TASK_QUEUE_QUEUE_NODE_ATTACH,
                 &args![queue, object, parent, 1u32, 1u32],
             );
         } else {
-            let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
             e.vcall(parent, 0xdc, &args![object, 1u32]);
-            let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
             e.call(NI_AV_OBJECT_UPDATE_PROPERTIES, &args![object]);
         }
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         fn_0068aa50(e, this, object);
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         e.call(NI_TIME_CONTROLLER_START_ANIMATIONS, &args![object]);
-        if e.call(POINTER_GET, &args![base + 0x20]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x20)) != 0 {
             let transform = local(0xa0);
             e.call(TRANSFORM_INIT, &args![transform]);
             e.mem
@@ -427,7 +431,7 @@ pub fn bs_temp_effect_particle_init(
                 let word = e.mem.u32(position + 4 * i);
                 e.mem.set_u32(transform + 0x24 + 4 * i, word);
             }
-            let follow = e.call(POINTER_GET, &args![base + 0x20]).u32();
+            let follow = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x20));
             let world = e.call(WORLD_TRANSFORM_00461130, &args![follow]).u32();
             let follow_world = local(0xd4);
             for i in 0..13 {
@@ -460,10 +464,10 @@ pub fn bs_temp_effect_particle_init(
 /// of the particle object's slot +0xc node, when there is one.
 pub fn bs_temp_effect_particle_detach(e: &mut Engine, this: Ptr) {
     let base = this.addr();
-    let node = if e.call(POINTER_GET, &args![base + 0x18]).u32() == 0 {
+    let node = if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18)) == 0 {
         0
     } else {
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         e.vcall(object, 0xc, &[]).u32()
     };
     if node != 0 {
@@ -489,12 +493,12 @@ pub fn bs_temp_effect_particle_destructor(e: &mut Engine, this: Ptr) {
             &args![loader, filename, 0u32, 1u32],
         );
     }
-    if e.call(POINTER_GET, &args![base + 0x18]).u32() != 0 {
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18)) != 0 {
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         if e.call(PARENT_009611E0, &args![object]).u32() != 0 {
-            let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
             let parent = e.call(PARENT_009611E0, &args![object]).u32();
-            let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
             e.vcall(parent, 0xe8, &args![object]);
         }
     }
@@ -562,29 +566,29 @@ pub fn bs_temp_effect_particle_update(e: &mut Engine, this: Ptr, time: f32) -> b
             &args![this, x87_quiet_bits(time.to_bits())],
         )
         .u8();
-    if e.call(POINTER_GET, &args![base + 0x20]).u32() != 0 {
-        let follow = e.call(POINTER_GET, &args![base + 0x20]).u32();
-        if e.call(COUNT_00726070, &args![follow]).u32() == 1 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x20)) != 0 {
+        let follow = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x20));
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, follow)) == 1 {
             e.call(POINTER_SET, &args![base + 0x20, 0u32]);
         }
     }
-    if e.call(POINTER_GET, &args![base + 0x18]).u32() != 0
-        && e.call(POINTER_GET, &args![base + 0x20]).u32() != 0
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18)) != 0
+        && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x20)) != 0
     {
         e.with_stack(0x38, |e, transform| {
             let transform = transform.addr();
-            let follow = e.call(POINTER_GET, &args![base + 0x20]).u32();
+            let follow = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x20));
             let world = e.call(WORLD_TRANSFORM_00461130, &args![follow]).u32();
             e.call(
                 TRANSFORM_MULTIPLY_0062C250,
                 &args![world, transform, base + 0x24],
             );
-            let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
             e.call(SET_TRANSLATE, &args![object, transform + 0x24]);
-            let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
             e.call(SET_ROTATE, &args![object, transform]);
             let scale = x87_quiet_bits(e.mem.u32(transform + 0x30));
-            let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
             e.call(SET_SCALE, &args![object, scale]);
         });
     }
@@ -638,7 +642,7 @@ pub fn fn_0068aa50(e: &mut Engine, this: Ptr, node: u32) {
         e.call(COLLECT_0068A8F0, &args![this, node, array, count]);
         let mut i = 0u32;
         while i < e.call(ARRAY_SIZE_00658930, &args![array]).u32() {
-            let slot = e.call(ARRAY_AT_00877A30, &args![array, i]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, array, i));
             let item = e.mem.u32(slot);
             if item != 0 {
                 let inverse = local(0x4c);
@@ -646,7 +650,7 @@ pub fn fn_0068aa50(e: &mut Engine, this: Ptr, node: u32) {
                 let world = e.call(WORLD_TRANSFORM_00461130, &args![parent]).u32();
                 e.call(NI_MATRIX3_INVERSE, &args![world, inverse]);
                 let turn = local(0x70);
-                e.call(MATRIX_INIT_006815C0, &args![turn]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, turn));
                 let pi = x87_quiet_bits(e.global::<u32>(PI_FLOAT));
                 e.call(NI_MATRIX3_MAKE_Y_ROTATION, &args![turn, pi]);
                 let product = e
@@ -738,6 +742,7 @@ const WORLD_POSITION_0045BB80: u32 = 0x0045_bb80;
 const BS_SOUND_HANDLE_SET_OBJECT_TO_FOLLOW: u32 = 0x00ad_8f20;
 const BS_SOUND_HANDLE_PLAY: u32 = 0x00ad_8830;
 /// `0084e3a0` (no stack word): the form id (+0xC).
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 
 // Translated from 00689210 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -817,7 +822,11 @@ fn fn_00689210_entry(e: &mut Engine, a: &[u32]) -> Ret {
 /// The controller manager of the particle object (`00653270` on its first
 /// controller), or 0.
 fn controller_manager(e: &mut Engine, this: Ptr) -> u32 {
-    let object = e.call(POINTER_GET, &args![this.addr() + 0x18]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x18)
+    );
     let controller = e.call(FIRST_CONTROLLER, &args![object]).u32();
     e.call(
         FIND_CONTROLLER_00653270,
@@ -875,7 +884,12 @@ pub fn fn_00689920(e: &mut Engine, this: Ptr, name: u32) {
 /// `BSTempEffectParticle::CheckShouldSave` (engine map): true with a file
 /// name (+0x1C) and a particle object (+0x18).
 pub fn bs_temp_effect_particle_check_should_save(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u32(this.addr() + 0x1c) != 0 && e.call(POINTER_GET, &args![this.addr() + 0x18]).u32() != 0
+    e.mem.u32(this.addr() + 0x1c) != 0
+        && typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.addr() + 0x18)
+        ) != 0
 }
 
 // Translated from 00689b20 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -951,19 +965,19 @@ pub fn bs_temp_effect_particle_save_game(e: &mut Engine, this: Ptr) {
         let filename = e.mem.u32(base + 0x1c);
         save_bytes(e, filename, u32::from(length));
         let quaternion = local(0x1c);
-        e.call(MATRIX_INIT_006815C0, &args![quaternion]);
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, quaternion));
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         let rotation = e.call(OBJECT_ROTATION_006A9540, &args![object]).u32();
         e.call(QUATERNION_FROM_ROTATION, &args![quaternion, rotation]);
         save_bytes(e, quaternion, 0x10);
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         let translation = e.call(OBJECT_TRANSLATION_0043C490, &args![object]).u32();
         for i in 0..3 {
             let word = e.mem.u32(translation + 4 * i);
             e.mem.set_u32(local(0x2c) + 4 * i, word);
         }
         save_bytes(e, local(0x2c), 0xc);
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         let scale = e.call(OBJECT_SCALE_009CDAE0, &args![object]).f64();
         e.mem.set_u32(local(8), x87_store32(scale));
         save_bytes(e, local(8), 4);
@@ -1041,11 +1055,11 @@ pub fn bs_temp_effect_particle_load_game(e: &mut Engine, this: Ptr) -> u8 {
         e.call(FILL_MEMORY_00403D30, &args![name, 0u32, 0x104u32]);
         let name_length = u32::from(e.mem.u8(length));
         load_bytes(e, name, name_length);
-        e.call(MATRIX_INIT_006815C0, &args![quaternion]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, quaternion));
         load_bytes(e, quaternion, 0x10);
-        e.call(MATRIX_INIT_006815C0, &args![rotation]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
         e.call(QUATERNION_TO_ROTATION, &args![quaternion, rotation]);
-        e.call(MATRIX_INIT_006815C0, &args![translation]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, translation));
         load_bytes(e, translation, 0xc);
         load_bytes(e, scale, 4);
         load_bytes(e, count, 2);
@@ -1062,28 +1076,35 @@ pub fn bs_temp_effect_particle_load_game(e: &mut Engine, this: Ptr) -> u8 {
             } else {
                 let clone = e.call(NI_OBJECT_CLONE_OV2, &args![model]).u32();
                 e.call(POINTER_SET, &args![base + 0x18, clone]);
-                if e.call(POINTER_GET, &args![base + 0x18]).u32() == 0 {
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18)) == 0 {
                     loaded = 0;
                 } else {
                     e.call(POINTER_INIT, &args![model_pointer, 0u32]);
                     let loader = e.global::<u32>(MODEL_LOADER);
                     e.call(MODEL_LOADER_FIND_MODEL, &args![loader, name, model_pointer]);
-                    let found = e.call(POINTER_GET, &args![model_pointer]).u32();
-                    let found_name = e.call(POINTER_GET, &args![found]).u32();
+                    let found =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model_pointer));
+                    let found_name =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, found));
                     e.mem.set_u32(base + 0x1c, found_name);
-                    let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
                     e.call(SET_TRANSLATE, &args![object, translation]);
-                    let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
                     e.call(SET_ROTATE, &args![object, rotation]);
                     let scale_bits = x87_quiet_bits(e.mem.u32(scale));
-                    let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
                     e.call(SET_SCALE, &args![object, scale_bits]);
                     // `BSTempEffect::pCell` +0x0C.
                     let cell = e.mem.u32(base + 0xc);
                     let node = e.call(CELL_ATTACH_NODE_005497A0, &args![cell]).u32();
-                    let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
                     e.vcall(node, SLOT_ATTACH_CHILD, &args![object, 1u32]);
-                    let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
                     e.call(NI_AV_OBJECT_UPDATE_PROPERTIES, &args![object]);
                     let milliseconds = e.call(POSITION_00825C00, &args![TIMER_011F6394]).u32();
                     let thousand: f64 = e.global(THOUSAND);
@@ -1092,15 +1113,21 @@ pub fn bs_temp_effect_particle_load_game(e: &mut Engine, this: Ptr) -> u8 {
                         UPDATE_DATA_INIT_0043D410,
                         &args![update_data, x87_quiet_bits(time), 1u32, 0u32],
                     );
-                    let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
                     e.call(OBJECT_UPDATE_00A59C60, &args![object, update_data]);
-                    let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
                     e.call(NI_TIME_CONTROLLER_START_ANIMATIONS, &args![object]);
                     if e.mem.u16(count) != 0 {
                         let manager = controller_manager(e, this);
                         if manager != 0 {
                             let minus_one = x87_quiet_bits(e.global::<u32>(MINUS_ONE_FLOAT));
-                            let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+                            let object = typed_call!(
+                                leaf::FAMILY,
+                                0x0055_9450,
+                                leaf::word_at_0(e, base + 0x18)
+                            );
                             e.call(MANAGER_LOAD_0055FFA0, &args![manager, object, minus_one]);
                         } else {
                             loaded = 0;
@@ -1146,7 +1173,7 @@ fn impact_sound(e: &mut Engine, data: u32, second: bool) -> u32 {
 pub fn fn_0068a600(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     bs_temp_effect_particle_stop_sounds(e, this);
-    if e.call(POINTER_GET, &args![base + 0x18]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18)) == 0 {
         return;
     }
     let data = e.mem.u32(base + 0x58);
@@ -1160,7 +1187,7 @@ pub fn fn_0068a600(e: &mut Engine, this: Ptr) {
         }
         let data = e.mem.u32(base + 0x58);
         let sound = impact_sound(e, data, second);
-        let id = e.call(FORM_ID_0084E3A0, &args![sound]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         e.with_stack(0xc, |e, temporary| {
             let audio = e.call(BS_AUDIO_INSTANCE, &args![]).u32();
             let handle = e
@@ -1175,10 +1202,10 @@ pub fn fn_0068a600(e: &mut Engine, this: Ptr) {
             );
             e.call(SOUND_HANDLE_DESTROY, &args![temporary]);
         });
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         let position = e.call(WORLD_POSITION_0045BB80, &args![object]).u32();
         fn_0068a7d0(e, Ptr::new(base + handle_offset), position);
-        let object = e.call(POINTER_GET, &args![base + 0x18]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x18));
         e.call(
             BS_SOUND_HANDLE_SET_OBJECT_TO_FOLLOW,
             &args![base + handle_offset, object],

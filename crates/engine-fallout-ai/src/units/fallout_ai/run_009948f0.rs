@@ -45,9 +45,11 @@ const GOALS: u32 = 0x011f_17a0;
 /// node's world-state array, one word (`RET 4`): the value of state `index`.
 const WORLD_STATE_VALUE: u32 = 0x005b_d5c0;
 /// `00559450` (unnamed): `thiscall`, returns the word at `+0`.
+#[cfg(test)]
 const READ_FIRST_WORD: u32 = 0x0055_9450;
 /// `00726070` (unnamed, `menumanager.cpp` per the engine map): `thiscall`, no stack
 /// words; a word result.
+#[cfg(test)]
 const ITEM_VALUE: u32 = 0x0072_6070;
 /// `009aa490` (unnamed): `thiscall`, one word (`RET 4`); copies a world-state array.
 const COPY_WORLD_STATE: u32 = 0x009a_a490;
@@ -59,6 +61,7 @@ const WORLD_STATE_IS_TRUE: u32 = 0x009a_adc0;
 /// `0048d150` (unnamed): `thiscall`, the goal's list (its first node).
 const GOAL_LIST: u32 = 0x0048_d150;
 /// `006815c0` (unnamed): `thiscall`, returns `this` (a list node's item slot).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `0062d990` (unnamed): `thiscall`, the next list node.
 const NODE_NEXT: u32 = 0x0062_d990;
@@ -96,6 +99,7 @@ const LINK_ARRAY_DESTRUCT: u32 = 0x0099_6660;
 /// the node and link arrays.
 const RUN_SEARCH: u32 = 0x0099_6420;
 /// `0044ddc0` (unnamed): `thiscall`, returns the word at `+8` (an array's count).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 /// `operator new` (`00401000`, `cdecl`, one word: the size).
 const OPERATOR_NEW: u32 = 0x0040_1000;
@@ -110,7 +114,7 @@ fn has_item(e: &mut Engine, node: u32) -> bool {
     if node == 0 {
         return false;
     }
-    let item_slot = e.call(NODE_ITEM, &args![node]).u32();
+    let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(item_slot) != 0
 }
 
@@ -213,11 +217,11 @@ pub fn fn_00994a90(e: &mut Engine, this: Ptr) -> u32 {
     while index < e.mem.u32(p + 0xdc) {
         let state = e.mem.u32(p.wrapping_add(index.wrapping_mul(8)) + 0x5c);
         let key = e.mem.u32(p + 0xe0);
-        let word = e.call(READ_FIRST_WORD, &args![state]).u32();
+        let word = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, state));
         let key = fn_00994bb0(e, word, key);
         e.mem.set_u32(p + 0xe0, key);
         let key = e.mem.u32(p + 0xe0);
-        let value = e.call(ITEM_VALUE, &args![state]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, state));
         let key = fn_00994bb0(e, value, key);
         e.mem.set_u32(p + 0xe0, key);
         index = index.wrapping_add(1);
@@ -261,13 +265,15 @@ pub fn fn_00994bd0(e: &mut Engine, this: Ptr, controller: u32, make_debug_window
                 fn_00994e60(e, node, p + 0x205c);
                 let mut list = e.call(GOAL_LIST, &args![goal]).u32();
                 while has_item(e, list) {
-                    let item_slot = e.call(NODE_ITEM, &args![list]).u32();
+                    let item_slot =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                     let item = e.mem.u32(item_slot);
-                    let mut value = e.call(ITEM_VALUE, &args![item]).u32();
+                    let mut value =
+                        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
                     if e.call(NEEDS_RESOLVING, &args![value]).u8() != 0 {
                         value = e.call(RESOLVE_VALUE, &args![node, value]).u32();
                     }
-                    let state = e.call(READ_FIRST_WORD, &args![item]).u32();
+                    let state = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                     if e.call(WORLD_STATE_IS_TRUE, &args![node, state, value]).u8() == 0 {
                         let alignment = e.mem.u32(SCRAP_ALIGNMENT);
                         let block = e
@@ -277,7 +283,8 @@ pub fn fn_00994bd0(e: &mut Engine, this: Ptr, controller: u32, make_debug_window
                         let unsatisfied = if placed == 0 {
                             0
                         } else {
-                            let state = e.call(READ_FIRST_WORD, &args![item]).u32();
+                            let state =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                             e.call(CONSTRUCT_STATE, &args![placed, state, value]).u32()
                         };
                         fn_00994ea0(e, node, unsatisfied, node.addr());
@@ -362,7 +369,7 @@ pub fn fn_00994f10(
         e.call(LINK_ARRAY_CONSTRUCT, &args![links]);
         e.call(RUN_SEARCH, &args![this, nodes, links, 0u32]);
         let mut plan = 0u32;
-        if e.call(ARRAY_COUNT, &args![links]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, links)) != 0 {
             let block = e.call(OPERATOR_NEW, &args![0x18u32]).u32();
             plan = if block == 0 {
                 0

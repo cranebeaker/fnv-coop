@@ -22,8 +22,10 @@ const POINT_SCALE: u32 = 0x004a_3760;
 /// `004a7290`: a point's squared length (`thiscall`, ST0).
 const POINT_LENGTH_SQUARED: u32 = 0x004a_7290;
 /// `NiPoint3::Dot` (engine map), `thiscall`, one word, ST0.
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 /// `006815c0`: returns `this` (a point's trivial constructor).
+#[cfg(test)]
 const SELF: u32 = 0x0068_15c0;
 /// `004390c0`: whether two points are equal (`thiscall`, one word).
 const POINT_EQUALS: u32 = 0x0043_90c0;
@@ -233,14 +235,26 @@ pub fn nav_mesh_math_segment_circle_intersection(
         let closest = frame + 0x40;
         e.call(POINT_SUBTRACT, &args![b, segment, a]);
         e.call(POINT_SUBTRACT, &args![center, to_center, a]);
-        e.call(SELF, &args![closest]);
-        let along = e.call(POINT_DOT, &args![segment, to_center]).f64();
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, closest));
+        let along = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, segment, to_center)
+        )
+        .into_ret()
+        .f64();
         let along = x87_store32(along);
         let zero: f64 = e.global(ZERO);
         if x87_load32(along) <= zero {
             copy_words(e, closest, a, 3);
         } else {
-            let length = e.call(POINT_DOT, &args![segment, segment]).f64();
+            let length = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, segment, segment)
+            )
+            .into_ret()
+            .f64();
             let length = x87_store32(length);
             // `TEST AH,1; JNZ`: interpolated when below the length or NaN.
             if x87_load32(along) >= x87_load32(length) {

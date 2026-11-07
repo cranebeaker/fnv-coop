@@ -96,8 +96,6 @@ const SCALE_POINT: u32 = 0x004a_3760;
 /// confirmed here).
 const POINT_COMBINE_00439EF0: u32 = 0x0043_9ef0;
 const POINT_COMBINE_00439E90: u32 = 0x0043_9e90;
-/// `NiPoint3::Dot` (`004b6190`, thiscall on one point, the other point), in ST0.
-const NI_POINT3_DOT: u32 = 0x004b_6190;
 /// `NiTrigon::GetNormal` (`00eb3830`, thiscall on the triangle, the out point).
 const NI_TRIGON_GET_NORMAL: u32 = 0x00eb_3830;
 /// The `float` `01011d78` (0.0 in the executable) the approach speed is compared with.
@@ -1044,7 +1042,10 @@ pub fn fn_00e9fdc0(
                     float_operand(e, near_point + 8),
                 ));
                 e.mem.set_u32(later + 8, z);
-                let later_height = e.call(NI_POINT3_DOT, &args![unit, later]).f64();
+                let later_height =
+                    typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, unit, later))
+                        .into_ret()
+                        .f64();
                 if later_height > plane {
                     return false;
                 }

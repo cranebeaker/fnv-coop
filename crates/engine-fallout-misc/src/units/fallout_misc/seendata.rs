@@ -56,6 +56,7 @@ const SEEN_COUNT_SETTING: u32 = 0x011d_f198;
 /// `operator delete` (`00401030`, `cdecl`).
 const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// `NiPoint3` constructor (`00416870`, `thiscall`: x, y, z), answers `this`.
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0041_6870;
 /// `00406d90` (`cdecl`, one `float`): the float as an integer (`EAX`).
 const FLOAT_TO_INT: u32 = 0x0040_6d90;
@@ -66,6 +67,7 @@ const FLOAT_SETTING_VALUE: u32 = 0x0040_3e20;
 /// An integer setting's value address (`0043d4d0`, `thiscall`).
 const INT_SETTING_VALUE: u32 = 0x0043_d4d0;
 /// `006815c0` (`thiscall`): called on the point local before it is filled.
+#[cfg(test)]
 const POINT_PREPARE: u32 = 0x0068_15c0;
 /// `0063c8a0` (`thiscall`, `RET 4`): `point += other`.
 const POINT_ADD: u32 = 0x0063_c8a0;
@@ -156,7 +158,7 @@ pub fn fn_00879ad0(e: &mut Engine, this: Ptr, position: u32, origin: u32) -> boo
             if seen_data_is_seen_bit_true_ov2(e, this, bit) {
                 count = count.wrapping_add(1);
             } else {
-                e.call(POINT_PREPARE, &args![point]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
                 fn_00879bd0(e, bit, point);
                 e.call(POINT_ADD, &args![point, origin]);
                 e.call(POINT_SUBTRACT, &args![point, difference, position]);
@@ -197,14 +199,18 @@ pub fn fn_00879bd0(e: &mut Engine, bit: u32, out: u32) {
             let size = e.global::<u32>(BIT_SQUARE_SIZE);
             let y = x87_store32(x87_mul(x87_load32(size), x87_m32(row)));
             let x = x87_store32(x87_mul(x87_load32(size), x87_m32(column)));
-            e.call(
-                POINT_CONSTRUCT,
-                &args![local, x87_quiet_bits(x), x87_quiet_bits(y), 0u32],
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, local, x87_quiet_bits(x), x87_quiet_bits(y), 0u32)
             )
-            .u32()
         } else {
             let max = x87_quiet_bits(e.global::<u32>(FLOAT_MAX));
-            e.call(POINT_CONSTRUCT, &args![local, max, max, max]).u32()
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, local, max, max, max)
+            )
         };
         for i in 0..3 {
             let word = e.mem.u32(point + 4 * i);
@@ -440,7 +446,7 @@ pub fn seen_data_draw_seen_data(e: &mut Engine, this: Ptr, node: u32, origin: u3
         let mut bit = 0u32;
         while bit < e.global::<u32>(BIT_COUNT) {
             if seen_data_is_seen_bit_true_ov2(e, this, bit) {
-                e.call(POINT_PREPARE, &args![point]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
                 fn_00879bd0(e, bit, point);
                 e.call(POINT_ADD, &args![point, origin]);
                 let size = x87_quiet_bits(e.global::<u32>(BIT_SQUARE_SIZE));
@@ -517,7 +523,11 @@ pub fn int_seen_data_draw_seen_data(
         let z = x87_quiet_bits(e.mem.u32(point.wrapping_add(8)));
         let y = x87_store32(f64::from(section_y.wrapping_shl(12).wrapping_add(0x800)));
         let x = x87_store32(f64::from(section_x.wrapping_shl(12).wrapping_add(0x800)));
-        e.call(POINT_CONSTRUCT, &args![corner, x, y, z]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, corner, x, y, z)
+        );
         seen_data_draw_seen_data(e, this.cast(), node, corner.addr(), u32::from(flag));
     });
     let next = e.get(this, IntSeenData::pNextSection);

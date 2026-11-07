@@ -18,7 +18,9 @@ const START_VARIABLE_SIZED_VALUE: u32 = 0x0086_5f20;
 const FINISH_VARIABLE_SIZED_VALUE: u32 = 0x0086_5ff0;
 /// List helpers: the item pointer's address of a node (`006815c0`) and the
 /// next node (`00726070`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `BSFaceGenKeyframe::GetTime` (`00488d50`, engine map; thiscall, the
 /// time in ST0).
@@ -52,7 +54,7 @@ pub fn fn_00488c50(e: &mut Engine, this: Ptr, buffer: Ptr) {
     let start = e.call(START_VARIABLE_SIZED_VALUE, &args![buffer]).u32();
     let mut node = this.addr() + LIST_14;
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(slot);
         if entry != 0 {
             let form = e.mem.u32(entry);
@@ -77,7 +79,7 @@ pub fn fn_00488c50(e: &mut Engine, this: Ptr, buffer: Ptr) {
             });
             count = count.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(FINISH_VARIABLE_SIZED_VALUE, &args![buffer, count, start]);
 }
@@ -93,6 +95,7 @@ const CLEAR_LIST_00487900: u32 = 0x0048_7900;
 /// `00717e50` (`ECX` = the leveled list): the first node of its list.
 const LIST_HEAD_00717E50: u32 = 0x0071_7e50;
 /// `008256d0` (`ECX` = a node): whether the list is empty (`AL`).
+#[cfg(test)]
 const NODE_EMPTY_008256D0: u32 = 0x0082_56d0;
 /// The allocator (`00401000`, `cdecl`, one word).
 const ALLOCATE: u32 = 0x0040_1000;
@@ -167,7 +170,7 @@ pub fn fn_004887a0(e: &mut Engine, this: Ptr, source: Ptr) {
     let mut to = e.call(LIST_HEAD_00717E50, &args![this]).u32();
     e.with_stack(4, |e, copy_slot| {
         while from != 0 {
-            let item = e.call(NODE_ITEM, &args![from]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, from));
             let entry = e.mem.u32(item);
             if entry == 0 {
                 break;
@@ -190,13 +193,17 @@ pub fn fn_004887a0(e: &mut Engine, this: Ptr, source: Ptr) {
                 e.call(EXTRA_COPY_0040E980, &args![new_extra, extra]);
             }
             let head = e.call(LIST_HEAD_00717E50, &args![this]).u32();
-            if e.call(NODE_EMPTY_008256D0, &args![head]).u8() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head))
+                .into_ret()
+                .u8()
+                != 0
+            {
                 e.call(LIST_SET_FIRST_005AE3D0, &args![to, copy_slot]);
             } else {
                 e.call(LIST_INSERT_AFTER_00905820, &args![to, copy_slot]);
-                to = e.call(NODE_NEXT, &args![to]).u32();
+                to = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, to));
             }
-            from = e.call(NODE_NEXT, &args![from]).u32();
+            from = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, from));
         }
     });
     let word = e.mem.u32(list + 0x10);
@@ -244,17 +251,38 @@ pub fn fn_004889d0(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
     }
     let mut node = e.call(LIST_HEAD_00717E50, &args![this]).u32();
     let mut other_node = e.call(LIST_HEAD_00717E50, &args![list]).u32();
-    let empty = e.call(NODE_EMPTY_008256D0, &args![node]).u8();
-    if empty != e.call(NODE_EMPTY_008256D0, &args![other_node]).u8() {
+    let empty = typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        .into_ret()
+        .u8();
+    if empty
+        != typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, other_node)
+        )
+        .into_ret()
+        .u8()
+    {
         return true;
     }
-    if e.call(NODE_EMPTY_008256D0, &args![node]).u8() != 0 {
-        return e.call(NODE_EMPTY_008256D0, &args![other_node]).u8() == 0;
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        .into_ret()
+        .u8()
+        != 0
+    {
+        return typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, other_node)
+        )
+        .into_ret()
+        .u8()
+            == 0;
     }
     while node != 0 && other_node != 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(item);
-        let item = e.call(NODE_ITEM, &args![other_node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other_node));
         let other_entry = e.mem.u32(item);
         if entry != 0 && other_entry != 0 {
             if e.mem.u32(entry) != e.mem.u32(other_entry) {
@@ -293,8 +321,8 @@ pub fn fn_004889d0(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
                 return true;
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
-        other_node = e.call(NODE_NEXT, &args![other_node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
+        other_node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other_node));
     }
     node != 0 || other_node != 0
 }

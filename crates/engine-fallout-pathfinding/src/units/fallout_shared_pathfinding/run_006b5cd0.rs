@@ -35,11 +35,14 @@ const MAP_FIRST_004B9BA0: u32 = 0x004b_9ba0;
 /// (iterator, key and value addresses).
 const MAP_STEP_006B7F20: u32 = 0x006b_7f20;
 /// `0044ddc0` (unnamed in the engine map): an array's size.
+#[cfg(test)]
 const ARRAY_SIZE_0044DDC0: u32 = 0x0044_ddc0;
 /// `00877a30` (unnamed in the engine map; `thiscall`, `RET 4`): the address
 /// of an array's element.
+#[cfg(test)]
 const ARRAY_AT_00877A30: u32 = 0x0087_7a30;
 /// `0084e3a0` (unnamed in the engine map): a form's id word.
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// `TESFile::GetTESForm` (`00472660`, engine map): the current record's type.
 const GET_TES_FORM: u32 = 0x0047_2660;
@@ -75,6 +78,7 @@ const NAV_MESH_INFO_CTOR_006B46A0: u32 = 0x006b_46a0;
 const NAV_MESH_INFO_READ_006B4B50: u32 = 0x006b_4b50;
 /// `00559450` (unnamed in the engine map): the word at +0 of its `this`
 /// (an info's key).
+#[cfg(test)]
 const FIRST_OF_00559450: u32 = 0x0055_9450;
 /// `00693d70` (unnamed in the engine map; `thiscall`, `RET 4`): the info
 /// already in the map under a key, or null.
@@ -195,14 +199,22 @@ pub fn fn_006b5d80(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
                 let mut index: u32 = 0;
                 loop {
                     let array = e.mem.u32(value).wrapping_add(0x44);
-                    if index >= e.call(ARRAY_SIZE_0044DDC0, &args![array]).u32() {
+                    if index >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
                         break;
                     }
-                    let element = e.call(ARRAY_AT_00877A30, &args![array, index]).u32();
+                    let element = typed_call!(
+                        leaf::FAMILY,
+                        0x0087_7a30,
+                        leaf::array_element(e, array, index)
+                    );
                     let form = e.mem.u32(element);
-                    let form_id = e.call(FORM_ID_0084E3A0, &args![form]).u32();
+                    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                     let array = e.mem.u32(value).wrapping_add(0x44);
-                    let element = e.call(ARRAY_AT_00877A30, &args![array, index]).u32();
+                    let element = typed_call!(
+                        leaf::FAMILY,
+                        0x0087_7a30,
+                        leaf::array_element(e, array, index)
+                    );
                     e.mem.set_u32(element, form_id);
                     index = index.wrapping_add(1);
                 }
@@ -216,7 +228,7 @@ pub fn fn_006b5d80(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
             return false;
         }
         // The form's own id, kept in a local the loader never reads again.
-        e.call(FORM_ID_0084E3A0, &args![this]);
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         e.call(TES_FORM_LOAD_FORM, &args![this, file]);
         e.mem.set_u32(version, 1);
         loop {
@@ -274,7 +286,7 @@ pub fn fn_006b5d80(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
                         NAV_MESH_INFO_READ_006B4B50,
                         &args![info, buffer, file, level],
                     );
-                    let info_key = e.call(FIRST_OF_00559450, &args![info]).u32();
+                    let info_key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
                     let existing = e.call(FIND_INFO_00693D70, &args![this, info_key]).u32();
                     if existing != 0 {
                         e.call(STRING_CTOR_0042FB00, &args![name]);
@@ -287,7 +299,8 @@ pub fn fn_006b5d80(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
                         e.call(ARRAY_COPY_TO, &args![existing + 0x44, third]);
                         e.call(INFO_MERGE_006B5AB0, &args![info, existing]);
                         if rename != 0 {
-                            let characters = e.call(FIRST_OF_00559450, &args![name]).u32();
+                            let characters =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
                             e.call(INFO_RENAME_005A8040, &args![existing, characters]);
                         }
                         e.call(ARRAY_COPY_TO, &args![first, existing + 0x24]);
@@ -301,7 +314,8 @@ pub fn fn_006b5d80(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
                         e.call(ARRAY_DTOR_0069AF10, &args![first]);
                         e.call(STRING_DTOR_0042FA40, &args![name]);
                     } else {
-                        let info_key = e.call(FIRST_OF_00559450, &args![info]).u32();
+                        let info_key =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
                         e.call(MAP_SET_AT_00844700, &args![base + 0x1c, info_key, info]);
                     }
                 }

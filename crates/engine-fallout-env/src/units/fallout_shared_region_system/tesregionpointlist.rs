@@ -56,7 +56,7 @@ fn fcom_status(st0: f64, source: f64) -> u8 {
 /// (`thiscall`, `RET 4`): `006815c0`, then both words of the source. Answers
 /// `this`.
 pub fn fn_004f7000(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
-    e.call(TRIVIAL_CONSTRUCT, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     let x = e.mem.u32(source.addr());
     let y = e.mem.u32(source.addr().wrapping_add(4));
     e.mem.set_u32(this.addr(), x);

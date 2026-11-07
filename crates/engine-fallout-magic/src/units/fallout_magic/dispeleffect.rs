@@ -12,18 +12,24 @@ const CONSTRUCTOR_0080D900: u32 = 0x0080_d900;
 /// `0059bb30` (thiscall): the effect's target (+0x24).
 const EFFECT_TARGET_0059BB30: u32 = 0x0059_bb30;
 /// `0084e3a0` (thiscall): the word at +0xc.
+#[cfg(test)]
 const WORD_AT_C_0084E3A0: u32 = 0x0084_e3a0;
 /// `0045cd60` (thiscall): the effect's caster (+0x28).
+#[cfg(test)]
 const EFFECT_CASTER_0045CD60: u32 = 0x0045_cd60;
 /// `MagicCaster::GetCasterAsActor` (`00815410`).
 const MAGIC_CASTER_GET_CASTER_AS_ACTOR: u32 = 0x0081_5410;
 /// `008256d0` (thiscall on a list node, `AL`): true when the node's item and next are null.
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (thiscall on a list node, returns the address of its item).
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (thiscall on a list node, returns the next node).
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// `0044ddc0` (thiscall): the word at +8 (an effect's spell).
+#[cfg(test)]
 const WORD_AT_8_0044DDC0: u32 = 0x0044_ddc0;
 /// `00495460` (thiscall on the effect, returns `ST0`; unnamed): its magnitude.
 const EFFECT_MAGNITUDE_00495460: u32 = 0x0049_5460;
@@ -64,21 +70,21 @@ pub fn dispel_effect_copy(e: &mut Engine, this: Ptr) -> u32 {
 pub fn dispel_effect_start(e: &mut Engine, this: Ptr) {
     let target = e.call(EFFECT_TARGET_0059BB30, &args![this]).u32();
     let mut node = e.vcall(target, 8, &[]).u32();
-    let item = e.call(WORD_AT_C_0084E3A0, &args![this]).u32();
-    let with_caster = e.call(WORD_AT_C_0084E3A0, &args![item]).u32() == 0;
-    let caster = if e.call(EFFECT_CASTER_0045CD60, &args![this]).u32() == 0 {
+    let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
+    let with_caster = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item)) == 0;
+    let caster = if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this)) == 0 {
         0
     } else {
-        let caster = e.call(EFFECT_CASTER_0045CD60, &args![this]).u32();
+        let caster = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
         e.call(MAGIC_CASTER_GET_CASTER_AS_ACTOR, &args![caster])
             .u32()
     };
-    while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect = e.mem.u32(slot);
-        let next = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if effect != 0 && effect != this.addr() {
-            let spell = e.call(WORD_AT_8_0044DDC0, &args![effect]).u32();
+            let spell = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, effect));
             if e.vcall(spell, 0x18, &[]).u32() == 0 {
                 let caster_word = if with_caster { caster } else { 0 };
                 let cost = e.vcall(spell + 0xc, 8, &args![caster_word]).f64();

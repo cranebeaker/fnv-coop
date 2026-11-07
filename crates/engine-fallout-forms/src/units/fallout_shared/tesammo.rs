@@ -56,6 +56,7 @@ pub fn fn_005029f0(e: &mut Engine, this: Ptr) {
 
 /// The form id (the word at `form + 0xc`, `0084e3a0`), the error printer
 /// (`005b5e40`, cdecl) and the id-to-form helpers `InitItem` uses.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 const PRINT_ERROR: u32 = 0x005b_5e40;
 const GET_FILE: u32 = 0x0048_4e60;
@@ -64,7 +65,9 @@ const LOOKUP_FORM: u32 = 0x0048_39c0;
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const TES_FORM_TYPE: u32 = 0x0118_3028;
 /// A list node's data address and the next node.
+#[cfg(test)]
 const NODE_DATA: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The ammo's effect list (`00923000`, `__thiscall`).
 const EFFECT_LIST: u32 = 0x0092_3000;
@@ -156,7 +159,7 @@ fn resolve(e: &mut Engine, this: Ptr, slot: Ptr) -> (u32, u32) {
 /// Prints a `MASTERFILE: Could not find ...` message with the id, the
 /// ammo's name (virtual slot 0x130) and its form id.
 fn report_missing(e: &mut Engine, this: Ptr, message: u32, id: u32) {
-    let form_id = e.call(FORM_ID, &args![this]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let name = e.vcall(this.addr(), 0x130, &args![]).u32();
     e.call(PRINT_ERROR, &args![message, id, name, form_id]);
 }
@@ -207,11 +210,11 @@ pub fn tes_ammo_init_item(e: &mut Engine, this: Ptr) {
         }
         let mut node = e.call(EFFECT_LIST, &args![this]).u32();
         while node != 0 {
-            let data = e.call(NODE_DATA, &args![node]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(data) == 0 {
                 break;
             }
-            let data = e.call(NODE_DATA, &args![node]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let id = e.mem.u32(data);
             e.mem.set_u32(slot.addr(), id);
             if id != 0 {
@@ -225,10 +228,10 @@ pub fn tes_ammo_init_item(e: &mut Engine, this: Ptr) {
                 if effect == 0 {
                     report_missing(e, this, 0x0102_61e8, id);
                 }
-                let data = e.call(NODE_DATA, &args![node]).u32();
+                let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 e.mem.set_u32(data, effect);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
     e.call(0x0048_4ab0, &args![this, 1u32]);
@@ -249,16 +252,16 @@ pub fn tes_ammo_build_menu_string(e: &mut Engine, this: Ptr, out: u32, size: u32
         e.mem.set_u8(text.addr(), 0);
         let mut node = e.call(EFFECT_LIST, &args![this]).u32();
         while node != 0 {
-            let data = e.call(NODE_DATA, &args![node]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(data) == 0 {
                 break;
             }
-            let data = e.call(NODE_DATA, &args![node]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let effect = e.mem.u32(data);
             e.call(0x0059_a1e0, &args![effect, text, 0x100u32]);
-            let data = e.call(NODE_DATA, &args![node]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let effect = e.mem.u32(data);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             e.call(0x0059_a1e0, &args![effect, text, 0x100u32]);
             if e.call(0x0044_a670, &args![text]).u32() != 0 {
                 if appended {
@@ -330,7 +333,7 @@ pub fn tes_ammo_clone_3d(e: &mut Engine, this: Ptr, reference: u32, flag: u8) ->
             let fixed = locals;
             e.call(0x0040_37b0, &args![string]);
             e.call(0x0040_6f60, &args![string, 0x0102_62ccu32, index]);
-            let text = e.call(0x0055_9450, &args![string]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
             let name = e.call(0x0043_8170, &args![fixed, text]).u32();
             let node = e.vcall(clone, 0x9c, &args![name]).u32();
             e.call(0x0043_81b0, &args![fixed]);
@@ -354,6 +357,7 @@ const MEMCMP: u32 = 0x00ec_4835;
 /// `00984230` (`ECX` = ammo): the address of its `DAT2` data (+0xB0).
 const DATA2: u32 = 0x0098_4230;
 /// `00559450` (`ECX` = string): its characters (the string's first word).
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 /// `004037f0` (`ECX` = string; characters, a word; `RET 8`): sets the
 /// string.
@@ -364,6 +368,7 @@ const STRING_LENGTH: u32 = 0x0040_48e0;
 /// the two strings (nonzero = they differ).
 const STRING_COMPARE: u32 = 0x0050_1c90;
 /// `008256d0` (`ECX` = list node): nonzero byte when the node holds nothing.
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `0063f7b0` (`ECX` = list): removes the list's first item.
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -412,14 +417,14 @@ pub fn tes_ammo_save(e: &mut Engine, this: Ptr) {
     let consumed = e.mem.u32(base + 0xbc);
     let id = if e.mem.u32(base + 0xb4) != 0 {
         let form = e.mem.u32(base + 0xb4);
-        e.call(FORM_ID, &args![form]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
     } else {
         0
     };
     e.mem.set_u32(base + 0xb4, id);
     let id = if e.mem.u32(base + 0xbc) != 0 {
         let form = e.mem.u32(base + 0xbc);
-        e.call(FORM_ID, &args![form]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
     } else {
         0
     };
@@ -436,20 +441,20 @@ pub fn tes_ammo_save(e: &mut Engine, this: Ptr) {
     for (offset, tag) in [(0xc4, 0x4d41_4e4fu32), (0xcc, 0x4d41_4e51u32)] {
         if e.call(STRING_LENGTH, &args![base + offset]).u32() != 0 {
             let length = e.call(STRING_LENGTH, &args![base + offset]).u32();
-            let text = e.call(STRING_TEXT, &args![base + offset]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + offset));
             e.call(0x0048_56f0, &args![tag, text, length.wrapping_add(1)]);
         }
     }
     let mut node = e.call(EFFECT_LIST, &args![this]).u32();
     while node != 0 {
-        let data = e.call(NODE_DATA, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(data) == 0 {
             break;
         }
-        let data = e.call(NODE_DATA, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect = e.mem.u32(data);
-        node = e.call(NODE_NEXT, &args![node]).u32();
-        let id = e.call(FORM_ID, &args![effect]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
         e.call(0x0048_5910, &args![0x4c49_4352u32, id]);
     }
     e.call(0x0048_5680, &args![this]);
@@ -482,12 +487,16 @@ pub fn fn_00503510(e: &mut Engine, this: Ptr, other: Ptr) {
     let kind = e.call(0x0040_1170, &args![cast]).u32();
     e.call(0x004f_15a0, &args![this, kind]);
     for offset in [0xc4, 0xcc] {
-        let text = e.call(STRING_TEXT, &args![cast + offset]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, cast + offset));
         e.call(STRING_SET, &args![base + offset, text, 0u32]);
     }
     loop {
         let list = e.call(EFFECT_LIST, &args![this]).u32();
-        if e.call(NODE_IS_EMPTY, &args![list]).u8() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list))
+            .into_ret()
+            .u8()
+            != 0
+        {
             break;
         }
         let list = e.call(EFFECT_LIST, &args![this]).u32();
@@ -495,17 +504,21 @@ pub fn fn_00503510(e: &mut Engine, this: Ptr, other: Ptr) {
     }
     let mut node = e.call(EFFECT_LIST, &args![cast]).u32();
     while node != 0 {
-        if e.call(NODE_IS_EMPTY, &args![node]).u8() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            != 0
+        {
             break;
         }
-        let data = e.call(NODE_DATA, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect = e.mem.u32(data);
         e.with_stack(4, |e, item| {
             e.mem.set_u32(item.addr(), effect);
             let list = e.call(EFFECT_LIST, &args![this]).u32();
             e.call(LIST_ADD, &args![list, item]);
         });
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -557,21 +570,30 @@ pub fn fn_00503670(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
     let mut mine = e.call(EFFECT_LIST, &args![this]).u32();
     let mut theirs = e.call(EFFECT_LIST, &args![cast]).u32();
     while theirs != 0 {
-        if e.call(NODE_IS_EMPTY, &args![theirs]).u8() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, theirs))
+            .into_ret()
+            .u8()
+            != 0
+        {
             break;
         }
-        if mine == 0 || e.call(NODE_IS_EMPTY, &args![mine]).u8() != 0 {
+        if mine == 0
+            || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, mine))
+                .into_ret()
+                .u8()
+                != 0
+        {
             return true;
         }
-        let data = e.call(NODE_DATA, &args![mine]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
         let effect = e.mem.u32(data);
-        let data = e.call(NODE_DATA, &args![theirs]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         let their_effect = e.mem.u32(data);
         if e.vcall(effect, 0x10c, &args![their_effect]).u8() != 0 {
             return true;
         }
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
-        mine = e.call(NODE_NEXT, &args![mine]).u32();
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
     }
     false
 }

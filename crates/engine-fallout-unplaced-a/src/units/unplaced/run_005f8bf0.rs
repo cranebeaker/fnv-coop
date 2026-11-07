@@ -11,6 +11,7 @@ use crate::prelude::*;
 const MEMBER_TEST_0047CDB0: u32 = 0x0047_cdb0;
 const MEMBER_ADD_0047CE10: u32 = 0x0047_ce10;
 const REFERENCE_TEST_0056AFC0: u32 = 0x0056_afc0;
+#[cfg(test)]
 const REFERENCE_GET_007AF430: u32 = 0x007a_f430;
 const BOUND_OBJECT_CLONE_3D: u32 = 0x0050_ee50;
 /// Callees of `fn_005f8c70`: the list-node walk (`008256d0` "stop here", `006815c0` the
@@ -18,8 +19,11 @@ const BOUND_OBJECT_CLONE_3D: u32 = 0x0050_ee50;
 /// (`cdecl`, `(destination, size, source)`), the last-character search `0040ab30` (`cdecl`,
 /// `(text, character)`), `0045a5e0` (`thiscall` on the object at `011c3b3c`, `(text)`) and
 /// `0050fbf0` (`thiscall`, `(argument)`).
+#[cfg(test)]
 const NODE_STOP_008256D0: u32 = 0x0082_56d0;
+#[cfg(test)]
 const NODE_ITEM_006815C0: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_FOLLOWING_00726070: u32 = 0x0072_6070;
 const STRING_COPY_00406D30: u32 = 0x0040_6d30;
 const STRING_FIND_LAST_0040AB30: u32 = 0x0040_ab30;
@@ -42,7 +46,7 @@ pub fn fn_005f8bf0(e: &mut Engine, this: Ptr, reference: Ptr) -> u32 {
         && !e.call(REFERENCE_TEST_0056AFC0, &args![reference]).bool()
     {
         e.call(MEMBER_ADD_0047CE10, &args![member, reference]);
-        let object = e.call(REFERENCE_GET_007AF430, &args![reference]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         return e.vcall(object, 0x178, &args![reference]).u32();
     }
     e.call(BOUND_OBJECT_CLONE_3D, &args![this, reference, 0u32])
@@ -63,7 +67,7 @@ pub fn fn_005f8c70(e: &mut Engine, this: Ptr, argument: u32) {
     e.with_stack(0x10c, |e, buffer| {
         let buffer = buffer.addr();
         while node != 0 {
-            if e.call(NODE_STOP_008256D0, &args![node]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
                 break;
             }
             let named = this.addr().wrapping_add(0xdc);
@@ -72,7 +76,7 @@ pub fn fn_005f8c70(e: &mut Engine, this: Ptr, argument: u32) {
             let slash = e
                 .call(STRING_FIND_LAST_0040AB30, &args![buffer, 0x5cu32])
                 .u32();
-            let item = e.call(NODE_ITEM_006815C0, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let text = e.mem.u32(item);
             let room = 0x104u32
                 .wrapping_sub(slash.wrapping_sub(buffer))
@@ -83,7 +87,7 @@ pub fn fn_005f8c70(e: &mut Engine, this: Ptr, argument: u32) {
             );
             let sink = e.global::<u32>(PATH_SINK_OBJECT);
             e.call(PATH_SINK_0045A5E0, &args![sink, buffer]);
-            node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
     e.call(BASE_0050FBF0, &args![this, argument]);

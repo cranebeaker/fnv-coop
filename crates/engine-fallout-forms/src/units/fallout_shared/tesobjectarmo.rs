@@ -50,8 +50,10 @@ const SET_FORM: u32 = 0x006e_cd40;
 /// The `MemoryManager` allocation wrapper (`00401000`, cdecl).
 const ALLOCATE: u32 = 0x0040_1000;
 /// A `BSSimpleList` node's item address (`006815c0`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// A node's next node (`00726070`).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// Looks up a form by id (`004839c0`, cdecl, one word).
 const LOOKUP_FORM: u32 = 0x0048_39c0;
@@ -163,13 +165,13 @@ pub fn tes_object_armo_init_item(e: &mut Engine, this: Ptr) {
     } else if has_list && e.mem.u32(base + 0x188) != 0 {
         let mut node = e.mem.u32(base + 0x188);
         while node != 0 {
-            let item_at = e.call(NODE_ITEM, &args![node]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item_at) == 0 {
                 break;
             }
-            let item_at = e.call(NODE_ITEM, &args![node]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let entry = e.mem.u32(item_at);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             if e.mem.u32(entry) != 0 {
                 let id = e.mem.u32(entry);
                 let form = e.call(LOOKUP_FORM, &args![id]).u32();
@@ -461,6 +463,7 @@ const SAVE_SWAPS_BYTES: u32 = 0x0040_1500;
 const ADD_CHUNK_DATA: u32 = 0x0048_5990;
 const ADD_CHUNK_WORD: u32 = 0x0048_5910;
 /// The form-id getter (`0084e3a0`, `thiscall`: the word at +0xc).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The 0xc-byte sound record `Save` writes as `SNAM`: its constructor
 /// (`00513d60`, `thiscall`: clears its word +0, byte +4 and word +8) and
@@ -513,24 +516,24 @@ pub fn tes_object_armo_save(e: &mut Engine, this: Ptr) {
     if e.mem.u8(base + 0x18c) == 0 {
         let form = e.mem.u32(base + 0x188);
         if form != 0 {
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(ADD_CHUNK_WORD, &args![SIG_TNAM, id]);
         }
     } else if e.mem.u32(base + 0x188) != 0 {
         let mut node = e.mem.u32(base + 0x188);
         e.with_stack(0xc, |e, record| {
             while node != 0 {
-                let at = e.call(NODE_ITEM, &args![node]).u32();
+                let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(at) == 0 {
                     break;
                 }
-                let at = e.call(NODE_ITEM, &args![node]).u32();
+                let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(at);
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 if entry != 0 && e.mem.u32(entry) != 0 {
                     e.call(SOUND_RECORD_CONSTRUCT, &args![record]);
                     let form = e.mem.u32(entry);
-                    let id = e.call(FORM_ID, &args![form]).u32();
+                    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                     e.mem.set_u32(record.addr(), id);
                     let byte = e.mem.u8(entry + 4);
                     e.mem.set_u8(record.addr() + 4, byte);

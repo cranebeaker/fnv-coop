@@ -82,6 +82,7 @@ const TILE_NODE: u32 = 0x0056_c7f0;
 const SET_NODE_FLAG: u32 = 0x0045_0f90;
 /// `00559450`: the first word of the object (a list head, a string's
 /// character pointer).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `00586150`: the manager's `pMenusRoot` (`+0x9c`).
 const GET_MENUS_ROOT: u32 = 0x0058_6150;
@@ -124,6 +125,7 @@ const MENU_SET_STATE: u32 = 0x0070_37c0;
 /// State the menus are put in when they are hidden.
 const MENU_STATE_HIDDEN: u32 = 4;
 /// The tile of a menu (the word at `+4`).
+#[cfg(test)]
 const MENU_TILE: u32 = 0x0072_6070;
 /// Trait of the menus root tile that holds the id of the menu the pause
 /// tabs last made visible (`0x1771`); the visibility functions write the id
@@ -543,7 +545,7 @@ pub fn fn_00702990(e: &mut Engine, tile: u32, flag_a: u8, flag_b: u8, flag_c: u8
         1
     };
     set_tile_visible(e, tile, visible);
-    let first = e.call(FIRST_WORD, &args![tile + 4]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, tile + 4));
     for_each_list_item(e, first, menus_root + 4, |e, child| {
         let role = tile_value(e, child, TRAIT_ROLE);
         let tile_110 = if role == e.global::<f64>(DOUBLE_110) {
@@ -605,7 +607,11 @@ pub fn interface_isolate_menu_elements(e: &mut Engine, a: u8, b: u8) {
         e.call(SUBOBJECT_CLEAR, &args![manager + MANAGER_SUBOBJECT]);
     }
     let menus_root = e.call(GET_MENUS_ROOT, &args![manager]).u32();
-    let first = e.call(FIRST_WORD, &args![menus_root + 4]).u32();
+    let first = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, menus_root + 4)
+    );
     for_each_list_item(e, first, menus_root + 4, |e, menu| {
         fn_00702990(e, menu, a, b, 1);
     });
@@ -627,7 +633,11 @@ pub fn interface_restore_menu_elements(e: &mut Engine) {
         return;
     };
     let menus_root = e.call(GET_MENUS_ROOT, &args![manager]).u32();
-    let first = e.call(FIRST_WORD, &args![menus_root + 4]).u32();
+    let first = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, menus_root + 4)
+    );
     for_each_list_item(e, first, menus_root + 4, |e, menu| {
         let child_6e = e.call(TILE_GET_CHILD_BY_ID, &args![menu, 0x6eu32]).u32();
         let child_6f = e.call(TILE_GET_CHILD_BY_ID, &args![menu, 0x6fu32]).u32();
@@ -749,7 +759,7 @@ pub fn fn_007031e0(e: &mut Engine, reference: u32) {
     e.with_stack(8, |e, text| {
         e.call(0x0040_37b0, &args![text]);
         if reference != 0 {
-            let form_id = e.call(0x0084_e3a0, &args![reference]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             let name = e.call(0x0055_d520, &args![reference]).u32();
             e.call(0x0040_6f60, &args![text, 0x0103_a1c8u32, name, form_id]);
             let setting = e.call(0x0043_d4d0, &args![0x011f_33c8u32]).u32();
@@ -765,7 +775,7 @@ pub fn fn_007031e0(e: &mut Engine, reference: u32) {
                 .wrapping_add(3);
             let y_setting = e.call(0x0043_d4d0, &args![0x011d_ebacu32]).u32();
             let y = e.mem.i32(y_setting);
-            let characters = e.call(FIRST_WORD, &args![text]).u32();
+            let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let x: f32 = e.global(0x0103_a1c4);
             let minus_one: f32 = e.global(0x0101_2054);
             let debug_text = e.call(0x00a0_d9e0, &args![1u32]).u32();
@@ -967,7 +977,7 @@ pub fn interface_hide_menus(e: &mut Engine) {
             let menu = e.call(TILE_GET_MENU, &args![tile]).u32();
             e.call(MENU_SET_STATE, &args![menu, MENU_STATE_HIDDEN]);
             let menu = e.call(TILE_GET_MENU, &args![tile]).u32();
-            let menu_tile = e.call(MENU_TILE, &args![menu]).u32();
+            let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
             e.call(TILE_SET_VALUE, &args![menu_tile, TRAIT_ENABLED, 0u32]);
         }
     }
@@ -1128,7 +1138,7 @@ pub fn interface_get_control_push_text_for(
             let name = e.mem.u32(setting + 8);
             e.call(STRING_STRISTR, &args![name, 0x0106_ebd8u32]).u32() != 0
         };
-        let characters = e.call(FIRST_WORD, &args![text]).u32();
+        let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         let label_setting = if is_trigger {
             0x011d_4a08u32
         } else {
@@ -1207,7 +1217,7 @@ pub fn interface_print_line(e: &mut Engine, text_pointer: u32, text_length: u32,
         e.mem.set_u32(text.addr() + 4, text_length);
         if ready_manager(e).is_some() && console_takes_text(e) {
             with_va_list(e, va, |e, list| {
-                let characters = e.call(FIRST_WORD, &args![text]).u32();
+                let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                 let console = e.call(CONSOLE_INSTANCE, &args![1u32]).u32();
                 e.call(CONSOLE_PRINT, &args![console, characters, list]);
             });
@@ -2310,10 +2320,11 @@ pub fn fn_00705420(e: &mut Engine, region: u32, text_a: u32, text_b: u32, flag: 
                 e.mem.set_u8(request.addr() + 0x108, flag);
                 e.mem.set_u32(request.addr(), region);
                 let buffer = request.addr() + 4;
-                if e.call(FIRST_WORD, &args![text]).u32() == 0 {
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text)) == 0 {
                     e.mem.set_u8(buffer, 0);
                 } else {
-                    let characters = e.call(FIRST_WORD, &args![text]).u32();
+                    let characters =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                     e.call(STRING_COPY_BOUNDED, &args![buffer, 0x104u32, characters]);
                 }
                 e.call(HUD_SET_REGION_TEXT, &args![request]);

@@ -6,6 +6,7 @@ use crate::prelude::*;
 
 /// Callees of the constructor: `006815c0` (`thiscall`, no arguments) and the two float
 /// setters `0052ce20` and `004f5d90` (`thiscall`, `(value)`).
+#[cfg(test)]
 const BASE_006815C0: u32 = 0x0068_15c0;
 const SET_VALUE_0052CE20: u32 = 0x0052_ce20;
 const SET_VALUE_004F5D90: u32 = 0x004f_5d90;
@@ -14,7 +15,7 @@ const SET_VALUE_004F5D90: u32 = 0x004f_5d90;
 /// `TESRegionPoint::TESRegionPoint` (Xbox PDB): `006815c0` on `this`, then `0052ce20(0.0)`
 /// and `004f5d90(0.0)` on it. Answers `this`.
 pub fn tes_region_point_constructor(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(BASE_006815C0, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     let zero = x87_store32(0.0);
     e.call(SET_VALUE_0052CE20, &args![this, zero]);
     e.call(SET_VALUE_004F5D90, &args![this, zero]);

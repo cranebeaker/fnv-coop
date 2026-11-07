@@ -75,6 +75,7 @@ const REQUEST_SET_FLAG_D8F0: u32 = 0x008a_d8f0;
 /// `004ff7e0`; `006815c0` (a point constructor returning `this`).
 const PATHING_LOCATION_FROM_POINT: u32 = 0x006d_ce10;
 const PATHING_LOCATION_DESTRUCT: u32 = 0x004f_f7e0;
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
 /// The avoid nodes: `009a57a0` (`__thiscall` on the combat manager's word
 /// `+0x14`, read through `00825c00`; three words), `009892a0` and
@@ -189,7 +190,7 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureEvade>) {
                         let distance = x87_quiet_bits(e.global::<u32>(HUNDRED_TWENTY_EIGHT_FLOAT));
                         e.call(REQUEST_SET_DISTANCE, &args![request, distance]);
                         let goal = ebp - 0xec;
-                        e.call(POINT_CONSTRUCT, &args![goal]);
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, goal));
                         if e.call(GET_CURRENT_PATHFINDING_GOAL, &args![attacker, goal])
                             .bool()
                         {

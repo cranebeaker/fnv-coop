@@ -176,9 +176,9 @@ pub fn nav_mesh_obstacle_cutter_nav_mesh_obstacle_cutter(e: &mut Engine, this: P
     let base = this.addr();
     e.call(0x0063_3c90, &args![base + 4, 0u32]);
     fn_006bbc30(e, Ptr::new(base + 0xc));
-    let heap = e.call(0x0068_15c0, &args![base + 0xc]).u32();
+    let heap = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0xc));
     fn_006bf7d0(e, Ptr::new(base + 0x1c), 0x100, 0, heap);
-    let heap = e.call(0x0068_15c0, &args![base + 0xc]).u32();
+    let heap = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0xc));
     fn_006bfa10(e, Ptr::new(base + 0x30), 0x100, 0, heap);
     this
 }
@@ -193,13 +193,21 @@ pub fn nav_mesh_obstacle_cutter_nav_mesh_obstacle_cutter(e: &mut Engine, this: P
 pub fn nav_mesh_obstacle_cutter_destructor(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     let mut index = 0u32;
-    while index < e.call(0x0044_ddc0, &args![base + 0x30]).u32() {
-        let slot = e.call(0x0087_7a30, &args![base + 0x30, index]).u32();
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + 0x30)) {
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, base + 0x30, index)
+        );
         let edge = e.mem.u32(slot);
-        if e.call(0x0055_9450, &args![edge + 0x1c]).u32() != 0 {
-            let slot = e.call(0x0087_7a30, &args![base + 0x30, index]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, edge + 0x1c)) != 0 {
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, base + 0x30, index)
+            );
             let edge = e.mem.u32(slot);
-            let object = e.call(0x0055_9450, &args![edge + 0x1c]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, edge + 0x1c));
             e.call(0x0040_1970, &args![object]);
         }
         index += 1;
@@ -250,7 +258,9 @@ pub fn fn_006bc330(e: &mut Engine, this: Ptr) {
 }
 /// `BSSimpleArray`/`BSScrapArray` element access used throughout the cutter (all `thiscall`
 /// on the array): `0044ddc0` the count, `00877a30` the address of the element at an index.
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// Appending a word (`007cb2e0`, `thiscall`: the address of the word).
 const ARRAY_APPEND: u32 = 0x007c_b2e0;
@@ -263,6 +273,7 @@ const NAVMESH_TRIANGLE: u32 = 0x0055_82f0;
 /// `0068f0a0` (`thiscall` on the navmesh, one word: a 16-bit index): the vertex position.
 const NAVMESH_VERTEX: u32 = 0x0068_f0a0;
 /// `00559450` (`thiscall`): the pointer an `NiPointer` holds.
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `00401970`: releases a reference-counted object.
 const RELEASE: u32 = 0x0040_1970;
@@ -286,12 +297,16 @@ const TRIANGLE_COMPARE_2: u32 = 0x0069_b2a0;
 const DESCENDING_COMPARE: u32 = 0x006b_fb30;
 
 fn array_count(e: &mut Engine, array: u32) -> u32 {
-    e.call(ARRAY_COUNT, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 /// The word stored at index `index` of `array` (an edge or vertex pointer).
 fn array_word(e: &mut Engine, array: u32, index: u32) -> u32 {
-    let slot = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    );
     e.mem.u32(slot)
 }
 
@@ -299,9 +314,9 @@ fn array_word(e: &mut Engine, array: u32, index: u32) -> u32 {
 /// one (the pointer is read again for the release, as the code does).
 fn release_edge_object(e: &mut Engine, array: u32, index: u32) {
     let edge = array_word(e, array, index);
-    if e.call(NI_POINTER_GET, &args![edge + 0x1c]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, edge + 0x1c)) != 0 {
         let edge = array_word(e, array, index);
-        let object = e.call(NI_POINTER_GET, &args![edge + 0x1c]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, edge + 0x1c));
         e.call(RELEASE, &args![object]);
     }
 }
@@ -1266,7 +1281,7 @@ pub fn nav_mesh_obstacle_cutter_split_edges(e: &mut Engine, this: Ptr) {
                     other_index += 1;
                     continue;
                 }
-                e.call(0x0068_15c0, &args![point]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
                 let crosses = e
                     .call(
                         0x006b_a100,
@@ -1466,9 +1481,11 @@ pub fn nav_mesh_obstacle_cutter_split_nav_mesh_from_obstacle(
     let size_bits = x87_quiet_bits(e.global::<u32>(0x0101_712c));
     let collected = e.with_stack(0xc, |e, point| {
         let undo = e.mem.u32(base + 8);
-        let extent = e
-            .call(0x0041_6870, &args![point, size_bits, size_bits, size_bits])
-            .u32();
+        let extent = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, size_bits, size_bits, size_bits)
+        );
         let navmesh = e.mem.u32(base);
         e.call(0x0069_87d0, &args![navmesh, obstacle, extent, undo + 0x20]);
         let undo = e.mem.u32(base + 8);

@@ -30,6 +30,7 @@ use super::*;
 
 /// `_ctrlfp` (`00ed5abb`, cdecl: new word, mask), `_errno` (`00ec85e3`, cdecl) and
 /// `__decode_pointer` (`00ed0f92`, cdecl, one word): in `crt.rs`.
+#[cfg(test)]
 const CTRLFP: u32 = 0x00ed_5abb;
 const ERRNO_ADDR: u32 = 0x00ec_85e3;
 const DECODE_POINTER: u32 = 0x00ed_0f92;
@@ -44,6 +45,7 @@ const RAISE_EXC: u32 = 0x00ed_5531;
 const ERRCODE: u32 = 0x00ed_5763;
 const UMATHERR: u32 = 0x00ed_5797;
 const SET_ERRNO_FROM_MATHERR: u32 = 0x00ed_5736;
+#[cfg(test)]
 const SET_STATFP: u32 = 0x00ed_5ae4;
 const DECOMP: u32 = 0x00ed_59e1;
 const SET_EXP: u32 = 0x00ed_5955;
@@ -203,7 +205,13 @@ fn floor_out_of_range(e: &mut Engine, x: f64) -> f64 {
 pub fn floor_x87(e: &mut Engine, x: f64) -> f64 {
     let new_control = e.mem.u32(FLOOR_CONTROL_WORD);
     // EBX: the old word as `_ctrlfp` answers it (sign-extended).
-    let old_control = e.call(CTRLFP, &args![new_control, 0xffffu32]).u32();
+    let old_control = typed_call!(
+        leaf::FAMILY,
+        0x00ed_5abb,
+        leaf::ctrlfp(e, new_control, 0xffffu32)
+    )
+    .into_ret()
+    .u32();
     let bits = x.to_bits();
     // FLD double ptr [EBP+8]; FSTP double ptr [ESP]: the pushed copy.
     let pushed = x87_load64(bits).to_bits();
@@ -215,7 +223,11 @@ pub fn floor_x87(e: &mut Engine, x: f64) -> f64 {
         if class > 0 {
             if class <= 2 {
                 // 00ed45c2
-                e.call(CTRLFP, &args![old_control, 0xffffu32]);
+                typed_call!(
+                    leaf::FAMILY,
+                    0x00ed_5abb,
+                    leaf::ctrlfp(e, old_control, 0xffffu32)
+                );
                 return x87_load64(bits);
             }
             if class == 3 {
@@ -238,7 +250,11 @@ pub fn floor_x87(e: &mut Engine, x: f64) -> f64 {
     // equal (both are numbers here).
     if x87_load64(bits) == f64::from_bits(rounded) || old_control & 0x20 != 0 {
         // 00ed4604
-        e.call(CTRLFP, &args![old_control, 0xffffu32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x00ed_5abb,
+            leaf::ctrlfp(e, old_control, 0xffffu32)
+        );
         return x87_load64(rounded);
     }
     // 00ed4617
@@ -299,7 +315,11 @@ pub fn handle_qnan1(e: &mut Engine, code: u32, x: f64, control: u32) -> f64 {
     }
     // 00ed586d
     store_errno(e, EDOM);
-    e.call(CTRLFP, &args![control, 0xffffu32]);
+    typed_call!(
+        leaf::FAMILY,
+        0x00ed_5abb,
+        leaf::ctrlfp(e, control, 0xffffu32)
+    );
     x87_load64(bits)
 }
 
@@ -358,7 +378,7 @@ pub fn except1(
         // 00ed592a
         e.call(SET_ERRNO_FROM_MATHERR, &args![error]);
         let word = e.mem.u32(control_at);
-        e.call(CTRLFP, &args![word, 0xffffu32]);
+        typed_call!(leaf::FAMILY, 0x00ed_5abb, leaf::ctrlfp(e, word, 0xffffu32));
         x87_load64(e.mem.u64(result_at))
     })
 }
@@ -396,13 +416,13 @@ pub fn handle_exc(e: &mut Engine, flags: u32, result: Ptr, control: u32) -> i32 
     let mut remaining = flags & 0x1f; // ESI
     let saved = remaining; // [EBP-4]
     if flags & 8 != 0 && control & 1 != 0 {
-        e.call(SET_STATFP, &args![1u32]);
+        typed_call!(leaf::FAMILY, 0x00ed_5ae4, leaf::raise_status_flags(e, 1u32));
         remaining &= !8;
     } else if flags & 4 != 0 && control & 4 != 0 {
-        e.call(SET_STATFP, &args![4u32]);
+        typed_call!(leaf::FAMILY, 0x00ed_5ae4, leaf::raise_status_flags(e, 4u32));
         remaining &= !4;
     } else if flags & 1 != 0 && control & 8 != 0 {
-        e.call(SET_STATFP, &args![8u32]);
+        typed_call!(leaf::FAMILY, 0x00ed_5ae4, leaf::raise_status_flags(e, 8u32));
         // FLDZ; FCOMP double ptr [ECX]; FNSTSW AX; TEST AH, 5: parity odd (JNP) exactly when
         // 0 < result (C0 alone).
         let positive = 0.0 < f64::from_bits(e.mem.u64(at));
@@ -478,13 +498,21 @@ pub fn handle_exc(e: &mut Engine, flags: u32, result: Ptr, control: u32) -> i32 
         }
         // 00ed5700
         if inexact {
-            e.call(SET_STATFP, &args![0x10u32]);
+            typed_call!(
+                leaf::FAMILY,
+                0x00ed_5ae4,
+                leaf::raise_status_flags(e, 0x10u32)
+            );
         }
         remaining = saved & !2;
     }
     // 00ed5714
     if flags & 0x10 != 0 && control & 0x20 != 0 {
-        e.call(SET_STATFP, &args![0x20u32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x00ed_5ae4,
+            leaf::raise_status_flags(e, 0x20u32)
+        );
         remaining &= !0x10;
     }
     i32::from(remaining == 0)
@@ -555,7 +583,11 @@ pub fn umatherr(
     }
     if name == 0 {
         // 00ed581a
-        e.call(CTRLFP, &args![control, 0xffffu32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x00ed_5abb,
+            leaf::ctrlfp(e, control, 0xffffu32)
+        );
         e.call(SET_ERRNO_FROM_MATHERR, &args![kind]);
         return x87_load64(result.to_bits());
     }
@@ -567,7 +599,11 @@ pub fn umatherr(
         e.mem.set_u64(at + 8, argument1.to_bits());
         e.mem.set_u64(at + 0x10, argument2.to_bits());
         e.mem.set_u64(at + 0x18, result.to_bits());
-        e.call(CTRLFP, &args![control, 0xffffu32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x00ed_5abb,
+            leaf::ctrlfp(e, control, 0xffffu32)
+        );
         let answer = e.call(DEFAULT_MATHERR, &args![exception]).u32();
         if answer == 0 {
             e.call(SET_ERRNO_FROM_MATHERR, &args![kind]);
@@ -3103,9 +3139,6 @@ const ACOS_SSE2: u32 = 0x00ed_9b18;
 const ASIN_SSE2: u32 = 0x00ed_7738;
 const ATAN_SSE2_REGISTER: u32 = 0x00ed_5d80;
 const ATAN_SSE2: u32 = 0x00ed_5d98;
-/// The x87 helpers of `trig.rs` the bodies call: `00ed2808` (the stored double's exponent bits)
-/// and `00ed27ac` (a NaN's error type).
-const EXPONENT_BITS: u32 = 0x00ed_2808;
 const NAN_ERROR_TYPE: u32 = 0x00ed_27ac;
 /// The names and operation codes the bodies' error reports pass: `"acos"` (`011c1970`, 0xd),
 /// `"asin"` (`011c1930`, 0xe) and `"atan"` (`011c18d0`, 0xf).
@@ -3131,7 +3164,11 @@ fn register_x87(
     let register = X87Ext::load64(st0);
     let stored = register.store64().to_bits();
     let (low, high) = (stored as u32, (stored >> 32) as u32);
-    let eax = e.call(EXPONENT_BITS, &args![low, high]).u32();
+    let eax = typed_call!(
+        leaf::FAMILY,
+        0x00ed_2808,
+        leaf::double_exponent(e, low, high)
+    );
     let zf = high & 0x7ff0_0000 == 0x7ff0_0000;
     body(e, zf, eax, register, low, high).store64()
 }

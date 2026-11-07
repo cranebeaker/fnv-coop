@@ -21,6 +21,7 @@ const TYPE_TES_FORM: u32 = 0x0118_3028;
 const TYPE_BGS_LIST_FORM: u32 = 0x0118_63d4;
 const TYPE_TES_BOUND_OBJECT: u32 = 0x0118_3108;
 /// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The form's name virtual slot (byte offset), printed as `%s`.
 const NAME_SLOT: u32 = 0x130;
@@ -149,7 +150,7 @@ fn resolve_form_id(e: &mut Engine, this: Ptr, offset: u32, target_type: u32, for
         .u32();
     e.mem.set_u32(slot, cast);
     if e.mem.u32(slot) == 0 {
-        let id = e.call(FORM_ID, &args![this]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let name = e.vcall(this.addr(), NAME_SLOT, &[]).u32();
         e.call(PRINT, &args![format, adjusted, name, id]);
     }
@@ -308,7 +309,7 @@ pub fn fn_004f96f0(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
 fn save_form_id(e: &mut Engine, this: Ptr, offset: u32, chunk: u32) {
     let form = e.mem.u32(this.addr() + offset);
     if form != 0 {
-        let id = e.call(FORM_ID, &args![form]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.call(ADD_CHUNK_WORD, &args![chunk, id]);
     }
 }

@@ -109,6 +109,7 @@ const FORM_TYPE_00401170: u32 = 0x0040_1170;
 /// `009611e0` (`thiscall`): the word at +0x18 of its object (a topic's info).
 const WORD_AT_18_009611E0: u32 = 0x0096_11e0;
 /// `0045cd60` (`thiscall`): the word at +0x28 of its object.
+#[cfg(test)]
 const WORD_AT_28_0045CD60: u32 = 0x0045_cd60;
 /// `00619df0` (`thiscall`): bit 0 of the byte at +0x25.
 const FLAG_00619DF0: u32 = 0x0061_9df0;
@@ -181,6 +182,7 @@ const TOPICS_SET_LIST_0083F1A0: u32 = 0x0083_f1a0;
 const TOPIC_GET_CURRENT_RESPONSE: u32 = 0x0083_e170;
 const TOPIC_CONSTRUCT_0083DB00: u32 = 0x0083_db00;
 /// `MiddleHighProcess::GetSavedAcquireObject` (`008d8520`): the process of an actor.
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 /// `004eaf60` (`thiscall` on the player, a `bool`), `00951a10` (`RET 4`),
 /// `PlayerCharacter::FocusOnActor` (`00953060`, `RET 0xc`),
@@ -248,6 +250,7 @@ const CONDITIONS_00500940: u32 = 0x0050_0940;
 const CONDITION_DATA_00413F40: u32 = 0x0041_3f40;
 const CONDITION_VALUE_00681490: u32 = 0x0068_1490;
 /// `0084e3a0` (`thiscall`).
+#[cfg(test)]
 const OBJECT_0084E3A0: u32 = 0x0084_e3a0;
 /// `008bc590` (`cdecl`, two words).
 const ACTOR_008BC590: u32 = 0x008b_c590;
@@ -264,6 +267,7 @@ const SOUND_HANDLE_ASSIGN: u32 = 0x0041_8900;
 const RADIO_00833C20: u32 = 0x0083_3c20;
 /// `00559450` (`thiscall`): the word at +0 of its object; `00403df0` (`thiscall` on a game
 /// setting): the setting's string.
+#[cfg(test)]
 const WORD_AT_0_00559450: u32 = 0x0055_9450;
 const SETTING_STRING_00403DF0: u32 = 0x0040_3df0;
 const SETTING_011D27FC: u32 = 0x011d_27fc;
@@ -280,7 +284,6 @@ const STRING_CHARS_00408DA0: u32 = 0x0040_8da0;
 /// (`thiscall` each): the container chain `LoadTopicsList` reads for a non-actor speaker.
 const OBJECT_00574900: u32 = 0x0057_4900;
 const OBJECT_005E3FA0: u32 = 0x005e_3fa0;
-const SAVE_FORM_BUFFER_GET_FORM: u32 = 0x007a_f430;
 const CONTAINER_00516BF0: u32 = 0x0051_6bf0;
 /// `0061f2b0` (`thiscall` on an info), `00648ea0` (`cdecl`, three words; in
 /// `gameplayformulas.cpp`).
@@ -289,6 +292,7 @@ const FORMULA_00648EA0: u32 = 0x0064_8ea0;
 /// `00707e10` (`thiscall`, `RET 4`; in `interface.cpp`): gives a tile a name.
 const TILE_SET_NAME_00707E10: u32 = 0x0070_7e10;
 /// `004fb070`-like getter of the `[menu + 4]` word: `00726070` (`thiscall`).
+#[cfg(test)]
 const WORD_AT_4_00726070: u32 = 0x0072_6070;
 
 /// The strings (`.rdata`).
@@ -343,6 +347,7 @@ const LIST_BOX_REGISTER: u32 = 0x0072_1130;
 const LIST_BOX_UNREGISTER: u32 = 0x0072_11c0;
 /// The list node helpers: `006815c0` (the node's item slot), `006ecd40` (sets the next
 /// node, `RET 4`), `004702f0` (deletes the node, `RET 4`).
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
 const NODE_SET_NEXT: u32 = 0x006e_cd40;
 const NODE_DELETE: u32 = 0x0047_02f0;
@@ -463,13 +468,13 @@ fn static_trait(e: &mut Engine, which: StaticTrait) -> u32 {
 
 /// The item word of a list node, reached through `006815c0` as the code does.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let node = e.call(NODE_SELF, &args![node]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(node)
 }
 
 /// The next node (`00726070`, the word at +4).
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(WORD_AT_4_00726070, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// The first node of the embedded list (`this + 4`; the code guards a null `this`).
@@ -924,7 +929,7 @@ fn player(e: &Engine) -> u32 {
 
 /// The menu's tile (`00726070`, the word at +4: `Menu::pMenu`).
 fn menu_tile(e: &mut Engine, menu: u32) -> u32 {
-    e.call(WORD_AT_4_00726070, &args![menu]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu))
 }
 
 /// A tile's integer trait (`00700320`).
@@ -957,7 +962,7 @@ fn setting_float_bits(e: &mut Engine, setting: u32) -> u32 {
 fn skill_check(e: &mut Engine, topic: u32, failed: bool) {
     let info = e.call(WORD_AT_18_009611E0, &args![topic]).u32();
     let list = e.call(CONDITIONS_00500940, &args![info]).u32();
-    let mut node = e.call(NODE_SELF, &args![list]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     let data = loop {
         if node == 0 || node_item(e, node) == 0 {
             return;
@@ -1183,7 +1188,7 @@ pub fn dialog_menu_create(e: &mut Engine, speaker: u32, passed: u32, target: u32
     }
     e.vcall(player(e), 0x278, &args![1u32]);
     if e.vcall(speaker, 0x100, &args![]).bool() {
-        let process = e.call(GET_PROCESS, &args![speaker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
         e.vcall(process, 0x288, &args![speaker, 2u32]);
         e.vcall(speaker, 0x278, &args![1u32]);
     }
@@ -1365,24 +1370,24 @@ pub fn dialog_menu_close(e: &mut Engine) {
         e.vcall(player, 0x278, &args![0u32]);
         e.vcall(speaker, 0x288, &args![]);
         e.set_global(FLAG_011D9514, 0u8);
-        if e.call(GET_PROCESS, &args![speaker]).u32() != 0 {
-            let process = e.call(GET_PROCESS, &args![speaker]).u32();
+        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker)) != 0 {
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
             e.vcall(process, 0x2ec, &args![0u32]);
             if actor != 0 && !e.call(ACTOR_00493BB0, &args![actor]).bool() {
-                let process = e.call(GET_PROCESS, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 e.vcall(process, 0x24, &args![actor, 1u32]);
             }
         }
-        if actor != 0 && e.call(GET_PROCESS, &args![actor]).u32() != 0 {
-            let process = e.call(GET_PROCESS, &args![actor]).u32();
+        if actor != 0 && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             e.vcall(process, 0x650, &args![1u32]);
         }
-        if e.call(GET_PROCESS, &args![speaker]).u32() != 0
+        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker)) != 0
             && actor != 0
             && !e.vcall(actor, 0x22c, &args![0u32]).bool()
             && !e.vcall(actor, 0x2e8, &args![]).bool()
         {
-            let process = e.call(GET_PROCESS, &args![speaker]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
             let value = setting_float_bits(e, SETTING_011CD450);
             e.vcall(process, 0x4b4, &args![x87_quiet_bits(value)]);
         }
@@ -1390,18 +1395,19 @@ pub fn dialog_menu_close(e: &mut Engine) {
             e.call(ACTOR_STOP_MOVING, &args![actor]);
         }
         e.call(PLAYER_RESET_GREET_FLAG, &args![player]);
-        let process = e.call(GET_PROCESS, &args![player]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
         e.vcall(process, 0x650, &args![1u32]);
         if info != 0 && ending && !e.call(INFO_00579200, &args![info]).bool() {
             e.call(INFO_RUN_RESULT, &args![info, 1u32, speaker]);
             e.call(INFO_ADD_TOPIC_LIST, &args![info]);
             if actor != 0
                 && !e.call(ACTOR_00493BB0, &args![actor]).bool()
-                && e.call(GET_PROCESS, &args![actor]).u32() != 0
+                && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
             {
-                let process = e.call(GET_PROCESS, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 if e.vcall(process, 0x24, &args![actor, 1u32]).bool() {
-                    let process = e.call(GET_PROCESS, &args![actor]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     e.vcall(process, 0x524, &args![actor]);
                 }
             }
@@ -1570,7 +1576,7 @@ pub fn dialog_menu_set_goodbye_state(e: &mut Engine, this: Ptr<DialogMenu>, topi
         e.set(this, DialogMenu::eGoodbyeState, 2);
         return;
     }
-    let form = e.call(WORD_AT_28_0045CD60, &args![topic]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, topic));
     if form == e.call(TES_TOPIC_GET_TOPIC, &args![1u32, 2u32]).u32() {
         e.set(this, DialogMenu::eGoodbyeState, 1);
     }
@@ -1628,20 +1634,42 @@ pub fn dialog_menu_do_idle(e: &mut Engine, this: Ptr<DialogMenu>) {
     }
     let speaker_of = |e: &Engine| e.get(this, DialogMenu::pSpeaker);
     if e.get(this, DialogMenu::eDialogState) != 4 {
-        let close = e.call(GET_PROCESS, &args![speaker_of(e)]).u32() == 0 || {
-            let process = e.call(GET_PROCESS, &args![speaker_of(e)]).u32();
-            e.vcall(process, 0x610, &args![]).u32() == 2 || {
-                let process = e.call(GET_PROCESS, &args![speaker_of(e)]).u32();
-                e.vcall(process, 0x610, &args![]).i32() >= 4
-            }
-        };
+        let close = typed_call!(
+            leaf::FAMILY,
+            0x008d_8520,
+            leaf::word_at_68(e, speaker_of(e))
+        ) == 0
+            || {
+                let process = typed_call!(
+                    leaf::FAMILY,
+                    0x008d_8520,
+                    leaf::word_at_68(e, speaker_of(e))
+                );
+                e.vcall(process, 0x610, &args![]).u32() == 2 || {
+                    let process = typed_call!(
+                        leaf::FAMILY,
+                        0x008d_8520,
+                        leaf::word_at_68(e, speaker_of(e))
+                    );
+                    e.vcall(process, 0x610, &args![]).i32() >= 4
+                }
+            };
         if close {
             close_from_idle(e, this);
         }
     }
-    if e.call(GET_PROCESS, &args![speaker_of(e)]).u32() != 0 {
-        let process = e.call(GET_PROCESS, &args![speaker_of(e)]).u32();
-        if e.call(WORD_AT_28_0045CD60, &args![process]).u32() != 0
+    if typed_call!(
+        leaf::FAMILY,
+        0x008d_8520,
+        leaf::word_at_68(e, speaker_of(e))
+    ) != 0
+    {
+        let process = typed_call!(
+            leaf::FAMILY,
+            0x008d_8520,
+            leaf::word_at_68(e, speaker_of(e))
+        );
+        if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) != 0
             && e.get(this, DialogMenu::eDialogState) != 4
         {
             close_from_idle(e, this);
@@ -1732,7 +1760,8 @@ pub fn dialog_menu_do_idle(e: &mut Engine, this: Ptr<DialogMenu>) {
                     f64::from(elapsed).partial_cmp(&limit),
                     Some(std::cmp::Ordering::Less) | None
                 ) {
-                    let object = e.call(OBJECT_0084E3A0, &args![speaker_of(e)]).u32();
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, speaker_of(e)));
                     e.call(ACTOR_008BC590, &args![object, 1u32]);
                 }
             } else {
@@ -1893,9 +1922,9 @@ pub fn dialog_menu_load_next_screen(e: &mut Engine, this: Ptr<DialogMenu>, chall
     let mut state = 2u32;
     let topic_id = this.addr() + 0x84;
     if topic != 0 {
-        let form = e.call(WORD_AT_28_0045CD60, &args![topic]).u32();
-        let form_again = e.call(WORD_AT_28_0045CD60, &args![topic]).u32();
-        let number = e.call(OBJECT_0084E3A0, &args![form_again]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, topic));
+        let form_again = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, topic));
+        let number = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form_again));
         let name = e.vcall(form, 0x130, &args![]).u32();
         e.call(
             FORMAT_00406D00,
@@ -1915,16 +1944,18 @@ pub fn dialog_menu_load_next_screen(e: &mut Engine, this: Ptr<DialogMenu>, chall
             fn_0083e110(e, Ptr::new(topic));
             let speaker = e.get(this, DialogMenu::pSpeaker);
             e.vcall(speaker, 0x264, &args![0.0f32.to_bits(), response, 1u32]);
-            let process = e
-                .call(GET_PROCESS, &args![e.get(this, DialogMenu::pSpeaker)])
-                .u32();
+            let process = typed_call!(
+                leaf::FAMILY,
+                0x008d_8520,
+                leaf::word_at_68(e, e.get(this, DialogMenu::pSpeaker))
+            );
             let handle = e.vcall(process, 0x48c, &args![sound, 0u32]).u32();
             e.call(SOUND_HANDLE_ASSIGN, &args![this.addr() + 0x74, handle]);
             e.call(SOUND_HANDLE_DESTROY, &args![sound]);
             if e.get(this, DialogMenu::bInServiceMenu) == 0 {
                 let response_text = |e: &mut Engine| {
-                    let slot = e.call(NODE_SELF, &args![response]).u32();
-                    e.call(WORD_AT_0_00559450, &args![slot]).u32()
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, response));
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
                 };
                 if challenged != 0 {
                     let setting = if e.call(RADIO_00833C20, &args![topics_of(e)]).bool() {
@@ -1962,7 +1993,7 @@ pub fn dialog_menu_load_next_screen(e: &mut Engine, this: Ptr<DialogMenu>, chall
         } else {
             if e.get(this, DialogMenu::bResponseShown) == 0 {
                 let name = if topic != 0 {
-                    let form = e.call(WORD_AT_28_0045CD60, &args![topic]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, topic));
                     e.call(STRING_CHARS_00408DA0, &args![form.wrapping_add(0x18)])
                         .u32()
                 } else {
@@ -1980,7 +2011,8 @@ pub fn dialog_menu_load_next_screen(e: &mut Engine, this: Ptr<DialogMenu>, chall
                 let speaker = e.get(this, DialogMenu::pSpeaker);
                 let info: u32 = e.global(LAST_INFO_011D9518);
                 e.call(INFO_RUN_RESULT, &args![info, 1u32, speaker]);
-                let object = e.call(OBJECT_0084E3A0, &args![topics_of(e)]).u32();
+                let object =
+                    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, topics_of(e)));
                 let player = player(e);
                 let info: u32 = e.global(LAST_INFO_011D9518);
                 let next = e
@@ -1999,7 +2031,8 @@ pub fn dialog_menu_load_next_screen(e: &mut Engine, this: Ptr<DialogMenu>, chall
                     let block = e.call(ALLOCATE, &args![0x2cu32]).u32();
                     let new_topic = if block != 0 {
                         let speaker = e.get(this, DialogMenu::pSpeaker);
-                        let form = e.call(WORD_AT_28_0045CD60, &args![topic]).u32();
+                        let form =
+                            typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, topic));
                         let count = e.call(WORD_AT_14_00825C00, &args![topic]).u32();
                         e.call(
                             TOPIC_CONSTRUCT_0083DB00,
@@ -2145,8 +2178,8 @@ pub fn dialog_menu_load_topics_list(e: &mut Engine, this: Ptr<DialogMenu>) {
                 }
             };
             let topic_text = |e: &mut Engine| {
-                let slot = e.call(NODE_SELF, &args![topic]).u32();
-                e.call(WORD_AT_0_00559450, &args![slot]).u32()
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, topic));
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
             };
             if prompt != 0 {
                 let text = e.call(STRING_CHARS_00408DA0, &args![prompt]).u32();
@@ -2162,7 +2195,8 @@ pub fn dialog_menu_load_topics_list(e: &mut Engine, this: Ptr<DialogMenu>) {
                         && e.call(OBJECT_00574900, &args![speaker]).bool()
                     {
                         let object = e.call(OBJECT_005E3FA0, &args![speaker]).u32();
-                        let form = e.call(SAVE_FORM_BUFFER_GET_FORM, &args![object]).u32();
+                        let form =
+                            typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, object));
                         e.call(CONTAINER_00516BF0, &args![form]);
                     }
                     let speaker = e.get(this, DialogMenu::pSpeaker);
@@ -2193,7 +2227,8 @@ pub fn dialog_menu_load_topics_list(e: &mut Engine, this: Ptr<DialogMenu>) {
                 } else {
                     let info = e.call(WORD_AT_18_009611E0, &args![topic]).u32();
                     let conditions = e.call(CONDITIONS_00500940, &args![info]).u32();
-                    let mut node = e.call(NODE_SELF, &args![conditions]).u32();
+                    let mut node =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, conditions));
                     while node != 0 && node_item(e, node) != 0 {
                         let item = node_item(e, node);
                         let data = e.call(CONDITION_DATA_00413F40, &args![item]).u32();

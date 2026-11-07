@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// `00559450` (unnamed in the engine map): `thiscall`, answers the dword at `this`.
+#[cfg(test)]
 const LIST_FIRST_NODE: u32 = 0x0055_9450;
 /// `007b52d0` (`run_007b52a0.rs`): `thiscall`, `RET 4`; the next node (`*node`, null for null).
 const LIST_NEXT_NODE: u32 = 0x007b_52d0;
@@ -50,7 +51,7 @@ const SLOT_RECORD: u32 = 0x1f4;
 /// body can never fail (kept for fidelity).
 pub fn fn_00631370(e: &mut Engine, this: Ptr, matching: u32, check_distance: u8, keep: u8) {
     let list = this.addr().wrapping_add(0x34);
-    let mut node = e.call(LIST_FIRST_NODE, &args![list]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     while node != 0 {
         let next = e.call(LIST_NEXT_NODE, &args![list, node]).u32();
         if node != 0 {
@@ -218,7 +219,7 @@ pub fn fn_006312d0(e: &mut Engine, this: Ptr, key: u32) {
     }
     let mut node = e.call(0x0082_5c00, &args![object]).u32();
     while node != 0 {
-        let reference = e.call(0x0084_e3a0, &args![node + 0x10]).u32();
+        let reference = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, node + 0x10));
         if reference != 0 {
             loop {
                 let extra = e.call(0x005d_43c0, &args![reference]).u32();

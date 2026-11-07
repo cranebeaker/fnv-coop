@@ -19,13 +19,16 @@ const CARAVAN_DECK_TYPE: u32 = 0x0118_643c;
 const LIST_HEAD: u32 = 0x0059_bb30;
 /// A list node's item slot (`006815c0`, `thiscall`): returns a pointer to
 /// the node's item word.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// The next list node (`00726070`, `thiscall`).
+#[cfg(test)]
 const NEXT_NODE: u32 = 0x0072_6070;
 /// The word read through `004610d0` (`thiscall`): a pointer to the 4 bytes
 /// kept at `+0x28`.
 const VALUE_AT_28: u32 = 0x0046_10d0;
 /// Checks the list kept at `+0x24` (`008256d0`, `thiscall`).
+#[cfg(test)]
 const LIST_CHECK: u32 = 0x0082_56d0;
 
 fn cast_to_caravan_deck(e: &mut Engine, form: u32) -> u32 {
@@ -54,7 +57,7 @@ pub fn fn_0059bd50(e: &mut Engine, this: Ptr, form: u32) {
     e.call(0x0048_51b0, &args![this, source]);
     loop {
         let list = e.mem.u32(base + 0x24);
-        if list == 0 || e.call(LIST_CHECK, &args![list]).bool() {
+        if list == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
             break;
         }
         e.call(0x0063_f7b0, &args![list]);
@@ -62,22 +65,22 @@ pub fn fn_0059bd50(e: &mut Engine, this: Ptr, form: u32) {
     e.with_stack(4, |e, item| {
         let mut node = e.call(LIST_HEAD, &args![source]).u32();
         while node != 0 {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 {
                 break;
             }
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let value = e.mem.u32(slot);
             e.mem.set_u32(item.addr(), value);
             let list = e.mem.u32(base + 0x24);
-            if list == 0 || e.call(LIST_CHECK, &args![list]).bool() {
+            if list == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
                 let list = e.mem.u32(base + 0x24);
                 e.call(0x0072_6c60, &args![list, item]);
             } else {
                 let list = e.mem.u32(base + 0x24);
                 e.call(0x005a_e3d0, &args![list, item]);
             }
-            node = e.call(NEXT_NODE, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
     let value = e.call(VALUE_AT_28, &args![source]).u32();
@@ -110,16 +113,16 @@ pub fn fn_0059be50(e: &mut Engine, this: Ptr, form: u32) -> bool {
     }
     let mut node = e.call(LIST_HEAD, &args![other]).u32();
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let own_list = e.call(LIST_HEAD, &args![this]).u32();
         if !e.call(0x005f_65d0, &args![own_list, slot]).bool() {
             return true;
         }
-        node = e.call(NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let value = e.call(VALUE_AT_28, &args![other]).u32();
     e.call(0x00ec_4835, &args![this.addr() + 0x28, value, 4u32])

@@ -68,12 +68,15 @@ const POINTER_DESTRUCT: u32 = 0x0042_fa40;
 /// `0042ff30(this, other)`: whether two smart pointers hold the same word.
 const POINTER_EQUAL: u32 = 0x0042_ff30;
 /// `0044ddc0(this)`: the word at +8 of an array (`iSize`).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `0076b610(this)`: whether the word at +8 of an array is zero.
 const ARRAY_IS_EMPTY: u32 = 0x0076_b610;
 /// `00877a30(this, index)`: the address of a one-word element.
+#[cfg(test)]
 const POINTER_ELEMENT_AT: u32 = 0x0087_7a30;
 /// `00559450(this)`: the word at +0.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `007037c0(this, value)`: stores a word at +0x24 (the body is shared by
 /// unrelated callers).
@@ -86,6 +89,7 @@ const POINTER_ARRAY_REMOVE: u32 = 0x0042_f8a0;
 /// `0042f9c0(this, free_buffer)`: destroys the pointer array's elements.
 const POINTER_ARRAY_CLEAR: u32 = 0x0042_f9c0;
 /// `00416870(this, x, y, z)`: the `NiPoint3` constructor; returns `this`.
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// `006815c0(this)`: the `NiPoint3` default constructor (the function the
 /// vector constructor iterator is given).
@@ -167,7 +171,7 @@ fn copy_vector(e: &mut Engine, to: u32, from: u32) {
 }
 
 fn array_size(e: &mut Engine, array: Ptr<BSSimpleArray>) -> u32 {
-    e.call(ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 fn array_is_empty(e: &mut Engine, array: Ptr<BSSimpleArray>) -> bool {
@@ -294,7 +298,11 @@ pub fn fn_0069bb90(e: &mut Engine, this: Ptr<BSSimpleArray>, pointer: u32) -> u3
                 e.call(POINTER_DESTRUCT, &args![argument]);
                 return u32::MAX;
             }
-            let element = e.call(POINTER_ELEMENT_AT, &args![this, index]).u32();
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, this, index)
+            );
             if e.call(POINTER_EQUAL, &args![element, argument]).bool() {
                 e.call(POINTER_DESTRUCT, &args![argument]);
                 return index;
@@ -310,10 +318,18 @@ pub fn fn_0069bb90(e: &mut Engine, this: Ptr<BSSimpleArray>, pointer: u32) -> u3
 /// hands the element to `00868790` (the engine map's
 /// `GarbageCollector::Add_ov6`) and removes it with shrinking (`0042f8a0`).
 pub fn fn_0069bc50(e: &mut Engine, this: Ptr<BSSimpleArray>, index: u32) {
-    let element = e.call(POINTER_ELEMENT_AT, &args![this, index]).u32();
-    let object = e.call(FIRST_WORD, &args![element]).u32();
+    let element = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, this, index)
+    );
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element));
     e.call(STORE_WORD_24, &args![object, 0u32]);
-    let element = e.call(POINTER_ELEMENT_AT, &args![this, index]).u32();
+    let element = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, this, index)
+    );
     e.call(GARBAGE_COLLECTOR_ADD, &args![element]);
     e.call(POINTER_ARRAY_REMOVE, &args![this, index, 1u32]);
 }
@@ -325,7 +341,11 @@ pub fn fn_0069bc50(e: &mut Engine, this: Ptr<BSSimpleArray>, index: u32) {
 pub fn fn_0069bca0(e: &mut Engine, this: Ptr<BSSimpleArray>) {
     let mut index = 0u32;
     while index < array_size(e, this) {
-        let element = e.call(POINTER_ELEMENT_AT, &args![this, index]).u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, this, index)
+        );
         e.call(GARBAGE_COLLECTOR_ADD, &args![element]);
         index = index.wrapping_add(1);
     }
@@ -341,10 +361,18 @@ pub fn fn_0069bca0(e: &mut Engine, this: Ptr<BSSimpleArray>) {
 pub fn fn_0069bcf0(e: &mut Engine, this: Ptr<NavMeshBounds>) -> Ptr<NavMeshBounds> {
     let lowest = pushed_global(e, LOWEST_FLOAT);
     let minimum = this.at(NavMeshBounds::BoundingBoxMin);
-    e.call(POINT3_CONSTRUCT, &args![minimum, lowest, lowest, lowest]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, minimum, lowest, lowest, lowest)
+    );
     let highest = pushed_global(e, HIGHEST_FLOAT);
     let maximum = this.at(NavMeshBounds::BoundingBoxMax);
-    e.call(POINT3_CONSTRUCT, &args![maximum, highest, highest, highest]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, maximum, highest, highest, highest)
+    );
     fn_0069cd10(e, this.at(NavMeshBounds::Triangles));
     let vertices = this.at(NavMeshBounds::Vertices);
     e.call(VERTEX_ARRAY_CONSTRUCT, &args![vertices]);
@@ -370,15 +398,19 @@ pub fn fn_0069be00(e: &mut Engine, this: Ptr<NavMeshBounds>) {
     e.with_stack(0x18, |e, temporaries| {
         let lowest = pushed_global(e, LOWEST_FLOAT);
         let low = temporaries.addr() + 0xc;
-        let built = e
-            .call(POINT3_CONSTRUCT, &args![low, lowest, lowest, lowest])
-            .u32();
+        let built = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, low, lowest, lowest, lowest)
+        );
         copy_vector(e, this.addr(), built);
         let highest = pushed_global(e, HIGHEST_FLOAT);
         let high = temporaries.addr();
-        let built = e
-            .call(POINT3_CONSTRUCT, &args![high, highest, highest, highest])
-            .u32();
+        let built = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, high, highest, highest, highest)
+        );
         copy_vector(e, this.addr() + 0xc, built);
     });
     let vertices = this.at(NavMeshBounds::Vertices);
@@ -527,7 +559,7 @@ pub fn fn_0069c070(
         let difference = closest + 0x3c;
         let output = closest + 0x48;
         let mut best = f32::from_bits(pushed_global(e, HIGHEST_FLOAT));
-        e.call(POINT3_DEFAULT_CONSTRUCT, &args![closest]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, closest));
         let triangles = this.at(NavMeshBounds::Triangles);
         let mut index = 0u32;
         while index < array_size(e, triangles) {
@@ -554,9 +586,10 @@ pub fn fn_0069c070(
             if found {
                 let z = e.mem.u32(output);
                 let zero = pushed_float(0.0);
-                e.call(
-                    POINT3_CONSTRUCT,
-                    &args![result, zero, zero, x87_quiet_bits(z)],
+                typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, result, zero, zero, x87_quiet_bits(z))
                 );
                 return;
             }

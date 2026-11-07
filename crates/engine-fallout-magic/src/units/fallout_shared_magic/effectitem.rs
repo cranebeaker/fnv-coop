@@ -127,7 +127,7 @@ pub fn effect_item_get_raw_cost(e: &mut Engine, this: Ptr<EffectItem>) -> f32 {
     let mut cost = e.get(this, EffectItem::fRawCost);
     let zero: f64 = e.global(0x0101_2060);
     if (cost as f64) < zero {
-        let range_two = e.call(0x0084_e3a0, &args![this]).u32() == 2;
+        let range_two = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == 2;
         let magnitude = effect_item_get_magnitude(e, this);
         let duration = effect_item_get_duration(e, this);
         let area = effect_item_get_area(e, this);
@@ -217,7 +217,9 @@ pub fn fn_004043d0(e: &mut Engine, this: Ptr<EffectItem>, value: i32) -> bool {
 /// `EffectItem::GetArea` (Xbox PDB): zero for flagged or self-range effects.
 pub fn effect_item_get_area(e: &mut Engine, this: Ptr<EffectItem>) -> i32 {
     let setting = e.get(this, EffectItem::pEffectSetting);
-    if fn_00403e60(e, setting, 0x200) || e.call(0x0084_e3a0, &args![this]).u32() == 0 {
+    if fn_00403e60(e, setting, 0x200)
+        || typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == 0
+    {
         0
     } else {
         e.get(this.at(EffectItem::data), EffectItemData::iArea)
@@ -228,7 +230,10 @@ pub fn effect_item_get_area(e: &mut Engine, this: Ptr<EffectItem>) -> i32 {
 /// Set a nonnegative area for a non-self range when flags allow it.
 pub fn fn_00404470(e: &mut Engine, this: Ptr<EffectItem>, value: i32) -> bool {
     let setting = e.get(this, EffectItem::pEffectSetting);
-    if fn_00403e60(e, setting, 0x200) || e.call(0x0084_e3a0, &args![this]).u32() == 0 || value < 0 {
+    if fn_00403e60(e, setting, 0x200)
+        || typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == 0
+        || value < 0
+    {
         return false;
     }
     e.set(this.at(EffectItem::data), EffectItemData::iArea, value);
@@ -364,7 +369,7 @@ pub fn effect_item_load(
 pub fn fn_00404210(e: &mut Engine, this: Ptr<EffectItem>, source: Ptr<EffectItem>) {
     let setting = e.get(source, EffectItem::pEffectSetting);
     e.set(this, EffectItem::pEffectSetting, setting);
-    let range = e.call(0x0084_e3a0, &args![source]).u32();
+    let range = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, source));
     fn_00404560(e, this, range);
     let magnitude = effect_item_get_magnitude(e, source);
     fn_004043d0(e, this, magnitude);
@@ -394,8 +399,8 @@ pub fn fn_004042a0(e: &mut Engine, this: Ptr<EffectItem>, other: Ptr<EffectItem>
         different = effect_item_get_duration(e, other) != effect_item_get_duration(e, this);
     }
     if !different {
-        different =
-            e.call(0x0084_e3a0, &args![other]).u32() != e.call(0x0084_e3a0, &args![this]).u32();
+        different = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, other))
+            != typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     }
     if !different {
         different = fn_00403ea0(e, other) != fn_00403ea0(e, this);
@@ -475,7 +480,9 @@ pub fn fn_00404760(e: &mut Engine, this: Ptr<EffectItem>, source: Ptr) {
 /// Construct an output string and assign the supplied source string.
 pub fn fn_004047f0(e: &mut Engine, output: Ptr, source: Ptr) -> Ptr {
     e.call(0x0040_3970, &args![output]);
-    let chars = e.call(0x0055_9450, &args![source]).ptr::<()>();
+    let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, source))
+        .into_ret()
+        .ptr::<()>();
     e.call(0x0040_37f0, &args![output, chars, 0u32]);
     output
 }
@@ -486,7 +493,9 @@ pub fn bs_string_append(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
     if source.is_null() {
         return this;
     }
-    let chars = e.call(0x0055_9450, &args![this]).ptr::<()>();
+    let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this))
+        .into_ret()
+        .ptr::<()>();
     if chars.is_null() {
         e.call(0x0040_37f0, &args![this, source, 0u32]);
     } else {
@@ -494,7 +503,9 @@ pub fn bs_string_append(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
         let new_length = fn_004048e0(e, this).wrapping_add(length);
         let capacity = e.call(0x0040_39a0, &args![this]).u32();
         if new_length > capacity {
-            let old_chars = e.call(0x0055_9450, &args![this]).ptr::<()>();
+            let old_chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this))
+                .into_ret()
+                .ptr::<()>();
             e.call(0x0040_37f0, &args![this, old_chars, new_length]);
         }
         let old_length = fn_004048e0(e, this);
@@ -716,9 +727,13 @@ pub fn setting_collection_map_add(e: &mut Engine, this: Ptr, setting: Ptr) {
     e.with_stack(8, |e, guard| {
         fn_00404eb0(e, guard, 9, true, Ptr::new(0x0101_2220), 0x21b);
         if !setting.is_null() {
-            let key = e.call(0x0044_ddc0, &args![setting]).ptr::<()>();
+            let key = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, setting))
+                .into_ret()
+                .ptr::<()>();
             if !key.is_null() {
-                let key = e.call(0x0044_ddc0, &args![setting]).ptr::<()>();
+                let key = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, setting))
+                    .into_ret()
+                    .ptr::<()>();
                 let duplicate = e
                     .call(
                         0x0085_3130,
@@ -726,10 +741,14 @@ pub fn setting_collection_map_add(e: &mut Engine, this: Ptr, setting: Ptr) {
                     )
                     .bool();
                 if duplicate {
-                    let key = e.call(0x0044_ddc0, &args![setting]).ptr::<()>();
+                    let key = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, setting))
+                        .into_ret()
+                        .ptr::<()>();
                     e.call(0x00c3_35a0, &args![0x0101_21d0u32, key]);
                 } else {
-                    let key = e.call(0x0044_ddc0, &args![setting]).ptr::<()>();
+                    let key = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, setting))
+                        .into_ret()
+                        .ptr::<()>();
                     e.call(0x0047_0200, &args![this.byte_add(0x10c), key, setting]);
                 }
             }
@@ -798,8 +817,15 @@ pub fn fn_00404f70(e: &mut Engine, this: Ptr) {
 /// `SettingCollectionMap<Setting>::Remove` (Xbox PDB): remove a non-null
 /// setting with a non-null key from the embedded map.
 pub fn setting_collection_map_remove(e: &mut Engine, this: Ptr, setting: Ptr) {
-    if !setting.is_null() && !e.call(0x0044_ddc0, &args![setting]).ptr::<()>().is_null() {
-        let key = e.call(0x0044_ddc0, &args![setting]).ptr::<()>();
+    if !setting.is_null()
+        && !typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, setting))
+            .into_ret()
+            .ptr::<()>()
+            .is_null()
+    {
+        let key = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, setting))
+            .into_ret()
+            .ptr::<()>();
         e.call(0x0040_5430, &args![this.byte_add(0x10c), key]);
     }
 }

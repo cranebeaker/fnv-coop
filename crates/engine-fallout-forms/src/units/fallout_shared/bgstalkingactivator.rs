@@ -95,6 +95,7 @@ const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const CAST_SOURCE_TYPE: u32 = 0x0118_3028;
 const CAST_TARGET_TYPE: u32 = 0x0118_6318;
 /// The form's id (`0084e3a0`, thiscall).
+#[cfg(test)]
 const FORM_ID_84E3A0: u32 = 0x0084_e3a0;
 /// The warning printer (`005b5e40`, cdecl(format, ...)).
 const WARNING: u32 = 0x005b_5e40;
@@ -115,6 +116,7 @@ const TALKING_ACTIVATOR_TYPE: u32 = 0x16;
 const FORM_CALL_4011D0: u32 = 0x0040_11d0;
 /// The reference's base form (`007af430`, the engine map's
 /// `BGSSaveFormBuffer::GetForm` on folded code).
+#[cfg(test)]
 const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 /// `BGSTalkingActivator::RadioStationList` (Xbox PDB static): a
 /// `BSSimpleList<TESObjectREFR*>`.
@@ -124,16 +126,20 @@ const LIST_ADD: u32 = 0x005a_e3d0;
 /// The list's clear (`00470470`, thiscall).
 const LIST_CLEAR: u32 = 0x0047_0470;
 /// The list node's end test (`008256d0`, thiscall, bool).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// The list node's item address (`006815c0`, returns `this`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// The list node's next node (`00726070`, thiscall).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 
 /// Reference helpers (thiscall on a reference).
 const REFERENCE_CELL: u32 = 0x008d_6f30;
 const REFERENCE_WORLD_SPACE: u32 = 0x0057_5d70;
 /// `00440da0` (bool): with a world space, such a station is skipped.
+#[cfg(test)]
 const STATION_TEST_440DA0: u32 = 0x0044_0da0;
 /// The station's range mode (`0056b210`, 0 to 4).
 const STATION_RANGE_MODE: u32 = 0x0056_b210;
@@ -163,6 +169,7 @@ const TELEPORT_PATH_DESTRUCT: u32 = 0x006f_4930;
 const TELEPORT_PATH_SIZE: u32 = 0x38;
 /// The path's space count (`0044ddc0`) and space entry (`006a7af0`,
 /// thiscall(index)); an entry's world space is at `+4`.
+#[cfg(test)]
 const PATH_SPACE_COUNT: u32 = 0x0044_ddc0;
 const PATH_SPACE: u32 = 0x006a_7af0;
 /// `FLT_MAX` and `-1.0` (`float`s in `.rdata`).
@@ -205,7 +212,7 @@ pub fn bgs_talking_activator_init_item(e: &mut Engine, this: Ptr) {
                 .u32();
             e.mem.set_u32(base + 0x94, voice);
             if e.mem.u32(base + 0x94) == 0 {
-                let form_id = e.call(FORM_ID_84E3A0, &args![this]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 let name = e.vcall(base, SLOT_GET_EDITOR_ID, &args![]).u32();
                 let id_value = e.mem.u32(id.addr());
                 e.call(WARNING, &args![VOICE_TYPE_WARNING, id_value, name, form_id]);
@@ -371,7 +378,9 @@ pub fn fn_004ff150(e: &mut Engine, reference: Ptr) {
     if reference.is_null() {
         return;
     }
-    let form = e.call(REFERENCE_BASE_FORM, &args![reference]).ptr::<()>();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+        .into_ret()
+        .ptr::<()>();
     if bgs_talking_activator_is_radio_station(e, form) {
         e.with_stack(4, |e, item| {
             e.mem.set_u32(item.addr(), reference.addr());
@@ -431,7 +440,7 @@ fn with_locations<R>(
 /// world space other than null and `w`; with `None`, none has a world
 /// space. Stops at the first that fails.
 fn path_spaces_pass(e: &mut Engine, path: Ptr, world_space: Option<u32>) -> bool {
-    let count = e.call(PATH_SPACE_COUNT, &args![path]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, path));
     let mut index = 0u32;
     while index < count {
         let space = e.call(PATH_SPACE, &args![path, index]).u32();
@@ -497,15 +506,18 @@ pub fn bgs_talking_activator_get_radio_stations_in_range_of_ref(
         e.with_stack(4, |e, distance| {
             e.mem.set_u32(distance.addr(), float_max);
             let mut node = RADIO_STATION_LIST;
-            while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-                let item = e.call(NODE_ITEM, &args![node]).u32();
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let station = e.mem.u32(item);
                 e.mem.set_u32(station_slot.addr(), station);
                 let mut in_range = false;
                 let float_max = x87_quiet_bits(e.mem.u32(FLOAT_MAX));
                 e.mem.set_u32(distance.addr(), float_max);
                 let skipped =
-                    e.call(STATION_TEST_440DA0, &args![station]).bool() && world_space != 0;
+                    typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, station))
+                        && world_space != 0;
                 if !skipped {
                     let minus_one = x87_quiet_bits(e.mem.u32(MINUS_ONE));
                     match e.call(STATION_RANGE_MODE, &args![station]).u32() {
@@ -518,7 +530,11 @@ pub fn bgs_talking_activator_get_radio_stations_in_range_of_ref(
                             let position_world =
                                 e.call(REFERENCE_WORLD_SPACE, &args![position]).u32();
                             if position_world == 0 {
-                                let form_id = e.call(FORM_ID_84E3A0, &args![position]).u32();
+                                let form_id = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0084_e3a0,
+                                    leaf::word_at_c(e, position)
+                                );
                                 let name = e.vcall(position, SLOT_GET_EDITOR_ID, &args![]).u32();
                                 e.call(WARNING, &args![POSITION_REF_WARNING, name, form_id]);
                             } else {
@@ -558,7 +574,11 @@ pub fn bgs_talking_activator_get_radio_stations_in_range_of_ref(
                             let station_world =
                                 e.call(REFERENCE_WORLD_SPACE, &args![station]).u32();
                             if station_world == 0 {
-                                let form_id = e.call(FORM_ID_84E3A0, &args![station]).u32();
+                                let form_id = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0084_e3a0,
+                                    leaf::word_at_c(e, station)
+                                );
                                 let name = e.vcall(station, SLOT_GET_EDITOR_ID, &args![]).u32();
                                 e.call(WARNING, &args![WORLDSPACE_WARNING, name, form_id]);
                             } else if world_space != 0 {
@@ -626,7 +646,7 @@ pub fn bgs_talking_activator_get_radio_stations_in_range_of_ref(
                         }
                     }
                 }
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         });
     });
@@ -768,7 +788,7 @@ pub fn fn_004fec10(e: &mut Engine, this: Ptr) {
     for (field, chunk) in [(0x74, CHUNK_SNAM), (0x94, CHUNK_VNAM), (0x7c, CHUNK_INAM)] {
         let form = e.mem.u32(base + field);
         if form != 0 {
-            let id = e.call(FORM_ID_84E3A0, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(ADD_CHUNK_WORD, &args![chunk, id]);
         }
     }

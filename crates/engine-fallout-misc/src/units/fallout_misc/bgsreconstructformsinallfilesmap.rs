@@ -111,6 +111,7 @@ const MAP_NEXT: u32 = 0x006b_7f20;
 /// Empties the map (`00438af0`).
 const MAP_REMOVE_ALL: u32 = 0x0043_8af0;
 /// The element count of one of the two arrays (`0044ddc0`).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 /// The array's reallocation (`006a2770`, `RET 8`: new size, count kept),
 /// its element destruction (`0072ba80`, `RET 8`: first element, count) and
@@ -259,7 +260,7 @@ pub fn fn_008439e0(e: &mut Engine, this: Ptr) {
         let form = e.mem.u32(entry);
         if e.vcall(form, 0xf0, &args![]).bool() {
             let form = e.mem.u32(entry);
-            if e.call(0x007a_f430, &args![form]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, form)) == 0 {
                 e.call(0x0084_3380, &args![arrays, index]);
                 index = index.wrapping_sub(1);
             }
@@ -286,8 +287,12 @@ pub fn fn_008439e0(e: &mut Engine, this: Ptr) {
 // Translated from 00843bb0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The entries of both arrays: `0044ddc0` on `+0` plus on `+0x10`.
 pub fn fn_00843bb0(e: &mut Engine, this: Ptr) -> u32 {
-    let first = e.call(ARRAY_COUNT, &args![this]).u32();
-    let second = e.call(ARRAY_COUNT, &args![this.addr() + 0x10]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
+    let second = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + 0x10)
+    );
     second.wrapping_add(first)
 }
 
@@ -396,6 +401,7 @@ const FORM_GET_FILE: u32 = 0x0048_4e60;
 /// as the form's type.
 const TYPE_NAME_00440E30: u32 = 0x0044_0e30;
 /// `0084e3a0` (`thiscall`: the word at +0xC, a form's id).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The forms' vtable slot `AddForm` and `AddReference` print as the name (+0x130).
 const FORM_NAME_SLOT: u32 = 0x130;
@@ -479,7 +485,7 @@ pub fn bgs_reconstruct_forms_in_all_files_map_add_form(
     if file == 0 {
         let type_text = e.call(TYPE_NAME_00440E30, &args![form]).u32();
         let name = e.vcall(form, FORM_NAME_SLOT, &args![]).u32();
-        let id = e.call(FORM_ID, &args![form]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.call(
             SAVE_GAME_WARNING,
             &args![NO_FILE_FORM_MESSAGE, id, name, type_text],
@@ -521,7 +527,7 @@ pub fn bgs_reconstruct_forms_in_all_files_map_add_reference(
     };
     if file == 0 {
         let name = e.vcall(form, FORM_NAME_SLOT, &args![]).u32();
-        let id = e.call(FORM_ID, &args![form]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.call(SAVE_GAME_WARNING, &args![NO_FILE_CELL_MESSAGE, id, name]);
         return;
     }
@@ -808,7 +814,7 @@ pub fn bgs_reconstruct_forms_map_add_form(
     data: u32,
 ) {
     let key = if form != 0 {
-        e.call(FORM_ID, &args![form]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
     } else {
         form_id
     };
@@ -886,7 +892,7 @@ pub fn fn_008413a0(e: &mut Engine, this: Ptr) {
 /// (`00841250(form, form_id, data)`).
 pub fn fn_00841460(e: &mut Engine, this: Ptr, cell: u32, form: u32, form_id: u32, data: u32) {
     let key = if e.call(FORM_TEST_00425FD0, &args![cell]).bool() {
-        e.call(FORM_ID, &args![cell]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell))
     } else {
         let y = e.call(CELL_GET_DATA_Y, &args![cell]).u32();
         let x = e.call(CELL_GET_DATA_X, &args![cell]).u32();
@@ -1165,7 +1171,7 @@ pub fn bgs_reconstruct_world_spaces_map_add_cell_form(
     data: u32,
 ) {
     let world = e.call(CELL_GET_WORLD_SPACE, &args![cell]).u32();
-    let key = e.call(FORM_ID, &args![world]).u32();
+    let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world));
     let map = value_or_new(
         e,
         this.addr(),
@@ -1193,7 +1199,7 @@ pub fn bgs_reconstruct_world_spaces_map_add_cell_form_ov2(
     form_id: u32,
     data: u32,
 ) {
-    let key = e.call(FORM_ID, &args![world]).u32();
+    let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world));
     let map = value_or_new(
         e,
         this.addr(),
@@ -1269,6 +1275,7 @@ const SCRAP_ALIGNMENT: u32 = 0x010a_2720;
 /// `00401460` (`cdecl`: destination, source, byte count): the copy `_Reallocate` makes.
 const MEMORY_COPY_00401460: u32 = 0x0040_1460;
 /// `006815c0` (`thiscall`): answers `this` (here the constructor of a 12-byte local).
+#[cfg(test)]
 const RETURNS_THIS_006815C0: u32 = 0x0068_15c0;
 /// `GetLocationCellOrWorld` (engine map, `00846190`; `cdecl`: a word, the cell's and the
 /// world space's addresses).
@@ -1367,8 +1374,8 @@ pub fn bgs_reconstruct_forms_in_file_map_add_form(e: &mut Engine, this: Ptr, for
             let word_at = ebp - 0x14;
             let cell_at = ebp - 0x38;
             let world_at = ebp - 0x18;
-            e.call(RETURNS_THIS_006815C0, &args![position]);
-            e.call(RETURNS_THIS_006815C0, &args![other]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
             e.mem.set_u32(word_at, 0);
             e.mem.set_u32(cell_at, 0);
             e.mem.set_u32(world_at, 0);
@@ -1759,7 +1766,7 @@ pub fn bgs_reconstruct_forms_in_file_map_reconstruct_forms(
             } else if tag == e.global::<u32>(TAG_TOFT) {
                 let value = e.mem.u32(header + 0xc);
                 if value == u32::MAX || value == 0xffff_fffe {
-                    if e.call(ARRAY_COUNT, &args![offsets]).u32() != 0 {
+                    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, offsets)) != 0 {
                         let entry = fn_00844160(e, Ptr::new(offsets), index);
                         let offset = e.mem.u32(entry);
                         let map = e.mem.u32(entry + 4);
@@ -1781,7 +1788,10 @@ pub fn bgs_reconstruct_forms_in_file_map_reconstruct_forms(
                 if e.call(FORM_DATA_GET_AT, &args![forms, id, record]).bool() {
                     if cell_id != 0 {
                         let current = e.global::<u32>(RECONSTRUCT_CELL);
-                        if current == 0 || e.call(FORM_ID, &args![current]).u32() != cell_id {
+                        if current == 0
+                            || typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, current))
+                                != cell_id
+                        {
                             let cell = e.call(FORM_BY_ID, &args![cell_id]).u32();
                             e.set_global(RECONSTRUCT_CELL, cell);
                         }
@@ -1808,7 +1818,7 @@ pub fn bgs_reconstruct_forms_in_file_map_reconstruct_forms(
                 }
             }
             if end != 0 && end <= e.call(FILE_POSITION, &args![file]).u32() {
-                if e.call(ARRAY_COUNT, &args![offsets]).u32() > index {
+                if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, offsets)) > index {
                     let entry = fn_00844160(e, Ptr::new(offsets), index);
                     let offset = e.mem.u32(entry);
                     let map = e.mem.u32(entry + 4);
@@ -1893,12 +1903,15 @@ const REFR_GET_SCALE: u32 = 0x0056_7400;
 const SCALE_VALUE_00598040: u32 = 0x0059_8040;
 const REFR_SET_SCALE_00567490: u32 = 0x0056_7490;
 const ENTRY_TEST_MASK: u32 = 0x0046_1580;
+#[cfg(test)]
 const REFR_BASE_FORM: u32 = 0x007a_f430;
 const FORM_TEST_00549580: u32 = 0x0054_9580;
+#[cfg(test)]
 const FORM_TEST_00440DA0: u32 = 0x0044_0da0;
 const WORLD_GET_TERRAIN_MANAGER: u32 = 0x0058_6170;
 const TERRAIN_HIDE_TREE: u32 = 0x006f_cfa0;
 const REFR_TEST_00437B90: u32 = 0x0043_7b90;
+#[cfg(test)]
 const GET_SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 const SET_SAVED_ACQUIRE_OBJECT: u32 = 0x0040_7800;
 const GET_CURRENT_PROCESS_TYPE: u32 = 0x0093_1850;
@@ -1965,7 +1978,7 @@ pub fn fn_00843270(e: &mut Engine, this: Ptr, entry: u32) -> u32 {
 /// in the one at +0 below its count (`0044ddc0`), else at `index - count` in the one at +0x10
 /// (`00844160`, whose answer it passes on).
 pub fn fn_008432e0(e: &mut Engine, this: Ptr, index: u32) -> u32 {
-    let count = e.call(ARRAY_COUNT, &args![this]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     if index < count {
         fn_00844160(e, this, index)
     } else {
@@ -1977,7 +1990,7 @@ pub fn fn_008432e0(e: &mut Engine, this: Ptr, index: u32) -> u32 {
 /// The first word (the form) of entry `index` of both arrays together (unnamed in the engine
 /// map; `RET 4`), found as in `008432e0`.
 pub fn fn_00843330(e: &mut Engine, this: Ptr, index: u32) -> u32 {
-    let count = e.call(ARRAY_COUNT, &args![this]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     let entry = if index < count {
         fn_00844160(e, this, index)
     } else {
@@ -1991,7 +2004,7 @@ pub fn fn_00843330(e: &mut Engine, this: Ptr, index: u32) -> u32 {
 /// `00844c90(index, 1)` on the one at +0 below its count, else `00844c90(index - count, 1)` on
 /// the one at +0x10. Answers true (`MOV AL,1`).
 pub fn fn_00843380(e: &mut Engine, this: Ptr, index: u32) -> bool {
-    let count = e.call(ARRAY_COUNT, &args![this]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     if index < count {
         e.call(ARRAY_REMOVE, &args![this, index, 1u32]);
     } else {
@@ -2028,7 +2041,7 @@ pub fn bgs_reconstruct_forms_in_all_files_map_add_reference_ov2(
     let file = bgs_reconstruct_forms_in_all_files_map_get_file_for_form_id(e, this, key, form_id);
     if file == 0 {
         let name = e.vcall(world, FORM_NAME_SLOT, &args![]).u32();
-        let id = e.call(FORM_ID, &args![world]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world));
         e.call(SAVE_GAME_WARNING, &args![NO_FILE_WORLD_MESSAGE, id, name]);
         return;
     }
@@ -2079,9 +2092,9 @@ pub fn fn_00843c90(e: &mut Engine, _this: Ptr, entry: u32) {
             }
         }
         if e.call(ENTRY_TEST_MASK, &args![entry, 8u32]).bool() {
-            let base = e.call(REFR_BASE_FORM, &args![refr]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, refr));
             if e.call(FORM_TEST_00549580, &args![base]).bool()
-                && e.call(FORM_TEST_00440DA0, &args![refr]).bool()
+                && typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, refr))
             {
                 let world = e.call(REFR_GET_WORLD_SPACE, &args![refr]).u32();
                 if world != 0 {
@@ -2093,20 +2106,20 @@ pub fn fn_00843c90(e: &mut Engine, _this: Ptr, entry: u32) {
         if e.vcall(refr, 0xfc, &args![]).bool() {
             if e.call(REFR_TEST_00437B90, &args![refr]).bool() {
                 if e.call(ENTRY_TEST_MASK, &args![entry, 8u32]).bool()
-                    && e.call(GET_SAVED_ACQUIRE_OBJECT, &args![refr]).u32() != 0
+                    && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, refr)) != 0
                 {
                     let kind = e.call(GET_CURRENT_PROCESS_TYPE, &args![refr]).u32();
                     e.call(
                         PROCESS_LISTS_REMOVE_REFERENCE,
                         &args![PROCESS_LISTS, refr, kind],
                     );
-                    let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![refr]).u32();
+                    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, refr));
                     if object != 0 {
                         e.vcall(object, 0, &args![1u32]);
                     }
                     e.call(SET_SAVED_ACQUIRE_OBJECT, &args![refr, 0u32]);
                 }
-            } else if e.call(GET_SAVED_ACQUIRE_OBJECT, &args![refr]).u32() == 0 {
+            } else if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, refr)) == 0 {
                 let block = e.call(OPERATOR_NEW, &args![ACQUIRE_OBJECT_SIZE]).u32();
                 let object = if block != 0 {
                     e.call(ACQUIRE_OBJECT_CONSTRUCT, &args![block]).u32()
@@ -2142,7 +2155,11 @@ pub fn fn_00843c90(e: &mut Engine, _this: Ptr, entry: u32) {
     } else if e.call(FORM_TYPE, &args![e.mem.u32(entry)]).u32() == 0x43 {
         let form = e.mem.u32(entry);
         if e.call(FORM_OBJECT_0068EFB0, &args![form]).u32() != 0 {
-            let byte = u32::from(e.call(FORM_TEST_00440DA0, &args![form]).u8());
+            let byte = u32::from(
+                typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, form))
+                    .into_ret()
+                    .u8(),
+            );
             let object = e.call(FORM_OBJECT_0068EFB0, &args![form]).u32();
             e.call(OBJECT_SET_00693EF0, &args![object, byte]);
         }
@@ -2385,7 +2402,7 @@ pub fn bs_scrap_array_offset_data_reallocate(
     let block = e
         .call(SCRAP_HEAP_ALLOCATE, &args![heap, count << 3, alignment])
         .u32();
-    let used = e.call(ARRAY_COUNT, &args![this]).u32() << 3;
+    let used = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) << 3;
     e.call(MEMORY_COPY_00401460, &args![block, old, used]);
     let heap = e.mem.u32(this.addr() + 0x10);
     e.call(SCRAP_HEAP_DEALLOCATE, &args![heap, old]);

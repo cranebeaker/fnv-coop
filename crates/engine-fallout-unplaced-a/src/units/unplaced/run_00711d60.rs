@@ -125,6 +125,7 @@ const CLEAR_KEYSTROKES: u32 = 0x00a2_37b0;
 /// +4 of its answer), its first node (`00559450`) and the step that answers
 /// the node's item and advances (`0057cbe0`, `thiscall`, the iterator).
 const MENU_LIST_HOLDER: u32 = 0x0058_6150;
+#[cfg(test)]
 const LIST_HEAD: u32 = 0x0055_9450;
 const LIST_NEXT: u32 = 0x0057_cbe0;
 /// `Tile::GetMenu` (`00a03c90`), the menu's tile (`00726070`, `thiscall`),
@@ -133,6 +134,7 @@ const LIST_NEXT: u32 = 0x0057_cbe0;
 /// menu's fade kind (`0059bb30`, `thiscall`: 2 fading in, 8 fading out by
 /// the branches).
 const TILE_GET_MENU: u32 = 0x00a0_3c90;
+#[cfg(test)]
 const MENU_TILE: u32 = 0x0072_6070;
 const TILE_00712380: u32 = 0x0071_2380;
 const MENU_FADE_VALUE: u32 = 0x0071_6660;
@@ -176,9 +178,9 @@ fn one_minus(value: u32) -> u32 {
 /// `RecursiveFade` on the node of `menu`'s tile with `first` and `second`
 /// (float bits), after setting the tile's trait 0xFA3 to `flag`.
 fn fade_menu(e: &mut Engine, this: u32, menu: u32, flag: u32, first: u32, second: u32) {
-    let tile = e.call(MENU_TILE, &args![menu]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
     e.call(TILE_SET_VALUE, &args![tile, 0xfa3u32, flag]);
-    let tile = e.call(MENU_TILE, &args![menu]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
     let node = e.call(TILE_NODE, &args![tile]).u32();
     e.call(RECURSIVE_FADE, &args![this, node, first, second]);
 }
@@ -216,7 +218,11 @@ pub fn fn_00711ea0(e: &mut Engine, this: Ptr) {
         let controls = e.call(MAIN_00877720, &args![main]).u32();
         e.mem.set_u8(at + 0x11, 0);
         let holder = e.call(MENU_LIST_HOLDER, &args![at]).u32();
-        let head = e.call(LIST_HEAD, &args![holder.wrapping_add(4)]).u32();
+        let head = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, holder.wrapping_add(4))
+        );
         e.mem.set_u32(iterator, head);
         while e.mem.u32(iterator) != 0 {
             let holder = e.call(MENU_LIST_HOLDER, &args![at]).u32();
@@ -228,10 +234,10 @@ pub fn fn_00711ea0(e: &mut Engine, this: Ptr) {
             if tile != 0 {
                 menu = e.call(TILE_GET_MENU, &args![tile]).u32();
             }
-            if menu == 0 || e.call(MENU_TILE, &args![menu]).u32() == 0 {
+            if menu == 0 || typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) == 0 {
                 continue;
             }
-            let menu_tile = e.call(MENU_TILE, &args![menu]).u32();
+            let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
             if e.call(TILE_00712380, &args![menu_tile]).bool() {
                 continue;
             }
@@ -248,10 +254,12 @@ pub fn fn_00711ea0(e: &mut Engine, this: Ptr) {
                     (top == 0 && first == 0) || (first != 0 && second == 0 && first == 0x3e9);
                 if menu != 0 && finished {
                     e.call(RECOMPUTE_PACKING, &args![menu, 4u32]);
-                    let menu_tile = e.call(MENU_TILE, &args![menu]).u32();
+                    let menu_tile =
+                        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
                     if e.call(TILE_IS_TRUE, &args![menu_tile, 0x1772u32]).bool() {
-                        if e.call(MENU_TILE, &args![menu]).u32() != 0 {
-                            let doomed = e.call(MENU_TILE, &args![menu]).u32();
+                        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
+                            let doomed =
+                                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
                             if doomed != 0 {
                                 e.vcall(doomed, 0, &args![1u32]);
                             }

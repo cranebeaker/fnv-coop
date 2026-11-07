@@ -235,6 +235,7 @@ pub fn fn_0058da10(e: &mut Engine, this: Ptr) {
 const FORM_START_FORM: u32 = 0x0048_55a0;
 const FORM_CLOSE_FORM: u32 = 0x0048_5680;
 /// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `TESForm::AddChunkArray` (`00485710`, engine map `_ov2`; `cdecl`: chunk signature,
 /// address of the words, count).
@@ -255,7 +256,7 @@ pub fn fn_0058d870(e: &mut Engine, this: Ptr) {
             let offset = index as u32 * 4;
             let object = e.mem.u32(this.addr() + OBJECTS_OFFSET + offset);
             let id = if object != 0 {
-                e.call(FORM_ID, &args![object]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object))
             } else {
                 0
             };

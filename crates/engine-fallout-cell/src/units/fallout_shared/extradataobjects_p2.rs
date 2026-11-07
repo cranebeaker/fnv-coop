@@ -40,6 +40,7 @@ const DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const BS_EXTRA_DATA_TYPE: u32 = 0x0118_3b2c;
 /// `BSSimpleArray<T,1024>::size` of the folded body (`this` is the array,
 /// the count is returned in EAX).
+#[cfg(test)]
 const SIMPLE_ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `BSSimpleArray<T,1024>::operator[]` of the folded body: the address of
 /// the element slot.
@@ -143,11 +144,10 @@ const BS_EXTRA_DATA_COMPARE: u32 = 0x0040_f700;
 const MEMCMP: u32 = 0x00ec_4835;
 /// The folded `NiPoint3` constructor: `this` is returned (nothing is
 /// written); `ExtraEditorRefMoveData` runs it on its three vectors.
+#[cfg(test)]
 const NI_POINT3_CONSTRUCT: u32 = 0x0068_15c0;
-/// The same body as an accessor of a `BSSimpleList` node: the address of the
-/// node's item word (the node itself).
-const LIST_NODE_ITEM_SLOT: u32 = 0x0068_15c0;
 /// A `BSSimpleList` node's next pointer (`this` is the node).
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// The list's insertion of the item whose pointer is at the address given
 /// (`this` is the list).
@@ -192,8 +192,10 @@ const GET_EXTRA_LIST: u32 = 0x005d_43c0;
 const SET_PERSISTENT_CELL: u32 = 0x0041_d390;
 /// An accessor: the word at +0x68 (`MiddleHighProcess::GetSavedAcquireObject`
 /// in the engine map; on the player it is the process).
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 /// An accessor: the word at +0x28 of a process (its kind, 0 to 3).
+#[cfg(test)]
 const GET_PROCESS_KIND: u32 = 0x0045_cd60;
 /// The method that stores its argument in the word at +0x68
 /// (`MiddleHighProcess::SetSavedAcquireObject` in the engine map).
@@ -748,7 +750,7 @@ pub fn fn_00435ce0(e: &mut Engine, this: Ptr<ExtraFriendHits>) {
 
 /// The count of a `BSSimpleArray`.
 fn array_size(e: &mut Engine, array: Ptr<BSSimpleArray>) -> u32 {
-    e.call(SIMPLE_ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 /// The address of slot `index` of a `BSSimpleArray`.
@@ -1061,7 +1063,11 @@ pub fn fn_00435fa0(
         EXTRA_EDITOR_REF_MOVE_DATA_VTABLE,
     );
     for offset in [0x0c, 0x18, 0x24] {
-        e.call(NI_POINT3_CONSTRUCT, &args![this.addr() + offset]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.addr() + offset)
+        );
     }
     if !reference.is_null() {
         let angle = fn_00430830(e, reference);
@@ -1450,9 +1456,13 @@ pub fn fn_00436780(e: &mut Engine, _unused_this: Ptr, base_object: Ptr, source: 
     }
 
     let player = e.mem.u32(PLAYER);
-    let player_process = e.call(GET_PROCESS, &args![player]).u32();
+    let player_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     if player_process != 0 {
-        let kind = e.call(GET_PROCESS_KIND, &args![player_process]).u32();
+        let kind = typed_call!(
+            leaf::FAMILY,
+            0x0045_cd60,
+            leaf::word_at_28(e, player_process)
+        );
         let process = match kind {
             0 => new_object(e, 0x46c, HIGH_PROCESS_CONSTRUCT),
             1 => new_object(e, 0x25c, PROCESS_CONSTRUCT_25C),
@@ -1461,7 +1471,7 @@ pub fn fn_00436780(e: &mut Engine, _unused_this: Ptr, base_object: Ptr, source: 
             _ => 0,
         };
         e.call(SET_PROCESS, &args![object, process]);
-        let kind = e.call(GET_PROCESS_KIND, &args![process]).u32();
+        let kind = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process));
         e.call(
             PROCESS_LISTS_ADD_REFERENCE,
             &args![PROCESS_LISTS, object, kind, 0u32, 0u32, 0u32],
@@ -1633,13 +1643,13 @@ pub fn fn_00436d80(e: &mut Engine, this: Ptr<ExtraFactionChanges>) {
 /// The item of a list node (`006815c0` gives the address of the node's item
 /// word).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 /// The next node of a list node (`00726070`).
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// The entry for `faction` in the list that begins at `node`, walking while
@@ -1889,6 +1899,7 @@ const ZONE_MAP_NEXT: u32 = 0x006b_7f20;
 /// lowest `f32`, held in the exe's data).
 const LOWEST_FLOAT: u32 = 0x0101_5f5c;
 /// The handle of a reference (`this` is the reference).
+#[cfg(test)]
 const REFERENCE_HANDLE: u32 = 0x0084_e3a0;
 /// The reference for a handle (cdecl, one stack argument; null when the
 /// handle has none).
@@ -1918,6 +1929,7 @@ const STRING_LENGTH: u32 = 0x0040_48e0;
 const STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// An accessor that returns the word `this` points at (the text of a string,
 /// the object of a smart pointer).
+#[cfg(test)]
 const POINTER_VALUE: u32 = 0x0055_9450;
 /// `sprintf`-style formatting (cdecl: buffer, size, format, then the values).
 const FORMAT_STRING: u32 = 0x0040_6d00;
@@ -2303,7 +2315,7 @@ pub fn fn_004379a0(
     let handle = if user.is_null() {
         0
     } else {
-        e.call(REFERENCE_HANDLE, &args![user]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, user))
     };
     e.set(this, ExtraPatrolRefInUseData::User, handle);
     this
@@ -2359,7 +2371,7 @@ pub fn extra_patrol_ref_in_use_data_get_can_be_used_by(
     user: Ptr,
 ) -> bool {
     if !user.is_null() {
-        let handle = e.call(REFERENCE_HANDLE, &args![user]).u32();
+        let handle = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, user));
         if handle == e.get(this, ExtraPatrolRefInUseData::User) {
             return true;
         }
@@ -2421,8 +2433,12 @@ pub fn fn_00437bf0(e: &mut Engine, this: Ptr) -> bool {
 /// engine map has no name for: runs the folded `NiPoint3` constructor on the
 /// two vectors at +0 and +0x10 (it writes nothing). Returns `this`.
 pub fn fn_00437c10(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(NI_POINT3_CONSTRUCT, &args![this]);
-    e.call(NI_POINT3_CONSTRUCT, &args![this.addr() + 0x10]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0x10)
+    );
     this
 }
 
@@ -2478,12 +2494,12 @@ pub fn fn_00437d10(e: &mut Engine, this: Ptr<ExtraFollowerSwimBreadcrumbs>) {
     let list = this.addr() + 0x20;
     let mut node = list;
     while node != 0 {
-        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let crumb = e.mem.u32(slot);
         if crumb != 0 {
             e.call(CRUMB_DELETE, &args![crumb, 1u32]);
         }
-        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.mem.set_u32(slot, 0);
         node = node_next(e, node);
     }
@@ -2616,8 +2632,8 @@ pub fn extra_securitron_face_apply_face(e: &mut Engine, this: Ptr<ExtraSecuritro
         if e.call(STRING_LENGTH, &args![first]).u32() != 0
             && e.call(STRING_LENGTH, &args![second]).u32() != 0
         {
-            let second_text = e.call(POINTER_VALUE, &args![second]).u32();
-            let first_text = e.call(POINTER_VALUE, &args![first]).u32();
+            let second_text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, second));
+            let first_text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
             e.call(
                 FORMAT_STRING,
                 &args![
@@ -2641,7 +2657,7 @@ pub fn extra_securitron_face_apply_face(e: &mut Engine, this: Ptr<ExtraSecuritro
         let property_type = fn_00438220(e);
         let property: Ptr = e.call(GET_PROPERTY, &args![screen, property_type]).ptr();
         if !property.is_null() {
-            let image = e.call(POINTER_VALUE, &args![texture]).u32();
+            let image = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
             fn_00438230(e, property, image);
         }
         e.call(STRING_DESTRUCT, &args![second]);

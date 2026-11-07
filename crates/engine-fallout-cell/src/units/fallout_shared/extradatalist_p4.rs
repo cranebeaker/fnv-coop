@@ -59,6 +59,7 @@ const OPERATOR_NEW: u32 = 0x0040_1000;
 /// `operator delete(block)`.
 const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// `MOV EAX,[ECX]`: reads the word a handle points at.
+#[cfg(test)]
 const READ_WORD: u32 = 0x0055_9450;
 /// Assigns the handle at `this` (the word at +0x0C of the extra data) the
 /// value on the stack: when it differs, one reference is released and one
@@ -413,6 +414,7 @@ const SCRIPT_LOCALS_SAVE_GAME: u32 = 0x005a_9db0;
 const GET_MODEL_SWAP_INDEX: u32 = 0x0047_5920;
 /// `MOV EAX,[ECX+0x28]`: the word at +0x28 of an object, used by the
 /// buffered save.
+#[cfg(test)]
 const GET_WORD_28: u32 = 0x0045_cd60;
 /// `MagicItem::GetMagicItemFormID` and `MagicTarget::GetMagicTargetFormID`
 /// (Xbox PDB).
@@ -421,10 +423,6 @@ const GET_MAGIC_TARGET_FORM_ID: u32 = 0x0082_54c0;
 /// `ExtraFriendHits::RemoveOldHits` (Xbox PDB), run before the hits are
 /// saved.
 const FRIEND_HITS_REMOVE_OLD_HITS: u32 = 0x0043_5e40;
-/// `0044ddc0(this)` on the member at +0x0C/+0x20 of an extra data: the
-/// number of items of the array it is (the same body as `GET_NEXT` for a
-/// `BSExtraData`), and `006a7ad0(this, index)`: the item at an index.
-const ARRAY_COUNT: u32 = 0x0044_ddc0;
 const ARRAY_ITEM: u32 = 0x006a_7ad0;
 /// `CombatTimeStamp::SaveGame` (Xbox PDB) and
 /// `ActiveEffect::SaveActiveEffectList` (Xbox PDB, cdecl: the buffer and the
@@ -575,6 +573,7 @@ const SETTING_BYTE_ADDRESS: u32 = 0x0040_8d60;
 /// object): form id at +0, flags at +5.
 const SAVING_FORM_HEADER: u32 = 0x004f_d3e0;
 /// `Error(format, ...)` (Xbox PDB, cdecl).
+#[cfg(test)]
 const ERROR_LOG: u32 = 0x0040_fbe0;
 /// `00469860(id)` on the data handler: true when the form id is below
 /// `0xFF000000` (a form of a data file, not one created in play).
@@ -1061,7 +1060,11 @@ pub fn extra_data_list_get_multi_bound(e: &mut Engine, this: Ptr<ExtraDataList>)
     if extra.is_null() {
         0
     } else {
-        e.call(READ_WORD, &args![extra.addr() + 0x0c]).u32()
+        typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, extra.addr() + 0x0c)
+        )
     }
 }
 
@@ -1082,7 +1085,11 @@ pub fn fn_00422120(e: &mut Engine, this: Ptr<ExtraDataList>) -> u32 {
     if extra.is_null() {
         0
     } else {
-        e.call(READ_WORD, &args![extra.addr() + 0x0c]).u32()
+        typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, extra.addr() + 0x0c)
+        )
     }
 }
 
@@ -1660,28 +1667,9 @@ pub fn fn_00422c40(e: &mut Engine, this: Ptr<ExtraDataList>, flags: u32, referen
             let form = e.call(LOOKUP_FORM, &args![form_id]).u32();
             let name = e.vcall(form, FORM_NAME_SLOT, &args![]).u32();
             let header_flags = e.mem.u32(world + 5);
-            e.call(
-                ERROR_LOG,
-                &args![
-                    GET_SAVE_SIZE_FORMAT,
-                    written,
-                    form_id,
-                    name,
-                    header_flags,
-                    0x29b5u32,
-                    SOURCE_FILE_NAME
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words GET_SAVE_SIZE_FORMAT, written, form_id, name, header_flags, 0x29b5u32, SOURCE_FILE_NAME);
         } else {
-            e.call(
-                ERROR_LOG,
-                &args![
-                    GET_SAVE_SIZE_SHORT_FORMAT,
-                    written,
-                    0x29b5u32,
-                    SOURCE_FILE_NAME
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words GET_SAVE_SIZE_SHORT_FORMAT, written, 0x29b5u32, SOURCE_FILE_NAME);
         }
     }
     unlock(e);
@@ -1750,23 +1738,9 @@ fn log_save_size(e: &mut Engine, written: u32, format: u32, short_format: u32, l
         let form = e.call(LOOKUP_FORM, &args![form_id]).u32();
         let name = e.vcall(form, FORM_NAME_SLOT, &args![]).u32();
         let header_flags = e.mem.u32(world + 5);
-        e.call(
-            ERROR_LOG,
-            &args![
-                format,
-                written,
-                form_id,
-                name,
-                header_flags,
-                line,
-                SOURCE_FILE_NAME
-            ],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words format, written, form_id, name, header_flags, line, SOURCE_FILE_NAME);
     } else {
-        e.call(
-            ERROR_LOG,
-            &args![short_format, written, line, SOURCE_FILE_NAME],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words short_format, written, line, SOURCE_FILE_NAME);
     }
 }
 
@@ -1887,7 +1861,9 @@ pub fn extra_data_list_save_game(
                 save_local(e, 0, 2);
                 let packages = extra_cast(e, current, RTTI_EXTRA_RUN_ONCE_PACKS);
                 let mut node = e.mem.u32(packages + 0x0c);
-                while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+                while node != 0
+                    && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+                {
                     let item = list_item(e, node);
                     if item != 0 {
                         let form = e.mem.u32(item);
@@ -1908,7 +1884,9 @@ pub fn extra_data_list_save_game(
                 let items_at = save_position(e);
                 save_local(e, 0, 2);
                 let mut node = e.mem.u32(followers + 0x0c);
-                while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+                while node != 0
+                    && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+                {
                     let item = list_item(e, node);
                     if item != 0 {
                         let id = form_id(e, item);
@@ -2487,7 +2465,7 @@ fn array_count(e: &mut Engine, array: u32) -> u32 {
     if array == 0 {
         0
     } else {
-        e.call(ARRAY_COUNT, &args![array]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
     }
 }
 
@@ -2740,8 +2718,8 @@ fn save_extra_ov2(e: &mut Engine, buffer: u32, extra: u32, extra_type: u8, flag:
             let first = word(e, 0x0c);
             walk_list(e, first, |e, item| {
                 if item != 0 {
-                    let a = e.call(GET_WORD_28, &args![item]).u32();
-                    let b = e.call(SIMPLE_LIST_NEXT, &args![item]).u32();
+                    let a = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, item));
+                    let b = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
                     buffer_save_local(e, buffer, a, 4);
                     buffer_save_local(e, buffer, b, 4);
                     count += 1;
@@ -2863,9 +2841,9 @@ fn save_extra_ov2(e: &mut Engine, buffer: u32, extra: u32, extra_type: u8, flag:
         // A handle: the word `00825c00` gives for its object, or -1.
         0x60 => {
             let handle = at(0x0c);
-            let object = e.call(READ_WORD, &args![handle]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, handle));
             let value = if object != 0 {
-                let again = e.call(READ_WORD, &args![handle]).u32();
+                let again = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, handle));
                 e.call(HANDLE_TARGET_WORD, &args![again]).u32()
             } else {
                 0xffff_ffff
@@ -2880,7 +2858,11 @@ fn save_extra_ov2(e: &mut Engine, buffer: u32, extra: u32, extra_type: u8, flag:
             let second = word(e, 0x10);
             buffer_save_form_id_ov2(e, buffer, second);
             let object = e.call(0x0041_81e0, &args![flag]).u32();
-            let marker = e.call(GET_WORD_28, &args![object + 0x30]).u32();
+            let marker = typed_call!(
+                leaf::FAMILY,
+                0x0045_cd60,
+                leaf::word_at_28(e, object + 0x30)
+            );
             buffer_save_local(e, buffer, marker, 4);
             let saved = e.with_stack(4, |e, out| {
                 fn_00428110(e, Ptr::new(buffer), out);
@@ -2933,7 +2915,8 @@ fn save_extra_ov2(e: &mut Engine, buffer: u32, extra: u32, extra_type: u8, flag:
                     } else {
                         fn_00428070(e, Ptr::new(extra), text.addr())
                     };
-                    let characters = e.call(READ_WORD, &args![copy]).u32();
+                    let characters =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, copy));
                     e.call(BUFFER_SAVE_STRING, &args![buffer, characters, 0u32]);
                     e.call(STRING_DESTROY, &args![text]);
                 });
@@ -3455,7 +3438,7 @@ fn load_extra_ov2(
                 }
             }
             let list = e.mem.u32(extra + 0x0c);
-            let slot = e.call(SIMPLE_LIST_ITEM, &args![list]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             if e.mem.u32(slot) == 0 {
                 remove_extra(e, this, 0x35);
             }
@@ -3469,7 +3452,7 @@ fn load_extra_ov2(
                 let hit = e.call(ARRAY_ITEM, &args![extra + 0x0c, index]).u32();
                 e.call(COMBAT_TIME_STAMP_LOAD_GAME, &args![hit, buffer]);
             }
-            if e.call(ARRAY_COUNT, &args![extra + 0x0c]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, extra + 0x0c)) == 0 {
                 fn_00422670(e, this);
             }
         }
@@ -3488,7 +3471,9 @@ fn load_extra_ov2(
             }
             let mut node = e.mem.u32(extra + 0x0c);
             let mut previous = 0u32;
-            while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
                 let item = list_item(e, node);
                 let mut remove = false;
                 if item != 0 {
@@ -3501,7 +3486,7 @@ fn load_extra_ov2(
                 }
                 if remove {
                     if previous != 0 {
-                        let slot = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+                        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                         e.call(LIST_REMOVE_AFTER, &args![previous, slot]);
                         node = list_next(e, previous);
                     } else {
@@ -3667,7 +3652,7 @@ fn load_extra_ov2(
             });
             let handle = e.call(HANDLE_OF_ID, &args![id]).u32();
             e.call(ASSIGN_HANDLE_AT, &args![extra + 0x0c, handle]);
-            if e.call(READ_WORD, &args![extra + 0x0c]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, extra + 0x0c)) == 0 {
                 remove_extra(e, this, 0x60);
             }
         }
@@ -3828,7 +3813,7 @@ fn load_dismembered_limbs(
             let inner_slot = e.call(ARRAY_ITEM, &args![inner, inner_index]).u32();
             e.call(LOAD_FORM_ID_OV2, &args![buffer, inner_slot]);
         }
-        let mut remaining = e.call(ARRAY_COUNT, &args![inner]).u32();
+        let mut remaining = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, inner));
         let mut inner_index = 0u32;
         while inner_index < remaining {
             let inner_slot = e.call(ARRAY_ITEM, &args![inner, inner_index]).u32();
@@ -4084,6 +4069,7 @@ const GET_SCRIPT_LOCALS: u32 = 0x0041_8830;
 const SCRIPT_LOCALS_FINISH_LOAD: u32 = 0x005a_a090;
 /// `0084e3a0(form)`: the word at +0x0C of a form (read by the code as a
 /// handle). It is declared with no parameter; the callers push one word.
+#[cfg(test)]
 const FORM_WORD_0C: u32 = 0x0084_e3a0;
 /// The object at `011c3f2c` (read as a word) whose `00469860(value)`
 /// ([`FORM_ID_IS_FILE_FORM`]) is true when the value is below `0xFF000000`.
@@ -4441,7 +4427,7 @@ pub fn fn_0042cd70(e: &mut Engine, this: Ptr) {
 /// at; the answer is the low byte of the result.
 pub fn fn_0042cde0(e: &mut Engine, this: Ptr) -> bool {
     let node = e.mem.u32(this.addr());
-    e.call(LIST_IS_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 // Translated from 0042ce00 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -4727,7 +4713,7 @@ pub fn fn_0042ceb0(e: &mut Engine, this: Ptr<ExtraDataList>, buffer: u32, form: 
 fn fix_followers(e: &mut Engine, extra: u32) {
     let mut node = e.mem.u32(extra + 0x0c);
     let mut previous = 0u32;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let id = list_item(e, node);
         let actor = form_or_null(e, id, RTTI_ACTOR);
         if actor != 0 {
@@ -4740,7 +4726,7 @@ fn fix_followers(e: &mut Engine, extra: u32) {
         } else if previous == 0 {
             e.call(LIST_REMOVE_HEAD, &args![node]);
         } else {
-            let slot = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.call(LIST_REMOVE_ITEM, &args![previous, slot]);
             node = list_next(e, previous);
         }
@@ -4767,7 +4753,7 @@ pub fn extra_data_list_finish_load_game(e: &mut Engine, this: Ptr<ExtraDataList>
                 e.mem.set_u8(extra.addr() + 0x18, 1);
             } else {
                 // The word pushed before `0084e3a0` is not read by it.
-                let handle = e.call(FORM_WORD_0C, &args![reference]).u32();
+                let handle = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
                 let both =
                     e.mem.u32(extra.addr() + 0x10) != 0 && e.mem.u32(extra.addr() + 0x0c) != 0;
                 e.call(MOBILE_OBJECT_SAY_TO_CALL_BACK, &args![handle, both as u32]);
@@ -4838,7 +4824,7 @@ pub fn fn_0042dae0(e: &mut Engine, this: Ptr<ExtraDataList>, buffer: u32) {
     let is_file_form = if reference == 0 {
         false
     } else {
-        let handle = e.call(FORM_WORD_0C, &args![reference]).u32();
+        let handle = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         let tester = e.global::<u32>(FILE_FORM_TESTER);
         e.call(FORM_ID_IS_FILE_FORM, &args![tester, handle]).u8() != 0
     };

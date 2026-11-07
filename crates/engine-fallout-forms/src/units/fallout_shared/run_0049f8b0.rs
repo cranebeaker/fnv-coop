@@ -11,6 +11,7 @@ const ALLOCATE_NODE: u32 = 0x0043_a010;
 /// `006e6da0` (`cdecl`, `(size, place)`: the placement `new`, answers `place`) and
 /// `006815c0` (`thiscall`, no stack word): the constructor run on each 12-byte element.
 const PLACEMENT_NEW: u32 = 0x006e_6da0;
+#[cfg(test)]
 const ELEMENT_CONSTRUCTOR: u32 = 0x0068_15c0;
 
 // Translated from 0049fa80 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -75,7 +76,7 @@ pub fn fn_0049f8f0(e: &mut Engine, _this: Ptr, elements: u32, count: u32) {
         let place = index.wrapping_mul(0xc).wrapping_add(elements);
         let element = e.call(PLACEMENT_NEW, &args![0xcu32, place]).u32();
         if element != 0 {
-            e.call(ELEMENT_CONSTRUCTOR, &args![element]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, element));
         }
     }
 }

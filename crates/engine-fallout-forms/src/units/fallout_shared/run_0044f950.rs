@@ -15,8 +15,10 @@ const DELETE_CRITICAL_SECTION: u32 = 0x00fd_f058;
 /// `00404d30`: the object's own check before a walk (a `bool`).
 const OBJECT_CHECK: u32 = 0x0040_4d30;
 /// `006815c0`: returns its `this` (the node; its first word is the element).
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
 /// `00726070`: a `BSSimpleList` node's next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The memory-context guard (`00404eb0` with four words, `00404ee0`).
 const CONTEXT_GUARD_ENTER: u32 = 0x0040_4eb0;
@@ -41,7 +43,7 @@ pub fn fn_0044f950(e: &mut Engine, this: Ptr) -> u8 {
     if result != 0 {
         let mut node = fn_0044faa0(e, this);
         while node != 0 {
-            let slot = e.call(NODE_SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let element = e.mem.u32(slot);
             result &= e.vcall(this.addr(), 0x10, &args![element]).u8();
             node = fn_0044fac0(e, this, node);
@@ -65,9 +67,9 @@ pub fn fn_0044f9c0(e: &mut Engine, this: Ptr) -> u8 {
         if result != 0 {
             let mut node = fn_0044faa0(e, this);
             while node != 0 {
-                let slot = e.call(NODE_SELF, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(slot) != 0 {
-                    let slot = e.call(NODE_SELF, &args![node]).u32();
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let element = e.mem.u32(slot);
                     result &= e.vcall(this.addr(), 0x14, &args![element]).u8();
                 }
@@ -88,7 +90,7 @@ pub fn fn_0044faa0(_e: &mut Engine, this: Ptr) -> u32 {
 // Translated from 0044fac0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The node after `node` (`00726070` on it); `this` is not read.
 pub fn fn_0044fac0(e: &mut Engine, _this: Ptr, node: u32) -> u32 {
-    e.call(NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 // Translated from 0044fb00 (decompiled, FalloutNV.exe 1.4.0.525)

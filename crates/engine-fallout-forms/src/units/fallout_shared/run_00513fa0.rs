@@ -152,7 +152,9 @@ const MEMCMP: u32 = 0x00ec_4835;
 /// The list at +0x188 (a list object whose first node is the object
 /// itself): `006815c0` (`thiscall` on a node) answers the address of the
 /// node's item, `00726070` (`thiscall`) the next node.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `00470470` (`thiscall` on the list), the list's deleting destructor
 /// `004702f0` (`thiscall`, one word), the list constructor `0096a2d0`
@@ -180,7 +182,7 @@ fn cast_to_armo(e: &mut Engine, form: u32) -> u32 {
 
 /// The word at the item address `006815c0` answers for `node`.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let item = e.call(NODE_ITEM, &args![node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(item)
 }
 
@@ -213,7 +215,7 @@ pub fn fn_00513fa0(e: &mut Engine, this: Ptr, source: u32) {
         while node != 0 && node_item(e, node) != 0 {
             let item = node_item(e, node);
             e.call(FREE, &args![item]);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let list = e.mem.u32(at + 0x188);
         e.call(LIST_00470470, &args![list]);
@@ -242,7 +244,7 @@ pub fn fn_00513fa0(e: &mut Engine, this: Ptr, source: u32) {
     let mut node = e.mem.u32(other.wrapping_add(0x188));
     while node != 0 && node_item(e, node) != 0 {
         let entry = node_item(e, node);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if entry == 0 || e.mem.u32(entry) == 0 {
             continue;
         }
@@ -302,9 +304,9 @@ pub fn fn_00514220(e: &mut Engine, this: Ptr, form: u32) -> bool {
     if theirs == 0 || e.mem.u32(at + 0x188) == 0 {
         return true;
     }
-    let first_theirs = e.call(NODE_ITEM, &args![theirs]).u32();
+    let first_theirs = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
     let mine = e.mem.u32(at + 0x188);
-    let first_mine = e.call(NODE_ITEM, &args![mine]).u32();
+    let first_mine = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
     if e.mem.u32(first_theirs) != e.mem.u32(first_mine) {
         return true;
     }
@@ -328,12 +330,12 @@ pub fn fn_00514220(e: &mut Engine, this: Ptr, form: u32) -> bool {
                     }
                 }
             }
-            candidate = e.call(NODE_NEXT, &args![candidate]).u32();
+            candidate = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, candidate));
         }
         if !found {
             return true;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }

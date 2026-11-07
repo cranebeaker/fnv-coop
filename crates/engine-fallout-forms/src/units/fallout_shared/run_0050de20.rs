@@ -30,6 +30,7 @@ const LIGHT_FADE: u32 = 0xb4;
 /// `NiPointer` members: the copy constructor (`00559a40`), the pointer
 /// (`00559450`, the first word) and the destructor (`0045cec0`).
 const POINTER_COPY: u32 = 0x0055_9a40;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const POINTER_DESTRUCT: u32 = 0x0045_cec0;
 /// The frame timer object and its seconds-passed getter (`0084d030`,
@@ -145,7 +146,7 @@ pub fn fn_0050de20(e: &mut Engine, this: Ptr, holder: u32, extra: u32) -> bool {
 pub fn fn_0050de60(e: &mut Engine, this: Ptr, node: u32, fade: u32, owner: u32) -> bool {
     e.with_stack(4, |e, argument| {
         e.mem.set_u32(argument.addr(), node);
-        let node = e.call(POINTER_GET, &args![argument]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, argument));
         let mut finished = false;
         let flags = e.mem.u32(this.addr() + LIGHT_FLAGS);
         let fade_of_light = this.addr() + LIGHT_FADE;
@@ -228,16 +229,17 @@ pub fn fn_0050de60(e: &mut Engine, this: Ptr, node: u32, fade: u32, owner: u32) 
                 x87_load32(wave_one.to_bits()),
                 x87_m32(level.to_bits()),
             ));
-            let target = e.call(POINTER_GET, &args![argument]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, argument));
             e.call(SET_COLOR, &args![target, copied(z), copied(y), copied(x)]);
             if e.call(MANAGED, &[]).bool() {
-                let target = e.call(POINTER_GET, &args![argument]).u32();
+                let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, argument));
                 let manager = e.call(MANAGER, &[]).u32();
                 e.call(MANAGER_UPDATE, &args![manager, target]);
             } else {
                 e.with_stack(0xc, |e, point| {
                     e.call(POINT_CONSTRUCT, &args![point, 0.0f32, 0u32, 0u32]);
-                    let target = e.call(POINTER_GET, &args![argument]).u32();
+                    let target =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, argument));
                     e.call(SET_POINT, &args![target, point]);
                 });
             }
@@ -295,12 +297,12 @@ pub fn fn_0050de60(e: &mut Engine, this: Ptr, node: u32, fade: u32, owner: u32) 
                 ),
                 x87_m32(fade_bits),
             ));
-            let target = e.call(POINTER_GET, &args![argument]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, argument));
             e.call(DIMMER_SET, &args![target, copied(dimmer)]);
         } else {
             let pulse = flags & 0x80 != 0 || flags & 0x100 != 0;
             if pulse || (owner != 0 && owner_value_is_zero(e, owner)) {
-                let target = e.call(POINTER_GET, &args![argument]).u32();
+                let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, argument));
                 let mut dimmer = store32(e.call(DIMMER_GET, &args![target]).f64());
                 let seconds = store32(e.call(SECONDS_PASSED, &args![TIMER]).f64());
                 let mut step = f32::from_bits(x87_quiet_bits(e.mem.u32(DIM_STEP)));
@@ -314,7 +316,7 @@ pub fn fn_0050de60(e: &mut Engine, this: Ptr, node: u32, fade: u32, owner: u32) 
                 } else {
                     dimmer = store32(x87_sub(x87_m32(dimmer.to_bits()), change));
                 }
-                let target = e.call(POINTER_GET, &args![argument]).u32();
+                let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, argument));
                 e.call(DIMMER_SET, &args![target, copied(dimmer)]);
                 let distance = store32(x87_sub(
                     x87_load32(dimmer.to_bits()),

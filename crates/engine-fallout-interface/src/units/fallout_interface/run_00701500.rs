@@ -22,6 +22,7 @@ const GET_INVENTORY_CHANGES: u32 = 0x004b_f220;
 /// that hot key, or 0.
 const ITEM_WITH_HOT_KEY: u32 = 0x004b_f4b0;
 /// `0044ddc0` (`thiscall`, no stack words): the item change's form (its word at +8).
+#[cfg(test)]
 const ITEM_FORM: u32 = 0x0044_ddc0;
 /// `TESBipedModelForm::GetBipedTESModel` (engine map, `00481090`, `cdecl`: form, owner).
 const GET_BIPED_MODEL: u32 = 0x0048_1090;
@@ -50,12 +51,12 @@ pub fn fn_00701520(e: &mut Engine, _unused_this: Ptr) {
     let inventory = e.call(GET_INVENTORY_CHANGES, &args![owner]).u32();
     for hot_key in 0..8u32 {
         let item = e.call(ITEM_WITH_HOT_KEY, &args![inventory, hot_key]).u32();
-        if item != 0 && e.call(ITEM_FORM, &args![item]).u32() != 0 {
+        if item != 0 && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item)) != 0 {
             let owner = e.mem.u32(OWNER_011DEA3C);
-            let form = e.call(ITEM_FORM, &args![item]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             let mut model = e.call(GET_BIPED_MODEL, &args![form, owner]).u32();
             if model == 0 {
-                let form = e.call(ITEM_FORM, &args![item]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                 model = e
                     .call(
                         DYNAMIC_CAST,

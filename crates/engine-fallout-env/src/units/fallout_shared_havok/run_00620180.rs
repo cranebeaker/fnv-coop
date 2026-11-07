@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// `00726070` (unnamed in the engine map): `thiscall`; the dword at `this + 4`.
+#[cfg(test)]
 const NEXT_FIELD: u32 = 0x0072_6070;
 
 // Translated from 00620180 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -12,9 +13,11 @@ const NEXT_FIELD: u32 = 0x0072_6070;
 /// `UMSFreeVirtualProcessorRoot::SchedulerProxy`, which its body is not). `thiscall`: the dword
 /// at `+4` of the member at `this + 4` (`00726070`), minus 4, or null when that is null.
 pub fn fn_00620180(e: &mut Engine, this: Ptr) -> u32 {
-    let next = e
-        .call(NEXT_FIELD, &args![this.addr().wrapping_add(4)])
-        .u32();
+    let next = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this.addr().wrapping_add(4))
+    );
     if next == 0 {
         0
     } else {

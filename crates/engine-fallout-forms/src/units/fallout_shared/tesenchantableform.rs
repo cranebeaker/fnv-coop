@@ -44,7 +44,7 @@ pub fn tesenchantableform_init_item(e: &mut Engine, this: Ptr, owner: Ptr) {
             let name = e.vcall(owner.addr(), 0x130, &args![]).u32();
             e.call(0x005b_5e40, &args![0x0101_c250u32, id, name]);
         } else {
-            let owner_id = e.call(0x0084_e3a0, &args![owner]).u32();
+            let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             e.call(0x005b_5e40, &args![0x0101_c208u32, id, owner_id]);
         }
     }
@@ -54,11 +54,12 @@ pub fn tesenchantableform_init_item(e: &mut Engine, this: Ptr, owner: Ptr) {
         && !e.call(0x0040_94f0, &args![enchantment, owner]).bool()
     {
         let owner_name = e.vcall(owner.addr(), 0x130, &args![]).u32();
-        let owner_id = e.call(0x0084_e3a0, &args![owner]).u32();
+        let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
         let enchantment = e.mem.u32(base + 4);
         let enchantment_name = e.vcall(enchantment, 0x130, &args![]).u32();
         let enchantment = e.mem.u32(base + 4);
-        let enchantment_id = e.call(0x0084_e3a0, &args![enchantment]).u32();
+        let enchantment_id =
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, enchantment));
         e.call(
             0x005b_5e40,
             &args![
@@ -95,6 +96,7 @@ pub fn fn_00483170(e: &mut Engine, this: Ptr, value: u16) {
 const ADD_CHUNK_WORD: u32 = 0x0048_5910;
 const ADD_CHUNK_SHORT: u32 = 0x0048_5950;
 /// The getter of the form id at +0xC (`0084e3a0`, `thiscall`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `__RTDynamicCast` (`00ec43fb`) from `BaseFormComponent` (`01183040`) to
 /// `TESEnchantableForm` (`011839b4`), the type descriptors' names read at +8.
@@ -105,6 +107,7 @@ const TYPE_ENCHANTABLE_FORM: u32 = 0x0118_39b4;
 /// (`00726070`) and the 16-bit word (`004a8ae0`, answers `AX`); the setter of
 /// the word at +4 (`006ecd40`, one word) and `0041fd00` (one word, given the
 /// other component's virtual slot `+0x10`).
+#[cfg(test)]
 const GET_ENCHANTMENT: u32 = 0x0072_6070;
 const GET_AMOUNT: u32 = 0x004a_8ae0;
 const SET_ENCHANTMENT: u32 = 0x006e_cd40;
@@ -117,7 +120,7 @@ const SET_SLOT_10_VALUE: u32 = 0x0041_fd00;
 pub fn tes_enchantable_form_save(e: &mut Engine, this: Ptr) {
     let enchantment = e.mem.u32(this.addr() + 4);
     if enchantment != 0 {
-        let id = e.call(FORM_ID, &args![enchantment]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, enchantment));
         e.call(ADD_CHUNK_WORD, &args![0x4d54_4945u32, id]);
     }
     let amount = e.mem.u16(this.addr() + 8);
@@ -147,7 +150,7 @@ pub fn tes_enchantable_form_copy_component(e: &mut Engine, this: Ptr, other: Ptr
     if source == 0 {
         return;
     }
-    let enchantment = e.call(GET_ENCHANTMENT, &args![source]).u32();
+    let enchantment = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source));
     e.call(SET_ENCHANTMENT, &args![this, enchantment]);
     let amount = e.call(GET_AMOUNT, &args![source]).u16();
     fn_00483170(e, this, amount);
@@ -175,8 +178,8 @@ pub fn tes_enchantable_form_compare_component(e: &mut Engine, this: Ptr, other: 
     if source == 0 {
         return true;
     }
-    let own = e.call(GET_ENCHANTMENT, &args![this]).u32();
-    if own != e.call(GET_ENCHANTMENT, &args![source]).u32() {
+    let own = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
+    if own != typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source)) {
         return true;
     }
     let own = e.call(GET_AMOUNT, &args![this]).u16();

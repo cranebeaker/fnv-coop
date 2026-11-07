@@ -65,6 +65,7 @@ const AXIS_LABEL: u32 = 0x0104_4b20;
 /// `operator new(size)` (cdecl).
 const OPERATOR_NEW: u32 = 0x00aa_13e0;
 /// `NiPoint3::Dot` (Xbox PDB; `this` and the other point, the result in `ST0`).
+#[cfg(test)]
 const DOT: u32 = 0x004b_6190;
 /// `fabs` (`00ec6cde`, a `double` in and out).
 const FABS: u32 = 0x00ec_6cde;
@@ -78,6 +79,7 @@ const START_POINT: u32 = 0x011f_426c;
 /// `NiPlane::NiPlane` (Xbox PDB; no arguments).
 const PLANE_CONSTRUCT: u32 = 0x00a6_9940;
 /// Plane test (`0049da80`, `this` the plane, then a point): 2 for "outside".
+#[cfg(test)]
 const PLANE_SIDE_OF_POINT: u32 = 0x0049_da80;
 /// Length of a point (`00457990`, the result in `ST0`).
 const POINT_LENGTH: u32 = 0x0045_7990;
@@ -148,7 +150,13 @@ fn plane_distance_exceeds(
     limit: f64,
 ) -> bool {
     let normal = planes + 0x10 * plane;
-    let dot = e.call(DOT, &args![normal, point]).f64();
+    let dot = typed_call!(
+        leaf::FAMILY,
+        0x004b_6190,
+        leaf::point3_dot(e, normal, point)
+    )
+    .into_ret()
+    .f64();
     let offset = x87_store32(x87_sub(dot, x87_m32(e.mem.u32(normal + 0xc))));
     let distance = x87_quiet_bits(float_abs(e, offset));
     let extent = e.mem.u32(this.addr() + HALF_EXTENTS + 4 * plane);
@@ -314,8 +322,16 @@ pub fn bs_multi_bound_obb_check_bound(e: &mut Engine, this: Ptr, sphere: Ptr) ->
                 break;
             }
             load_axis(e, this, index, axis);
-            let own = e.call(DOT, &args![axis, center]).f64();
-            let other = e.call(DOT, &args![sphere_center, axis]).f64();
+            let own = typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, axis, center))
+                .into_ret()
+                .f64();
+            let other = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, sphere_center, axis)
+            )
+            .into_ret()
+            .f64();
             let offset = x87_store32(x87_sub(other, own));
             let distance = x87_m32(x87_quiet_bits(float_abs(e, offset)));
             let extent = x87_load32(e.mem.u32(this.addr() + HALF_EXTENTS + 4 * index));
@@ -411,12 +427,15 @@ pub fn bs_multi_bound_obb_within_frustum(e: &mut Engine, this: Ptr, frustum: Ptr
                 if flat && vertex & 1 == 0 {
                     continue;
                 }
-                let side = e
-                    .call(
-                        PLANE_SIDE_OF_POINT,
-                        &args![frustum.byte_add(plane << 4), vertices.byte_add(12 * vertex)],
+                let side = typed_call!(
+                    leaf::FAMILY,
+                    0x0049_da80,
+                    leaf::plane_side(
+                        e,
+                        frustum.byte_add(plane << 4),
+                        vertices.byte_add(12 * vertex)
                     )
-                    .u32();
+                );
                 if side != 2 {
                     all_outside = false;
                 }
@@ -445,12 +464,15 @@ pub fn bs_multi_bound_obb_completely_within_frustum(
                 continue;
             }
             for vertex in 0..8u32 {
-                let side = e
-                    .call(
-                        PLANE_SIDE_OF_POINT,
-                        &args![frustum.byte_add(plane << 4), vertices.byte_add(12 * vertex)],
+                let side = typed_call!(
+                    leaf::FAMILY,
+                    0x0049_da80,
+                    leaf::plane_side(
+                        e,
+                        frustum.byte_add(plane << 4),
+                        vertices.byte_add(12 * vertex)
                     )
-                    .u32();
+                );
                 if side == 2 {
                     return false;
                 }
@@ -634,7 +656,13 @@ pub fn bs_multi_bound_obb_get_planes(e: &mut Engine, this: Ptr, planes: Ptr) {
             load_axis(e, this, plane, normal.addr());
             let target = planes.addr() + 0x10 * plane;
             copy_words(e, normal.addr(), target, 3);
-            let dot = e.call(DOT, &args![normal, this.addr() + CENTER]).f64();
+            let dot = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, normal, this.addr() + CENTER)
+            )
+            .into_ret()
+            .f64();
             let constant = x87_store32(dot);
             e.mem.set_u32(target + 0xc, x87_quiet_bits(constant));
         }

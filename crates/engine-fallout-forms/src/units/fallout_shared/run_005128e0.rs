@@ -154,10 +154,13 @@ pub fn fn_00512d40(e: &mut Engine, this: Ptr, key: u32) -> u32 {
             0
         }
     };
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() && found == 0 {
-        let entry_at = e.call(0x0068_15c0, &args![node]).u32();
+    while node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        && found == 0
+    {
+        let entry_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(entry_at);
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if e.mem.u32(entry) != 0 && e.mem.u32(entry + 8) == key {
             let roll = (e.call(0x0048_7f50, &args![]).u32() & 0x63) as i32;
             if roll < i32::from(e.mem.u8(entry + 4)) {

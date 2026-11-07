@@ -345,6 +345,7 @@ const SAVE_PICKUP_PUTDOWN_SOUNDS: u32 = 0x0047_b560;
 /// (`004037f0`, `thiscall (string, text, length)`) and the length of the
 /// string at +4 of a component (`0048cee0`).
 const STRING_LENGTH: u32 = 0x0040_48e0;
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 const STRING_SET: u32 = 0x0040_37f0;
 const COMPONENT_STRING_LENGTH: u32 = 0x0048_cee0;
@@ -402,7 +403,7 @@ pub fn tes_casino_chips_save(e: &mut Engine, this: Ptr) {
             .call(STRING_LENGTH, &args![base + 0x94])
             .u32()
             .wrapping_add(1);
-        let text = e.call(STRING_TEXT, &args![base + 0x94]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x94));
         e.call(FORM_ADD_CHUNK_ARRAY, &args![CHUNK_ONAM, text, size]);
     }
     e.call(FORM_CLOSE, &args![this]);
@@ -430,7 +431,7 @@ pub fn fn_00504340(e: &mut Engine, this: Ptr, other: Ptr) {
     e.call(FORM_COPY_ALL_COMPONENTS, &args![this, source]);
     let form_type = e.call(FORM_TYPE, &args![source]).u32();
     e.call(FORM_SET_TYPE, &args![this, form_type]);
-    let text = e.call(STRING_TEXT, &args![source + 0x94]).u32();
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, source + 0x94));
     e.call(STRING_SET, &args![this.addr() + 0x94, text, 0u32]);
 }
 

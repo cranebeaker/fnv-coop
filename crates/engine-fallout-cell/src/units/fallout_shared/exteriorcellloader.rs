@@ -285,7 +285,7 @@ pub fn fn_00527fc0(e: &mut Engine, this: Ptr) {
                     )
                     .bool();
                 if removed {
-                    let task = e.call(0x0055_9450, &args![item]).u32();
+                    let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                     let manager = e.global::<u32>(0x0120_2d98);
                     e.call(0x0044_ac40, &args![manager, task, 0u32]);
                 }
@@ -327,10 +327,10 @@ pub fn fn_00528110(e: &mut Engine, this: Ptr) {
                     )
                     .bool();
                 if removed {
-                    let task = e.call(0x0055_9450, &args![item]).u32();
+                    let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                     if e.call(0x0052_87e0, &args![task]).bool() {
                         // 0052819e-005281b4: the task is read again from the pointer.
-                        let task = e.call(0x0055_9450, &args![item]).u32();
+                        let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                         e.vcall(task, 0x14, &args![]);
                     }
                 }
@@ -358,7 +358,7 @@ pub fn exterior_cell_loader_try_cancel_tasks(e: &mut Engine, this: Ptr) -> i32 {
                     )
                     .bool();
                 if removed {
-                    let task = e.call(0x0055_9450, &args![item]).u32();
+                    let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                     let manager = e.global::<u32>(0x0120_2d98);
                     if !fn_00528870(e, Ptr::new(manager), Ptr::new(task), 0) {
                         refused += 1;
@@ -388,13 +388,13 @@ pub fn fn_005282d0(e: &mut Engine, this: Ptr) {
                     )
                     .bool();
                 if removed {
-                    let task = e.call(0x0055_9450, &args![item]).u32();
+                    let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                     let manager = e.global::<u32>(0x0120_2d98);
                     fn_005289b0(e, Ptr::new(manager), Ptr::new(task));
                     // 00528360-0052838c: the task is read from the pointer for each use.
-                    let task = e.call(0x0055_9450, &args![item]).u32();
+                    let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                     if e.call(0x0052_87e0, &args![task]).bool() {
-                        let task = e.call(0x0055_9450, &args![item]).u32();
+                        let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                         e.vcall(task, 0x14, &args![]);
                     }
                 }
@@ -447,7 +447,7 @@ pub fn exterior_cell_loader_queue_cell_load(
         e.call(0x0052_8cb0, &args![holder, task]);
         let key = e.call(0x0058_7410, &args![x as u16, y as u16]).u32();
         e.vcall(this.addr(), 0x10, &args![key, holder, 1u32]);
-        let held = e.call(0x0055_9450, &args![holder]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         let manager = e.global::<u32>(0x0120_2d98);
         e.vcall(manager, 0x48, &args![held]);
         e.call(0x0044_cbf0, &args![holder]);
@@ -638,10 +638,12 @@ pub fn fn_00528ce0(e: &mut Engine, this: Ptr, item: u32, key: u32) -> bool {
                 0x006e_cba0,
                 &args![Ptr::<()>::new(temporaries.addr() + 4), 1u32, lock1],
             );
-            let first = e.call(0x0055_9450, &args![temporaries]).u32();
-            let second = e
-                .call(0x0055_9450, &args![Ptr::<()>::new(temporaries.addr() + 4)])
-                .u32();
+            let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, temporaries));
+            let second = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, Ptr::<()>::new(temporaries.addr() + 4))
+            );
             let bucket = e.call(0x0044_df00, &args![this.addr() + 0x14]).u32();
             if !e
                 .call(0x0044_91c0, &args![bucket + 8, second, first])
@@ -654,10 +656,12 @@ pub fn fn_00528ce0(e: &mut Engine, this: Ptr, item: u32, key: u32) -> bool {
                 0x006e_cba0,
                 &args![Ptr::<()>::new(temporaries.addr() + 8), 0u32, lock2],
             );
-            let third = e
-                .call(0x0055_9450, &args![Ptr::<()>::new(temporaries.addr() + 8)])
-                .u32();
-            let fourth = e.call(0x0055_9450, &args![temporaries]).u32();
+            let third = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, Ptr::<()>::new(temporaries.addr() + 8))
+            );
+            let fourth = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, temporaries));
             let map_item_size = e.mem.u32(this.addr() + 0x10);
             Some(
                 e.call(0x0044_91c0, &args![map_item_size, fourth, third])

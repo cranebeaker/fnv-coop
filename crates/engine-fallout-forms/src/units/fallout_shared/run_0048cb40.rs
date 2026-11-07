@@ -40,10 +40,13 @@ const CHANGE_DATA: u32 = 0x0042_8110;
 /// given bits (`AL`).
 const HAS_CHANGE_FLAGS: u32 = 0x0042_80f0;
 /// `008256d0` (`thiscall`): whether the list node is empty (`AL`).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (`thiscall`): the address of the node's item.
+#[cfg(test)]
 const NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
 /// `00726070` (`thiscall`): the node's next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `0063f7b0` (`thiscall`): removes the list's head.
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -75,8 +78,8 @@ pub fn fn_0048cb40(e: &mut Engine, this: Ptr, buffer: u32) {
     }
     let mut node = this.addr().wrapping_add(4);
     let mut previous = 0u32;
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item_at = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_at);
         let mut remove = false;
         if item == 0 {
@@ -96,11 +99,11 @@ pub fn fn_0048cb40(e: &mut Engine, this: Ptr, buffer: u32) {
         }
         if !remove {
             previous = node;
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         } else if previous != 0 {
-            let item_at = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.call(LIST_REMOVE_ITEM, &args![previous, item_at]);
-            node = e.call(NODE_NEXT, &args![previous]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
         } else {
             e.call(LIST_REMOVE_HEAD, &args![node]);
         }

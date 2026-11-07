@@ -90,7 +90,7 @@ pub mod prelude {
     pub use crate::abi::{AbiFn, Arg, Ret, RetVal};
     pub use crate::cxx_exception::{caught_as, try_catch, Thrown, STD_EXCEPTION_NAME};
     pub use crate::ptr::{Field, Inline, Layout, Ptr, Scalar};
-    pub use crate::typed::FamilyId;
+    pub use crate::typed::{leaf, FamilyId};
     pub use crate::x87::{
         x87_add, x87_div, x87_load32, x87_load64, x87_m32, x87_mul, x87_quiet, x87_quiet_bits,
         x87_round, x87_sqrt, x87_store32, x87_sub,

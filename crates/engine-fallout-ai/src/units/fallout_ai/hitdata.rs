@@ -262,8 +262,16 @@ pub fn bs_simple_array_body_part_move_items(e: &mut Engine, this: Ptr, index: u3
 /// engine map's name for that folded body does not fit) and `HitData::ClearData`. Returns
 /// `this`.
 pub fn hit_data_constructor(e: &mut Engine, this: Ptr<HitData>) -> Ptr<HitData> {
-    e.call(0x0068_15c0, &args![this.addr().wrapping_add(HIT_LOCATION)]);
-    e.call(0x0068_15c0, &args![this.addr().wrapping_add(HIT_DIRECTION)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr().wrapping_add(HIT_LOCATION))
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr().wrapping_add(HIT_DIRECTION))
+    );
     hit_data_clear_data(e, this);
     this
 }
@@ -355,8 +363,11 @@ pub fn hit_data_initialize_explosion_data(
             if e.vcall(owner, 0x100, &args![]).bool() {
                 let actor = e.call(0x009a_cce0, &args![explosion]).u32();
                 if e.call(0x008a_1710, &args![actor]).u32() == e.get(hit, HitData::pWeapon) {
-                    let item = if e.call(0x008d_8520, &args![actor]).u32() != 0 {
-                        let process = e.call(0x008d_8520, &args![actor]).u32();
+                    let item = if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+                        != 0
+                    {
+                        let process =
+                            typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                         e.vcall(process, 0x148, &args![]).u32()
                     } else {
                         0
@@ -548,7 +559,7 @@ fn reduce_damage_block(e: &mut Engine, this: Ptr<HitData>, threshold: u32) -> u3
         e.call(0x0089_4d60, &args![target]).bool()
     };
     let target = e.get(this, HitData::pTarget);
-    let process = e.call(0x008d_8520, &args![target]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
     let unarmed_block = e.vcall(process, 0x148, &args![]).u32() == 0 && blocked;
     if !blocked {
         return threshold;
@@ -562,12 +573,12 @@ fn reduce_damage_block(e: &mut Engine, this: Ptr<HitData>, threshold: u32) -> u3
         return threshold;
     }
     let target = e.get(this, HitData::pTarget);
-    let process = e.call(0x008d_8520, &args![target]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
     let held = if e.vcall(process, 0x148, &args![]).u32() != 0 {
         let target = e.get(this, HitData::pTarget);
-        let process = e.call(0x008d_8520, &args![target]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
         let item = e.vcall(process, 0x148, &args![]).u32();
-        e.call(0x0044_ddc0, &args![item]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
     } else {
         0
     };
@@ -662,16 +673,17 @@ fn reduce_damage_entry_points(e: &mut Engine, this: Ptr<HitData>, threshold: u32
 /// The projectile split of `ReduceDamage` (`009b5a30`); returns the threshold.
 fn reduce_damage_projectiles(e: &mut Engine, this: Ptr<HitData>, threshold: u32) -> u32 {
     let aggressor = e.get(this, HitData::pAggressor);
-    if aggressor == 0 || e.call(0x008d_8520, &args![aggressor]).u32() == 0 {
+    if aggressor == 0 || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, aggressor)) == 0
+    {
         return threshold;
     }
     let aggressor = e.get(this, HitData::pAggressor);
-    let process = e.call(0x008d_8520, &args![aggressor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, aggressor));
     if e.vcall(process, 0x148, &args![]).u32() == 0 {
         return threshold;
     }
     let aggressor = e.get(this, HitData::pAggressor);
-    let process = e.call(0x008d_8520, &args![aggressor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, aggressor));
     let item = e.vcall(process, 0x148, &args![]).u32();
     if !e.call(0x004b_da70, &args![item, 0xcu32]).bool() {
         return threshold;
@@ -1114,10 +1126,10 @@ fn apply_bonus(e: &mut Engine, this: Ptr<HitData>) {
 /// The weapon-limb (0xe) part of `DetermineOutcome` (`009b73d0`).
 fn outcome_weapon_limb(e: &mut Engine, this: Ptr<HitData>) {
     let target = e.get(this, HitData::pTarget);
-    let process = e.call(0x008d_8520, &args![target]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
     let item = e.vcall(process, 0x148, &args![]).u32();
     let form = if item != 0 {
-        e.call(0x0044_ddc0, &args![item]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
     } else {
         0
     };
@@ -1168,6 +1180,7 @@ fn outcome_body_part(e: &mut Engine, this: Ptr<HitData>) -> Option<(u32, u8)> {
 /// `0066de30` (`ActionPoints::IsMeleeAttackAction`, engine map; cdecl(action)).
 const IS_MELEE_ATTACK_ACTION: u32 = 0x0066_de30;
 /// `008d8520` (thiscall): the actor's process.
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 /// `00476c90` (thiscall): a projectile's weapon.
 const PROJECTILE_WEAPON: u32 = 0x0047_6c90;
@@ -1198,6 +1211,7 @@ const LIMB_FOR_NODE: u32 = 0x008b_3ef0;
 /// `NiMatrix`-free point copy (`00458620`, cdecl(dest, source)).
 const POINT_COPY: u32 = 0x0045_8620;
 /// `006815c0` (thiscall): returns `this` (a point's or a hit's own address).
+#[cfg(test)]
 const SAME_ADDRESS: u32 = 0x0068_15c0;
 /// `200.0` (`float`): the limb ray's length.
 const LIMB_RAY_LENGTH: u32 = 0x0102_226c;
@@ -1254,7 +1268,7 @@ pub fn hit_data_initialize_hit_data(e: &mut Engine, hit: Ptr<HitData>, command: 
         0
     };
     let player = e.mem.u32(PLAYER_011DEA3C);
-    let process = e.call(GET_PROCESS, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     let item = e.vcall(process, 0x148, &args![]).u32();
     let player = e.mem.u32(PLAYER_011DEA3C);
     hit_data_initialize_hit_data_ov3(e, hit, player, character, item, u32::from(melee));
@@ -1327,9 +1341,9 @@ pub fn hit_data_initialize_hit_data_ov3(
     e.set(hit, HitData::pTarget, target);
     let mut weapon = 0;
     if item != 0 {
-        let object = e.call(0x0044_ddc0, &args![item]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         if e.call(0x0040_1170, &args![object]).u32() == 0x28 {
-            weapon = e.call(0x0044_ddc0, &args![item]).u32();
+            weapon = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         }
     }
     e.set(hit, HitData::pWeapon, weapon);
@@ -1832,8 +1846,8 @@ fn limb_ray(e: &mut Engine, hit: Ptr<HitData>, parts: u32, ebp: u32) -> Option<u
         GET_WEAPON_POSITION,
         &args![aggressor, weapon_position, 1u32],
     );
-    e.call(SAME_ADDRESS, &args![eye]);
-    e.call(SAME_ADDRESS, &args![eye_vector]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, eye));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, eye_vector));
     let aggressor = e.get(hit, HitData::pAggressor);
     e.call(0x008a_ff80, &args![aggressor, eye, eye_vector, 0u32]);
     for word in 0..3 {
@@ -1854,13 +1868,15 @@ fn limb_ray(e: &mut Engine, hit: Ptr<HitData>, parts: u32, ebp: u32) -> Option<u
         let source = e.call(0x0045_43c0, &args![caster]).u32();
         e.call(0x0062_6d20, &args![cast, source]);
         e.call(0x0062_6b30, &args![cast, start, eye_vector, length]);
-        let collector = e.call(SAME_ADDRESS, &args![cast]).u32();
+        let collector = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cast));
         let result = e.call(0x0062_1210, &args![collector, ebp - 0xbd]).u32();
         if e.call(0x0056_09f0, &args![result]).bool() {
             let mut index = 0i32;
             loop {
                 let hits = e.call(0x0046_0140, &args![collector]).u32();
-                let count = e.call(0x0072_6070, &args![hits]).i32();
+                let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, hits))
+                    .into_ret()
+                    .i32();
                 if index >= count {
                     break;
                 }
@@ -1872,13 +1888,14 @@ fn limb_ray(e: &mut Engine, hit: Ptr<HitData>, parts: u32, ebp: u32) -> Option<u
                 let body = e.call(0x004b_5820, &args![collidable]).u32();
                 let reference = e.call(0x0056_f930, &args![body]).u32();
                 if reference != 0 && reference == e.get(hit, HitData::pTarget) {
-                    let point = e.call(SAME_ADDRESS, &args![local]).u32();
+                    let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
                     e.call(POINT_COPY, &args![weapon_position, point]);
                     let collidable = e.mem.u32(ebp - 0xf8);
                     if e.call(0x004b_59f0, &args![collidable]).u32() != 0 {
                         if !found {
                             found = true;
-                            let point = e.call(SAME_ADDRESS, &args![local]).u32();
+                            let point =
+                                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
                             e.call(POINT_COPY, &args![hit.addr() + HIT_LOCATION, point]);
                             for word in 0..3 {
                                 let value = e.mem.u32(eye_vector + 4 * word);
@@ -1953,8 +1970,8 @@ fn pick_limb(e: &mut Engine, hit: Ptr<HitData>, parts: u32, random: Ptr, ebp: u3
         (e.get(hit, HitData::pAggressor), aggressor_center),
     ] {
         let root = e.vcall(actor, 0x1d0, &args![]).u32();
-        let bound = e.call(0x0043_d450, &args![root]).u32();
-        let center = e.call(SAME_ADDRESS, &args![bound]).u32();
+        let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, root));
+        let center = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
         for word in 0..3 {
             let value = e.mem.u32(center.wrapping_add(4 * word));
             e.mem.set_u32(out + 4 * word, value);
@@ -1991,7 +2008,7 @@ fn pick_limb(e: &mut Engine, hit: Ptr<HitData>, parts: u32, random: Ptr, ebp: u3
     let ray = ebp - 0x1c0;
     let origin = ebp - 0x1d0;
     e.call(0x0062_40d0, &args![ray]);
-    e.call(SAME_ADDRESS, &args![origin]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
     e.call(0x004a_3e00, &args![origin, ebp - 0x54]);
     e.call(0x008a_50f0, &args![ray, origin]);
     let length = x87_quiet_bits(e.mem.u32(LIMB_RAY_LENGTH));

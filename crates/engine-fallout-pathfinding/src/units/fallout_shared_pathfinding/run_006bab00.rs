@@ -28,8 +28,10 @@ const POINT_SCALED: u32 = 0x0045_bb20;
 /// `004a7290`: a point's squared length (`thiscall`, ST0).
 const POINT_LENGTH_SQUARED: u32 = 0x004a_7290;
 /// `NiPoint3::Dot` (engine map), `thiscall`, one word, ST0.
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 /// `006815c0`: returns `this` (a point's trivial constructor).
+#[cfg(test)]
 const SELF: u32 = 0x0068_15c0;
 /// `0063c8a0`: `this -= other` (`thiscall`, one word).
 const POINT_SUBTRACT_IN_PLACE: u32 = 0x0063_c8a0;
@@ -81,8 +83,14 @@ pub fn fn_006bab00(e: &mut Engine, center: Ptr, radius: f32, a: Ptr, b: Ptr) -> 
         let (segment, to_center, closest) = (l(0x24), l(0xc), l(0x18));
         e.call(POINT_SUBTRACT, &args![b, segment, a]);
         e.call(POINT_SUBTRACT, &args![center, to_center, a]);
-        e.call(SELF, &args![closest]);
-        let along = e.call(POINT_DOT, &args![segment, to_center]).f64();
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, closest));
+        let along = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, segment, to_center)
+        )
+        .into_ret()
+        .f64();
         st(e, l(0x28), along);
         let zero: f64 = e.global(ZERO);
         if ld(e, l(0x28)) <= zero {
@@ -91,7 +99,13 @@ pub fn fn_006bab00(e: &mut Engine, center: Ptr, radius: f32, a: Ptr, b: Ptr) -> 
                 e.mem.set_u32(closest + 4 * i, word);
             }
         } else {
-            let length = e.call(POINT_DOT, &args![segment, segment]).f64();
+            let length = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, segment, segment)
+            )
+            .into_ret()
+            .f64();
             st(e, l(0x2c), length);
             if ld(e, l(0x28)) >= ld(e, l(0x2c)) {
                 for i in 0..3 {
@@ -231,7 +245,7 @@ pub fn fn_006bac20(e: &mut Engine, circle: Ptr, segment: Ptr, out: Ptr) -> bool 
                     x87_div(1.0, x87_mul(ld(e, one_squared), m32(e, k))),
                 );
                 st(e, l(0x68), x87_mul(ld(e, intercept), m32(e, one_point)));
-                e.call(SELF, &args![l(0x64)]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l(0x64)));
                 let x = x87_mul(x87_mul(-ld(e, l(0x68)), m32(e, slope)), m32(e, l(0x5c)));
                 st(e, l(0x64), x);
                 st(e, l(0x60), x87_mul(ld(e, l(0x68)), m32(e, l(0x5c))));
@@ -249,12 +263,12 @@ pub fn fn_006bac20(e: &mut Engine, circle: Ptr, segment: Ptr, out: Ptr) -> bool 
                 st(e, l(0x70), x87_mul(ld(e, intercept), m32(e, one_point)));
                 let (scale, root, offset) = (l(0x6c), l(0x74), l(0x70));
                 let (p1, p2) = (l(0x7c), l(0x84));
-                e.call(SELF, &args![p1]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p1));
                 let v = x87_add(x87_mul(-ld(e, offset), m32(e, slope)), m32(e, root));
                 st(e, p1, x87_mul(v, m32(e, scale)));
                 let v = x87_add(x87_mul(ld(e, slope), m32(e, root)), m32(e, offset));
                 st(e, p1 + 4, x87_mul(v, m32(e, scale)));
-                e.call(SELF, &args![p2]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p2));
                 let v = x87_sub(x87_mul(-ld(e, offset), m32(e, slope)), m32(e, root));
                 st(e, p2, x87_mul(v, m32(e, scale)));
                 let v = x87_sub(m32(e, offset), x87_mul(ld(e, slope), m32(e, root)));
@@ -299,7 +313,7 @@ pub fn fn_006bac20(e: &mut Engine, circle: Ptr, segment: Ptr, out: Ptr) -> bool 
                     x87_div(1.0, x87_mul(ld(e, one_squared), m32(e, k))),
                 );
                 st(e, l(0xb0), x87_mul(ld(e, intercept), m32(e, one_point)));
-                e.call(SELF, &args![l(0xac)]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l(0xac)));
                 st(e, l(0xac), x87_mul(ld(e, l(0xb0)), m32(e, l(0xa4))));
                 let y = x87_mul(x87_mul(-ld(e, l(0xb0)), m32(e, slope)), m32(e, l(0xa4)));
                 st(e, l(0xa8), y);
@@ -317,12 +331,12 @@ pub fn fn_006bac20(e: &mut Engine, circle: Ptr, segment: Ptr, out: Ptr) -> bool 
                 st(e, l(0xb8), x87_mul(ld(e, intercept), m32(e, one_point)));
                 let (scale, root, offset) = (l(0xb4), l(0xbc), l(0xb8));
                 let (p1, p2) = (l(0xc4), l(0xcc));
-                e.call(SELF, &args![p1]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p1));
                 let v = x87_add(x87_mul(ld(e, slope), m32(e, root)), m32(e, offset));
                 st(e, p1, x87_mul(v, m32(e, scale)));
                 let v = x87_add(x87_mul(-ld(e, offset), m32(e, slope)), m32(e, root));
                 st(e, p1 + 4, x87_mul(v, m32(e, scale)));
-                e.call(SELF, &args![p2]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p2));
                 let v = x87_sub(m32(e, offset), x87_mul(ld(e, slope), m32(e, root)));
                 st(e, p2, x87_mul(v, m32(e, scale)));
                 let v = x87_sub(x87_mul(-ld(e, offset), m32(e, slope)), m32(e, root));
@@ -650,7 +664,7 @@ pub fn fn_006bb8b0(e: &mut Engine, first: Ptr, other: Ptr, second: Ptr) -> bool 
             )
         };
 
-        e.call(SELF, &args![l(0x1c)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l(0x1c)));
         let x = x87_add(
             x87_mul(ld(e, along), m32(e, dx)),
             x87_mul(ld(e, across), m32(e, dy)),
@@ -662,7 +676,7 @@ pub fn fn_006bb8b0(e: &mut Engine, first: Ptr, other: Ptr, second: Ptr) -> bool 
         );
         st(e, l(0x18), scale(e, y));
 
-        e.call(SELF, &args![l(0x10)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l(0x10)));
         let x = x87_sub(
             x87_mul(ld(e, along), m32(e, dx)),
             x87_mul(ld(e, across), m32(e, dy)),

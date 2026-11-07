@@ -16,8 +16,11 @@ const CLONE_POOL_SOURCE_FILE_NAME: u32 = 0x0101_fca0;
 /// (`00a5d2c0`, `thiscall`, `(&process)`), the smart pointer's constructor (`00633c90`,
 /// `thiscall`, `(object)`) and destructor (`0045cec0`), and the pool's add of a clone
 /// (`00631540`, `thiscall` on the pool's list at +4, `(&pointer)`).
+#[cfg(test)]
 const LIST_STOP_008256D0: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_ITEM_006815C0: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_FOLLOWING_00726070: u32 = 0x0072_6070;
 const HEAP_ALLOCATE: u32 = 0x0040_1000;
 const POOLS_ADD_005AE3D0: u32 = 0x005a_e3d0;
@@ -68,14 +71,16 @@ pub fn bs_clone_pools_make_clones(e: &mut Engine, this: Ptr, object: Ptr, count:
         );
         e.mem.set_u32(found, 0);
         let mut node = this.addr();
-        while node != 0 && e.mem.u32(found) == 0 && !e.call(LIST_STOP_008256D0, &args![node]).bool()
+        while node != 0
+            && e.mem.u32(found) == 0
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
         {
-            let slot = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(slot);
             if item != 0 && e.mem.u32(item) == object.addr() {
                 e.mem.set_u32(found, item);
             }
-            node = e.call(LIST_FOLLOWING_00726070, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         if e.mem.u32(found) == 0 {
             let block = e.call(HEAP_ALLOCATE, &args![0xcu32]).u32();

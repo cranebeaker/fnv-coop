@@ -28,6 +28,7 @@ const TRY_ENTER: u32 = 0x0066_62a0;
 const RECORD_VALUE: u32 = 0x0044_dec0;
 const RECORD_LAST: u32 = 0x0044_df00;
 const SET_HAZARD: u32 = 0x006e_cba0;
+#[cfg(test)]
 const HAZARD_VALUE: u32 = 0x0055_9450;
 const VALIDATE: u32 = 0x0044_91c0;
 const COMMIT: u32 = 0x0066_6510;
@@ -70,8 +71,8 @@ pub fn fn_00666080(e: &mut Engine, this: Ptr, first: u32, second: u32) -> bool {
                 .call(RECORD_VALUE, &args![this.wrapping_add(RECORD_B)])
                 .u32();
             e.call(SET_HAZARD, &args![hazard_b, 1u32, value]);
-            let from_a = e.call(HAZARD_VALUE, &args![hazard_a]).u32();
-            let from_b = e.call(HAZARD_VALUE, &args![hazard_b]).u32();
+            let from_a = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, hazard_a));
+            let from_b = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, hazard_b));
             let last = e
                 .call(RECORD_LAST, &args![this.wrapping_add(RECORD_A)])
                 .u32();
@@ -86,8 +87,8 @@ pub fn fn_00666080(e: &mut Engine, this: Ptr, first: u32, second: u32) -> bool {
             .call(RECORD_VALUE, &args![this.wrapping_add(RECORD_A)])
             .u32();
         e.call(SET_HAZARD, &args![hazard_c, 0u32, value]);
-        let from_c = e.call(HAZARD_VALUE, &args![hazard_c]).u32();
-        let from_a = e.call(HAZARD_VALUE, &args![hazard_a]).u32();
+        let from_c = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, hazard_c));
+        let from_a = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, hazard_a));
         let word = e.mem.u32(this.wrapping_add(WORD_10));
         if e.call(VALIDATE, &args![word, from_a, from_c]).u8() != 0 {
             let value = e

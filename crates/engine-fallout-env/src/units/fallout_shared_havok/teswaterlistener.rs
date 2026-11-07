@@ -155,6 +155,7 @@ const SETTING_VALUE_POINTER: u32 = 0x0040_3e20;
 /// Thiscall getter on a setting: its value as a word.
 const SETTING_VALUE_WORD: u32 = 0x0040_3df0;
 /// Thiscall on a vector: pointer to its data (`006815c0`).
+#[cfg(test)]
 const VECTOR_DATA: u32 = 0x0068_15c0;
 /// Thiscall `(vector, index)`: pointer to one component (`00560d30`).
 const COMPONENT: u32 = 0x0056_0d30;
@@ -201,6 +202,7 @@ const QUEUE_ADD_TO_WATER_GROUP: u32 = 0x0087_b4a0;
 const QUEUE_REMOVE_FROM_WATER_GROUP: u32 = 0x0087_b4f0;
 /// Thiscall getter on a reference whose result is cast (`007af430`; the
 /// engine map's `BGSSaveFormBuffer::GetForm` is a folded name).
+#[cfg(test)]
 const REFERENCE_GETTER: u32 = 0x007a_f430;
 /// `__RTDynamicCast` (CRT).
 const DYNAMIC_CAST: u32 = 0x00ec_43fb;
@@ -218,12 +220,14 @@ const ARRAY_EQUAL: u32 = 0x009a_3830;
 /// `BSSimpleArray` add `(array, &item)` (`007cb2e0`).
 const ARRAY_ADD: u32 = 0x007c_b2e0;
 /// `BSSimpleArray` size getter (`0044ddc0`).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// Zone lookup of a target by key (`0057b730`, thiscall, one word).
 const ZONE_FIND_TARGET: u32 = 0x0057_b730;
 /// Zone's first target (`00825c00`).
 const ZONE_FIRST_TARGET: u32 = 0x0082_5c00;
 /// Next of a `bhkTTNode` (`00726070`).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// Map `RemoveAll` (`00438af0`).
 const MAP_REMOVE_ALL: u32 = 0x0043_8af0;
@@ -285,7 +289,7 @@ fn find_ref_at(e: &mut Engine, address: u32) -> u32 {
 /// The cast the contact callbacks make of the water reference, and whether
 /// they stop because of it (flag byte clear and `00452440` true).
 fn cast_water(e: &mut Engine, water: u32) -> (u32, bool) {
-    let form = e.call(REFERENCE_GETTER, &args![water]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, water));
     let cast = e
         .call(
             DYNAMIC_CAST,
@@ -436,7 +440,7 @@ pub fn fn_0062e500(e: &mut Engine, this: Ptr<WaterZone>, key: u32, collidable: u
     if index != -1 {
         e.call(0x009a_4320, &args![list, index, 1u32]);
     }
-    if e.call(ARRAY_SIZE, &args![list]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) == 0 {
         e.call(0x0061_ff30, &args![this, target]);
     }
 }
@@ -538,7 +542,7 @@ pub fn fn_0062e970(e: &mut Engine, this: Ptr<TESWaterListener>, object: u32, wat
             return;
         }
         let mass = e.call(0x004b_5400, &args![object]).f32();
-        e.call(VECTOR_DATA, &args![at(0x28)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x28)));
         e.call(0x0056_0d50, &args![object, at(0x28)]);
         let velocity_z = fld(e, at(0x20));
         let speed = e.call(0x0040_8820, &args![velocity_z.to_bits()]).f32();
@@ -552,7 +556,7 @@ pub fn fn_0062e970(e: &mut Engine, this: Ptr<TESWaterListener>, object: u32, wat
             strength = (f64::from(strength) * f64::from(scale)) as f32;
         }
         let position = at(0x14);
-        e.call(VECTOR_DATA, &args![position]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
         e.call(0x0056_0bc0, &args![object, position]);
         e.mem.set_f32(at(4), x87_quiet(water_height));
         let tes = e.global::<u32>(TES_POINTER);
@@ -677,7 +681,7 @@ fn splash_effect(e: &mut Engine, rotation: u32, volume: f32, x: f32, y: f32, z: 
     if e.call(0x0058_0060, &args![water]).bool() {
         return;
     }
-    e.call(VECTOR_DATA, &args![rotation]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
     let angle = e.call(0x004a_4240, &args![]).f32();
     e.call(0x004a_0c90, &args![rotation, angle.to_bits()]);
     let matrix: Vec<u32> = (0..9).map(|i| e.mem.u32(rotation + 4 * i)).collect();
@@ -753,12 +757,12 @@ fn update_bodies(
     let range = e.call(SCALE_FLOAT, &args![range.to_bits()]).f32();
     let margin = setting_float(e, 0x011d_1248);
     e.call(SCALE_FLOAT, &args![margin.to_bits()]);
-    e.call(VECTOR_DATA, &args![point]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
     let player = e.global::<u32>(PLAYER_POINTER);
     let head = e.vcall(player, 0x1f4, &args![]).u32();
     e.call(0x004a_3e00, &args![point, head]);
     let scratch = point - 0x10;
-    e.call(VECTOR_DATA, &args![scratch]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, scratch));
     let mut node = this.addr() + 0xc;
     e.mem.set_f32(level, 0.0);
     e.call(MAP_REMOVE_ALL, &args![BODY_MAP_GLOBAL_011CC584]);
@@ -770,8 +774,8 @@ fn update_bodies(
         if e.call(0x004a_4460, &args![node]).bool() {
             break;
         }
-        let item = e.call(VECTOR_DATA, &args![node]).u32();
-        let entity = e.call(0x0055_9450, &args![item]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
+        let entity = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
         let body = e.call(0x0062_0b80, &args![entity]).u32();
         let mut status = 0;
         if fn_0062ff10(e, this, body, point, range, 0, level) {
@@ -812,7 +816,7 @@ fn update_bodies(
                 }
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let mut zone = e.get(this, TESWaterListener::pZones);
     while zone != 0 {
@@ -821,7 +825,7 @@ fn update_bodies(
             e.mem.set_u8(found, 0);
             let list = target + COLLIDABLES;
             let mut index = 0u32;
-            while index < e.call(ARRAY_SIZE, &args![list]).u32() {
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) {
                 let slot = e.call(0x006a_7ad0, &args![list, index]).u32();
                 let collidable = e.mem.u32(slot);
                 let body = e.call(0x004b_59f0, &args![collidable]).u32();
@@ -835,17 +839,29 @@ fn update_bodies(
                     status = fn_00630170(e, this, body, height, delta, true);
                 }
                 if status == 1 {
-                    let reference = e.call(0x0084_e3a0, &args![target + TARGET_NODE]).u32();
+                    let reference = typed_call!(
+                        leaf::FAMILY,
+                        0x0084_e3a0,
+                        leaf::word_at_c(e, target + TARGET_NODE)
+                    );
                     e.call(REFERENCE_SET_IN_WATER, &args![reference, 1u32]);
-                    let reference = e.call(0x0084_e3a0, &args![target + TARGET_NODE]).u32();
+                    let reference = typed_call!(
+                        leaf::FAMILY,
+                        0x0084_e3a0,
+                        leaf::word_at_c(e, target + TARGET_NODE)
+                    );
                     e.call(REFERENCE_SET_ZONE, &args![reference, zone, 1u32]);
                 }
                 index += 1;
             }
-            let next = e.call(NODE_NEXT, &args![target + TARGET_NODE]).u32();
+            let next = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, target + TARGET_NODE)
+            );
             target = if next == 0 { 0 } else { next - TARGET_NODE };
         }
-        let next = e.call(NODE_NEXT, &args![zone + 4]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, zone + 4));
         zone = if next == 0 { 0 } else { next - 4 };
     }
     e.call(0x0063_1370, &args![this, 0u32, 1u32, 0u32]);
@@ -1137,8 +1153,9 @@ pub fn tes_water_listener_contact_point_removed_callback(
             let extra = e.call(0x005d_43c0, &args![player]).u32();
             let zone_data = e.call(0x0042_f180, &args![extra]).u32();
             if zone_data != 0 {
-                let item = e.call(0x0084_e3a0, &args![zone_data + 4]).u32();
-                let form = e.call(REFERENCE_GETTER, &args![item]).u32();
+                let item =
+                    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, zone_data + 4));
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
                 let water_form = e.vcall(form, 0x140, &args![]).u32();
                 fn_0062f310(e, water_form);
             } else {
@@ -1151,7 +1168,7 @@ pub fn tes_water_listener_contact_point_removed_callback(
         }
         return false;
     }
-    if e.call(0x0044_0d80, &args![target]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, target)) {
         return false;
     }
     let mut key = 0;
@@ -1180,7 +1197,7 @@ pub fn tes_water_listener_contact_point_removed_callback(
         return true;
     }
     let list = this.addr() + QUEUED_REMOVALS;
-    let mut position = e.call(0x0055_9450, &args![list]).u32();
+    let mut position = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     let mut queued = false;
     while position != 0 {
         let slot = e.call(0x0063_17a0, &args![list, position]).u32();
@@ -1341,7 +1358,7 @@ pub fn fn_0062ff10(
         let at = move |offset: u32| base - offset;
         let source = e.call(0x004b_4ec0, &args![body]).u32();
         e.call(VECTOR_COPY, &args![at(0x20), source]);
-        e.call(VECTOR_DATA, &args![at(0x30)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x30)));
         e.call(0x0045_8a10, &args![at(0x30), at(0x20), point]);
         let difference = fn_00630100(e, at(0x30), at(0x40));
         let distance = e.call(VECTOR_LENGTH, &args![difference]).f64();
@@ -1358,7 +1375,7 @@ pub fn fn_0062ff10(
             let height = fld(e, zone + 0x18);
             e.call(SCALE_FLOAT, &args![height.to_bits()]).f32()
         } else if e.get(this, TESWaterListener::uiCellArrayWidth) > 1 {
-            e.call(VECTOR_DATA, &args![at(0x50)]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x50)));
             e.call(0x0045_8620, &args![at(0x50), at(0x20)]);
             let x = fld(e, at(0x50));
             let cell_x = e.call(0x0040_6d90, &args![x.to_bits()]).i32() >> 12;
@@ -1456,7 +1473,7 @@ pub fn fn_00630170(
         let shape = if e.call(0x00c8_cce0, &args![at(0x54)]).bool() {
             // The getter the collidable lists use for their size (`0044ddc0`),
             // here on the body.
-            e.call(ARRAY_SIZE, &args![body]).u32()
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, body))
         } else {
             0
         };
@@ -1557,16 +1574,16 @@ fn buoyancy(
         }
     }
     let factor = -x87_quiet(factor);
-    e.call(VECTOR_DATA, &args![at(0xd0)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0xd0)));
     let lift = (f64::from(factor) * f64::from(mass)) as f32;
     e.call(VECTOR_FROM_FLOAT, &args![at(0xf0), lift.to_bits()]);
     fn_00630ae0(e, at(0xd0), at(0xf0), at(0x70));
-    e.call(VECTOR_DATA, &args![at(0x100)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x100)));
     if e.call(0x00c9_c380, &args![body]).u32() == 0 {
         e.call(0x0043_7c10, &args![at(0x120)]);
         e.call(0x00c8_d390, &args![object, at(0x120)]);
         e.call(0x0055_32a0, &args![at(0x130), 0u32, 0u32, 0u32, 0u32]);
-        e.call(VECTOR_DATA, &args![at(0x140)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x140)));
         e.call(0x0045_8a10, &args![at(0x140), at(0x110), at(0x120)]);
         let longest = extreme_axis(e, at(0x140), true);
         let shortest = extreme_axis(e, at(0x140), false);
@@ -1596,7 +1613,7 @@ fn buoyancy(
     }
     e.call(RELEASE, &args![shape]);
     fn_00631140(e, body, delta, at(0xd0), at(0x100));
-    e.call(VECTOR_DATA, &args![at(0x190)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x190)));
     let weight = (f64::from(mass) * e.global::<f64>(MINUS_ONE)) as f32;
     e.call(VECTOR_FROM_FLOAT, &args![at(0x1b0), weight.to_bits()]);
     fn_00630ae0(e, at(0x190), at(0x1b0), at(0x70));
@@ -1669,7 +1686,7 @@ pub fn fn_00630ae0(e: &mut Engine, this: u32, a: u32, b: u32) {
 pub fn fn_00630b40(e: &mut Engine, this: u32, out: u32) -> u32 {
     e.with_stack(0x20, |e, temp| {
         let product = e.call(0x0062_b0a0, &args![this, temp, this]).u32();
-        let data = e.call(VECTOR_DATA, &args![product]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, product));
         let mut value = load4(e, data);
         value[0] = value[0].sqrt();
         let root = temp.addr() + 0x10;
@@ -1689,28 +1706,28 @@ pub fn fn_00630bb0(e: &mut Engine, this: u32, a: u32, b: u32) {
     e.with_stack(0x80, |e, frame| {
         let base = frame.addr() + 0x80;
         let at = move |offset: u32| base - offset;
-        e.call(VECTOR_DATA, &args![at(0x20)]);
-        let data = e.call(VECTOR_DATA, &args![at(0x20)]).u32();
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x20)));
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x20)));
         let constant = load4(e, VECTOR_010C71E0);
         store4(e, data, constant);
-        e.call(VECTOR_DATA, &args![at(0x30)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x30)));
         fn_00630fa0(e, at(0x30), a, 3);
-        e.call(VECTOR_DATA, &args![at(0x40)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x40)));
         fn_00630d90(e, at(0x40), at(0x20), at(0x30), at(0x30));
-        e.call(VECTOR_DATA, &args![at(0x50)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x50)));
         fn_00630ce0(e, at(0x50), b, at(0x40));
-        e.call(VECTOR_DATA, &args![at(0x60)]);
-        let rotation = e.call(VECTOR_DATA, &args![a]).u32();
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x60)));
+        let rotation = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, a));
         let product = e.call(0x0062_b0a0, &args![rotation, at(0x70), b]).u32();
-        let source = e.call(VECTOR_DATA, &args![product]).u32();
-        let target = e.call(VECTOR_DATA, &args![at(0x60)]).u32();
+        let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, product));
+        let target = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x60)));
         let value = load4(e, source);
         store4(e, target, value);
         fn_00630ed0(e, at(0x60), 0);
-        let rotation = e.call(VECTOR_DATA, &args![a]).u32();
+        let rotation = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, a));
         fn_00630d30(e, at(0x50), at(0x60), rotation);
-        e.call(VECTOR_DATA, &args![at(0x80)]);
-        let rotation = e.call(VECTOR_DATA, &args![a]).u32();
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x80)));
+        let rotation = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, a));
         fn_00630df0(e, at(0x80), rotation, b);
         fn_00630d30(e, at(0x50), at(0x30), at(0x80));
         e.call(0x0045_8880, &args![this, at(0x50), at(0x50)]);

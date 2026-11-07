@@ -18,8 +18,10 @@ use crate::prelude::*;
 const COUNT_0059BB30: u32 = 0x0059_bb30;
 /// `006815c0` (unnamed in the engine map): returns its `this` (a node; the
 /// item is its first word).
+#[cfg(test)]
 const NODE_ITEM_006815C0: u32 = 0x0068_15c0;
 /// `00726070` (unnamed in the engine map): the node's next (word at +4).
+#[cfg(test)]
 const NODE_FOLLOWING_00726070: u32 = 0x0072_6070;
 /// `0063f7b0` (unnamed in the engine map): removes the head node's item
 /// from the list.
@@ -51,12 +53,12 @@ fn count(e: &mut Engine, this: Ptr) -> u32 {
 }
 
 fn item_of(e: &mut Engine, node: u32) -> u32 {
-    let item = e.call(NODE_ITEM_006815C0, &args![node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(item)
 }
 
 fn next_of(e: &mut Engine, node: u32) -> u32 {
-    e.call(NODE_FOLLOWING_00726070, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// A coordinate getter's ST0 result as `FSTP dword` leaves it, read back

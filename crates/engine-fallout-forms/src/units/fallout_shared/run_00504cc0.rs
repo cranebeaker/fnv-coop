@@ -263,7 +263,7 @@ pub fn fn_00504cc0(e: &mut Engine, this: Ptr, other: u32) {
     }
     if fn_00504e40(e, Ptr::new(cast)) != 0 {
         let form = fn_00504e40(e, Ptr::new(cast));
-        let value = e.call(0x0084_e3a0, &args![form]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.mem.set_u32(base + 0x218, value);
     } else {
         e.mem.set_u32(base + 0x218, 0);

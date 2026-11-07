@@ -17,6 +17,7 @@ use crate::prelude::*;
 /// head, the argument the address of a word holding the item.
 const LIST_REMOVE_ITEM: u32 = 0x0090_5330;
 /// `NiPointer` getter (`00559450`): the first word of `this`.
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `BSSoundHandle` assignment (`00418900`): `this` = destination, source.
 const SOUND_HANDLE_ASSIGN: u32 = 0x0041_8900;
@@ -275,7 +276,13 @@ pub fn middle_high_process_clear_current_furniture(e: &mut Engine, this: Ptr, fu
 /// `NiPointer<BSShaderPPLightingProperty>` `pLightingProperty` at +0x220, read through the
 /// pointer getter (`00559450`).
 pub fn middle_high_process_get_lighting_shader_property(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(NI_POINTER_GET, &args![this.byte_add(0x220)]).ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0x220))
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 008d8c60 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -815,14 +822,26 @@ pub fn high_process_set_detection_modifier_timer(e: &mut Engine, this: Ptr) {
 /// `HighProcess::GetCurrentProcessAnimIdle` (Xbox PDB): `spAnimIdleToPlay (NiPointer<AnimIdle>)`
 /// at +0x354, read through the pointer getter (`00559450`).
 pub fn high_process_get_current_process_anim_idle(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(NI_POINTER_GET, &args![this.byte_add(0x354)]).ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0x354))
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 008d95f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `HighProcess::GetCurrentProcessAnimIdleKF` (Xbox PDB): `spAnimIdleKF (NiPointer<KFModel>)` at
 /// +0x35c, read through the pointer getter (`00559450`).
 pub fn high_process_get_current_process_anim_idle_kf(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(NI_POINTER_GET, &args![this.byte_add(0x35c)]).ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0x35c))
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 008d96b0 (decompiled, FalloutNV.exe 1.4.0.525)

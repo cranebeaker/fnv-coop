@@ -133,7 +133,9 @@ const FUNCTION_00522C80: u32 = 0x0052_2c80;
 const FUNCTION_006B05D0: u32 = 0x006b_05d0;
 const FUNCTION_008A7F80: u32 = 0x008a_7f80;
 const FUNCTION_008A16B0: u32 = 0x008a_16b0;
+#[cfg(test)]
 const FUNCTION_008D8520: u32 = 0x008d_8520;
+#[cfg(test)]
 const FUNCTION_0044DDC0: u32 = 0x0044_ddc0;
 const FUNCTION_00452370: u32 = 0x0045_2370;
 const FUNCTION_005DC980: u32 = 0x005d_c980;
@@ -1412,9 +1414,13 @@ pub fn fn_00646250(_e: &mut Engine, _unused_0: u32, value: i32) -> f64 {
 /// (`0059a030`) when the holder's current ammunition object exists.
 pub fn fn_00646260(e: &mut Engine, holder: Ptr) -> f32 {
     let mut value = setting(e, SETTING_DAMAGE_TO_WEAPON_VALUE);
-    let process: Ptr = e.call(FUNCTION_008D8520, &args![holder]).ptr();
+    let process: Ptr = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, holder))
+        .into_ret()
+        .ptr();
     let slot_result = e.vcall(process.addr(), 0x148, &[]).u32();
-    let form: Ptr = e.call(FUNCTION_0044DDC0, &args![slot_result]).ptr();
+    let form: Ptr = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, slot_result))
+        .into_ret()
+        .ptr();
     if !form.is_null() {
         let first_ammo = e.call(WEAPON_GET_CURRENT_AMMO, &args![form, holder]).u32();
         if first_ammo != 0 {

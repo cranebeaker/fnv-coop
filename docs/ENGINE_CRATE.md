@@ -388,8 +388,9 @@ $L scaffold "fallout/ai/processlists.cpp" # create its file (lead)
 
 The migration of [ADR-0012](adr/0012-modern-64-bit-engine.md) and
 [ADR-0014](adr/0014-typed-migration-in-two-stages.md) replaces a translation with typed, native
-Rust, a family of functions at a time. `engine_core::typed` is the seam it plugs into. No typed
-game function exists yet and the family table is empty.
+Rust, a family of functions at a time. `engine_core::typed` is the seam it plugs into. The first
+family is `leaves` (`typed/leaf.rs`): the small functions the translations call most, off until its
+speed gate passes (`NV_TYPED=leaves` tries it).
 
 **The switch.** `NV_TYPED` is read once per process, and `Engine::new` runs `typed::apply` after
 all registration: each family that is on is registered over the translations with
@@ -417,12 +418,15 @@ the differential test read.
   function is registered at its exe address, so vtables and callback words keep exe addresses.
 - From typed code to untyped: `e.call` as ever. A local whose address reaches untyped code stays in
   `with_stack`.
-- Between typed functions: `typed_call!(FAMILY, 0x00abc123, path::f(e, a, b))`, with the address
-  written as a literal. It is a Rust call when the family's direct flag is set, else `e.call` with
-  the same words. Its callee's crate must be the caller's or one below it; a callee above stays
-  `e.call`. The hygiene test checks that the literal is registered as that function, as far as text
-  can read its path and renames, and that the function has the typed marker for that address. A test
-  build stops when the address isn't in the named family.
+- Between typed functions, or from a translation to a typed function: `typed_call!(FAMILY, 0x00abc123,
+  path::f(e, a, b))`, with the address written as a literal. It is a Rust call when the family's direct
+  flag is set, else `e.call` with the same words. Its callee's crate must be the caller's or one below
+  it; a callee above stays `e.call`. The hygiene test checks that the literal is registered as that
+  function, as far as text can read its path and renames, and that the function has the typed marker for
+  that address. A test build stops when the address isn't in the named family.
+- A typed function folded across classes takes its parameters as `impl OneWord`, so a caller passes
+  whichever it holds, a `Ptr<T>` of any class or a plain word. An empty function whose callers push words
+  it never reads takes none, and `typed_call!(FAMILY, ADDR, f(e); words a, b)` passes them by address only.
 - The two forms agree but for one thing: an `f32` result by address goes through the uniform form's
   `f64`, which quiets a signalling NaN, as the exe's `FLD` does, and a direct one keeps its bits. A
   typed function that can return one writes `.allow_nan_payloads()` in its differential test, and
@@ -449,6 +453,9 @@ by 48 bytes). The full path, taken on a cache miss or with a diagnostic on, gain
 branch while no family is on. A `typed_call!` with the flag set is one load and one test before the
 Rust call, in play and release builds, and the checks above exist only with debug assertions on. A
 direct call doesn't count against the thread host's time slice and isn't on `call_stack`.
+
+The thread host keeps a count of calls by address (`Threads::calls`), and `NV_MOVE_THREADS` prints it
+with who ran when, per frame, beside the status line (`thread calls: N order: id:calls .. f ..`).
 
 **A risk for later.** The thread host hands over at calls by address: the time slice counts them and
 its hook runs at them. A typed loop that waits on guest memory for another game thread, making only
@@ -509,12 +516,12 @@ Diff::new(entry!(0x00abc123, typed_version(Ptr<Thing>, f32) -> f32))
   against its by-address run, call for call. The last needs debug assertions (`Report::direct_runs` says
   if it ran). It finds a `typed_call!` naming the wrong function, and it stops on one naming a family
   that doesn't hold the address.
-- **Families:** `.family(..)` once per family the call tree should have on, as many as it reaches. An
-  address in no named family goes by address, as in play with that family off, so a real callee or a
-  rewritten site further down is no finding. `Report::direct_calls` says how many went direct: 0 for a
-  function with a `typed_call!` means its direct branch has run nowhere, so name its family. The
-  control words come from the row of the family holding the function, and `Report::control_words` says
-  which ran; `.control_words(..)` overrides them.
+- **Families:** `.family(..)` once per family the call tree should have on, as many as it reaches. A
+  `typed_call!` at an address in no named family goes by address, as in play with that family off, so
+  the function it names runs nowhere. `assert_same` and `is_same` fail on that (`Report::unnamed`) unless
+  the test lists the address in `.goes_by_address(..)`, for a family another test runs direct.
+  `Report::direct_calls` says how many went direct. The control words come from the row of the family
+  holding the function, and `Report::control_words` says which ran; `.control_words(..)` overrides them.
 - **A non-leaf function:** a translation calls functions of its own unit plainly, which isn't logged,
   and typed code may not. `.translation_calls_plainly(&[addr])` drops those calls from the typed side
   only. Their words can't compare, but their effects do, so a wrong word shows by what it changes. The
@@ -558,6 +565,8 @@ Diff::new(entry!(0x00abc123, typed_version(Ptr<Thing>, f32) -> f32))
   translation's side only, so the typed version calling one still shows, and it refuses an overridable
   address. `allow_nan_payloads` lets NaN payloads differ where the float rule accepts it, in the return
   and in aligned words of memory and calls; an infinity or a number against a NaN still differs.
+- **A function new in the setup:** a setup may register at a family member's or a plain callee's address
+  where nothing was, when every side gets the same function: anything else stops the run.
 - **A double in the setup:** over a family's member, or over a callee the translation calls plainly,
   is refused: it would run on one side only. Over any other callee it is the usual way to stand in.
 - The engines hold translations only, whatever `NV_TYPED` says, so only the function and the families
@@ -586,7 +595,11 @@ marker elsewhere, in the engine crates, `crates/host` and `viewer`. The rules re
   at more than one address), and carries the typed marker for that address, so it can't silently call
   the translation. In typed code, no plain call of a registered function; a helper nothing registers,
   or one in a module that doesn't register that name (`helpers::read`, `f32::sqrt`), is ordinary code.
-- Each marked function is registered at its address, and a `Diff::new` somewhere names that address.
+- Each marked function is registered at its address, and a differential test covers it: a `Diff::new`
+  naming that address and that function, in a `#[test]` with no `#[ignore]`, whose result reaches
+  `.assert_same()` or `.is_same()`, in one statement or through `let report = ..run();`. Names are read
+  with their modules, so a translation of the same name in another module isn't the typed function, here
+  or in a `typed_call!`, and a `Diff` comparing the two isn't a comparison with itself.
 - Markers are well formed and directly above a function; a function registered in a typed folder has
   the marker for that address above it, in any of the folder's files. A marker has one definition, `scripts/ledger/src/typed_marker.rs`,
   which the ledger and this test share: a line this test refuses, the ledger doesn't count.
@@ -598,8 +611,8 @@ marker elsewhere, in the engine crates, `crates/host` and `viewer`. The rules re
   calls the game makes, so it is left for each family's own step.
 - **What stays review-only,** because this reads text: a call through a function pointer or a `let` of
   the function; a call a macro builds; a devirtualised or copied body; a bare name a local of the same
-  name hides; a re-export under another module's name; whether a `Diff::new` that names the address
-  really covers the function's branches; and a `typed_call!`'s family, which only a test build with the
+  name hides; a re-export under another module's name; whether a `Diff::new` really covers the function's
+  branches; and a `typed_call!`'s family, which only a test build with the
   flag set checks, so a site no test runs that way is only as right as its review.
 
 The ledger counts a typed marker in an engine crate with a registered address like a translation

@@ -10,8 +10,10 @@ const GET_EXTRA: u32 = 0x0052_7080;
 /// The extra data type these functions handle (0x92).
 const EXTRA_TYPE: u32 = 0x92;
 /// `0084e3a0` (thiscall): the word at +0xc (the extra data's flags).
+#[cfg(test)]
 const EXTRA_FLAGS: u32 = 0x0084_e3a0;
 /// `0044ddc0` (thiscall): the word at +8 (a form's flags).
+#[cfg(test)]
 const FORM_FLAGS: u32 = 0x0044_ddc0;
 /// `00401000` (cdecl, byte count): allocates a block.
 const ALLOCATE_BLOCK: u32 = 0x0040_1000;
@@ -35,14 +37,14 @@ const REMOVE_EXTRA: u32 = 0x0041_0140;
 /// data with flag 8 set.
 pub fn fn_00565090(e: &mut Engine, this: Ptr) -> bool {
     let extra = e.call(GET_EXTRA, &args![this, EXTRA_TYPE]).u32();
-    extra != 0 && e.call(EXTRA_FLAGS, &args![extra]).u32() & 8 != 0
+    extra != 0 && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, extra)) & 8 != 0
 }
 
 // Translated from 005651e0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed in the engine map: whether flag 0x80000 of the form's flags
 /// (`0044ddc0`) is set.
 pub fn fn_005651e0(e: &mut Engine, this: Ptr) -> bool {
-    e.call(FORM_FLAGS, &args![this]).u32() & 0x0008_0000 != 0
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) & 0x0008_0000 != 0
 }
 
 // Translated from 005650d0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -64,7 +66,7 @@ pub fn fn_005650d0(e: &mut Engine, this: Ptr, set: u8) {
         extra = e.call(ADD_EXTRA, &args![list, data]).u32();
     }
     if extra != 0 {
-        let mut flags = e.call(EXTRA_FLAGS, &args![extra]).u32();
+        let mut flags = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, extra));
         if set != 0 {
             flags |= 8;
         } else {

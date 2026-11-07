@@ -58,10 +58,13 @@ const GRASS_LIST: u32 = 0x0089_1170;
 /// Empties a list (`00470470`, plain `RET`).
 const LIST_REMOVE_ALL: u32 = 0x0047_0470;
 /// A `BSSimpleList` node's empty test (`008256d0`, `bool`).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// The address of a node's item (`006815c0`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// A node's next node (`00726070`).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// Appends the item a pointer points at to a list (`00905820`, `RET 4`).
 const LIST_ADD_TAIL: u32 = 0x0090_5820;
@@ -73,6 +76,7 @@ const TYPE_TES_FORM: u32 = 0x0118_3028;
 const TYPE_GRASS: u32 = 0x0118_a260;
 const TYPE_TEXTURE_SET: u32 = 0x0118_7788;
 /// `TESForm`'s form id getter (`0084e3a0`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// Tests form flag 0x8 (`004013e0`).
 const FORM_FLAG_8_SET: u32 = 0x0040_13e0;
@@ -198,14 +202,14 @@ pub fn tes_land_texture_init_item(e: &mut Engine, this: Ptr<TESLandTexture>) {
         let set_id_at = locals.byte_add(12);
         let mut node = e.call(GRASS_LIST, &args![this]).u32();
         let mut previous = 0u32;
-        while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-            let item_at = e.call(NODE_ITEM, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_at);
             e.mem.set_u32(id_at.addr(), item);
             let grass = resolve(e, this, id_at, TYPE_GRASS);
             e.mem.set_u32(form_at.addr(), grass);
             if grass == 0 {
-                let form_id = e.call(FORM_ID, &args![this]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 let name = e.vcall(this.addr(), 0x130, &args![]).u32();
                 let id = e.mem.u32(id_at.addr());
                 e.call(WARNING, &args![MISSING_GRASS_MESSAGE, id, name, form_id]);
@@ -213,14 +217,14 @@ pub fn tes_land_texture_init_item(e: &mut Engine, this: Ptr<TESLandTexture>) {
                     let id = e.mem.u32(id_at.addr());
                     e.mem.set_u32(copy_at.addr(), id);
                     e.call(0x0090_5330, &args![previous, copy_at]);
-                    node = e.call(NODE_NEXT, &args![previous]).u32();
+                    node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
                 } else {
                     e.call(0x0063_f7b0, &args![node]);
                 }
             } else {
                 e.call(0x0072_6c60, &args![node, form_at]);
                 previous = node;
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
         if e.get(this, TESLandTexture::pTextureSet) != 0 {
@@ -229,7 +233,7 @@ pub fn tes_land_texture_init_item(e: &mut Engine, this: Ptr<TESLandTexture>) {
             let set = resolve(e, this, set_id_at, TYPE_TEXTURE_SET);
             e.set(this, TESLandTexture::pTextureSet, set);
             if e.get(this, TESLandTexture::pTextureSet) == 0 {
-                let form_id = e.call(FORM_ID, &args![this]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 let name = e.vcall(this.addr(), 0x130, &args![]).u32();
                 let id = e.mem.u32(set_id_at.addr());
                 e.call(
@@ -245,7 +249,8 @@ pub fn tes_land_texture_init_item(e: &mut Engine, this: Ptr<TESLandTexture>) {
                     let found = e.vcall(set + 0x30, 0x8c, &args![texture]).u32();
                     if found == 0 {
                         let set = e.get(this, TESLandTexture::pTextureSet);
-                        let form_id = e.call(FORM_ID, &args![set]).u32();
+                        let form_id =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, set));
                         let set = e.get(this, TESLandTexture::pTextureSet);
                         let name = e.vcall(set, 0x130, &args![]).u32();
                         e.call(WARNING, &args![message, name, form_id]);
@@ -416,16 +421,20 @@ pub fn fn_00540de0(e: &mut Engine, this: Ptr<TESLandTexture>, other: Ptr) {
     e.set(this, TESLandTexture::pTextureSet, set);
     let mut node = e.call(GRASS_LIST, &args![source]).u32();
     while node != 0 {
-        if e.call(NODE_IS_EMPTY, &args![node]).u8() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            != 0
+        {
             break;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let grass = e.mem.u32(item);
         e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), grass);
             e.call(LIST_ADD_TAIL, &args![at + 0x20, slot]);
         });
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -461,13 +470,13 @@ pub fn fn_00540ec0(e: &mut Engine, this: Ptr<TESLandTexture>, other: Ptr) -> boo
     let mut mine = e.call(GRASS_LIST, &args![this]).u32();
     let mut theirs = e.call(GRASS_LIST, &args![source]).u32();
     while mine != 0 && theirs != 0 {
-        let my_item = e.call(NODE_ITEM, &args![mine]).u32();
-        let their_item = e.call(NODE_ITEM, &args![theirs]).u32();
+        let my_item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
+        let their_item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         if e.mem.u32(my_item) != e.mem.u32(their_item) {
             return true;
         }
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
-        mine = e.call(NODE_NEXT, &args![mine]).u32();
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
     }
     (mine == 0 && theirs != 0) || (theirs == 0 && mine != 0)
 }
@@ -485,7 +494,7 @@ pub fn tes_land_texture_save(e: &mut Engine, this: Ptr<TESLandTexture>) {
     e.call(EMPTY_00483710, &args![this]);
     let set = e.get(this, TESLandTexture::pTextureSet);
     if set != 0 {
-        let id = e.call(FORM_ID, &args![set]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, set));
         e.call(ADD_CHUNK_WORD, &args![0x4d41_4e54u32, id]);
     }
     if e.call(SAVE_SWAPS, &args![]).u8() != 0 {
@@ -499,14 +508,18 @@ pub fn tes_land_texture_save(e: &mut Engine, this: Ptr<TESLandTexture>) {
     e.call(ADD_CHUNK_BYTE, &args![0x4d41_4e53u32, exponent]);
     let mut node = e.call(GRASS_LIST, &args![this]).u32();
     while node != 0 {
-        if e.call(NODE_IS_EMPTY, &args![node]).u8() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            != 0
+        {
             break;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let grass = e.mem.u32(item);
-        let id = e.call(FORM_ID, &args![grass]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, grass));
         e.call(ADD_CHUNK_WORD, &args![0x4d41_4e47u32, id]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(FORM_CLOSE, &args![this]);
 }

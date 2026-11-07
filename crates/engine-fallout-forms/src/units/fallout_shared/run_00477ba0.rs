@@ -17,12 +17,14 @@ const ZERO: u32 = 0x0101_2060;
 const HUNDRED: u32 = 0x0101_7a40;
 /// `BGSSaveFormBuffer::GetForm` (engine map, `007af430`, `thiscall`): the
 /// reference's base form (the word at +0x20 by the body).
+#[cfg(test)]
 const BASE_FORM: u32 = 0x007a_f430;
 /// `BGSDestructibleObjectForm::GetDestructionForm` (engine map, `00475400`,
 /// `cdecl`, one word).
 const DESTRUCTION_FORM: u32 = 0x0047_5400;
 /// `00726070` (`thiscall`, no stack word): the word at +4 of `this` (here
 /// the destruction data).
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// `00475ab0` (`thiscall`, `RET 4`; unit `bgsdestructibleobjectform.cpp`):
 /// the reference's health, as an unsigned word.
@@ -50,12 +52,12 @@ pub fn fn_00477bc0(e: &mut Engine, reference: u32, damage: u32) -> u32 {
     if x87_load32(damage) == zero {
         return 0;
     }
-    let base = e.call(BASE_FORM, &args![reference]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let destructible = e.call(DESTRUCTION_FORM, &args![base]).u32();
     if destructible == 0 {
         return 0;
     }
-    let data = e.call(WORD_AT_4, &args![destructible]).u32();
+    let data = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, destructible));
     if data == 0 {
         return 0;
     }

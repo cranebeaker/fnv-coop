@@ -25,6 +25,7 @@ const MEMBER_TEST: u32 = 0x0044_df20;
 /// `0092c820` (thiscall, `RET 4`).
 const RECEIVE: u32 = 0x0092_c820;
 /// `Error` (`0040fbe0`, engine map): an empty function in this build, called with no words.
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 /// `TlsGetValue` import slot (`kernel32`, stdcall: the index).
 const TLS_GET_VALUE: u32 = 0x00fd_f044;
@@ -58,7 +59,7 @@ pub fn fn_0044d510(e: &mut Engine, this: Ptr, first: u32, second: u32, target: u
     if ok != 0 {
         let member = e.call(MEMBER_GET, &args![base + 0x14]).u32();
         e.call(RECEIVE, &args![target, member.wrapping_add(4)]);
-        e.call(ERROR, &args![]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
         let member = e.call(MEMBER_GET, &args![base + 0x14]).u32();
         if e.call(MEMBER_TEST, &args![member]).u8() != 0 {
             ok = 0;

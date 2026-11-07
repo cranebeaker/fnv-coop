@@ -61,10 +61,12 @@ const NI_PLANE_FROM_POINTS: u32 = 0x00a6_99d0;
 /// `NiFrustumPlanes::NiFrustumPlanes()` (Xbox PDB).
 const NI_FRUSTUM_PLANES_CONSTRUCT: u32 = 0x0045_c620;
 /// The point-against-plane test (`this` the plane, then the point).
+#[cfg(test)]
 const PLANE_SIDE_OF_POINT: u32 = 0x0049_da80;
 /// The value `PLANE_SIDE_OF_POINT` returns for "behind the plane".
 const SIDE_BEHIND: i32 = 2;
 /// `NiPoint3::Dot(other)` (Xbox PDB), result in `ST0`.
+#[cfg(test)]
 const NI_POINT3_DOT: u32 = 0x004b_6190;
 /// `NiPoint3` subtraction: `this - other` into `out`; returns `out`.
 const POINT_SUBTRACT: u32 = 0x0043_9ef0;
@@ -200,12 +202,20 @@ fn copy_words(e: &mut Engine, to: u32, from: u32, words: u32) {
 
 /// `NiPoint3::Dot` (result in `ST0`).
 fn dot(e: &mut Engine, normal: u32, other: u32) -> f64 {
-    e.call(NI_POINT3_DOT, &args![normal, other]).f64()
+    typed_call!(
+        leaf::FAMILY,
+        0x004b_6190,
+        leaf::point3_dot(e, normal, other)
+    )
+    .into_ret()
+    .f64()
 }
 
 /// The point-against-plane test.
 fn side_of_point(e: &mut Engine, plane: u32, point: u32) -> i32 {
-    e.call(PLANE_SIDE_OF_POINT, &args![plane, point]).i32()
+    typed_call!(leaf::FAMILY, 0x0049_da80, leaf::plane_side(e, plane, point))
+        .into_ret()
+        .i32()
 }
 
 /// `fabs` through the CRT routine, rounded to `float` where the code stores

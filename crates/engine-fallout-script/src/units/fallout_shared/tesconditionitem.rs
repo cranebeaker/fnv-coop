@@ -79,6 +79,7 @@ const PARAMS_INIT_ITEM: u32 = 0x0068_1fb0;
 /// value is a global).
 const USES_GLOBAL: u32 = 0x0068_14e0;
 /// `0084e3a0` (`ECX` = form): the word at +0xc (`TESForm` form id).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `TESForm::__AddChunkData` (`00485990`, cdecl: tag, data, size).
 const ADD_CHUNK_DATA: u32 = 0x0048_5990;
@@ -127,6 +128,7 @@ const STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// word; `RET 8`).
 const GET_INFO_DISPLAY_TEXT: u32 = 0x0061_e2b0;
 /// `00559450` (`ECX` = string): the string's characters.
+#[cfg(test)]
 const STRING_CHARS: u32 = 0x0055_9450;
 /// `sprintf` (`00ec623a`, cdecl).
 const SPRINTF: u32 = 0x00ec_623a;
@@ -203,7 +205,7 @@ pub fn tes_condition_item_save(e: &mut Engine, this: Ptr<TesConditionItem>) {
                     .wrapping_add((index as u32).wrapping_mul(4));
                 let param = e.mem.u32(slot);
                 if param != 0 {
-                    let id = e.call(FORM_ID, &args![param]).u32();
+                    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, param));
                     e.mem.set_u32(slot, id);
                 }
             }
@@ -212,13 +214,13 @@ pub fn tes_condition_item_save(e: &mut Engine, this: Ptr<TesConditionItem>) {
         if e.call(USES_GLOBAL, &args![this]).u8() != 0 {
             let global = e.get(this, TesConditionItem::pGlobal);
             if global != 0 {
-                let id = e.call(FORM_ID, &args![global]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, global));
                 e.mem.set_u32(copy.addr() + 0x04, id);
             }
         }
         let run_on = e.get(this, TesConditionItem::pRunOnRef);
         if run_on != 0 {
-            let id = e.call(FORM_ID, &args![run_on]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, run_on));
             e.mem.set_u32(copy.addr() + 0x18, id);
         }
         if e.call(IS_SWAPPED, &args![]).u8() != 0 {
@@ -285,7 +287,7 @@ fn describe_owner(e: &mut Engine, owner: u32, buffer: Ptr, bounded: bool) {
             e.call(STRING_CONSTRUCT, &args![text]);
             e.call(GET_INFO_DISPLAY_TEXT, &args![info, text, 0u32]);
             let topic_id = if topic != 0 {
-                e.call(FORM_ID, &args![topic]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, topic))
             } else {
                 0
             };
@@ -295,7 +297,7 @@ fn describe_owner(e: &mut Engine, owner: u32, buffer: Ptr, bounded: bool) {
                 EMPTY_STRING
             };
             let quest_id = if quest != 0 {
-                e.call(FORM_ID, &args![quest]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, quest))
             } else {
                 0
             };
@@ -304,8 +306,8 @@ fn describe_owner(e: &mut Engine, owner: u32, buffer: Ptr, bounded: bool) {
             } else {
                 EMPTY_STRING
             };
-            let chars = e.call(STRING_CHARS, &args![text]).u32();
-            let info_id = e.call(FORM_ID, &args![info]).u32();
+            let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
+            let info_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, info));
             print(
                 e,
                 &[
@@ -321,7 +323,7 @@ fn describe_owner(e: &mut Engine, owner: u32, buffer: Ptr, bounded: bool) {
             e.call(STRING_DESTRUCT, &args![text]);
         });
     } else {
-        let id = e.call(FORM_ID, &args![owner]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
         let name = e.vcall(owner, SLOT_NAME_0X130, &args![]).u32();
         let string = e.call(FORM_STRING, &args![owner]).u32();
         print(e, &[FORMAT_FORM, string, name, id]);
@@ -360,7 +362,8 @@ pub fn tes_condition_item_init_item(e: &mut Engine, this: Ptr<TesConditionItem>,
             if e.get(this, TesConditionItem::pRunOnRef) == 0 {
                 let id = e.mem.u32(id_slot.addr());
                 if owner != 0 {
-                    let owner_id = e.call(FORM_ID, &args![owner]).u32();
+                    let owner_id =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
                     let name = e.vcall(owner, SLOT_NAME_0X130, &args![]).u32();
                     let string = e.call(FORM_STRING, &args![owner]).u32();
                     e.call(

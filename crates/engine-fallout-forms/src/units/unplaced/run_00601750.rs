@@ -19,12 +19,13 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
+#[cfg(test)]
+use crate::units::fallout_shared::tesnpc::GET_WORD_AT_4;
 use crate::units::fallout_shared::tesnpc::{
     COMPONENT_DESTRUCTIBLE, COMPONENT_FULL_NAME, COMPONENT_MODEL, COMPONENT_RACE,
     COMPONENT_SPELL_LIST, COMPONENT_TOUCH_SPELL, FACEGEN_COORDS_DIFFER, FACEGEN_COPY_COORD,
-    FACEGEN_INIT_COORD, GET_SEX, GET_WORD_AT_4, NPC_GET_EYE_COLOR, NPC_GET_HEAD_PARTS,
-    SAVE_LOAD_GAME, SAVE_LOAD_UNAVAILABLE, TESNPC, VECTOR_CONSTRUCTOR_ITERATOR,
-    VSLOT_GET_COMBAT_STYLE,
+    FACEGEN_INIT_COORD, GET_SEX, NPC_GET_EYE_COLOR, NPC_GET_HEAD_PARTS, SAVE_LOAD_GAME,
+    SAVE_LOAD_UNAVAILABLE, TESNPC, VECTOR_CONSTRUCTOR_ITERATOR, VSLOT_GET_COMBAT_STYLE,
 };
 
 /// `NiPointer<T>::operator=(T *)` (`0066b0d0`, thiscall, returns the
@@ -75,9 +76,12 @@ const ROW1_RANDOM_SCALE: u32 = 0x0101_db80;
 const ROW1_RANDOM_OFFSET: u32 = 0x0101_1590;
 /// The form id of a form (`0084e3a0`, `+0xC`), and an empty-list test
 /// (`008256d0`: both words of the node are zero).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// Address of the item of a list node (`006815c0`: the node itself).
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
 /// The hair of the NPC (`00603b50`, `TESNPC` unit).
 const NPC_GET_HAIR: u32 = 0x0060_3b50;
@@ -294,9 +298,11 @@ pub fn fn_00601830(
 /// The face-gen coordinate of the NPC's race for its sex.
 fn race_coordinate(e: &mut Engine, this: Ptr<TESNPC>) -> u32 {
     let sex = e.call(GET_SEX, &args![this]).u32();
-    let race = e
-        .call(GET_WORD_AT_4, &args![this.addr() + COMPONENT_RACE])
-        .u32();
+    let race = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this.addr() + COMPONENT_RACE)
+    );
     e.call(RACE_FACE_COORD, &args![race, sex]).u32()
 }
 
@@ -380,7 +386,7 @@ pub fn tesnpc_save(e: &mut Engine, this: Ptr<TESNPC>) {
     e.call(DESTRUCTIBLE_SAVE, &args![base + COMPONENT_DESTRUCTIBLE]);
     let class = e.get(this, TESNPC::pCl);
     if !class.is_null() {
-        let form_id = e.call(GET_FORM_ID, &args![class]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, class));
         e.call(ADD_CHUNK_VALUE, &args![0x4d41_4e43u32, form_id]);
     }
     e.call(SAVE_DATA, &args![this]);
@@ -397,20 +403,20 @@ pub fn tesnpc_save(e: &mut Engine, this: Ptr<TESNPC>) {
 
     let mut node = e.call(NPC_GET_HEAD_PARTS, &args![this]).u32();
     while node != 0 {
-        if e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             break;
         }
-        let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let head_part = e.mem.u32(item);
-        let form_id = e.call(GET_FORM_ID, &args![head_part]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, head_part));
         e.call(ADD_CHUNK_VALUE, &args![0x4d41_4e50u32, form_id]);
-        node = e.call(GET_WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 
     let hair = e.call(NPC_GET_HAIR, &args![this]).u32();
     if hair != 0 {
         let hair = e.call(NPC_GET_HAIR, &args![this]).u32();
-        let form_id = e.call(GET_FORM_ID, &args![hair]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, hair));
         e.call(ADD_CHUNK_VALUE, &args![0x4d41_4e48u32, form_id]);
         let length = fn_00602130(e, this);
         e.call(ADD_CHUNK_VALUE, &args![0x4d41_4e4cu32, length]);
@@ -419,7 +425,7 @@ pub fn tesnpc_save(e: &mut Engine, this: Ptr<TESNPC>) {
     let eyes = e.call(NPC_GET_EYE_COLOR, &args![this]).u32();
     if eyes != 0 {
         let eyes = e.call(NPC_GET_EYE_COLOR, &args![this]).u32();
-        let form_id = e.call(GET_FORM_ID, &args![eyes]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, eyes));
         e.call(ADD_CHUNK_VALUE, &args![0x4d41_4e45u32, form_id]);
     }
 
@@ -429,7 +435,7 @@ pub fn tesnpc_save(e: &mut Engine, this: Ptr<TESNPC>) {
     let combat_style = e.vcall(base, VSLOT_GET_COMBAT_STYLE, &args![]).u32();
     if combat_style != 0 {
         let combat_style = e.vcall(base, VSLOT_GET_COMBAT_STYLE, &args![]).u32();
-        let form_id = e.call(GET_FORM_ID, &args![combat_style]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, combat_style));
         e.call(ADD_CHUNK_VALUE, &args![0x4d41_4e5au32, form_id]);
     }
 

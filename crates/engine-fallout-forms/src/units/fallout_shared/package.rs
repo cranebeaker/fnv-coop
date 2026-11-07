@@ -71,6 +71,7 @@ const GET_COMBAT_STYLE: u32 = 0x0067_33e0;
 /// `pCombatStyle` setter (+0x48).
 const SET_COMBAT_STYLE: u32 = 0x0067_3400;
 /// `TESForm::iFormID` getter (+0x0c).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// Tests form flag 0x8 (`iFormFlags`, +0x08).
 const GET_FORM_FLAG_8: u32 = 0x0040_13e0;
@@ -160,6 +161,7 @@ const TARGET_COPY: u32 = 0x0068_01a0;
 const TARGET_INIT_ITEM: u32 = 0x0068_03b0;
 const TARGET_GET_TYPE: u32 = 0x0051_9b00;
 const TARGET_SET_TYPE: u32 = 0x0068_00b0;
+#[cfg(test)]
 const TARGET_GET_VALUE: u32 = 0x0044_ddc0;
 
 /// `PACKAGE_PROCEDURE_TYPE` getter (+0x18).
@@ -260,9 +262,11 @@ const CELL_GET_WORLD_SPACE: u32 = 0x0054_ddd0;
 const GET_PARENT_CELL: u32 = 0x008d_6f30;
 /// A reference's base form (`+0x20`, `007af430`) and a form's type
 /// (`00401170`: the byte at `+0x04`).
+#[cfg(test)]
 const GET_BASE_FORM: u32 = 0x007a_f430;
 const GET_FORM_TYPE: u32 = 0x0040_1170;
 /// The actor's process object (`+0x68`, `008d8520`).
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 /// The reference held by extra data type 0x51 (`00569b80`: the extra data
 /// list at `+0x44`, then `0041e410`).
@@ -294,12 +298,14 @@ const CELL_FLAG_1: u32 = 0x0042_5fd0;
 /// flag 0x20 test (`00440d80`).
 const IS_FURNITURE: u32 = 0x0056_8680;
 const MODEL_BOUND_SIZE: u32 = 0x0057_1600;
+#[cfg(test)]
 const FORM_FLAG_20: u32 = 0x0044_0d80;
 /// Whether a reference has a linked door (`00568e50`) and its teleport
 /// position (`00568fa0`).
 const HAS_LINKED_DOOR: u32 = 0x0056_8e50;
 const LINKED_DOOR_TELEPORT_POSITION: u32 = 0x0056_8fa0;
 /// The process field at `+0x28` (`0045cd60`).
+#[cfg(test)]
 const PROCESS_FIELD_28: u32 = 0x0045_cd60;
 
 /// Math and CRT helpers by address: `_ftol2` (`00ec62c0`, a leading `f64`),
@@ -317,6 +323,7 @@ const CRT_FINITE: u32 = 0x00ec_7595;
 const CRT_SPRINTF: u32 = 0x00ec_623a;
 /// The loader's error report (`0040fbe0(text)`) and a function that returns
 /// its first stack argument (`00464f30`).
+#[cfg(test)]
 const REPORT_ERROR: u32 = 0x0040_fbe0;
 const PASS_THROUGH: u32 = 0x0046_4f30;
 /// The bounds of a base form of type 0x15: the high point (`0050eb90`) and
@@ -498,6 +505,7 @@ const FLAG_BYTE_ADDRESS: u32 = 0x0040_8d60;
 const SAVE_SIZE_LOG_OBJECT: u32 = 0x011d_e4e8;
 /// `Error(format, ...)` (cdecl) and the save/load logger (the same body as
 /// `LOG_FORM_WARNING`, cdecl).
+#[cfg(test)]
 const ERROR_LOG: u32 = 0x0040_fbe0;
 const SAVE_LOAD_LOG: u32 = LOG_FORM_WARNING;
 /// `TESForm::SaveGameDataOLD(ptr, size)`, `TESForm::LoadGameDataOLD(ptr,
@@ -1100,7 +1108,9 @@ pub fn tes_package_get_initial_target_count(e: &mut Engine, this: Ptr<TESPackage
     {
         return 1;
     }
-    let value = e.call(TARGET_GET_VALUE, &args![target]).i32();
+    let value = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, target))
+        .into_ret()
+        .i32();
     if value > 0 {
         return value;
     }
@@ -1296,7 +1306,7 @@ pub fn tes_package_init_item(e: &mut Engine, this: Ptr<TESPackage>) {
         });
         e.call(SET_COMBAT_STYLE, &args![this, style]);
         if e.call(GET_COMBAT_STYLE, &args![this]).u32() == 0 {
-            let id = e.call(GET_FORM_ID, &args![this]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(this.addr(), SLOT_FORM_NAME, &[]).u32();
             e.call(
                 LOG_FORM_WARNING,
@@ -1323,7 +1333,7 @@ pub fn tes_package_init_item(e: &mut Engine, this: Ptr<TESPackage>) {
     }
 
     if e.call(GET_WARNING_COUNT, &[]).u32() != warnings_before {
-        let id = e.call(GET_FORM_ID, &args![this]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let name = e.vcall(this.addr(), SLOT_FORM_NAME, &[]).u32();
         e.call(
             LOG_FORM_WARNING,
@@ -1393,7 +1403,7 @@ pub fn tes_package_get_is_created(e: &mut Engine, this: Ptr<TESPackage>) -> bool
 /// `iPackFlags`, but only for a package whose form ID is a dynamic one
 /// (the data handler's test, `formID >= 0xFF000000`).
 pub fn tes_package_set_is_created(e: &mut Engine, this: Ptr<TESPackage>, created: u8) {
-    let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let handler: u32 = e.global(DATA_HANDLER);
     if !e.call(IS_DYNAMIC_FORM_ID, &args![handler, form_id]).bool() {
         return;
@@ -1433,7 +1443,7 @@ pub fn tes_package_is_never_to_run(e: &mut Engine, this: Ptr<TESPackage>) -> boo
 
 /// Whether the package's form ID is a dynamic one (the data handler's test).
 fn has_dynamic_form_id(e: &mut Engine, this: Ptr<TESPackage>) -> bool {
-    let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let handler: u32 = e.global(DATA_HANDLER);
     e.call(IS_DYNAMIC_FORM_ID, &args![handler, form_id]).bool()
 }
@@ -1510,7 +1520,9 @@ fn world_of_reference(e: &mut Engine, reference: Object) -> Object {
 /// The actor's process object (the engine map names this getter
 /// `MiddleHighProcess::GetSavedAcquireObject`; the body reads `+0x68`).
 fn process_of(e: &mut Engine, actor: Object) -> Object {
-    e.call(GET_PROCESS, &args![actor]).ptr()
+    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+        .into_ret()
+        .ptr()
 }
 
 /// The reference held by the extra data of type 0x51, which the loader's
@@ -2278,7 +2290,9 @@ pub fn fn_00676280(e: &mut Engine, this: Ptr<TESPackage>, actor: Object) -> i32 
         .call(LOCATION_RESOLVE_REFERENCE, &args![location, actor])
         .ptr::<()>();
     if !reference.is_null() {
-        let base = e.call(GET_BASE_FORM, &args![reference]).ptr::<()>();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+            .into_ret()
+            .ptr::<()>();
         if e.call(GET_FORM_TYPE, &args![base]).u32() == FORM_TYPE_0X15 {
             let own = e.call(LOCATION_GET_RADIUS, &args![location]).u32();
             let zero: f64 = e.global(ZERO);
@@ -2312,7 +2326,9 @@ fn is_furniture(e: &mut Engine, reference: Object) -> bool {
 
 /// The base form of a reference (`+0x20`).
 fn base_form_of(e: &mut Engine, reference: Object) -> Object {
-    e.call(GET_BASE_FORM, &args![reference]).ptr()
+    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+        .into_ret()
+        .ptr()
 }
 
 /// Whether the base form of `reference` is one of the two forms the data
@@ -2566,7 +2582,7 @@ fn second_location_test(
         if !reference.is_null() {
             if is_furniture(e, reference) && process_has_point(e, subject) {
                 let holder = process_of(e, actor);
-                if e.call(PROCESS_FIELD_28, &args![holder]).u32() == 0 {
+                if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, holder)) == 0 {
                     copy_process_point(e, actor, point);
                 }
                 radius = 0x14;
@@ -2737,7 +2753,7 @@ fn own_location_test(
             }
             if !base_if_furniture.is_null() && process_has_point(e, subject) {
                 let holder = process_of(e, subject);
-                if e.call(PROCESS_FIELD_28, &args![holder]).u32() == 0 {
+                if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, holder)) == 0 {
                     copy_process_point(e, subject, point);
                 }
                 radius = 0x14;
@@ -2873,7 +2889,7 @@ fn actor_at_ref_target(
     e.call(POINT_DIFFERENCE, &args![point, difference, actor_at]);
     if is_furniture(e, target) && process_has_point(e, actor) {
         let holder = process_of(e, actor);
-        if e.call(PROCESS_FIELD_28, &args![holder]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, holder)) == 0 {
             copy_process_point(e, actor, point);
         }
         radius = 10;
@@ -2938,7 +2954,7 @@ fn actor_at_ref_target(
                     CRT_SPRINTF,
                     &args![buffer, MESSAGE_RADIUS_DISTANCE, radius, length as f64],
                 );
-                e.call(REPORT_ERROR, &args![buffer]);
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words buffer);
             });
         }
     }
@@ -3417,7 +3433,7 @@ fn procedure_type_2(e: &mut Engine, this: Ptr<TESPackage>, reference: Object) ->
 /// list's pointer extra (`0041c8d0`) names.
 fn refine_reference(e: &mut Engine, reference: Object) -> Object {
     if !reference.is_null()
-        && e.call(FORM_FLAG_20, &args![reference]).bool()
+        && typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, reference))
         && e.call(GET_EXTRA_DATA_LIST, &args![reference]).u32() != 0
     {
         let list = e.call(GET_EXTRA_DATA_LIST, &args![reference]).u32();
@@ -3608,7 +3624,7 @@ pub fn fn_006784f0(e: &mut Engine, reference: Object, context: Ptr) -> bool {
     {
         return false;
     }
-    if e.call(FORM_FLAG_20, &args![reference]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, reference)) {
         return false;
     }
     if e.vcall(reference.addr(), SLOT_IS_ACTOR, &args![]).bool() {
@@ -3745,12 +3761,16 @@ pub fn tes_package_get_package_radius_actor_to_ref_target(
                 && !fn_00671d10(e, Ptr::new(package_extra)).is_null()
             {
                 let held = fn_00671d10(e, Ptr::new(package_extra));
-                radius = e.call(TARGET_GET_VALUE, &args![held]).i32();
+                radius = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, held))
+                    .into_ret()
+                    .i32();
             } else if !target_of(e, this).is_null()
                 && e.get(this, TESPackage::ePROCEDURE_TYPE) != 0x1a
             {
                 let held = target_of(e, this);
-                radius = e.call(TARGET_GET_VALUE, &args![held]).i32();
+                radius = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, held))
+                    .into_ret()
+                    .i32();
             }
             if radius == 0 && !e.vcall(target.addr(), SLOT_IS_ACTOR, &args![]).bool() {
                 radius = model_bound_size(e, target);
@@ -3922,23 +3942,9 @@ fn log_save_size(e: &mut Engine, saved: u32, current: u32, line: u32, formats: (
         // The 0x130 virtual returns the `%s` of the message.
         let name = e.vcall(form, SLOT_FORM_NAME, &args![]).u32();
         let flags = e.mem.u32(current + 5);
-        e.call(
-            ERROR_LOG,
-            &args![
-                formats.0,
-                saved,
-                form_id,
-                name,
-                flags,
-                line,
-                PACKAGE_SOURCE_FILE
-            ],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words formats.0, saved, form_id, name, flags, line, PACKAGE_SOURCE_FILE);
     } else {
-        e.call(
-            ERROR_LOG,
-            &args![formats.1, saved, line, PACKAGE_SOURCE_FILE],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words formats.1, saved, line, PACKAGE_SOURCE_FILE);
     }
 }
 

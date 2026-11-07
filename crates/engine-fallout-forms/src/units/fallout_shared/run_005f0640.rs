@@ -10,10 +10,13 @@ use crate::units::fallout_shared::creaturesounds::{CreatureSound, CreatureSounds
 const SOUND_TYPE_COUNT: i32 = 0x16;
 /// `008256d0` (`fastcall`): whether a list node is empty (item and next null),
 /// a `bool` in `AL`.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (`fastcall`): answers the node itself (the item's address).
+#[cfg(test)]
 const LIST_ITEM_ADDRESS: u32 = 0x0068_15c0;
 /// `00726070` (`fastcall`): the node's next (`+4`).
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// `0063f7b0` (`fastcall`): removes the list's head item.
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -58,8 +61,8 @@ pub fn fn_005f0ac0(e: &mut Engine, this: Ptr<CreatureSounds>, kind: i32) -> u32 
 /// slot is read without a bounds check) and clears the slot.
 pub fn fn_005f0860(e: &mut Engine, this: Ptr<CreatureSounds>, kind: i32) {
     let list = fn_005f0ac0(e, this, kind);
-    while list != 0 && !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-        let item = e.call(LIST_ITEM_ADDRESS, &args![list]).u32();
+    while list != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let sound = e.mem.u32(item);
         e.call(FREE_BLOCK, &args![sound]);
         e.call(LIST_REMOVE_HEAD, &args![list]);
@@ -113,8 +116,8 @@ pub fn fn_005f0900(
     }
     let mut node = fn_005f0ac0(e, this, kind);
     let mut previous = 0;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(LIST_ITEM_ADDRESS, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let chance = e.get(
             Ptr::<CreatureSound>::new(e.mem.u32(item)),
             CreatureSound::iChance,
@@ -123,7 +126,7 @@ pub fn fn_005f0900(
             break;
         }
         previous = node;
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.with_stack(4, |e, argument| {
         e.mem.set_u32(argument.addr(), sound.addr());
@@ -144,8 +147,11 @@ pub fn fn_005f0900(
 pub fn fn_005f0a30(e: &mut Engine, this: Ptr<CreatureSounds>, kind: i32) -> u32 {
     let mut picked = 0;
     let mut node = fn_005f0ac0(e, this, kind);
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && picked == 0 {
-        let item = e.call(LIST_ITEM_ADDRESS, &args![node]).u32();
+    while node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        && picked == 0
+    {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let creature_sound = Ptr::<CreatureSound>::new(e.mem.u32(item));
         if e.get(creature_sound, CreatureSound::pSound) != 0 {
             let roll = e.call(RANDOM, &args![]).u32();
@@ -153,7 +159,7 @@ pub fn fn_005f0a30(e: &mut Engine, this: Ptr<CreatureSounds>, kind: i32) -> u32 
                 picked = e.get(creature_sound, CreatureSound::pSound);
             }
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     picked
 }
@@ -173,13 +179,13 @@ pub fn fn_005f0640(e: &mut Engine, this: Ptr<CreatureSounds>, other: u32) {
     let mut kind: i8 = 0;
     while i32::from(kind) < SOUND_TYPE_COUNT {
         let mut node = fn_005f0ac0(e, Ptr::new(other), i32::from(kind));
-        while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-            let item = e.call(LIST_ITEM_ADDRESS, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let sound = e.mem.u32(item);
             let block = e.call(ALLOCATE_BLOCK, &args![8u32]).u32();
             fn_005f07f0(e, Ptr::new(block), Ptr::new(sound));
             fn_005f0900(e, this, Ptr::new(block), i32::from(kind));
-            node = e.call(LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         kind = kind.wrapping_add(1);
     }
@@ -201,13 +207,13 @@ pub fn fn_005f06f0(e: &mut Engine, this: Ptr<CreatureSounds>, other: u32) -> boo
         let mut mine = fn_005f0ac0(e, this, i32::from(kind));
         let mut theirs = fn_005f0ac0(e, Ptr::new(other), i32::from(kind));
         while mine != 0
-            && !e.call(LIST_IS_EMPTY, &args![mine]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, mine))
             && theirs != 0
-            && !e.call(LIST_IS_EMPTY, &args![theirs]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, theirs))
         {
-            let slot = e.call(LIST_ITEM_ADDRESS, &args![mine]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
             let my_sound = Ptr::<CreatureSound>::new(e.mem.u32(slot));
-            let slot = e.call(LIST_ITEM_ADDRESS, &args![theirs]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
             let their_sound = Ptr::<CreatureSound>::new(e.mem.u32(slot));
             if e.get(my_sound, CreatureSound::iChance) != e.get(their_sound, CreatureSound::iChance)
             {
@@ -216,8 +222,8 @@ pub fn fn_005f06f0(e: &mut Engine, this: Ptr<CreatureSounds>, other: u32) -> boo
             if e.get(my_sound, CreatureSound::pSound) != e.get(their_sound, CreatureSound::pSound) {
                 return true;
             }
-            mine = e.call(LIST_NEXT, &args![mine]).u32();
-            theirs = e.call(LIST_NEXT, &args![theirs]).u32();
+            mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
+            theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
         }
         if mine != 0 || theirs != 0 {
             return true;

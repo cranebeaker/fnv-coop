@@ -32,6 +32,7 @@ const ROUND_UP_004E4430: u32 = 0x004e_4430;
 /// `006b31c0`: `PathSmootherPOVSearch`'s base constructor (`thiscall`).
 const POV_SEARCH_BASE_CONSTRUCT: u32 = 0x006b_31c0;
 /// `006815c0`: returns `this` (the trivial constructor of two members).
+#[cfg(test)]
 const SELF: u32 = 0x0068_15c0;
 /// Member constructors (`thiscall`).
 const MEMBER_CONSTRUCT_006B3570: u32 = 0x006b_3570;
@@ -188,8 +189,8 @@ pub fn fn_006ad4c0(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
     e.call(POV_SEARCH_BASE_CONSTRUCT, &args![base]);
     e.mem.set_u32(base, VTABLE_PATH_SMOOTHER_POV_SEARCH);
-    e.call(SELF, &args![base + 0x2060]);
-    e.call(SELF, &args![base + 0x206c]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x2060));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x206c));
     for offset in [0x2084u32, 0x2094, 0x20a4, 0x20b4] {
         e.call(MEMBER_CONSTRUCT_006B3570, &args![base + offset]);
     }

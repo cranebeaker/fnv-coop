@@ -269,6 +269,7 @@ const TYPE_BGS_BODY_PART_DATA: u32 = 0x0118_61bc;
 /// The type descriptor of `TESActorBase` (`.?AVTESActorBase@@`).
 const TYPE_TES_ACTOR_BASE: u32 = 0x0118_46e8;
 /// `0084e3a0` (unnamed in the engine map): the form's id word.
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// The virtual slot (byte offset) of the form's text the warnings print.
 const SLOT_FORM_TEXT: u32 = 0x130;
@@ -305,7 +306,7 @@ fn resolve(e: &mut Engine, this: Ptr, offset: u32, target: u32, format: u32) {
             .u32();
         e.mem.set_u32(this.addr() + offset, cast);
         if e.mem.u32(this.addr() + offset) == 0 {
-            let own_id = e.call(FORM_ID_0084E3A0, &args![this]).u32();
+            let own_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let text = e.vcall(this.addr(), SLOT_FORM_TEXT, &args![]).u32();
             let id = e.mem.u32(slot.addr());
             e.call(PRINT_WARNING_005B5E40, &args![format, id, text, own_id]);
@@ -373,6 +374,7 @@ const FIX_FEEDBACK_005EE380: u32 = 0x005e_e380;
 /// `005ee580` (unnamed in the engine map): fixes up the `RAPS` block.
 const FIX_POSE_005EE580: u32 = 0x005e_e580;
 /// `0044ddc0` (unnamed in the engine map): an array's size.
+#[cfg(test)]
 const ARRAY_SIZE_0044DDC0: u32 = 0x0044_ddc0;
 /// `005eeda0` (unnamed in the engine map; `thiscall`, `RET 4`): the address
 /// of an element of the array at +0x80.
@@ -471,12 +473,13 @@ pub fn bgs_ragdoll_load(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
             }
             // RAFB
             0x4246_4152 => {
-                let bytes = e.call(ARRAY_SIZE_0044DDC0, &args![base + 0x80]).u32() << 1;
+                let bytes =
+                    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + 0x80)) << 1;
                 let first = e
                     .call(SHORT_ARRAY_AT_005EEDA0, &args![base + 0x80, 0u32])
                     .u32();
                 e.call(GET_CHUNK_DATA, &args![file, first, bytes]);
-                let count = e.call(ARRAY_SIZE_0044DDC0, &args![base + 0x80]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + 0x80));
                 if e.call(FILE_FLAG_00401680, &args![file]).u8() != 0 {
                     let mut index: u32 = 0;
                     while index < count {
@@ -532,6 +535,7 @@ const SAVE_SWAPS: u32 = 0x0040_1500;
 const WORD_SWAP_00401080: u32 = 0x0040_1080;
 /// A `BSStringT`'s length (`004048e0`) and characters (`00559450`).
 const STRING_LENGTH: u32 = 0x0040_48e0;
+#[cfg(test)]
 const STRING_CHARS: u32 = 0x0055_9450;
 /// The reallocation wrapper (`0042f5d0`, cdecl: buffer, bytes; the new
 /// buffer in `EAX`).
@@ -587,7 +591,9 @@ pub fn bgs_ragdoll_save(e: &mut Engine, this: Ptr) {
     e.call(ADD_CHUNK_WORD, &args![SIG_NVER, 1u32]);
     e.with_stack(0xe, |e, data| {
         for (i, array) in [0x80u32, 0xc0, 0xe4, 0x108].into_iter().enumerate() {
-            let size = e.call(ARRAY_SIZE_0044DDC0, &args![base + array]).u16();
+            let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + array))
+                .into_ret()
+                .u16();
             e.mem.set_u16(data.addr() + 2 * i as u32, size);
         }
         for (i, field) in [0x40u32, 0x90, 0xd0, 0xf4, 0x118].into_iter().enumerate() {
@@ -605,7 +611,7 @@ pub fn bgs_ragdoll_save(e: &mut Engine, this: Ptr) {
     for (field, chunk) in [(0x144, SIG_XNAM), (0x140, SIG_TNAM)] {
         let form = e.mem.u32(base + field);
         if form != 0 {
-            let id = e.call(FORM_ID_0084E3A0, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(ADD_CHUNK_WORD, &args![chunk, id]);
         }
     }
@@ -617,8 +623,8 @@ pub fn bgs_ragdoll_save(e: &mut Engine, this: Ptr) {
     if e.call(SAVE_SWAPS, &args![]).bool() {
         fn_005ee380(e, feedback);
     }
-    if e.call(ARRAY_SIZE_0044DDC0, &args![base + 0x80]).u32() != 0 {
-        let count = e.call(ARRAY_SIZE_0044DDC0, &args![base + 0x80]).u32();
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + 0x80)) != 0 {
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + 0x80));
         let first = e
             .call(SHORT_ARRAY_AT_005EEDA0, &args![base + 0x80, 0u32])
             .u32();
@@ -634,7 +640,7 @@ pub fn bgs_ragdoll_save(e: &mut Engine, this: Ptr) {
     }
     if e.call(STRING_LENGTH, &args![base + 0x11c]).u32() != 0 {
         let length = e.call(STRING_LENGTH, &args![base + 0x11c]).u32();
-        let chars = e.call(STRING_CHARS, &args![base + 0x11c]).u32();
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x11c));
         e.call(
             ADD_CHUNK_ARRAY,
             &args![SIG_ANAM, chars, length.wrapping_add(1)],

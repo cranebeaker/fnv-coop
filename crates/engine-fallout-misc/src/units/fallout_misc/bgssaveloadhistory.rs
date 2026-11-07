@@ -26,8 +26,6 @@ const ARRAY_ADD: u32 = 0x007c_b2e0;
 /// `009a4320` (the map's `BSSimpleArray<BGSBodyPart *>::_MoveItems`):
 /// `(this, index, count)` removes `count` items from `index`.
 const ARRAY_MOVE_ITEMS: u32 = 0x009a_4320;
-/// `0044ddc0` / `00620b80`: the array's size (word at `+8`).
-const ARRAY_SIZE: u32 = 0x0044_ddc0;
 const ARRAY_SIZE_OV2: u32 = 0x0062_0b80;
 /// `006a7ad0`: address of element `index` (`this + 4` buffer, 4 bytes each).
 const ARRAY_ELEMENT: u32 = 0x006a_7ad0;
@@ -106,7 +104,7 @@ pub fn bgs_save_load_history_construct(
 /// the body of the destructor.
 pub fn fn_0084df90(e: &mut Engine, this: Ptr<BSSimpleArray>) {
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![this]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) {
         let slot = e.call(ARRAY_ELEMENT, &args![this, index]).u32();
         let note = e.mem.u32(slot);
         e.call(OPERATOR_DELETE, &args![note]);
@@ -192,7 +190,7 @@ pub fn bgs_save_load_history_save(e: &mut Engine, this: Ptr<BSSimpleArray>, file
     e.with_stack(SAVE_BUFFER_SIZE, |e, buffer| {
         e.call(SAVE_BUFFER_CONSTRUCT, &args![buffer]);
         e.with_stack(4, |e, count| {
-            let size = e.call(ARRAY_SIZE, &args![this]).u32();
+            let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
             e.mem.set_u32(count.addr(), size);
             e.call(SAVE_BUFFER_SAVE_DATA, &args![buffer, count, 4u32, 0u32]);
             let mut index = 0u32;

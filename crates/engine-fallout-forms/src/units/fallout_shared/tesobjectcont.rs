@@ -331,7 +331,7 @@ fn resolve_sound(e: &mut Engine, this: Ptr, offset: u32, warning: u32) {
     if e.mem.u32(base + offset) != 0 {
         return;
     }
-    let form_id = e.call(0x0084_e3a0, &args![this]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let name = e.vcall(base, 0x130, &args![]).u32();
     e.call(0x005b_5e40, &args![warning, id, name, form_id]);
 }
@@ -523,7 +523,7 @@ pub fn fn_00516dc0(
                 e.call(0x0060_0900, &args![used_item]);
                 e.call(0x0060_0940, &args![1u32]);
                 e.call(0x0060_0920, &args![1u32]);
-                let acquire = e.call(0x008d_8520, &args![actor]).u32();
+                let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 e.vcall(acquire, 0x44, &args![actor, 0u32, 2u32, 1u32, 0u32, 1u32]);
                 e.call(0x0060_0900, &args![0u32]);
                 e.call(0x0060_0940, &args![0u32]);
@@ -539,7 +539,7 @@ pub fn fn_00516dc0(
         && e.vcall(reference.addr(), 0x1d0, &args![]).u32() != 0
     {
         let sound = e.call(0x008c_e390, &args![this]).u32();
-        let sound_id = e.call(0x0084_e3a0, &args![sound]).u32();
+        let sound_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         e.with_stack(0xc, |e, handle| {
             let audio = e.call(0x0045_3a70, &args![]).u32();
             e.call(0x00ad_73b0, &args![audio, handle, sound_id, 0x102u32]);
@@ -621,6 +621,7 @@ const SAVE_DATA: u32 = 0x0048_5e20;
 /// `00485910` (cdecl(chunk, word)): adds a one-word chunk.
 const ADD_CHUNK_WORD: u32 = 0x0048_5910;
 /// The form-id getter (`0084e3a0`, `thiscall`: the word at +0xc).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `__RTDynamicCast` (`00ec43fb`, cdecl, five words) and the type
 /// descriptor `TESObjectCONT` (`0118a674`).
@@ -677,7 +678,7 @@ pub fn tes_object_cont_save(e: &mut Engine, this: Ptr) {
     for (offset, tag) in [(0x8cu32, SNAM), (0x90, QNAM), (0x94, RNAM)] {
         let form = e.mem.u32(base + offset);
         if form != 0 {
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(ADD_CHUNK_WORD, &args![tag, id]);
         }
     }

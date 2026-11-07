@@ -33,10 +33,13 @@ use crate::prelude::*;
 // body fits it.
 
 /// Returns its `this` (the address of a list node, where the node's item word lives).
+#[cfg(test)]
 const LIST_ITEM_SLOT: u32 = 0x0068_15c0;
 /// Returns `[this + 4]` (the node after a list node).
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// Byte result: the node has no next node and no item (`[this + 4] == 0 && [this] == 0`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// Removes the first node of a list: the head node stays and takes the second node's item and link
 /// (or its item becomes 0 when it is the only node).
@@ -74,7 +77,9 @@ const CAMERA_ADVANCE: u32 = 0x0058_cf60;
 /// Camera shot: writes its position to an output block (one pointer), returns that pointer.
 const CAMERA_POSITION: u32 = 0x0058_d510;
 /// Getters of a word at a fixed offset of `this` (their bodies are `MOV EAX,[ECX + n]`).
+#[cfg(test)]
 const WORD_AT_0X08: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const WORD_AT_0X0C: u32 = 0x0084_e3a0;
 const WORD_AT_0X2C: u32 = 0x0055_b980;
 const WORD_AT_0X38: u32 = 0x009e_32d0;
@@ -132,6 +137,7 @@ const SPECIAL_IDLE_FREE: u32 = 0x0049_8910;
 const SPECIAL_IDLE_QUEUE: u32 = 0x0049_7ca0;
 /// Returns `[this + 0x68]`, the actor's process (the engine map calls it
 /// `MiddleHighProcess::GetSavedAcquireObject`).
+#[cfg(test)]
 const ACTOR_GET_PROCESS: u32 = 0x008d_8520;
 /// `Actor::GetCurrentWeapon` (Xbox PDB).
 const ACTOR_GET_CURRENT_WEAPON: u32 = 0x008a_1710;
@@ -219,6 +225,7 @@ const HIT_RECORD_CONSTRUCTOR: u32 = 0x0069_6c30;
 const ACTOR_CONTROLLER_BASE: u32 = 0x0045_43c0;
 
 /// `NiPoint3::NiPoint3(x, y, z)` (returns `this`).
+#[cfg(test)]
 const POINT3_CONSTRUCTOR: u32 = 0x0041_6870;
 /// `NiPoint2::NiPoint2(x, y)` (returns `this`).
 const POINT2_CONSTRUCTOR: u32 = 0x0045_2dc0;
@@ -244,6 +251,7 @@ const VECTOR_NORMALIZE: u32 = 0x004a_0c10;
 const MATRIX_TIMES_VECTOR: u32 = 0x004b_3ae0;
 /// `NiAVObject::GetWorldBound` (Xbox PDB); the centre vector sits at the returned object's item
 /// slot (`LIST_ITEM_SLOT`).
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 /// Actor to its model object (no stack words; body not read).
 const ACTOR_MODEL_OBJECT: u32 = 0x0043_fcd0;
@@ -276,6 +284,7 @@ const LIGHT_SET_DIRECTION: u32 = 0x0050_dd50;
 const LIGHT_SET_COLOUR: u32 = 0x004b_c2e0;
 const LIGHT_SET_DIMMER: u32 = 0x0045_0f90;
 /// Returns `[this]` (the pointer a smart pointer holds).
+#[cfg(test)]
 const SMART_POINTER_GET: u32 = 0x0055_9450;
 /// Smart pointer assignment (one word; releases the old pointer, keeps the new one).
 const SMART_POINTER_ASSIGN: u32 = 0x0066_b0d0;
@@ -310,6 +319,7 @@ const BODY_PART_NODE_NAME: u32 = 0x0043_b230;
 /// Cdecl `(root object, node name)`: finds the node (body not read).
 const FIND_NODE_BY_NAME: u32 = 0x004a_ae30;
 /// Actor to the argument the process virtual call `+0x190` takes (returns 0; body read).
+#[cfg(test)]
 const ACTOR_FACE_VALUE: u32 = 0x00ac_bb70;
 /// Bounds-checked element getter at `this + 0x9c` (one index word).
 const ARRAY_ELEMENT_BY_INDEX: u32 = 0x0045_bc00;
@@ -558,17 +568,17 @@ fn parity_even(value: u8) -> bool {
 }
 
 fn list_is_empty(e: &mut Engine, node: u32) -> bool {
-    e.call(LIST_IS_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 /// The item of a list node (`[ListItemSlot(node)]`).
 fn list_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 fn list_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 fn read_vec3(e: &Engine, address: u32) -> [u32; 3] {
@@ -621,8 +631,11 @@ fn stop_modifier(e: &mut Engine, this: Ptr<Vats>, field: Field<Vats, Ptr>) {
 
 /// The light held by the `VATS` object, as `00559450(this + 0x34)` reads it.
 fn held_light(e: &mut Engine, this: Ptr<Vats>) -> u32 {
-    e.call(SMART_POINTER_GET, &args![this.addr().wrapping_add(0x34)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(0x34))
+    )
 }
 
 fn held_light_handle(e: &mut Engine, this: Ptr<Vats>) -> u32 {
@@ -867,22 +880,31 @@ pub fn fn_009c8620(e: &mut Engine, this: Ptr) -> bool {
 // Translated from 009c8640 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Camera shot: the smart pointer at `+0x60` (read through its getter `00559450`).
 pub fn fn_009c8640(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(SMART_POINTER_GET, &args![this.addr().wrapping_add(0x60)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(0x60))
+    )
 }
 
 // Translated from 009c8660 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Camera shot: the smart pointer at `+0x64` (read through its getter `00559450`).
 pub fn fn_009c8660(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(SMART_POINTER_GET, &args![this.addr().wrapping_add(0x64)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(0x64))
+    )
 }
 
 // Translated from 009c8680 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Camera shot: the smart pointer at `+0x70` (read through its getter `00559450`).
 pub fn fn_009c8680(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(SMART_POINTER_GET, &args![this.addr().wrapping_add(0x70)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(0x70))
+    )
 }
 
 // Translated from 009c86a0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1091,12 +1113,11 @@ pub fn fn_009c8ac0(e: &mut Engine, this: Ptr<Vats>, out: Ptr) -> Ptr {
         let player = e.global::<u32>(PLAYER_POINTER);
         let height = e.call(PLAYER_FLOAT, &args![player]).f32();
         let offset_block = e.mem.alloc(12);
-        let offset = e
-            .call(
-                POINT3_CONSTRUCTOR,
-                &args![offset_block, 0.0f32, 0.0f32, height],
-            )
-            .u32();
+        let offset = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, offset_block, 0.0f32, 0.0f32, height)
+        );
         let sum = e.mem.alloc(12);
         let actor = e.global::<u32>(CURRENT_ACTOR);
         let model = e.call(ACTOR_MODEL_OBJECT, &args![actor]).u32();
@@ -1449,7 +1470,7 @@ pub fn vats_update_melee_attack(e: &mut Engine, this: Ptr<Vats>, command: Ptr<Va
             reach = value;
         }
         let point = e.mem.alloc(12);
-        e.call(LIST_ITEM_SLOT, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         let player = e.global::<u32>(PLAYER_POINTER);
         if actor == stranger || actor == miss_fortune {
             let player_position = e.vcall(player, 0x1f4, &args![]).u32();
@@ -1739,7 +1760,7 @@ pub fn fn_009c9ae0(e: &mut Engine, this: Ptr<Vats>, actor: u32) {
     if held_light(e, this) == 0 {
         return;
     }
-    if e.call(ACTOR_GET_PROCESS, &args![actor]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) == 0 {
         return;
     }
     // Locals of the exe's frame, each 12 bytes unless noted.
@@ -1758,8 +1779,8 @@ pub fn fn_009c9ae0(e: &mut Engine, this: Ptr<Vats>, actor: u32) {
     let extent_vector = scratch + 0xc0;
 
     let object = e.vcall(actor, 0x1d0, &args![]).u32();
-    let bound = e.call(GET_WORLD_BOUND, &args![object]).u32();
-    let bound_slot = e.call(LIST_ITEM_SLOT, &args![bound]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, object));
+    let bound_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
     let centre = read_vec3(e, bound_slot);
     write_vec3(e, bound_centre, centre);
 
@@ -1770,7 +1791,7 @@ pub fn fn_009c9ae0(e: &mut Engine, this: Ptr<Vats>, actor: u32) {
         POINT3_SUBTRACT,
         &args![current_position, direction, actor_position],
     );
-    e.call(LIST_ITEM_SLOT, &args![matrix]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
     let angle = e
         .call(SETTING_FLOAT_VALUE, &args![LIGHT_SETTING_011F2304])
         .f32();
@@ -1800,20 +1821,20 @@ pub fn fn_009c9ae0(e: &mut Engine, this: Ptr<Vats>, actor: u32) {
     let setting_z = setting_float(e, LIGHT_SETTING_011F22CC);
     let setting_y = setting_float(e, LIGHT_SETTING_011F22A8);
     let setting_x = setting_float(e, LIGHT_SETTING_011F21F4);
-    e.call(
-        POINT3_CONSTRUCTOR,
-        &args![light_direction, setting_x, setting_y, setting_z],
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, light_direction, setting_x, setting_y, setting_z)
     );
     e.mem.set_u32(trace_a, 0);
     e.mem.set_f32(trace_b, 0.0);
     e.mem.set_f32(trace_c, 0.0);
     let height = e.call(ACTOR_GET_HEIGHT, &args![actor]).f32();
-    let height_vector = e
-        .call(
-            POINT3_CONSTRUCTOR,
-            &args![scratch + 0xd0, 0.0f32, 0.0f32, height],
-        )
-        .u32();
+    let height_vector = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, scratch + 0xd0, 0.0f32, 0.0f32, height)
+    );
     let actor_position = e.vcall(actor, 0x1f4, &args![]).u32();
     e.call(POINT3_ADD, &args![actor_position, ground, height_vector]);
     let handle = held_light_handle(e, this);
@@ -1859,8 +1880,8 @@ pub fn fn_009c9ae0(e: &mut Engine, this: Ptr<Vats>, actor: u32) {
     e.call(POINT3_SCALE, &args![light_direction, dimmer]);
 
     let object = e.vcall(actor, 0x1d0, &args![]).u32();
-    let bound = e.call(GET_WORLD_BOUND, &args![object]).u32();
-    let bound_slot = e.call(LIST_ITEM_SLOT, &args![bound]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, object));
+    let bound_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
     let extent = e
         .call(
             POINT3_SUBTRACT,
@@ -1871,12 +1892,11 @@ pub fn fn_009c9ae0(e: &mut Engine, this: Ptr<Vats>, actor: u32) {
     let doubled = (length + length) as f32;
     let handle = held_light_handle(e, this);
     e.call(LIGHT_SET_POSITION, &args![handle, bound_centre]);
-    let radius = e
-        .call(
-            POINT3_CONSTRUCTOR,
-            &args![radius_vector, doubled, 0.0f32, 0.0f32],
-        )
-        .u32();
+    let radius = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, radius_vector, doubled, 0.0f32, 0.0f32)
+    );
     let handle = held_light_handle(e, this);
     e.call(LIGHT_SET_DIRECTION, &args![handle, radius]);
     let handle = held_light_handle(e, this);
@@ -1938,8 +1958,8 @@ pub fn vats_is_melee_command(e: &mut Engine, this: Ptr<Vats>, command: Ptr<VatsC
 pub fn fn_009c9fe0(e: &mut Engine, this: Ptr<Vats>, out: Ptr, distance: f32) -> Ptr {
     let actor = e.global::<u32>(CURRENT_ACTOR);
     let model = e.call(ACTOR_MODEL_OBJECT, &args![actor]).u32();
-    let bound = e.call(GET_WORLD_BOUND, &args![model]).u32();
-    let bound_slot = e.call(LIST_ITEM_SLOT, &args![bound]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, model));
+    let bound_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
     let mut start = read_vec3(e, bound_slot);
     let first = list_item(e, this.addr());
     let command_target = if first != 0 {
@@ -1958,8 +1978,8 @@ pub fn fn_009c9fe0(e: &mut Engine, this: Ptr<Vats>, out: Ptr, distance: f32) -> 
         let object = e.vcall(aimed, 0x1d0, &args![]).u32();
         let aim = if object != 0 {
             let object = e.vcall(aimed, 0x1d0, &args![]).u32();
-            let bound = e.call(GET_WORLD_BOUND, &args![object]).u32();
-            let slot = e.call(LIST_ITEM_SLOT, &args![bound]).u32();
+            let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, object));
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
             read_vec3(e, slot)
         } else {
             let position = e.vcall(aimed, 0x1f4, &args![]).u32();
@@ -2049,12 +2069,12 @@ pub fn fn_009ca2c0(e: &mut Engine, this: Ptr<Vats>, target: u32, limb: i32) {
     let hit_data = e.get(command, VatsCommand::pHitData).addr();
     e.mem.set_i32(hit_data.wrapping_add(0x10), limb);
     let player = e.global::<u32>(PLAYER_POINTER);
-    if e.call(ACTOR_GET_PROCESS, &args![player]).u32() != 0 {
-        let process = e.call(ACTOR_GET_PROCESS, &args![player]).u32();
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player)) != 0 {
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
         if e.vcall(process, 0x148, &args![]).u32() != 0 {
-            let process = e.call(ACTOR_GET_PROCESS, &args![player]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
             let value = e.vcall(process, 0x148, &args![]).u32();
-            let number = e.call(WORD_AT_0X08, &args![value]).u32();
+            let number = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, value));
             let hit_data = e.get(command, VatsCommand::pHitData).addr();
             e.mem.set_u32(hit_data.wrapping_add(0x30), number);
         }
@@ -2105,7 +2125,7 @@ pub fn fn_009c7240(e: &mut Engine, this: Ptr<Vats>) {
     }
     update_end_countdown(e, this);
     let target = e.global::<u32>(TARGET_REFERENCE);
-    if target != 0 && e.call(WORD_AT_0X08, &args![this]).u32() != 0 {
+    if target != 0 && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) != 0 {
         fn_009c9ae0(e, Ptr::new(VATS_SINGLETON), target);
     }
 }
@@ -2118,7 +2138,7 @@ fn update_head_command(e: &mut Engine, this: Ptr<Vats>) {
     let holder = e.global::<u32>(INTERFACE_HOLDER);
     let sound_object = e.call(HOLDER_GET_OBJECT, &args![holder]).u32();
     let actor = current_actor(e);
-    let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     let mut stage_changed = false;
     let target = e.mem.u32(head.wrapping_add(0xc));
     e.set_global(TARGET_REFERENCE, target);
@@ -2223,14 +2243,19 @@ fn update_head_command(e: &mut Engine, this: Ptr<Vats>) {
     // Keep the melee idle queued on the actor's animation.
     let actor = current_actor(e);
     let animation = e.call(ACTOR_GET_ANIMATION, &args![actor]).u32();
-    let queued = e
-        .call(SMART_POINTER_GET, &args![animation.wrapping_add(0x124)])
-        .u32();
+    let queued = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, animation.wrapping_add(0x124))
+    );
     let melee_idle = e.get(this, Vats::pMeleeAttack).addr();
     if melee_idle != 0 {
         let requeue = queued == 0
             || e.call(WORD_AT_0X2C, &args![queued]).u32() != melee_idle
-            || (e.call(WORD_AT_0X08, &args![queued]).i32() >= 2
+            || (typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, queued))
+                .into_ret()
+                .i32()
+                >= 2
                 && e.call(QUEUED_IDLE_FINISHED, &args![queued]).u32() == 0);
         if requeue {
             let section = e
@@ -2303,7 +2328,7 @@ fn update_head_command(e: &mut Engine, this: Ptr<Vats>) {
         }
         if e.vcall(process, 0x148, &args![]).u32() != 0 {
             let value = e.vcall(process, 0x148, &args![]).u32();
-            e.call(WORD_AT_0X08, &args![value]);
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, value));
         }
     } else if e.global::<u8>(ACTION_STARTED) != 0 {
         let actor = current_actor(e);
@@ -2321,7 +2346,8 @@ fn update_head_command(e: &mut Engine, this: Ptr<Vats>) {
                         let item = e.vcall(process, 0x148, &args![]).u32();
                         let has_effect = e.call(ITEM_HAS_MOD_EFFECT, &args![item, 2u32]).u8();
                         let item = e.vcall(process, 0x148, &args![]).u32();
-                        let number = e.call(WORD_AT_0X08, &args![item]).u32();
+                        let number =
+                            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                         let actor = current_actor(e);
                         e.vcall(actor, 0x3ec, &args![number, 2u32, has_effect as u32, 0u32]);
                         e.vcall(process, 0x6e0, &args![0u32]);
@@ -2451,7 +2477,7 @@ fn start_camera_shot(e: &mut Engine, this: Ptr<Vats>, head: u32) {
 
     let actor = current_actor(e);
     let animation = e.call(ACTOR_GET_ANIMATION, &args![actor]).u32();
-    let animation_part = e.call(WORD_AT_0X0C, &args![animation]).u32();
+    let animation_part = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, animation));
     let default_node = e
         .call(ARRAY_ELEMENT_BY_INDEX, &args![animation_part, 0u32])
         .u32();
@@ -2461,8 +2487,8 @@ fn start_camera_shot(e: &mut Engine, this: Ptr<Vats>, head: u32) {
     let mut body_node = 0u32;
     if e.call(CAMERA_TEST_0058D4F0, &args![camera]).bool() {
         let actor = current_actor(e);
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
-        let argument = e.call(ACTOR_FACE_VALUE, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+        let argument = typed_call!(leaf::FAMILY, 0x00ac_bb70, leaf::zero_of_this(e, actor));
         preferred = e.vcall(process, 0x190, &args![argument]).u32();
     }
     if target != 0 {
@@ -2481,7 +2507,8 @@ fn start_camera_shot(e: &mut Engine, this: Ptr<Vats>, head: u32) {
                         let hit_data = e.mem.u32(head.wrapping_add(0x14));
                         let hit_limb = e.mem.u32(hit_data.wrapping_add(0x10));
                         if e.call(GET_DISMEMBERED, &args![target, hit_limb]).bool() {
-                            let target_process = e.call(ACTOR_GET_PROCESS, &args![target]).u32();
+                            let target_process =
+                                typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
                             let hit_data = e.mem.u32(head.wrapping_add(0x14));
                             let hit_limb = e.mem.u32(hit_data.wrapping_add(0x10));
                             let severed = e.vcall(target_process, 0x6d0, &args![hit_limb]).u32();
@@ -2578,7 +2605,11 @@ fn start_camera_shot(e: &mut Engine, this: Ptr<Vats>, head: u32) {
 
     let modifier_value = fn_009c8680(e, Ptr::new(camera));
     let modifier = e.get(this, Vats::pImagespaceMod);
-    let next = e.call(LIST_NEXT, &args![camera.wrapping_add(0x30)]).u32();
+    let next = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, camera.wrapping_add(0x30))
+    );
     if !modifier.is_null() {
         let strength = setting_float(e, MODIFIER_STRENGTH_SETTING);
         e.call(

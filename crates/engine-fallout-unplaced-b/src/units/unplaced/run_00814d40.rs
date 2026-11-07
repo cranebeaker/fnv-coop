@@ -59,6 +59,7 @@ const FLOAT_SETTING_VALUE: u32 = 0x0040_3e20;
 const SETTING_011D1758: u32 = 0x011d_1758;
 const CALL_0080FAE0: u32 = 0x0080_fae0;
 /// `00559450` (`thiscall`): the word at `this`.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `00440460` and `004f0160` (`thiscall`, one word each) on the object held at +0xB4.
 const SET_00440460: u32 = 0x0044_0460;
@@ -73,6 +74,7 @@ const VECTOR_LENGTH_00457990: u32 = 0x0045_7990;
 const SHOW_00BC28B0: u32 = 0x00bc_28b0;
 const CHECK_00EE8990: u32 = 0x00ee_8990;
 /// `006815c0` (`thiscall`): the matrix local's constructor here.
+#[cfg(test)]
 const MATRIX_CONSTRUCT_006815C0: u32 = 0x0068_15c0;
 /// `atan2` (`004b5550`, LIBCMT; `cdecl`, two floats, the result in ST0).
 const ATAN2: u32 = 0x004b_5550;
@@ -174,25 +176,25 @@ pub fn fn_00814d40(e: &mut Engine, this: Ptr, first: u32, second: u32) {
         if pending == 0 {
             return;
         }
-        if e.call(FIRST_WORD, &args![at + 0xb4]).u32() != 0 {
-            let target = e.call(FIRST_WORD, &args![at + 0xb4]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0xb4)) != 0 {
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0xb4));
             e.call(SET_00440460, &args![target, pending]);
-            let target = e.call(FIRST_WORD, &args![at + 0xb4]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0xb4));
             e.call(SET_004F0160, &args![target, pending + 0xc]);
             let hit = u32::from(e.mem.u32(at + 0xac) != 0);
-            if e.call(FIRST_WORD, &args![at + 0xbc]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0xbc)) != 0 {
                 let direction = ebp - 0x64;
-                let held = e.call(FIRST_WORD, &args![at + 0xbc]).u32();
+                let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0xbc));
                 let object = e.call(OBJECT_0045BB80, &args![held]).u32();
                 e.call(DIRECTION_00439EF0, &args![object, direction, pending]);
                 let scale = x87_quiet_bits(e.mem.u32(at + 0x88));
                 let length = e.call(VECTOR_LENGTH_00457990, &args![direction]).f64();
                 let length = x87_store32(length);
                 let speed = x87_quiet_bits(e.mem.u32(pending + 0x1c));
-                let shown = e.call(FIRST_WORD, &args![at + 0xa8]).u32();
+                let shown = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0xa8));
                 e.call(SHOW_00BC28B0, &args![shown, speed, length, scale, hit]);
                 let matrix = ebp - 0x58;
-                e.call(MATRIX_CONSTRUCT_006815C0, &args![matrix]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
                 let z = x87_quiet_bits(e.mem.u32(direction + 8));
                 e.mem.set_u32(ebp - 0x68, z);
                 e.mem.set_u32(direction + 8, 0.0f32.to_bits());
@@ -211,7 +213,7 @@ pub fn fn_00814d40(e: &mut Engine, this: Ptr, first: u32, second: u32) {
                     MATRIX_FROM_EULER_ANGLES_ZYX,
                     &args![matrix, heading, 0.0f32.to_bits(), pitch],
                 );
-                let target = e.call(FIRST_WORD, &args![at + 0xb4]).u32();
+                let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0xb4));
                 e.call(SET_ROTATION_0043FA80, &args![target, matrix]);
             } else {
                 let point = e.vcall(at, 0x1f4, &[]).u32();
@@ -228,9 +230,9 @@ pub fn fn_00814d40(e: &mut Engine, this: Ptr, first: u32, second: u32) {
                 let scale = x87_quiet_bits(e.mem.u32(at + 0x88));
                 let length = x87_quiet_bits(e.mem.u32(ebp - 0x6c));
                 let speed = x87_quiet_bits(e.mem.u32(pending + 0x1c));
-                let shown = e.call(FIRST_WORD, &args![at + 0xa8]).u32();
+                let shown = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0xa8));
                 e.call(SHOW_00BC28B0, &args![shown, speed, length, scale, hit]);
-                let shown = e.call(FIRST_WORD, &args![at + 0xa8]).u32();
+                let shown = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0xa8));
                 if e.call(CHECK_00EE8990, &args![shown]).bool() || e.mem.u32(at + 0xac) == 2 {
                     e.call(CALL_008133D0, &args![at, 2u32]);
                     let controller = e.call(MOBILE_OBJECT_GET_CHAR_CONTROLLER, &args![at]).u32();

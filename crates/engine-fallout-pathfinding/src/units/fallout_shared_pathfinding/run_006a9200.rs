@@ -18,6 +18,7 @@ const VTABLE_NAV_MESH_SEARCH_FLEE: u32 = 0x0106_b78c;
 const BASE_CONSTRUCT: u32 = 0x006a_7b10;
 /// `006815c0` (`thiscall`): returns `this` (the members at `+0x2070` and
 /// `+0x2084`).
+#[cfg(test)]
 const SELF_006815C0: u32 = 0x0068_15c0;
 /// `00401030` (cdecl: block): frees a block.
 const FREE_BLOCK: u32 = 0x0040_1030;
@@ -32,8 +33,8 @@ pub fn fn_006a9200(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
     e.call(BASE_CONSTRUCT, &args![this]);
     e.mem.set_u32(base, VTABLE_NAV_MESH_SEARCH_FLEE);
-    e.call(SELF_006815C0, &args![base + 0x2070]);
-    e.call(SELF_006815C0, &args![base + 0x2084]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x2070));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x2084));
     e.mem.set_u32(base + 0x2058, 0);
     e.mem.set_u8(base + 0x2080, 0);
     this

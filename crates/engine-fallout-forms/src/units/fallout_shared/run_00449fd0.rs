@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// `006815c0` (`ECX` = a pointer): answers `ECX` itself.
+#[cfg(test)]
 const ANSWER_THIS: u32 = 0x0068_15c0;
 /// `0065d3a0` (`ECX` = object, one word: an allocator by value): the base constructor.
 const BASE_CONSTRUCT: u32 = 0x0065_d3a0;
@@ -29,7 +30,7 @@ const COMBINE: u32 = 0x0044_a1a0;
 pub fn fn_00449fd0(e: &mut Engine, this: Ptr) -> Ptr {
     e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), this.addr());
-        e.call(ANSWER_THIS, &args![slot]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, slot));
         // The pushed word stays on the stack as 0065d3a0's by-value argument (it pops it,
         // `RET 4`).
         let argument = e.mem.u32(slot.addr());

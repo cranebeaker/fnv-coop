@@ -30,7 +30,7 @@ const DEALLOCATE: u32 = 0x0040_1030;
 pub fn fn_0058bb50(e: &mut Engine, this: Ptr, first: u32, second: u32) -> u32 {
     let mut found = 0u32;
     if first != 0 {
-        let count = e.call(0x0084_e3a0, &args![this]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let mut index = 0u32;
         while index < count {
             let form = e.call(0x004d_6170, &args![this, index]).u32();
@@ -45,7 +45,7 @@ pub fn fn_0058bb50(e: &mut Engine, this: Ptr, first: u32, second: u32) -> u32 {
     }
     if found != 0 && e.call(0x0058_b470, &args![found]).bool() {
         let owner = e.call(0x0089_1170, &args![found]).u32();
-        if !e.call(0x0082_56d0, &args![owner]).bool() {
+        if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, owner)) {
             found = 0;
         }
     }

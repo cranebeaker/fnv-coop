@@ -229,6 +229,7 @@ const DEBUG_WARNING: u32 = 0x005b_5e40;
 /// `0055d520` (`__thiscall` on a reference): its name.
 const REFERENCE_NAME: u32 = 0x0055_d520;
 /// `0084e3a0` (`__thiscall` on a form): its form id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `CombatDialogueManager::StartDialogue` (Xbox PDB, four words) on the
 /// manager at `011f1708`.
@@ -271,6 +272,7 @@ const GET_RADIUS: u32 = 0x008b_e1b0;
 const GET_SCALE: u32 = 0x0056_7400;
 const GET_WORLD_LOCATION: u32 = 0x0057_5650;
 const GET_WORLD_SPACE: u32 = 0x0057_5d70;
+#[cfg(test)]
 const GET_SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// Unnamed `__thiscall` helpers on an actor (no stack words): `008b3b90`
 /// (a path test, `AL`), `008b3a50`, `008b3c70` (`AL`), `008846e0` (the
@@ -400,7 +402,9 @@ const ADD_UNREACHABLE_LOCATION: u32 = 0x009a_0ec0;
 /// `00460140` (`__thiscall`, a point of the object), `004a0c90` (a matrix
 /// from a heading `float`), `004b4500` (matrix times point into the out
 /// point).
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
+#[cfg(test)]
 const POINT_SET: u32 = 0x0041_6870;
 const POINT_SUM: u32 = 0x0043_9e90;
 const POINT_DIFFERENCE: u32 = 0x0043_9ef0;
@@ -434,6 +438,7 @@ const ALLOCATE: u32 = 0x00aa_13e0;
 const AVOID_ARRAY_CONSTRUCT: u32 = 0x006e_3850;
 const AVOID_POINTER_CONSTRUCT: u32 = 0x006b_37b0;
 const AVOID_POINTER_DESTRUCT: u32 = 0x006b_37e0;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const AVOID_NODE_CONSTRUCT: u32 = 0x0069_15d0;
 const AVOID_ARRAY_ADD: u32 = 0x0090_5450;
@@ -811,7 +816,7 @@ pub fn fn_009cc510(e: &mut Engine, this: Ptr<CombatProcedureAttackMelee>) {
         true
     } else {
         let attacker = e.call(GET_ATTACKER, &args![t]).u32();
-        let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
         e.vcall(object, SLOT_TEST_3F8, &args![]).bool()
     };
     let keep = can_attack && {
@@ -1122,7 +1127,7 @@ pub fn fn_009ccfb0(e: &mut Engine, this: Ptr<CombatProcedureAttackMelee>) {
     if !e.call(GET_BLOCKED, &args![attacker]).bool() {
         fn_009cf6d0(e, this, 3);
     }
-    let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
     let item = e.vcall(object, SLOT_ITEM_148, &args![]).u32();
     if item == 0 {
         return;
@@ -1719,7 +1724,7 @@ pub fn fn_009cdf80(e: &mut Engine, this: Ptr<CombatProcedureAttackMelee>) {
             let controller = controller_of(e, this);
             e.call(CONTROLLER_TEST_F2D0, &args![controller]).bool()
         } {
-            e.call(POINT_CONSTRUCT, &args![goal]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, goal));
             let done = e.call(IS_WAITING_ON_PATH, &args![attacker]).bool()
                 || goal_within_reach(e, this, attacker, target, reach, goal, difference);
             if !done {
@@ -1773,7 +1778,7 @@ pub fn fn_009ce1d0(e: &mut Engine, this: Ptr<CombatProcedureAttackMelee>) {
     let facing = get_facing_target_distance(e, this);
     let reach = get_current_attack_reach(e, this);
     let moving_away = is_target_moving_away(e, this);
-    let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
     let repath = if outside_attack_range(e, this, facing, reach, 0) && {
         let controller = controller_of(e, this);
         e.call(CONTROLLER_TEST_F2D0, &args![controller]).bool()
@@ -1794,7 +1799,7 @@ pub fn fn_009ce1d0(e: &mut Engine, this: Ptr<CombatProcedureAttackMelee>) {
                 COMPUTE_FACE_TARGET_LOCATION,
                 &args![location, attacker, target, position, reach2],
             );
-            e.call(POINT_CONSTRUCT, &args![goal]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, goal));
             let done = e.call(IS_WAITING_ON_PATH, &args![attacker]).bool()
                 || (!e.call(ACTOR_TEST_8B3C70, &args![attacker]).bool()
                     && goal_within_reach(e, this, attacker, target, reach, goal, difference));
@@ -1950,9 +1955,9 @@ pub fn fn_009ce5b0(e: &mut Engine, this: Ptr<CombatProcedureAttackMelee>, point:
             let avoid_node = e
                 .call(AVOID_NODE_CONSTRUCT, &args![node, position, radius, cost])
                 .u32();
-            let array = e.call(POINTER_GET, &args![avoid]).u32();
+            let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, avoid));
             e.call(AVOID_ARRAY_ADD, &args![array, avoid_node]);
-            let array = e.call(POINTER_GET, &args![avoid]).u32();
+            let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, avoid));
             let five = x87_quiet_bits(e.global::<u32>(FIVE_FLOAT));
             let worldspace = e.call(PATHING_LOCATION_WORLDSPACE, &args![location]).u32();
             let cell = e.call(PATHING_LOCATION_CELL, &args![location]).u32();
@@ -2179,13 +2184,13 @@ pub fn select_power_attack(
                 }
             }
         }
-        e.call(POINT_CONSTRUCT, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         let controller = controller_of(e, this);
         if !e
             .call(CONTROLLER_ATTACK_CHECK, &args![controller, attack, point])
             .bool()
         {
-            let form_id = e.call(FORM_ID, &args![attacker]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, attacker));
             let name = e.call(REFERENCE_NAME, &args![attacker]).u32();
             e.call(
                 DEBUG_WARNING,
@@ -2304,7 +2309,7 @@ pub fn fn_009cf090(e: &mut Engine, this: Ptr<CombatProcedureAttackMelee>, facing
     if !e.call(CONTROLLER_TEST_8220, &args![controller]).bool() {
         return;
     }
-    let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
     if !e.vcall(object, SLOT_TEST_3F8, &args![]).bool() {
         return;
     }
@@ -2491,9 +2496,10 @@ pub fn fn_009cf570(e: &mut Engine, this: Ptr<CombatProcedureAttackMelee>) {
         1 => fn_009ccfb0(e, this),
         2 => fn_009cd3d0(e, this),
         3 => {
-            let item = if target != 0 && e.call(GET_SAVED_ACQUIRE_OBJECT, &args![target]).u32() != 0
+            let item = if target != 0
+                && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target)) != 0
             {
-                let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![target]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
                 e.vcall(object, SLOT_TEST_610, &args![]).u32()
             } else {
                 0
@@ -2922,7 +2928,7 @@ pub fn fn_009cff90(
     let r = this.addr();
     if !e.get(this, CombatMovementRestrictions::bInitialized) {
         for (offset, animation) in [(0xau32, 5u32), (0xb, 6), (0xc, 3), (0xd, 4)] {
-            let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             let has = e.vcall(object, SLOT_HAS_MOVE_ANIM, &args![animation]).u8();
             e.mem.set_u8(r + offset, has);
         }
@@ -2955,7 +2961,7 @@ pub fn fn_009cff90(
             let word = e.mem.u32(position + i * 4);
             e.mem.set_u32(r + RESTRICTIONS_LOCATION + i * 4, word);
         }
-        e.call(POINT_CONSTRUCT, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         let heading = e.vcall(actor, SLOT_HEADING, &args![0u32]).f64();
         e.call(MATRIX_FROM_HEADING, &args![matrix, x87_store32(heading)]);
         let mut width = x87_store32(e.call(ACTOR_WIDTH, &args![actor]).f64());
@@ -3044,7 +3050,11 @@ pub fn fn_009cff90(
             _ => return 1,
         };
         let point = ebp - step.point;
-        e.call(POINT_SET, &args![point, x, y, zero]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, x, y, zero)
+        );
         if mode & step.move_bit != 0 {
             let at = point + step.coordinate;
             let value = if step.subtract {

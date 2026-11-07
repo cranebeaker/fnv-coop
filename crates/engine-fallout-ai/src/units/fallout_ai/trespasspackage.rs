@@ -50,6 +50,7 @@ const PACKAGE_TARGET_DELETE: u32 = 0x007b_3fa0;
 /// `(this, 0x14)`: a package setter (unnamed in the map).
 const PACKAGE_SETTER_984F60: u32 = 0x0098_4f60;
 /// `(this)`: the package's target (`pPackTarg`).
+#[cfg(test)]
 const GET_PACKAGE_TARGET: u32 = 0x0067_1d10;
 /// `PackageTarget::SetTargType` (Xbox PDB) `(this, type)`.
 const TARGET_SET_TYPE: u32 = 0x0068_00b0;
@@ -79,6 +80,7 @@ const LOAD_DATA_OLD: u32 = 0x0048_4d00;
 const SAVE_NUMERIC_ID: u32 = 0x0048_4d20;
 const LOAD_NUMERIC_ID: u32 = 0x0048_4d40;
 /// `(form)`: the form's id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// cdecl `(form id)`: the form with that id.
 const LOOKUP_FORM: u32 = 0x0048_39c0;
@@ -181,11 +183,11 @@ pub fn trespass_package_construct(
     }
 
     e.call(PACKAGE_SETTER_984F60, &args![this, 0x14u32]);
-    let target = e.call(GET_PACKAGE_TARGET, &args![this]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, this));
     e.call(TARGET_SET_TYPE, &args![target, 0u32]);
-    let target = e.call(GET_PACKAGE_TARGET, &args![this]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, this));
     e.call(TARGET_SET_REFERENCE, &args![target, location]);
-    let target = e.call(GET_PACKAGE_TARGET, &args![this]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, this));
     e.call(TARGET_SET_WORD, &args![target, 0x80u32]);
 
     e.set(this, TrespassPackage::iCrimeNumber, -1);
@@ -254,7 +256,7 @@ pub fn fn_009f9570(e: &mut Engine, this: Ptr<TrespassPackage>) {
         let id = if owner.is_null() {
             0
         } else {
-            e.call(FORM_ID, &args![owner]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner))
         };
         e.mem.set_u32(owner_id, id);
         e.call(SAVE_NUMERIC_ID, &args![this, owner_id, 4u32]);
@@ -262,7 +264,7 @@ pub fn fn_009f9570(e: &mut Engine, this: Ptr<TrespassPackage>) {
         let id = if object_owned.is_null() {
             0
         } else {
-            e.call(FORM_ID, &args![object_owned]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object_owned))
         };
         e.mem.set_u32(object_id, id);
         e.call(SAVE_NUMERIC_ID, &args![this, object_id, 4u32]);

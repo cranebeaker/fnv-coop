@@ -42,7 +42,9 @@ const POINT_LISTS_OF: u32 = 0x0044_1110;
 /// List helpers: the item's address (`006815c0`), next (`00726070`), append
 /// (`00905820`, `RET 4`, the item's address), remove an item (`00905330`,
 /// `RET 4`, its address) and remove the head (`0063f7b0`).
+#[cfg(test)]
 const NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 const LIST_APPEND: u32 = 0x0090_5820;
 const LIST_REMOVE: u32 = 0x0090_5330;
@@ -68,6 +70,7 @@ const WORLD_SPACE_SET: u32 = 0x0058_6280;
 /// `004013e0` (`thiscall`): a `bool` that makes `InitItem` do nothing;
 /// `007af430`: the word at +0x20.
 const FORM_SKIPS_INIT: u32 = 0x0040_13e0;
+#[cfg(test)]
 const WORD_AT_20: u32 = 0x007a_f430;
 /// `TESForm::GetFile` (`00484e60`, `RET 4`), `TESForm::AddCompileIndex`
 /// (`00485d50`, `cdecl`), the form lookup (`004839c0`, `cdecl`) and
@@ -146,7 +149,7 @@ pub fn fn_004f0ef0(e: &mut Engine, this: Ptr) {
         return;
     }
     let lists = e.mem.u32(base.wrapping_add(POINT_LISTS));
-    let item_address = e.call(NODE_ITEM_ADDRESS, &args![lists]).u32();
+    let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, lists));
     let mut item = e.mem.u32(item_address);
     while item != 0 {
         let lists = e.mem.u32(base.wrapping_add(POINT_LISTS));
@@ -155,7 +158,7 @@ pub fn fn_004f0ef0(e: &mut Engine, this: Ptr) {
             e.call(POINT_LIST_DELETE, &args![item, 1u32]);
         }
         let lists = e.mem.u32(base.wrapping_add(POINT_LISTS));
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![lists]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, lists));
         item = e.mem.u32(item_address);
     }
 }
@@ -171,7 +174,7 @@ pub fn fn_004f0f80(e: &mut Engine, this: Ptr) {
         return;
     }
     let world = e.with_stack(4, |e, id| {
-        let value = e.call(WORD_AT_20, &args![this]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
         e.mem.set_u32(id.addr(), value);
         let file = e.call(GET_FILE, &args![this, 0xffff_ffffu32]).u32();
         e.call(ADD_COMPILE_INDEX, &args![id, file]);
@@ -189,14 +192,14 @@ pub fn fn_004f0f80(e: &mut Engine, this: Ptr) {
     e.call(FORM_SET_FLAG, &args![this, 1u32]);
     let mut node = e.call(DATA_LIST_OF, &args![this]).u32();
     while node != 0 {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             break;
         }
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let data = e.mem.u32(item_address);
         e.vcall(data, DATA_INIT_ITEM_SLOT, &args![this]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -309,18 +312,18 @@ pub fn tes_region_load(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
     });
     let mut node = e.call(POINT_LISTS_OF, &args![this]).u32();
     while node != 0 {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             break;
         }
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let list = e.mem.u32(item_address);
         if e.call(POINT_LIST_KEEP, &args![list, 1u32]).bool() {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         e.with_stack(4, |e, item| {
-            let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let list = e.mem.u32(item_address);
             e.mem.set_u32(item.addr(), list);
             let lists = e.call(POINT_LISTS_OF, &args![this]).u32();
@@ -349,8 +352,10 @@ const SAVE_NUMERIC_ID: u32 = 0x0085_7a10;
 /// list's first node is at +4).
 const REGION_LIST_OWNER: u32 = 0x0041_69d0;
 /// `008256d0` (`thiscall` on a node): the end-of-list test.
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `0084e3a0` (`thiscall`): the form's id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `00526ae0` (`thiscall` on the region): a float in `ST0`.
 const REGION_VALUE_00526AE0: u32 = 0x0052_6ae0;
@@ -376,15 +381,15 @@ pub fn tes_region_save_game(e: &mut Engine) {
         let owner = e.call(REGION_LIST_OWNER, &args![tes]).u32();
         let mut node = if owner == 0 { 0 } else { owner.wrapping_add(4) };
         while node != 0 {
-            if e.call(NODE_IS_EMPTY, &args![node]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
                 break;
             }
-            let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let region = e.mem.u32(item_address);
             e.mem.set_u32(id_at, 0);
             e.mem.set_u32(value_at, 0);
             if region != 0 {
-                let id = e.call(FORM_ID, &args![region]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, region));
                 e.mem.set_u32(id_at, id);
                 let value = e.call(REGION_VALUE_00526AE0, &args![region]).f64();
                 e.mem.set_u32(value_at, x87_store32(value));
@@ -395,7 +400,7 @@ pub fn tes_region_save_game(e: &mut Engine) {
             e.call(SAVE_WRITE, &args![save, value_at, 4u32]);
             let count = e.mem.u16(count_at).wrapping_add(1);
             e.mem.set_u16(count_at, count);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let count = e.mem.u16(count_at);
         e.mem.set_u16(position, count);

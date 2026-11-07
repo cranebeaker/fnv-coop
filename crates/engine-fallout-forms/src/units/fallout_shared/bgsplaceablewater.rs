@@ -338,6 +338,7 @@ const ADD_CHUNK_DATA: u32 = 0x0048_5990;
 /// Whether the data written needs byte swapping (`00401500`, no arguments).
 const SAVE_SWAPS: u32 = 0x0040_1500;
 /// `TESForm`'s form id getter (`0084e3a0`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 
 // Translated from 004fc790 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -368,7 +369,7 @@ pub fn bgs_placeable_water_save(e: &mut Engine, this: Ptr) {
         let water_id = if water == 0 {
             0
         } else {
-            e.call(FORM_ID, &args![water]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, water))
         };
         e.mem.set_u32(block.addr() + 4, water_id);
         if e.call(SAVE_SWAPS, &args![]).bool() {

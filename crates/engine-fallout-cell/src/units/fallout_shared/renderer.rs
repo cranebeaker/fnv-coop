@@ -40,6 +40,7 @@ use crate::prelude::*;
 // ---- Calls outside this file (or later in this unit) ----------------------
 
 /// Smart-pointer `get`: returns the word at `this`.
+#[cfg(test)]
 const SMART_POINTER_GET: u32 = 0x0055_9450;
 /// Smart-pointer assignment (`this`, new pointer).
 const SMART_POINTER_SET: u32 = 0x0066_b0d0;
@@ -155,6 +156,7 @@ const IMPORT_FREE_LIBRARY: u32 = 0x00fd_f0a8;
 /// `Renderer::Kill`'s helpers: shut-down (`00b54630`), reference count
 /// (`00726070`), a no-argument call (`00461300`) and the log (`005b5e40`).
 const RENDERER_SHUTDOWN: u32 = 0x00b5_4630;
+#[cfg(test)]
 const REFERENCE_COUNT: u32 = 0x0072_6070;
 const KILL_NOTE: u32 = 0x0046_1300;
 const LOG_MESSAGE: u32 = 0x005b_5e40;
@@ -165,6 +167,7 @@ const ACCUMULATOR_RESET: u32 = 0x00b6_31d0;
 const MOVIE_STOP: u32 = 0x00ec_25e0;
 const INTERFACE_SHUTDOWN: u32 = 0x0070_2330;
 const RESIZE_SWAP_CHAIN: u32 = 0x00e7_3eb0;
+#[cfg(test)]
 const WINDOW_HANDLE: u32 = 0x0044_ddc0;
 const AFTER_RESIZE_A: u32 = 0x00a6_2030;
 const AFTER_RESIZE_B: u32 = 0x00b5_78a0;
@@ -599,7 +602,11 @@ fn read_float4(e: &Engine, base: u32) -> [u32; 4] {
 /// resource type, format)` succeeds, as the code asks it: `smart pointer
 /// get` first (its result is unused), then the object of `004dc040`.
 fn check_device_format(e: &mut Engine, usage: u32, resource_type: u32, format: u32) -> i32 {
-    e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, RENDERER_POINTER)
+    );
     let direct3d = fn_004dc040(e);
     e.vcall(
         direct3d,
@@ -615,18 +622,43 @@ fn check_device_format(e: &mut Engine, usage: u32, resource_type: u32, format: u
 /// pointer to the renderer; then clears the renderer's smart pointer.
 pub fn renderer_kill(e: &mut Engine, report_leaks: u8) {
     e.call(RENDERER_SHUTDOWN, &args![report_leaks]);
-    if report_leaks != 0 && e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]).u32() != 0 {
-        let renderer = e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]).u32();
-        let references = e.call(REFERENCE_COUNT, &args![renderer]).i32();
+    if report_leaks != 0
+        && typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, RENDERER_POINTER)
+        ) != 0
+    {
+        let renderer = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, RENDERER_POINTER)
+        );
+        let references = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, renderer))
+            .into_ret()
+            .i32();
         if references != 1 {
             e.call(KILL_NOTE, &args![]);
-            let renderer = e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]).u32();
-            let references = e.call(REFERENCE_COUNT, &args![renderer]).i32();
+            let renderer = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, RENDERER_POINTER)
+            );
+            let references = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, renderer))
+                .into_ret()
+                .i32();
             if references == 2 {
                 e.call(LOG_MESSAGE, &args![MESSAGE_ONE_REFERENCE]);
             } else {
-                let renderer = e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]).u32();
-                let references = e.call(REFERENCE_COUNT, &args![renderer]).i32();
+                let renderer = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, RENDERER_POINTER)
+                );
+                let references =
+                    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, renderer))
+                        .into_ret()
+                        .i32();
                 e.call(
                     LOG_MESSAGE,
                     &args![MESSAGE_MANY_REFERENCES, references.wrapping_sub(1)],
@@ -1040,15 +1072,28 @@ fn renderer_init_body(e: &mut Engine, window: u32, instance: u32, path: u32) -> 
         }
     }
 
-    if e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, RENDERER_POINTER)
+    ) == 0
+    {
         fn_004dc330(e, MESSAGE_RENDERER_CREATE);
         return 0;
     }
-    let renderer = e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]).u32();
+    let renderer = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, RENDERER_POINTER)
+    );
     let table = fn_004dc2c0(e);
     e.vcall(renderer, 0xb0, &args![table]);
     if e.global::<u8>(RENDER_TARGET_ADJUST_FLAG) != 0 {
-        let renderer = e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]).u32();
+        let renderer = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, RENDERER_POINTER)
+        );
         let object = fn_004dc020(e, Ptr::new(renderer));
         if !object.is_null() {
             let value = fn_004dc2b0(e);
@@ -1310,7 +1355,11 @@ fn renderer_init_body(e: &mut Engine, window: u32, instance: u32, path: u32) -> 
     let value = setting_flag(e, B_30_GRASS_VS);
     e.set_global(GRASS_VS_30, value);
 
-    e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, RENDERER_POINTER)
+    )
 }
 
 // Translated from 004dc010 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1590,7 +1639,7 @@ pub fn fn_004dc360(e: &mut Engine) {
         != 0;
     if rebuilt {
         let window_object = e.global::<u32>(WINDOW_OBJECT);
-        let window = e.call(WINDOW_HANDLE, &args![window_object]).u32();
+        let window = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, window_object));
         let right = setting_value(e, I_SIZE_W);
         let bottom = setting_value(e, I_SIZE_H);
         place_window(e, window, right, bottom);
@@ -1600,7 +1649,11 @@ pub fn fn_004dc360(e: &mut Engine) {
     e.call(AFTER_RESIZE_A, &args![]);
     e.call(AFTER_RESIZE_B, &args![]);
     let accumulator = e.call(SHADER_ACCUMULATOR, &args![]).u32();
-    let renderer = e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]).u32();
+    let renderer = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, RENDERER_POINTER)
+    );
     fn_004dc540(e, Ptr::new(renderer), Ptr::new(accumulator));
     let object = e.call(SMART_POINTER_GLOBAL_GETTER, &args![]).u32();
     e.call(AFTER_RESIZE_C, &args![object]);
@@ -1622,7 +1675,11 @@ pub fn fn_004dc540(e: &mut Engine, this: Ptr, value: Ptr) {
 /// Reads the smart pointer at `011dee84`, calls the no-effect `00483710` on
 /// it and clears the smart pointer.
 pub fn fn_004dc560(e: &mut Engine) {
-    let held = e.call(SMART_POINTER_GET, &args![SMART_POINTER_A]).u32();
+    let held = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SMART_POINTER_A)
+    );
     e.call(NO_EFFECT, &args![held]);
     e.call(SMART_POINTER_SET, &args![SMART_POINTER_A, 0u32]);
 }
@@ -1630,7 +1687,11 @@ pub fn fn_004dc560(e: &mut Engine) {
 // Translated from 004dc590 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The same as `004dc560` for the smart pointer at `011deca4`.
 pub fn fn_004dc590(e: &mut Engine) {
-    let held = e.call(SMART_POINTER_GET, &args![SMART_POINTER_B]).u32();
+    let held = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SMART_POINTER_B)
+    );
     e.call(NO_EFFECT, &args![held]);
     e.call(SMART_POINTER_SET, &args![SMART_POINTER_B, 0u32]);
 }
@@ -1760,6 +1821,7 @@ const ADAPTER_LIST_CREATE: u32 = 0x00e6_9a60;
 /// The adapter list's mode count (`00658930`) and element access
 /// (`00877a30`, the element's address) on its array at `+4`.
 const ARRAY_COUNT: u32 = 0x0065_8930;
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// Eyefinity flags (`004de070` returns the first, `004de080` both).
 const EYEFINITY_FLAG: u32 = 0x011c_70ed;
@@ -1998,12 +2060,11 @@ pub fn fn_004dcbe0(_e: &mut Engine, index: u32) -> u32 {
 /// The address of display mode `index` of an adapter description (its
 /// array at `+0x450`, `00877a30`, read through the element).
 pub fn fn_004dcd00(e: &mut Engine, this: Ptr, index: u32) -> u32 {
-    let element = e
-        .call(
-            ARRAY_ELEMENT,
-            &args![this.addr().wrapping_add(0x450), index],
-        )
-        .u32();
+    let element = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, this.addr().wrapping_add(0x450), index)
+    );
     e.mem.u32(element)
 }
 
@@ -2054,7 +2115,7 @@ pub fn fn_004dcdb0(e: &mut Engine, index: u32) -> u32 {
         return 0;
     }
     let list: u32 = e.global(ADAPTER_LIST_POINTER);
-    let count = e.call(SMART_POINTER_GET, &args![list]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     if index >= count {
         return 0;
     }
@@ -2070,7 +2131,11 @@ pub fn fn_004dcdf0(e: &mut Engine, this: Ptr, index: u32) -> u32 {
     if index >= e.call(ARRAY_COUNT, &args![array]).u32() {
         return 0;
     }
-    let element = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+    let element = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    );
     e.mem.u32(element)
 }
 
@@ -2142,7 +2207,12 @@ pub fn fn_004dd150(e: &mut Engine, base: f32, exponent: f32) -> f32 {
 /// index at `01189470`), windowed (`bFull Screen:Display` off) and no quality
 /// pointer must succeed.
 pub fn fn_004dd180(e: &mut Engine, multisample: u32, format: u32) -> bool {
-    if e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, RENDERER_POINTER)
+    ) == 0
+    {
         return false;
     }
     let format = if format != 0 {
@@ -2151,10 +2221,18 @@ pub fn fn_004dd180(e: &mut Engine, multisample: u32, format: u32) -> bool {
         let index = fn_004dc270(e);
         fn_004dcbe0(e, index)
     };
-    e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, RENDERER_POINTER)
+    );
     let direct3d = fn_004dc040(e);
     let windowed = u32::from(e.call(WINDOWED_FROM_SETTING, &args![B_FULL_SCREEN]).u8());
-    let renderer = e.call(SMART_POINTER_GET, &args![RENDERER_POINTER]).u32();
+    let renderer = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, RENDERER_POINTER)
+    );
     let device_type = fn_004dd220(e, Ptr::new(renderer));
     let adapter = fn_004dc210(e) as u32;
     let result = e
@@ -2968,9 +3046,13 @@ pub fn fn_004dcef0(e: &mut Engine) {
             e.mem.set_u16(base + 0x400 + slot, blue);
             index = index.wrapping_add(1);
         }
-        let renderer = e
-            .call(SMART_POINTER_GET, &args![RENDERER_POINTER])
-            .ptr::<()>();
+        let renderer = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, RENDERER_POINTER)
+        )
+        .into_ret()
+        .ptr::<()>();
         let device = fn_004dc020(e, renderer);
         e.vcall(device.addr(), 0x54, &args![0u32, 1u32, ramp]);
     });

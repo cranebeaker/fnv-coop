@@ -45,12 +45,16 @@ const SCRIPT_CREATE_LOCALS: u32 = 0x005a_bf60;
 /// thiscall (locals, other locals): copies the other locals in.
 const LOCALS_COPY: u32 = 0x005a_8f40;
 /// thiscall on `ScriptLocals`: the first node of its variable list (+0xC).
+#[cfg(test)]
 const LOCALS_FIRST_VARIABLE: u32 = 0x0084_e3a0;
 /// thiscall on a list node: whether it is empty (item and next both 0).
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// thiscall on a list node: answers the node itself.
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
 /// thiscall on a list node: the next node (+4).
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// `ScriptLocals::SetVariable` (engine map), thiscall (locals, id, double).
 const LOCALS_SET_VARIABLE: u32 = 0x005a_9290;
@@ -172,17 +176,17 @@ pub fn script_effect_copy_data(e: &mut Engine, this: Ptr, target: u32) {
     let locals = e.mem.u32(cast + EFFECT_LOCALS);
     e.call(LOCALS_COPY, &args![locals, source]);
     let source = e.mem.u32(base + EFFECT_LOCALS);
-    let mut node = e.call(LOCALS_FIRST_VARIABLE, &args![source]).u32();
-    while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, source));
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let variable = e.mem.u32(item);
         let value = x87_load64(e.mem.u64(variable + 8));
-        let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let variable = e.mem.u32(item);
         let id = e.mem.u32(variable);
         let locals = e.mem.u32(cast + EFFECT_LOCALS);
         e.call(LOCALS_SET_VARIABLE, &args![locals, id, value]);
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let source = e.mem.u32(base + EFFECT_LOCALS);
     if e.mem.u32(source + 0x10) != 0 {

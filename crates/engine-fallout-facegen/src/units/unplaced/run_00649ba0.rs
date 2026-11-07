@@ -41,6 +41,7 @@ const LOCK_LEAVE: u32 = 0x0040_fba0;
 /// `NiTPointerList` helpers: the item count (`0044ddc0`, `+8`), the address
 /// of the head item's element (`0073ac90`, `head + 8`) and remove-head
 /// (`007b5390`).
+#[cfg(test)]
 const LIST_COUNT: u32 = 0x0044_ddc0;
 const LIST_HEAD_ELEMENT: u32 = 0x0073_ac90;
 const LIST_REMOVE_HEAD: u32 = 0x007b_5390;
@@ -317,7 +318,7 @@ fn field(this: FaceData, offset: u32) -> u32 {
 
 /// The element of a keyframe list's head item, or 0 when the list is empty.
 fn list_head(e: &mut Engine, list: u32) -> u32 {
-    if e.call(LIST_COUNT, &args![list]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) != 0 {
         let element = e.call(LIST_HEAD_ELEMENT, &args![list]).u32();
         e.mem.u32(element)
     } else {
@@ -329,7 +330,7 @@ fn list_head(e: &mut Engine, list: u32) -> u32 {
 /// the head's element is deleted (scalar deleting destructor, flag 1), the
 /// head removed, until the list is empty.
 fn delete_list_keyframes(e: &mut Engine, list: u32) {
-    if e.call(LIST_COUNT, &args![list]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) == 0 {
         return;
     }
     // `NV_SPEECH_CHECK` (diagnostic only, reads memory): this thread is inside the list.
@@ -1256,7 +1257,7 @@ pub fn bs_face_gen_animation_data_update(e: &mut Engine, this: FaceData, seconds
     speech_check::at(e, this.addr(), "Update 0064b630");
     e.with_stack(0xc, |e, local| {
         // A local `006815c0` constructs (it returns its `this`).
-        e.call(0x0068_15c0, &args![local]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
     });
     let elapsed = f32::from_bits(x87_quiet_bits(seconds.to_bits()));
     let modifiers = field(this, 0xa8);
@@ -1719,7 +1720,7 @@ pub fn fn_0064ca60(
     if current == 0 || list == 0 {
         return 0;
     }
-    if e.call(LIST_COUNT, &args![list]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) != 0 {
         let element = e.call(LIST_HEAD_ELEMENT, &args![list]).u32();
         if e.mem.u32(element) != 0 {
             let element = e.call(LIST_HEAD_ELEMENT, &args![list]).u32();
@@ -1731,7 +1732,7 @@ pub fn fn_0064ca60(
             }
         }
     }
-    if e.call(LIST_COUNT, &args![list]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) == 0 {
         keyframe_set_time(e, current, FLOAT_ZERO);
         return 0;
     }
@@ -1823,11 +1824,11 @@ pub fn bs_face_gen_image_constructor(
     let image = this.at(BSFaceGenImage::UncompressedImage).addr();
     e.call(0x0065_c750, &args![image]);
     e.call(0x0066_b0d0, &args![pointer, texture]);
-    if e.call(0x0055_9450, &args![pointer]).u32() != 0 {
-        let source = e.call(0x0055_9450, &args![pointer]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
+        let source = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         let width = e.vcall(source, 0x94, &[]).u32();
         e.set(this, BSFaceGenImage::iWidth, width);
-        let source = e.call(0x0055_9450, &args![pointer]).u32();
+        let source = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         let height = e.vcall(source, 0x98, &[]).u32();
         e.set(this, BSFaceGenImage::iHeight, height);
     } else {
@@ -1963,7 +1964,11 @@ pub fn bs_face_gen_animation_data_is_speech_keyframe_list_empty(
         3 => 0xf0,
         _ => return true,
     };
-    e.call(LIST_COUNT, &args![field(this, list)]).u32() == 0
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, field(this, list))
+    ) == 0
 }
 
 // Translated from 0064b160 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2084,6 +2089,7 @@ const KEYFRAME_COPY_CONSTRUCT: u32 = 0x0064_ec10;
 /// `NiTPointerList` helpers used by the copy: the head item (`00559450`),
 /// the address of an item's element (`006317a0`, `(item)`), the next item
 /// (`007b52d0`, `(item)`) and add-to-tail (`004ed8c0`, `(const T *)`).
+#[cfg(test)]
 const LIST_HEAD: u32 = 0x0055_9450;
 const LIST_ITEM_ELEMENT: u32 = 0x0063_17a0;
 const LIST_NEXT: u32 = 0x007b_52d0;
@@ -2152,7 +2158,7 @@ pub fn fn_0064c5a0(e: &mut Engine, this: FaceData) -> FaceData {
     e.mem.set_u32(copy.wrapping_add(0xc), target_copy);
     for list in [0x88u32, 0xbc, 0xf0] {
         let source = field(this, list);
-        let mut item = e.call(LIST_HEAD, &args![source]).u32();
+        let mut item = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, source));
         while item != 0 {
             let element = e.call(LIST_ITEM_ELEMENT, &args![source, item]).u32();
             let keyframe = e.mem.u32(element);

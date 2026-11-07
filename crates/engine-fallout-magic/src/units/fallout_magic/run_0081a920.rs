@@ -14,12 +14,15 @@ const STATE: u32 = 0xb4;
 const TARGET_LIST: u32 = 0xc8;
 
 /// `00440d80` (`thiscall`): bit 0x20 of the form flags (+8).
+#[cfg(test)]
 const FORM_FLAG_20: u32 = 0x0044_0d80;
 /// `0044ddc0` (`thiscall`): the word at +8.
+#[cfg(test)]
 const WORD_08: u32 = 0x0044_ddc0;
 /// `00810fd0` (`thiscall`): the word at +0x98 of the projectile.
 const PROJECTILE_WORD_98: u32 = 0x0081_0fd0;
 /// `0084e3a0` (`thiscall`): the word at +0xC.
+#[cfg(test)]
 const WORD_0C: u32 = 0x0084_e3a0;
 /// The allocator `00401000` (`cdecl`, one word: the size).
 const ALLOCATE: u32 = 0x0040_1000;
@@ -51,6 +54,7 @@ const SET_POINT: u32 = 0x0044_0460;
 /// Three words at `011f426c` (a point).
 const POINT_011F426C: u32 = 0x011f_426c;
 /// `00416870` (`thiscall`, three floats): constructs a point.
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0041_6870;
 /// `00931ed0` (`thiscall`, one word: an out word): writes a word to it and returns its
 /// address.
@@ -90,7 +94,8 @@ const SLOT_04: u32 = 0x4;
 /// Unnamed in the engine map (`thiscall`): true when `eState` (+0xB4) is not 1 and bit
 /// 0x20 of the form flags (`00440d80`) is clear.
 pub fn fn_0081a920(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u32(this.addr() + STATE) != 1 && !e.call(FORM_FLAG_20, &args![this]).bool()
+    e.mem.u32(this.addr() + STATE) != 1
+        && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this))
 }
 
 // Translated from 0081a960 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -106,12 +111,12 @@ pub fn fn_0081a960(e: &mut Engine, this: Ptr, first: u32, second: u32) -> bool {
     if first == 0 || second == 0 {
         return false;
     }
-    let owner = e.call(WORD_08, &args![second]).u32();
+    let owner = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, second));
     if owner != e.call(PROJECTILE_WORD_98, &args![this]).u32() {
         return true;
     }
     let key = e.vcall(first, SLOT_04, &args![]).u32();
-    let value = e.call(WORD_0C, &args![second]).u32();
+    let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, second));
     let mut node = e.mem.u32(base + TARGET_LIST);
     while node != 0 {
         if e.mem.u32(node) == key && e.mem.u32(node + 4) == value {
@@ -195,7 +200,11 @@ pub fn fn_0081aab0(e: &mut Engine, this: Ptr) {
         e.call(SET_NAME, &args![sphere, name]);
         e.call(STRING_DESTROY, &args![second_name]);
         e.call(SET_POINT, &args![sphere, POINT_011F426C]);
-        e.call(POINT_CONSTRUCT, &args![zero_point, 0.0f32, 0.0f32, 0.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, zero_point, 0.0f32, 0.0f32, 0.0f32)
+        );
         let written = e.call(MOBILE_OBJECT_00931ED0, &args![this, out_word]).u32();
         let word = e.mem.u32(written);
         e.call(COLLISION_00C84470, &args![word, zero_point]);

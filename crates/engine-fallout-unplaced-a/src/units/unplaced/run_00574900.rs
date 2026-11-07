@@ -46,6 +46,7 @@ const REFERENCE_8D6F30: u32 = 0x008d_6f30;
 /// `005656d0` (`ECX` = reference): a byte.
 const REFERENCE_5656D0: u32 = 0x0056_56d0;
 /// `00440da0` (`ECX` = reference): a byte.
+#[cfg(test)]
 const REFERENCE_440DA0: u32 = 0x0044_0da0;
 /// `005f5950` (cdecl, seven words).
 const NOTIFY_5F5950: u32 = 0x005f_5950;
@@ -54,6 +55,7 @@ const ALLOCATE: u32 = 0x0040_1000;
 /// `00401170` (`ECX` = form): its form type.
 const FORM_TYPE: u32 = 0x0040_1170;
 /// `006815c0` (`ECX` = list node or object).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `TESScriptableForm::GetFormScript` (Xbox PDB name of `004826d0`; cdecl,
 /// the form).
@@ -126,10 +128,10 @@ pub fn fn_00574920(e: &mut Engine, this: Ptr, flag: u8) {
         return;
     }
     loop {
-        if e.call(0x0082_56d0, &args![dropped]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, dropped)) {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![dropped]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, dropped));
         let item = e.mem.u32(slot);
         let item_list = e.call(EXTRA_LIST, &args![item]).u32();
         e.call(0x0041_de40, &args![item_list, 0u32]);
@@ -147,7 +149,9 @@ pub fn fn_00574920(e: &mut Engine, this: Ptr, flag: u8) {
 /// reference.
 fn cell_notice(e: &mut Engine, this: Ptr, extra_check: impl FnOnce(&mut Engine) -> bool) {
     let reference = this.addr();
-    if e.vcall(reference, SLOT_100, &[]).bool() && !e.call(REFERENCE_440DA0, &args![this]).bool() {
+    if e.vcall(reference, SLOT_100, &[]).bool()
+        && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, this))
+    {
         return;
     }
     if e.call(REFERENCE_8D6F30, &args![this]).u32() == 0 {
@@ -209,12 +213,12 @@ pub fn fn_00574b30(
     }
     cell_notice(e, this, |e| e.call(REFERENCE_5656D0, &args![item]).bool());
     if reference == e.mem.u32(PLAYER) {
-        let form = e.call(0x007a_f430, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
         e.call(
             NOTIFY_5F5950,
             &args![10u32, word, form, 0u32, 0u32, 0u32, 0u32],
         );
-        let form = e.call(0x007a_f430, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
         e.call(
             NOTIFY_5F5950,
             &args![6u32, word, form, 0u32, 0u32, 0u32, 0u32],
@@ -234,12 +238,14 @@ pub fn fn_00574b30(
             } else {
                 0
             };
-            if change != 0 && e.call(0x0055_9450, &args![change]).u32() != 0 {
-                let node = e.call(0x0055_9450, &args![change]).u32();
-                let slot = e.call(NODE_ITEM, &args![node]).u32();
+            if change != 0
+                && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change)) != 0
+            {
+                let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change));
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(slot) != 0 {
-                    let node = e.call(0x0055_9450, &args![change]).u32();
-                    let slot = e.call(NODE_ITEM, &args![node]).u32();
+                    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change));
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let first = e.mem.u32(slot);
                     e.call(SET_ACTION_FLAG, &args![this, first, 1u32]);
                 }
@@ -437,13 +443,13 @@ pub fn fn_005750a0(
             e.call(0x0096_91d0, &args![player]);
         }
         if actor != 0
-            && e.call(0x008d_8520, &args![actor]).u32() != 0
+            && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
             && !e.vcall(actor, 0x22c, &args![0u32]).bool()
             && reference != e.mem.u32(PLAYER)
             && !e.call(0x0070_5020, &[]).bool()
             && !e.call(0x0070_5000, &[]).bool()
         {
-            let process = e.call(0x008d_8520, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             e.vcall(process, 0x17c, &args![item, list]);
             if e.call(FORM_TYPE, &args![item]).u32() == 0x28
                 && !e.call(0x0049_3bb0, &args![actor]).bool()
@@ -452,7 +458,7 @@ pub fn fn_005750a0(
                 if entry != 0 {
                     let immediate = e.call(0x0070_2360, &[]).bool()
                         && e.call(0x0056_6950, &args![actor]).bool();
-                    let object = e.call(0x0044_ddc0, &args![entry]).u32();
+                    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                     let target = if immediate { 0x0088_c830 } else { 0x0088_c650 };
                     e.call(target, &args![actor, object, 1u32, 0u32, 1u32, 0u32, 1u32]);
                 }

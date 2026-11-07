@@ -259,12 +259,16 @@ fn member(e: &Engine, this: Ptr<TESSaveLoadGame>, offset: u32) -> u32 {
 
 /// Count of a `NiTLargePrimitiveArray` (`0084e3a0`).
 fn array_count(e: &mut Engine, array: u32) -> u32 {
-    e.call(ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array))
 }
 
 /// The address of the slot of `index` (`00877a30`).
 fn array_slot(e: &mut Engine, array: u32, index: u32) -> u32 {
-    e.call(ARRAY_ELEMENT_ADDRESS, &args![array, index]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    )
 }
 
 /// Appends the word `value` to the array (`00863d90(array, &value)`); the
@@ -375,7 +379,7 @@ pub fn tes_save_load_game_save_created_base_objects(
     let mut count = 0u32;
     let mut node = list;
     while node != 0 {
-        let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let form_id = e.mem.u32(slot);
         let form = e.call(LOOKUP_FORM, &args![form_id]).u32();
         if form != 0 {
@@ -383,12 +387,12 @@ pub fn tes_save_load_game_save_created_base_objects(
             let spell = dynamic_cast(e, form, RTTI_FORM, RTTI_SPELL_ITEM);
             let enchantable = dynamic_cast(e, form, RTTI_FORM, RTTI_ENCHANTABLE_FORM);
             if enchantable != 0 && e.call(ENCHANTMENT_OF_FORM, &args![enchantable]).u32() == 0 {
-                node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 continue;
             }
             if enchantable != 0 && e.call(ENCHANTMENT_OF_FORM, &args![enchantable]).u32() != 0 {
                 let enchantment = e.call(ENCHANTMENT_OF_FORM, &args![enchantable]).u32();
-                let id = e.call(FORM_ID, &args![enchantment]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, enchantment));
                 if e.call(DATA_HANDLER_HAS_FORM, &args![handler, id]).bool() {
                     count += 1;
                 }
@@ -397,7 +401,7 @@ pub fn tes_save_load_game_save_created_base_objects(
                 count += 1;
             }
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     write_word(e, this, file, count);
     if count == 0 {
@@ -406,7 +410,7 @@ pub fn tes_save_load_game_save_created_base_objects(
 
     let mut node = list;
     while node != 0 {
-        let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let form_id = e.mem.u32(slot);
         let form = e.call(LOOKUP_FORM, &args![form_id]).u32();
         if form != 0 {
@@ -421,10 +425,11 @@ pub fn tes_save_load_game_save_created_base_objects(
                             LOG_ERROR,
                             &args![MSG_ENCHANTABLE_WITHOUT_ENCHANTMENT, form_id],
                         );
-                        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                         continue;
                     }
-                    let id = e.call(FORM_ID, &args![enchantment]).u32();
+                    let id =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, enchantment));
                     if e.call(DATA_HANDLER_HAS_FORM, &args![handler, id]).bool() {
                         save_form_record(e, this, file, enchantment, None);
                     }
@@ -432,7 +437,7 @@ pub fn tes_save_load_game_save_created_base_objects(
                 save_form_record(e, this, file, form, Some(form_id));
             }
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -456,12 +461,12 @@ fn save_form_record(
     let stats = e.get(this, TESSaveLoadGame::m_pSaveLoadStats);
     if !stats.is_null() {
         let header: Ptr<LoadFormHeader> = Ptr::new(e.mem.alloc(LoadFormHeader::SIZE));
-        e.call(LIST_NODE_ITEM, &args![header]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, header));
         let form_type = e.call(FORM_TYPE, &args![form]).u8();
         e.set(header, LoadFormHeader::cFormType, form_type);
         let id = match list_id {
             Some(id) => id,
-            None => e.call(FORM_ID, &args![form]).u32(),
+            None => typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form)),
         };
         e.set(header, LoadFormHeader::iFormID, id);
         e.set(header, LoadFormHeader::iSize, size as u16);
@@ -808,10 +813,10 @@ pub fn fn_008622a0(e: &mut Engine, this: Ptr<TESSaveLoadGame>) -> u32 {
     let number = e.mem.alloc(4);
     let mut node = list;
     while node != 0 {
-        if e.call(LIST_NODE_IS_END, &args![node]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             break;
         }
-        let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let file = e.mem.u32(slot);
         // The game's local is uninitialised until the call sets it.
         e.mem.set_u32(number, 0);
@@ -828,7 +833,7 @@ pub fn fn_008622a0(e: &mut Engine, this: Ptr<TESSaveLoadGame>) -> u32 {
         if found > highest {
             highest = found;
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.mem.free(number);
     if built {
@@ -916,8 +921,8 @@ pub fn fn_008624e0(e: &mut Engine, this: Ptr<TESSaveLoadGame>, reference: Ptr) {
     let reference_addr = reference.addr();
     let position = e.mem.alloc(12);
     let rotation = e.mem.alloc(12);
-    e.call(LIST_NODE_ITEM, &args![position]);
-    e.call(LIST_NODE_ITEM, &args![rotation]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
     let source = e
         .vcall(reference_addr, REFERENCE_GET_POSITION_SLOT, &args![])
         .u32();
@@ -1055,11 +1060,11 @@ pub fn fn_008627b0(e: &mut Engine, this: Ptr<TESSaveLoadGame>) {
         }
         // The head node stays where it is while its items are removed.
         loop {
-            let slot = e.call(LIST_NODE_ITEM, &args![list]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             if e.mem.u32(slot) == 0 {
                 break;
             }
-            let slot = e.call(LIST_NODE_ITEM, &args![list]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let coordinates = e.mem.u32(slot);
             delete(e, coordinates);
             e.call(LIST_REMOVE_HEAD, &args![list]);
@@ -1082,7 +1087,7 @@ fn detached_cell_entry(
     key: u32,
     change: u32,
 ) {
-    let flags = e.call(READ_WORD, &args![change]).u32();
+    let flags = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change));
     let mut location = key;
     let mut x = NO_COORDINATE;
     let mut y = NO_COORDINATE;
@@ -1090,8 +1095,8 @@ fn detached_cell_entry(
         return;
     }
     let mut detach_time = 0u32;
-    if e.call(LIST_NODE_NEXT, &args![change]).u32() != 0 {
-        let buffer = e.call(LIST_NODE_NEXT, &args![change]).u32();
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, change)) != 0 {
+        let buffer = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, change));
         e.set(this, TESSaveLoadGame::m_pBuffer, Ptr::new(buffer));
         let header = read_from_singleton(e, 4);
         if e.mem.u8(header + 2) as u32 == FORM_TYPE_CELL
@@ -1110,7 +1115,7 @@ fn detached_cell_entry(
             detach_time = e.call(CELL_GET_DETACH_TIME, &args![form]).u32();
             if !e.call(CELL_IS_INTERIOR, &args![form]).bool() {
                 let worldspace = e.call(CELL_GET_WORLDSPACE, &args![form]).u32();
-                location = e.call(ARRAY_SIZE, &args![worldspace]).u32();
+                location = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, worldspace));
                 x = e.call(CELL_GET_X, &args![form]).u32();
                 y = e.call(CELL_GET_Y, &args![form]).u32();
             }
@@ -1168,7 +1173,7 @@ fn detached_cell_entry(
 ///   created: the entry is dropped and a loaded reference is destroyed
 ///   (virtual slot `0x10`, flag 1).
 fn pass_two_entry(e: &mut Engine, this: Ptr<TESSaveLoadGame>, cells: Ptr, key: u32, change: u32) {
-    let flags = e.call(READ_WORD, &args![change]).u32();
+    let flags = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change));
     let mut location = 0u32;
     let mut x = NO_COORDINATE;
     let mut y = NO_COORDINATE;
@@ -1176,8 +1181,8 @@ fn pass_two_entry(e: &mut Engine, this: Ptr<TESSaveLoadGame>, cells: Ptr, key: u
     let mut form_type = 0u32;
     // The 4-byte header of the saved record: size (2), form type, version.
     let header = e.mem.alloc(4);
-    if e.call(LIST_NODE_NEXT, &args![change]).u32() != 0 {
-        let buffer = e.call(LIST_NODE_NEXT, &args![change]).u32();
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, change)) != 0 {
+        let buffer = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, change));
         e.set(this, TESSaveLoadGame::m_pBuffer, Ptr::new(buffer));
         let game = game_singleton(e);
         fn_008579e0(e, game, Ptr::new(header), 4);
@@ -1207,12 +1212,13 @@ fn pass_two_entry(e: &mut Engine, this: Ptr<TESSaveLoadGame>, cells: Ptr, key: u
                 let cell = e.call(REF_GET_PARENT_CELL, &args![reference]).u32();
                 if cell != 0 {
                     if e.call(CELL_IS_INTERIOR, &args![cell]).bool() {
-                        location = e.call(ARRAY_SIZE, &args![cell]).u32();
+                        location = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell));
                         x = 0;
                         y = 0;
                     } else {
                         let worldspace = e.call(CELL_GET_WORLDSPACE, &args![cell]).u32();
-                        location = e.call(ARRAY_SIZE, &args![worldspace]).u32();
+                        location =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, worldspace));
                         x = e.call(CELL_GET_X, &args![cell]).u32();
                         y = e.call(CELL_GET_Y, &args![cell]).u32();
                     }
@@ -1237,17 +1243,17 @@ fn pass_two_entry(e: &mut Engine, this: Ptr<TESSaveLoadGame>, cells: Ptr, key: u
     e.mem.free(list_cell);
     let mut listed = node == 0;
     while node != 0 {
-        let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         if item != 0 && e.mem.u32(item) == x && e.mem.u32(item + 4) == y {
             listed = true;
             break;
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if !listed {
         e.mem.free(header);
@@ -1258,12 +1264,12 @@ fn pass_two_entry(e: &mut Engine, this: Ptr<TESSaveLoadGame>, cells: Ptr, key: u
     if flags & CHANGE_FLAG_MOVED != 0 && flags & CHANGE_FLAG_CREATED == 0 {
         if flags == CHANGE_FLAG_MOVED {
             fn_00855220(e, changes, key, 1);
-        } else if e.call(LIST_NODE_NEXT, &args![change]).u32() == 0 {
+        } else if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, change)) == 0 {
             if reference != 0 {
                 fn_00855150(e, changes, Ptr::new(reference), CHANGE_FLAG_MOVED);
             }
         } else {
-            let old_buffer = e.call(LIST_NODE_NEXT, &args![change]).u32();
+            let old_buffer = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, change));
             let remaining_flags = flags & !CHANGE_FLAG_MOVED;
             let size = e.mem.u16(header).wrapping_sub(REFERENCE_DATA_BYTES as u16);
             e.mem.set_u16(header, size);

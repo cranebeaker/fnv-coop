@@ -33,6 +33,7 @@ const ALPHA: u32 = 0xc;
 /// the allocator's free, cdecl (block).
 const FREE: u32 = 0x0040_1030;
 /// thiscall on an `NiPointer`: the object it holds.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// thiscall (pointer, object): `NiPointer` assignment.
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
@@ -93,6 +94,7 @@ const SKY_HOUR: u32 = 0x0096_6a20;
 const LAST_POSITION_GUARD: u32 = 0x011c_ce48;
 const LAST_POSITION: u32 = 0x011c_ce3c;
 /// `NiPoint3` constructor, thiscall (point, x, y, z).
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0041_6870;
 /// The base update (`008d0600`, `ProcessLists::PrintLists` in the engine
 /// map; folded code), thiscall (object, sky, seconds).
@@ -150,11 +152,15 @@ const POINT_NORMALIZE: u32 = 0x004a_0c10;
 const NODE_ROTATE: u32 = 0x0064_04b0;
 
 fn stars_node(e: &mut Engine, this: u32) -> u32 {
-    e.call(POINTER_GET, &args![this + STARS_NODE]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this + STARS_NODE)
+    )
 }
 
 fn root_node(e: &mut Engine, this: u32) -> u32 {
-    e.call(POINTER_GET, &args![this + ROOT]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this + ROOT))
 }
 
 // Translated from 0063fcf0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -208,7 +214,7 @@ pub fn stars_load_geometry(e: &mut Engine, this: Ptr, name: u32) {
         );
         e.with_stack(0x5d4, |e, stream| {
             e.call(STREAM_CONSTRUCT, &args![stream]);
-            let text = e.call(POINTER_GET, &args![path]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, path));
             let loaded = e.call(STREAM_LOAD, &args![stream, text, 0u32]).bool()
                 && e.call(STREAM_OBJECT_COUNT, &args![stream]).u32() == 1
                 && {
@@ -221,7 +227,7 @@ pub fn stars_load_geometry(e: &mut Engine, this: Ptr, name: u32) {
                 e.call(NODE_SET_FLAG_635FE0, &args![root, 0u32]);
             } else {
                 e.with_stack(0x10, |e, model| {
-                    let text = e.call(POINTER_GET, &args![path]).u32();
+                    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, path));
                     e.call(MODEL_CONSTRUCT, &args![model, text, stream, 1u32, 0u32]);
                     let root = root_node(e, base);
                     e.call(NODE_SET_FLAG_635FE0, &args![root, 1u32]);
@@ -277,7 +283,11 @@ pub fn stars_update(e: &mut Engine, this: Ptr, sky: u32, seconds: u32) {
     let guard: u32 = e.global(LAST_POSITION_GUARD);
     if guard & 1 == 0 {
         e.set_global(LAST_POSITION_GUARD, guard | 1);
-        e.call(POINT_CONSTRUCT, &args![LAST_POSITION, 0u32, 0u32, 0u32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, LAST_POSITION, 0u32, 0u32, 0u32)
+        );
     }
     e.call(BASE_UPDATE, &args![base, sky, x87_quiet_bits(seconds)]);
     if e.call(SKY_MODE, &args![sky]).u32() != 3 && e.call(SKY_MODE, &args![sky]).u32() != 2 {
@@ -421,7 +431,11 @@ fn rotate_stars(e: &mut Engine, base: u32, sky: u32) {
     let x_at = e.call(SETTING_FLOAT, &args![SETTING_AXIS_X]).u32();
     let x = x87_quiet_bits(e.mem.u32(x_at));
     e.with_stack(0xc, |e, axis| {
-        e.call(POINT_CONSTRUCT, &args![axis, x, y, z]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, axis, x, y, z)
+        );
         e.call(POINT_NORMALIZE, &args![axis]);
         if stars_node(e, base) != 0 {
             let axis = axis.addr();

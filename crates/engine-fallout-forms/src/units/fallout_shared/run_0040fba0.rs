@@ -6,13 +6,14 @@ use crate::prelude::*;
 
 /// An empty function (`0040fbe0`) that the lock calls when it releases and
 /// after it acquires (`0040fbf0`).
+#[cfg(test)]
 const BEFORE_RELEASE: u32 = 0x0040_fbe0;
 
 // Translated from 0040fba0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Releases the recursive lock taken by `0040fbf0`: decrements the count at
 /// `+4` and, when it reaches zero, clears the owner word at `+0`.
 pub fn fn_0040fba0(e: &mut Engine, this: Ptr) {
-    e.call(BEFORE_RELEASE, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     let count = e.mem.u32(this.addr() + 4).wrapping_sub(1);
     e.mem.set_u32(this.addr() + 4, count);
     if count == 0 {

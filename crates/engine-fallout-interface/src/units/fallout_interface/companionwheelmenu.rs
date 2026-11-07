@@ -100,6 +100,7 @@ const MENU_PREP_FOR_VISIBILITY: u32 = 0x00a1_dc20;
 const MENU_START_FADE_OUT: u32 = 0x00a1_d910;
 const TILE_GET_MAXIMUM_DEPTH: u32 = 0x00a0_1530;
 /// The menu's tile (`00726070`, `thiscall`: the word at +4, `Menu::pMenu`).
+#[cfg(test)]
 const MENU_TILE_00726070: u32 = 0x0072_6070;
 /// `007b78a0` (`thiscall` on the menu, a byte answer: whether the menu's tiles are there).
 const MENU_CHECK_007B78A0: u32 = 0x007b_78a0;
@@ -163,8 +164,11 @@ const GET_DEFAULT_OBJECT: u32 = 0x0058_db10;
 /// the word at +8), the entry's extra list (`00559450` then `006815c0`, the word there) and
 /// the entry's deleting destructor (`004459e0`, one word).
 const GET_INVENTORY_ITEM: u32 = 0x0057_6260;
+#[cfg(test)]
 const WORD_AT_8_0044DDC0: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const WORD_AT_0_00559450: u32 = 0x0055_9450;
+#[cfg(test)]
 const NODE_SELF_006815C0: u32 = 0x0068_15c0;
 const ENTRY_DELETE_004459E0: u32 = 0x0044_59e0;
 /// The companion's calls: `Actor::GetHealthPercentage` (`00893590`, `ST0`),
@@ -212,7 +216,9 @@ const DIALOGUE_ITEM_DESTROY: u32 = 0x0083_c670;
 /// companion's speech handle (`00933150`, five words), the sound handle's assignment
 /// (`00418900`, one word: also its copy constructor), the `BSStringT` constructor from a
 /// `char*` (`004047f0`, one word) and its destructor (`004037d0`).
+#[cfg(test)]
 const RESPONSE_FORM_007AF430: u32 = 0x007a_f430;
+#[cfg(test)]
 const VALUE_OF_0084E3A0: u32 = 0x0084_e3a0;
 const RESPONSE_00441110: u32 = 0x0044_1110;
 const RESPONSE_009611E0: u32 = 0x0096_11e0;
@@ -410,11 +416,11 @@ fn stimpak_entry(e: &mut Engine) -> u32 {
 /// An inventory entry's extra list word (`00559450`; when set, the word at
 /// `006815c0` of it), 0 otherwise.
 fn entry_extra(e: &mut Engine, entry: u32) -> u32 {
-    if e.call(WORD_AT_0_00559450, &args![entry]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry)) == 0 {
         return 0;
     }
-    let list = e.call(WORD_AT_0_00559450, &args![entry]).u32();
-    let node = e.call(NODE_SELF_006815C0, &args![list]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
+    let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     e.mem.u32(node)
 }
 
@@ -522,7 +528,9 @@ pub fn companion_wheel_menu_create(e: &mut Engine, companion: u32) -> u32 {
         class == fn_00755260(e)
     };
     if !made {
-        if open_wheel(e) != 0 && e.call(MENU_TILE_00726070, &args![open_wheel(e)]).u32() != 0 {
+        if open_wheel(e) != 0
+            && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, open_wheel(e))) != 0
+        {
             let menu = open_wheel(e);
             if menu != 0 {
                 e.vcall(menu, 0, &args![1u32]);
@@ -622,7 +630,7 @@ pub fn companion_wheel_menu_close(e: &mut Engine, fade: u8) {
         e.call(PROCESS_LISTS_UPDATE_3D_AFTER_RESTING, &args![PROCESS_LISTS]);
     }
     let menu = open_wheel(e);
-    let tile = e.call(MENU_TILE_00726070, &args![menu]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
     set_int(e, tile, 0x1772, 1);
     let menu = open_wheel(e);
     e.call(MENU_START_FADE_OUT, &args![menu]);
@@ -1053,7 +1061,7 @@ pub fn companion_wheel_menu_set_button_context_text(
                 let mut count = 0u32;
                 let entry = stimpak_entry(e);
                 if entry != 0 {
-                    count = e.call(MENU_TILE_00726070, &args![entry]).u32();
+                    count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                     e.call(ENTRY_DELETE_004459E0, &args![entry, 1u32]);
                 }
                 let second = setting_string(e, SETTING_011D2568);
@@ -1249,7 +1257,7 @@ pub fn companion_wheel_menu_do_use_stim(e: &mut Engine, this: Ptr<CompanionWheel
     if low || crippled > 0 {
         if x87_load32(health) < one {
             let extra = entry_extra(e, entry);
-            let form = e.call(WORD_AT_8_0044DDC0, &args![entry]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             let potion = e
                 .call(
                     RT_DYNAMIC_CAST,
@@ -1260,7 +1268,7 @@ pub fn companion_wheel_menu_do_use_stim(e: &mut Engine, this: Ptr<CompanionWheel
             e.call(ACTOR_DRINK_POTION, &args![companion, potion, extra, 1u32]);
         }
         let extra = entry_extra(e, entry);
-        let form = e.call(WORD_AT_8_0044DDC0, &args![entry]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         let player: u32 = e.global(PLAYER);
         e.vcall(
             player,
@@ -1314,6 +1322,7 @@ pub fn fn_00756960(e: &mut Engine, this: Ptr<CompanionWheelMenu>) {
 
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map name, `008d8520`; `thiscall` on an
 /// actor: its process, the same callee `DialogMenu::Create` reads the process with).
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 /// The talk-to path's actor calls (all `thiscall`): `00493bb0`, `00566950`, `00608d80`,
 /// `0087f3d0`, `008ace90`, `008b3bb0` and `008b3c30` (byte answers), `008a8e50` (twice per
@@ -1392,11 +1401,11 @@ fn dialogue_package_word(e: &mut Engine, actor: u32, current: u32) -> u32 {
 /// The byte at +0xe of the actor's process's slot +0x4d4 object (asked twice, as the code
 /// does) is above 0x13; false when the process has none.
 fn process_object_above_13(e: &mut Engine, actor: u32) -> bool {
-    let process = e.call(GET_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     if e.vcall(process, 0x4d4, &args![]).u32() == 0 {
         return false;
     }
-    let process = e.call(GET_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     let object = e.vcall(process, 0x4d4, &args![]).u32();
     e.mem.u8(object + 0xe) > 0x13
 }
@@ -1405,7 +1414,7 @@ fn process_object_above_13(e: &mut Engine, actor: u32) -> bool {
 fn package_word_free(e: &mut Engine, package: u32) -> bool {
     e.call(PACKAGE_WORD_0041D8A0, &args![package]).u32() != 0 && {
         let word = e.call(PACKAGE_WORD_0041D8A0, &args![package]).u32();
-        e.call(MENU_TILE_00726070, &args![word]).u32() == 0
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, word)) == 0
     }
 }
 
@@ -1472,7 +1481,7 @@ pub fn fn_00756980(e: &mut Engine, this: Ptr<CompanionWheelMenu>) {
     if companion == 0 || e.vcall(companion, 0x2e8, &args![]).bool() {
         return;
     }
-    let process = e.call(GET_PROCESS, &args![companion]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, companion));
     if process == 0 {
         return;
     }
@@ -1484,7 +1493,7 @@ pub fn fn_00756980(e: &mut Engine, this: Ptr<CompanionWheelMenu>) {
     if e.vcall(process, 0x610, &args![]).u32() != 0 {
         return;
     }
-    let speaker_process = e.call(GET_PROCESS, &args![speaker]).u32();
+    let speaker_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
     let speaker_package = e.vcall(speaker_process, 0x27c, &args![]).u32();
     let companion_package = e.vcall(process, 0x27c, &args![]).u32();
     if speaker == 0 {
@@ -1601,7 +1610,7 @@ fn talk_to(
         }
     }
     let speaker_may_greet = |e: &mut Engine| {
-        let process = e.call(GET_PROCESS, &args![speaker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
         e.vcall(process, 0x604, &args![]).bool()
     };
     let topic = if is_player(e, speaker) || speaker_may_greet(e) {
@@ -1630,13 +1639,14 @@ fn talk_to(
         }
     }
     if item != 0 {
-        let object = e.call(VALUE_OF_0084E3A0, &args![item]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
         let spoken = e.call(OBJECT_TEST_00619DF0, &args![object]).bool()
             && e.call(DIALOGUE_ITEM_FIRST_RESPONSE, &args![item]).bool()
             && !e.call(DIALOGUE_ITEM_NEXT_RESPONSE, &args![item]).bool();
         if spoken {
             if e.vcall(companion, 0x214, &args![]).u32() == 9 {
-                let process = e.call(GET_PROCESS, &args![companion]).u32();
+                let process =
+                    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, companion));
                 e.vcall(process, 0x600, &args![1u32]);
                 e.vcall(companion, 0x418, &args![]);
                 return TalkTo::Done;
@@ -1651,7 +1661,7 @@ fn talk_to(
         }
     }
     if process_object_above_13(e, companion) {
-        let process = e.call(GET_PROCESS, &args![companion]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, companion));
         e.vcall(process, 0x614, &args![0x200u32]);
     }
     if e.vcall(companion, 0x214, &args![]).u32() == 0 {
@@ -1666,7 +1676,7 @@ fn talk_to(
         if !e.call(ACTOR_IS_PATHING_COMPLETE, &args![companion]).bool()
             && !e.call(ACTOR_IS_ROTATING, &args![companion]).bool()
         {
-            let process = e.call(GET_PROCESS, &args![companion]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, companion));
             e.vcall(process, 0x294, &args![companion]);
         }
         e.call(ACTOR_STOP_ATTACK, &args![speaker]);
@@ -1698,7 +1708,7 @@ fn talk_to(
             };
             queue_dialogue(e, target, word);
         } else {
-            let process = e.call(GET_PROCESS, &args![companion]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, companion));
             e.vcall(process, 0x600, &args![1u32]);
             e.vcall(companion, 0x418, &args![]);
         }
@@ -1708,7 +1718,7 @@ fn talk_to(
         return TalkTo::DeleteItem(item);
     }
     let player: u32 = e.global(PLAYER);
-    let player_process = e.call(GET_PROCESS, &args![player]).u32();
+    let player_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     if !e.vcall(player_process, 0x3fc, &args![speaker]).bool() {
         return TalkTo::Done;
     }
@@ -1724,14 +1734,14 @@ fn talk_to(
     } else {
         1
     };
-    let process = e.call(GET_PROCESS, &args![speaker]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
     e.vcall(process, 0x288, &args![speaker, mode]);
     e.call(MAGIC_CASTER_INTERRUPT_CAST, &args![companion + 0x88]);
     for actor in [companion, speaker] {
         if is_player(e, actor) {
             e.call(ACTOR_008A7A90, &args![actor]);
         } else {
-            let process = e.call(GET_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             e.vcall(process, 0x614, &args![0x400u32]);
         }
     }
@@ -1785,9 +1795,9 @@ pub fn companion_wheel_menu_play_reactivity_bark(
             .call(DIALOGUE_ITEM_GET_CURRENT_RESPONSE, &args![item])
             .u32();
         if response != 0 {
-            if e.call(RESPONSE_FORM_007AF430, &args![response]).u32() != 0 {
-                let form = e.call(RESPONSE_FORM_007AF430, &args![response]).u32();
-                let value = e.call(VALUE_OF_0084E3A0, &args![form]).u32();
+            if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response)) != 0 {
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response));
+                let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 e.with_stack(0xc, |e, local| {
                     let handle = e
                         .call(
@@ -1801,12 +1811,12 @@ pub fn companion_wheel_menu_play_reactivity_bark(
             } else {
                 let worldspace = e.call(RESPONSE_00441110, &args![response]).u32();
                 let word = e.call(RESPONSE_009611E0, &args![response]).u32();
-                let text = e.call(NODE_SELF_006815C0, &args![response]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, response));
                 let length = e.call(STRING_LENGTH_004048E0, &args![text]).u32();
-                let value = e.call(VALUE_OF_0084E3A0, &args![response]).u32();
-                let form = e.call(WORD_AT_8_0044DDC0, &args![response]).u32();
+                let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, response));
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, response));
                 let object = e.call(RESPONSE_00460140, &args![response]).u32();
-                let object = e.call(WORD_AT_0_00559450, &args![object]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
                 e.vcall(
                     companion,
                     0x284,
@@ -1831,7 +1841,7 @@ pub fn companion_wheel_menu_play_reactivity_bark(
             // the stack area the callee owns and destroys.
             e.with_stack(0x14, |e, block| {
                 e.call(SOUND_HANDLE_ASSIGN, &args![block.addr() + 8, base + 0x7c]);
-                let text = e.call(NODE_SELF_006815C0, &args![response]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, response));
                 e.call(STRING_CONSTRUCT, &args![block, text]);
                 display_subtitle_at(e, this, block.addr());
             });
@@ -1900,7 +1910,7 @@ fn display_subtitle_at(e: &mut Engine, this: Ptr<CompanionWheelMenu>, block: u32
     };
     if shown {
         if e.mem.u32(base + 0x58) != 0 {
-            let chars = e.call(WORD_AT_0_00559450, &args![text]).u32();
+            let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let tile = e.mem.u32(base + 0x58);
             set_string(e, tile, 0xfc4, chars);
         }
@@ -1908,7 +1918,7 @@ fn display_subtitle_at(e: &mut Engine, this: Ptr<CompanionWheelMenu>, block: u32
         time = x87_store32(f64::from(duration));
         let zero: f64 = e.global(ZERO_DOUBLE);
         if x87_load32(time) == zero {
-            let chars = e.call(WORD_AT_0_00559450, &args![text]).u32();
+            let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let length = e.call(STRLEN, &args![chars]).u32();
             // FILD qword of the length (high word 0), FSTP double.
             let length = f64::from(length);

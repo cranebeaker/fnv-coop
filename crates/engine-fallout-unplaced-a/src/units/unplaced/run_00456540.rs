@@ -10,11 +10,13 @@ use crate::prelude::*;
 
 /// `006815c0` (`thiscall`, no stack words): run on the two three-word
 /// members of the record before they are overwritten.
+#[cfg(test)]
 const MEMBER_INIT: u32 = 0x0068_15c0;
 /// Three words (`011f426c`, `011f4270`, `011f4274`) copied into both
 /// members of the record.
 const DEFAULT_TRIPLE: u32 = 0x011f_426c;
 /// `00559450` (`thiscall`): returns an object for `004a8ae0`.
+#[cfg(test)]
 const MEMBER_OBJECT: u32 = 0x0055_9450;
 /// `TESActorBaseData::GetFatigue` (`004a8ae0`, Xbox PDB name; returns the
 /// 16-bit word at +8 in `AX`).
@@ -27,8 +29,8 @@ const GET_FATIGUE: u32 = 0x004a_8ae0;
 /// Returns `this`.
 pub fn fn_00456540(e: &mut Engine, this: Ptr) -> Ptr {
     let t = this.addr();
-    e.call(MEMBER_INIT, &args![t + 8]);
-    e.call(MEMBER_INIT, &args![t + 0x14]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, t + 8));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, t + 0x14));
     e.mem.set_u32(t, 0);
     e.mem.set_u32(t + 4, 0);
     for member in [t + 8, t + 0x14] {
@@ -69,7 +71,11 @@ pub fn fn_00456630(e: &mut Engine, this: Ptr, mask: u32) -> bool {
 /// `GetFatigue` (`004a8ae0`) of the object `00559450` returns for the member
 /// at +0xB8; its `AX` is this function's result.
 pub fn fn_00456650(e: &mut Engine, this: Ptr) -> u16 {
-    let object = e.call(MEMBER_OBJECT, &args![this.addr() + 0xb8]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xb8)
+    );
     e.call(GET_FATIGUE, &args![object]).u16()
 }
 

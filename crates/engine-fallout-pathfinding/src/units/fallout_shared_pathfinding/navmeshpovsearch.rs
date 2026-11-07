@@ -99,12 +99,14 @@ pub fn fn_006a2900(e: &mut Engine, this: Ptr) {
 const BASE_CTOR_006240D0: u32 = 0x0062_40d0;
 /// `006815c0` (unnamed in the engine map): returns its `this` (here run as
 /// the constructor of a member with nothing to construct).
+#[cfg(test)]
 const IDENTITY_006815C0: u32 = 0x0068_15c0;
 /// `ScrapHeap::Allocate` (`00aa54a0`, engine map; `thiscall`, `RET 8`: size, alignment).
 const SCRAP_HEAP_ALLOCATE: u32 = 0x00aa_54a0;
 /// The alignment word `006a1f90` passes to the scrap heap.
 const SCRAP_ALIGNMENT: u32 = 0x010a_2720;
 /// `00559450` (unnamed in the engine map): the word at +0 of its `this`.
+#[cfg(test)]
 const FIRST_OF_00559450: u32 = 0x0055_9450;
 /// `00558dd0` (unnamed in the engine map; `thiscall`, `RET 4`).
 const STEP_00558DD0: u32 = 0x0055_8dd0;
@@ -204,7 +206,11 @@ pub fn fn_006a1b60(e: &mut Engine, this: Ptr) -> u32 {
 /// `006815c0` on +0xC. Returns `this`.
 pub fn fn_006a0480(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(BASE_CTOR_006240D0, &args![this]);
-    e.call(IDENTITY_006815C0, &args![this.addr() + 0xc]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0xc)
+    );
     this
 }
 
@@ -226,7 +232,11 @@ pub fn fn_0069ef80(e: &mut Engine, this: Ptr) -> f64 {
 // Translated from 0069e390 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed in the engine map: what `00559450` returns for +0x94.
 pub fn fn_0069e390(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(FIRST_OF_00559450, &args![this.addr() + 0x94]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x94)
+    )
 }
 
 // Translated from 006a1420 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -443,7 +453,7 @@ pub fn fn_006a0e50(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
 /// by `006815c0`), then copied by `006985f0`. Returns `out`.
 pub fn fn_006a0e90(e: &mut Engine, this: Ptr, out: Ptr, other: Ptr) -> Ptr {
     e.with_stack(8, |e, local| {
-        e.call(IDENTITY_006815C0, &args![local]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
         let x = e.mem.u32(this.addr());
         let y = e.mem.u32(this.addr() + 4);
         let ox = e.mem.u32(other.addr());
@@ -660,6 +670,7 @@ const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// `00413f40` (unnamed in the engine map): returns `this + 8`.
 const PLUS_EIGHT_00413F40: u32 = 0x0041_3f40;
 /// `0044ddc0` (unnamed in the engine map): the word at +8 (a `BSSimpleArray`'s size).
+#[cfg(test)]
 const ARRAY_SIZE_0044DDC0: u32 = 0x0044_ddc0;
 /// `00439e90` (unnamed in the engine map; `RET 8`: out, other): the 3D sum
 /// `this + other` into `out`; returns `out`.
@@ -679,6 +690,7 @@ const POINT3_LENGTH_00457990: u32 = 0x0045_7990;
 const SCALED_POINT_0069E0C0: u32 = 0x0069_e0c0;
 /// `00877a30` (unnamed in the engine map; `RET 4`): the address of an
 /// array's element.
+#[cfg(test)]
 const ARRAY_AT_00877A30: u32 = 0x0087_7a30;
 /// `00719b20` (unnamed in the engine map; `RET 0xC`: key, start, compare):
 /// the index of the first element of a `BSSimpleArray` the compare function
@@ -984,8 +996,8 @@ pub fn fn_0069e2c0(e: &mut Engine, this: Ptr) -> Ptr {
     e.mem.set_u32(base, 0xffff_ffff);
     copy_words(e, base + 4, ORIGIN_011F426C, 3);
     e.mem.set_u32(base + 0x10, x87_store32(0.0));
-    e.call(IDENTITY_006815C0, &args![base + 0x14]);
-    e.call(IDENTITY_006815C0, &args![base + 0x20]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x14));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x20));
     e.mem.set_u32(base + 0x2c, x87_store32(1.0));
     let block = e.call(OPERATOR_NEW, &args![0x10u32]).u32();
     let array = if block != 0 {
@@ -1091,19 +1103,23 @@ fn first_blocking_pov(
     let lists = this.addr() + POVS;
     let mut list = 0u32;
     loop {
-        let count = e.call(ARRAY_SIZE_0044DDC0, &args![lists]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, lists));
         if list >= count {
             return 1.0;
         }
         let mut index = 0u32;
         loop {
             let inner = e.call(STEP_00558DD0, &args![lists, list]).u32();
-            let size = e.call(ARRAY_SIZE_0044DDC0, &args![inner]).u32();
+            let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, inner));
             if index >= size {
                 break;
             }
             let inner = e.call(STEP_00558DD0, &args![lists, list]).u32();
-            let slot = e.call(ARRAY_AT_00877A30, &args![inner, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, inner, index)
+            );
             let pov = e.mem.u32(slot);
             if pov != exclude && pov != e.mem.u32(node_slot) {
                 let duplicates = e.mem.u32(pov + 0x30);
@@ -1530,12 +1546,16 @@ pub fn navmesh_pov_search_draw_line(e: &mut Engine, from: Ptr, to: Ptr, colour: 
             THREE_WORD_CTOR_0043D410,
             &args![zero, x87_store32(0.0), 0u32, 0u32],
         );
-        let object = e.call(FIRST_OF_00559450, &args![pointer]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(UPDATE_PROPERTIES_00A5A040, &args![object]);
-        let object = e.call(FIRST_OF_00559450, &args![pointer]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(ZERO_RECORD_STEP_00A59C60, &args![object, zero]);
-        let root = e.call(FIRST_OF_00559450, &args![DEBUG_ROOT_011D6DDC]).u32();
-        let object = e.call(FIRST_OF_00559450, &args![pointer]).u32();
+        let root = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, DEBUG_ROOT_011D6DDC)
+        );
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.vcall(root, SLOT_ATTACH, &args![object, 1u32]);
         e.call(POINTER_RELEASE_0045CEC0, &args![pointer]);
     });
@@ -1924,8 +1944,12 @@ pub fn fn_006a1cf0(e: &mut Engine, this: Ptr) -> u32 {
             let current = e.mem.u32(base + LAST_SEARCHED_NODE);
             e.vcall(base, 4, &args![current, array]);
             let mut index = 0u32;
-            while index < e.call(ARRAY_SIZE_0044DDC0, &args![array]).u32() {
-                let slot = e.call(ARRAY_AT_00877A30, &args![array, index]).u32();
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
+                let slot = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, array, index)
+                );
                 let node = e.mem.u32(slot);
                 fn_006a1fb0(e, Ptr::new(queue), Ptr::new(node));
                 let current = e.mem.u32(base + LAST_SEARCHED_NODE);
@@ -2349,7 +2373,7 @@ fn new_pov(e: &mut Engine) -> u32 {
 }
 
 fn array_size(e: &mut Engine, array: u32) -> u32 {
-    e.call(ARRAY_SIZE_0044DDC0, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 fn list_at(e: &mut Engine, lists: u32, index: u32) -> u32 {
@@ -2365,7 +2389,11 @@ fn inner_size(e: &mut Engine, lists: u32, index: u32) -> u32 {
 /// The POV at `index` of list `list` of `lists`.
 fn pov_at(e: &mut Engine, lists: u32, list: u32, index: u32) -> u32 {
     let inner = list_at(e, lists, list);
-    let slot = e.call(ARRAY_AT_00877A30, &args![inner, index]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, inner, index)
+    );
     e.mem.u32(slot)
 }
 
@@ -2751,7 +2779,7 @@ fn draw_pov(e: &mut Engine, ebp: u32, lists: u32, list: u32, index: u32) {
     let pointer = ebp - 0x48;
     e.call(POINTER_SET_00633C90, &args![pointer, sphere]);
     let pov = pov_at(e, lists, list, index);
-    let object = e.call(FIRST_OF_00559450, &args![pointer]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.call(SET_TRANSLATE_00440460, &args![object, pov + 4]);
     let block = e.call(ALLOCATE_00AA13E0, &args![0x1cu32]).u32();
     let property = if block != 0 {
@@ -2761,23 +2789,27 @@ fn draw_pov(e: &mut Engine, ebp: u32, lists: u32, list: u32, index: u32) {
     };
     e.mem.set_u32(ebp - 0x38, property);
     e.call(PROPERTY_SET_0049ED90, &args![property, 1u32]);
-    let object = e.call(FIRST_OF_00559450, &args![pointer]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.call(ATTACH_PROPERTY_00439410, &args![object, property]);
-    let object = e.call(FIRST_OF_00559450, &args![pointer]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.call(NO_LIGHTING_004B6E90, &args![object]);
-    let object = e.call(FIRST_OF_00559450, &args![pointer]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.call(PREPARE_OBJECT_00B57E30, &args![object, 0u32, 0u32]);
-    let object = e.call(FIRST_OF_00559450, &args![pointer]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.call(UPDATE_PROPERTIES_00A5A040, &args![object]);
     let zero = ebp - 0x44;
     e.call(
         THREE_WORD_CTOR_0043D410,
         &args![zero, x87_store32(0.0), 0u32, 0u32],
     );
-    let object = e.call(FIRST_OF_00559450, &args![pointer]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.call(ZERO_RECORD_STEP_00A59C60, &args![object, zero]);
-    let root = e.call(FIRST_OF_00559450, &args![DEBUG_ROOT_011D6DDC]).u32();
-    let object = e.call(FIRST_OF_00559450, &args![pointer]).u32();
+    let root = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, DEBUG_ROOT_011D6DDC)
+    );
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.vcall(root, SLOT_ATTACH, &args![object, 1u32]);
     e.call(POINTER_RELEASE_0045CEC0, &args![pointer]);
 }
@@ -2956,14 +2988,22 @@ pub fn fn_0069f010(
             index = index.wrapping_add(1);
         }
         if debug_draw(e) {
-            let root = e.call(FIRST_OF_00559450, &args![DEBUG_ROOT_011D6DDC]).u32();
+            let root = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, DEBUG_ROOT_011D6DDC)
+            );
             e.call(UPDATE_PROPERTIES_00A5A040, &args![root]);
             let zero = ebp - 0xa8;
             e.call(
                 THREE_WORD_CTOR_0043D410,
                 &args![zero, x87_store32(0.0), 0u32, 0u32],
             );
-            let root = e.call(FIRST_OF_00559450, &args![DEBUG_ROOT_011D6DDC]).u32();
+            let root = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, DEBUG_ROOT_011D6DDC)
+            );
             e.call(ZERO_RECORD_STEP_00A59C60, &args![root, zero]);
             let manager = e.call(PATH_MANAGER_INSTANCE, &args![]).u32();
             e.call(
@@ -2974,7 +3014,11 @@ pub fn fn_0069f010(
         let all = base + ALL_POVS;
         let mut index = 0u32;
         while index < array_size(e, all) {
-            let slot = e.call(ARRAY_AT_00877A30, &args![all, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, all, index)
+            );
             let pov = e.mem.u32(slot);
             if pov != 0 {
                 fn_0069efa0(e, Ptr::new(pov), 1);
@@ -3050,7 +3094,7 @@ fn connect_tangent(e: &mut Engine, this: Ptr, c: &Connection, k: u32) -> bool {
     let second = entry + 0xc;
     if fn_006a1b60(e, node) != 0 {
         let side = ebp - 0x138;
-        e.call(IDENTITY_006815C0, &args![side]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, side));
         e.call(POINT_SET_006985F0, &args![side, c.link + 8]);
         let step = f32::from_bits(x87_quiet_bits(e.global::<u32>(WEDGE_STEP)));
         if e.mem.u32(c.data + 4) == 0 {
@@ -3152,7 +3196,7 @@ fn connect_tangent(e: &mut Engine, this: Ptr, c: &Connection, k: u32) -> bool {
             e.call(HOLDER_DTOR_0042FA40, &args![holder]);
             return false;
         }
-        let navmesh = e.call(FIRST_OF_00559450, &args![holder]).u32();
+        let navmesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         e.mem.set_u32(from, navmesh);
         let triangle = e.mem.u16(ebp - 0x16c);
         e.mem.set_u16(from + 4, triangle);
@@ -3411,7 +3455,11 @@ pub fn navmesh_pov_search_get_node_connections(
             let size = array_size(e, inner);
             let mut index = 0u32;
             while index < size {
-                let slot = e.call(ARRAY_AT_00877A30, &args![inner, index]).u32();
+                let slot = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, inner, index)
+                );
                 let other = e.mem.u32(slot);
                 let connection = Connection {
                     ebp,

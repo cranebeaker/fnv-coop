@@ -76,8 +76,11 @@ const FILL_00403D30: u32 = 0x0040_3d30;
 /// list is empty, `AL`), `0063f7b0` (removes the first node), `00470470` (frees the
 /// nodes).
 const LIST_APPEND: u32 = 0x005a_e3d0;
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
+#[cfg(test)]
 const WORD_AT_4_00726070: u32 = 0x0072_6070;
+#[cfg(test)]
 const LIST_IS_EMPTY_008256D0: u32 = 0x0082_56d0;
 const LIST_REMOVE_FIRST_0063F7B0: u32 = 0x0063_f7b0;
 const LIST_FREE_NODES_00470470: u32 = 0x0047_0470;
@@ -114,6 +117,7 @@ const GET_CLAMPED_ACTOR_VALUE: u32 = 0x0066_ef20;
 const AV_DERIVE_SKILL: u32 = 0x0064_3c90;
 const ROUND_00406D90: u32 = 0x0040_6d90;
 /// `0045cd60` (`thiscall`: the word at +0x28).
+#[cfg(test)]
 const WORD_AT_28_0045CD60: u32 = 0x0045_cd60;
 /// The up and down arrow strings `"+"`-like (`01077560`, `0107755c`).
 const ARROW_UP_01077560: u32 = 0x0107_7560;
@@ -167,6 +171,7 @@ const ENTRY_CONSTRUCT_00403BA0: u32 = 0x0040_3ba0;
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 const STRING_DESTROY: u32 = 0x0040_37d0;
 const STRING_FORMAT: u32 = 0x0040_6f60;
+#[cfg(test)]
 const STRING_CHARS_00559450: u32 = 0x0055_9450;
 const STRING_ASSIGN_00438390: u32 = 0x0043_8390;
 const SETTING_STRING_00403DF0: u32 = 0x0040_3df0;
@@ -244,13 +249,13 @@ fn set_string(e: &mut Engine, tile: u32, trait_id: u32, text: u32) {
 
 /// The item word of a list node, reached through `006815c0` as the code does.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_SELF, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 /// The next node (`00726070`).
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(WORD_AT_4_00726070, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// `FCOMP; FNSTSW AX; TEST AH,0x41; JNZ`: on only when strictly above.
@@ -416,7 +421,7 @@ pub fn stats_menu_do_idle(e: &mut Engine, this: Ptr) {
                 }
                 let time = e.call(TIME_00457FE0, &args![]).u32();
                 let start = f64::from(time);
-                let root = e.call(WORD_AT_4_00726070, &args![this]).u32();
+                let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
                 let delay = e.call(TILE_GET_FLOAT, &args![root, 0x1007u32]).f64();
                 let thousand: f64 = e.global(THOUSAND_DOUBLE);
                 let next = x87_add(x87_mul(delay, thousand), start);
@@ -556,9 +561,9 @@ fn show_value_pair(e: &mut Engine, this: Ptr, text: u32, value: u32) {
 
 /// The string's text on the menu's tile at the trait `007dfdf0` gives for `value`.
 fn show_on_menu_tile(e: &mut Engine, this: Ptr, text: u32, value: u32) {
-    let string = e.call(STRING_CHARS_00559450, &args![text]).u32();
+    let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
     let trait_id = fn_007dfdf0(e, this, value);
-    let root = e.call(WORD_AT_4_00726070, &args![this]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     set_string(e, root, trait_id, string);
 }
 
@@ -592,7 +597,7 @@ pub fn stats_menu_update_actor_value(e: &mut Engine, this: Ptr, value: u32) {
             0x10 => {
                 let face = fn_007dfe40(e, this);
                 e.call(STRING_FORMAT, &args![text, FACE_FORMAT, face]);
-                let string = e.call(STRING_CHARS_00559450, &args![text]).u32();
+                let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                 let tile = e.mem.u32(this.addr() + 0xf0);
                 set_string(e, tile, 0xfcc, string);
                 show_value_pair(e, this, text, 0x10);
@@ -635,7 +640,7 @@ pub fn stats_menu_update_actor_value(e: &mut Engine, this: Ptr, value: u32) {
                 let whole = e.call(FTOL2, &args![x87_load32(e.mem.u32(setting))]).u32();
                 let result = e.call(VALUE_14_004A8F20, &args![whole, clamped]).u32();
                 e.call(STRING_FORMAT, &args![text, VALUE_14_FORMAT, result]);
-                let string = e.call(STRING_CHARS_00559450, &args![text]).u32();
+                let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                 let tile = e.mem.u32(this.addr() + 0x128);
                 set_string(e, tile, 0xfc4, string);
                 stats_menu_update_active_effects(e, this);
@@ -675,7 +680,7 @@ pub fn stats_menu_update_actor_value(e: &mut Engine, this: Ptr, value: u32) {
                 };
                 let name = e.mem.u32(BODY_PART_NAMES_011A0A80 + 4 * value);
                 e.call(STRING_FORMAT, &args![text, format, name]);
-                let string = e.call(STRING_CHARS_00559450, &args![text]).u32();
+                let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                 let tile = e.mem.u32(this.addr() + 0x90 + 4 * image);
                 set_string(e, tile, 0xfcc, string);
                 let value_trait = e
@@ -751,7 +756,7 @@ pub fn stats_menu_update_perks(e: &mut Engine) {
                         .u32();
                     e.call(STRING_FORMAT, &args![text, ONE_STRING_FORMAT, name]);
                 }
-                let string = e.call(STRING_CHARS_00559450, &args![text]).u32();
+                let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                 let rank = node_item(e, node);
                 let list = open_menu(e) + 0x1e0;
                 fn_007e0e70(e, Ptr::new(list), rank, string, 0x007e_04e0, 0);
@@ -792,7 +797,7 @@ pub fn fn_007ddad0(e: &mut Engine, this: Ptr, stat: u32) {
 /// interface manager's +0x174) is set to (1, angle, the `float` at `010780a4`). Every step
 /// is the exe's x87 operation, rounded to `float` where the code stores one.
 pub fn fn_007ddb00(e: &mut Engine, this: Ptr) {
-    let root = e.call(WORD_AT_4_00726070, &args![this]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     let value = e.call(TILE_GET_FLOAT, &args![root, 0x1008u32]).f64();
     let thousand: f64 = e.global(THOUSAND_DOUBLE);
     let two: f64 = e.global(TWO_DOUBLE);
@@ -907,7 +912,7 @@ pub fn stats_menu_update_healing_options(e: &mut Engine, this: Ptr, which: u32) 
                 let tile = e.mem.u32(record + 4);
                 let name = e.call(TILE_GET_STRING, &args![tile, 0x1004u32]).u32();
                 let entry = e.mem.u32(record + 8);
-                let count = e.call(WORD_AT_4_00726070, &args![entry]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                 e.call(
                     STRING_FORMAT,
                     &args![text, HEALING_FORMAT_01077548, count, name],
@@ -923,7 +928,7 @@ pub fn stats_menu_update_healing_options(e: &mut Engine, this: Ptr, which: u32) 
                 let name = e.call(TILE_GET_STRING, &args![tile, 0x1004u32]).u32();
                 e.call(STRING_ASSIGN_00438390, &args![text, name]);
             }
-            let string = e.call(STRING_CHARS_00559450, &args![text]).u32();
+            let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let tile = e.mem.u32(record + 4);
             set_string(e, tile, 0xfc4, string);
             e.call(STRING_DESTROY, &args![text]);
@@ -977,11 +982,11 @@ pub fn stats_menu_update_player_name(e: &mut Engine) {
             STRING_FORMAT,
             &args![text, NAME_FORMAT_01077550, name, label, level],
         );
-        let string = e.call(STRING_CHARS_00559450, &args![text]).u32();
+        let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         let tile = e.mem.u32(open_menu(e) + 0xfc);
         set_string(e, tile, 0xfc4, string);
         let level = u32::from(e.call(PLAYER_LEVEL_0087F9F0, &args![player(e)]).u16());
-        let root = e.call(WORD_AT_4_00726070, &args![open_menu(e)]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, open_menu(e)));
         set_int(e, root, 0x100c, level);
         e.call(STRING_DESTROY, &args![text]);
     });
@@ -1063,7 +1068,7 @@ fn show_change(e: &mut Engine, tile: u32, up: bool) {
         ARROW_DOWN_0107755C
     };
     set_string(e, tile, 0x1006, arrow);
-    let item = e.call(WORD_AT_28_0045CD60, &args![tile]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
     set_int(e, item, 0x1004, 1);
 }
 
@@ -1301,7 +1306,7 @@ pub fn fn_007e07a0(e: &mut Engine, record: Ptr) -> bool {
 /// first node (`0063f7b0`).
 pub fn fn_007e07f0(e: &mut Engine, this: Ptr) {
     let list = this.addr() + 4;
-    while !e.call(LIST_IS_EMPTY_008256D0, &args![list]).bool() {
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         let item = node_item(e, list);
         if item != 0 {
             e.call(STATUS_EFFECT_DELETE, &args![item, 1u32]);
@@ -1315,7 +1320,7 @@ pub fn fn_007e07f0(e: &mut Engine, this: Ptr) {
 /// frees its first item and removes the first node.
 pub fn fn_007e0850(e: &mut Engine, this: Ptr) {
     let list = this.addr() + 4;
-    while !e.call(LIST_IS_EMPTY_008256D0, &args![list]).bool() {
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         let item = node_item(e, list);
         e.call(FREE, &args![item]);
         e.call(LIST_REMOVE_FIRST_0063F7B0, &args![list]);
@@ -1651,7 +1656,7 @@ pub fn stats_menu_create(e: &mut Engine) -> u32 {
     e.call(MENU_00867A20, &args![open_menu(e)]);
     let fail = |e: &mut Engine| {
         let menu = open_menu(e);
-        if menu != 0 && e.call(WORD_AT_4_00726070, &args![menu]).u32() != 0 {
+        if menu != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
             let menu = open_menu(e);
             if menu != 0 {
                 e.vcall(menu, 0, &args![1u32]);
@@ -1707,7 +1712,7 @@ pub fn stats_menu_create(e: &mut Engine) -> u32 {
                 STRING_FORMAT,
                 &args![text, VALUE_PAIR_FORMAT, current, base],
             );
-            let string = e.call(STRING_CHARS_00559450, &args![text]).u32();
+            let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             set_string(e, tile, trait_id, string);
         }
         let level = u32::from(e.call(PLAYER_LEVEL_0087F9F0, &args![player(e)]).u16());
@@ -1728,13 +1733,13 @@ pub fn stats_menu_create(e: &mut Engine) -> u32 {
                 .u32();
             e.call(STRING_FORMAT, &args![text, ONE_STRING_FORMAT, string]);
         }
-        let string = e.call(STRING_CHARS_00559450, &args![text]).u32();
+        let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         set_string(e, tile, 0x100b, string);
         let level = u32::from(e.call(PLAYER_LEVEL_0087F9F0, &args![player(e)]).u16());
         set_int(e, tile, 0x100c, level);
         e.call(STRING_ASSIGN_00438390, &args![text, LIST_TEMPLATE_TEXT]);
         for (section, list, container) in [(0u32, 0x180u32, 0xa8u32), (2, 0x1b0, 0xac)] {
-            let template = e.call(STRING_CHARS_00559450, &args![text]).u32();
+            let template = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let container = e.mem.u32(open_menu(e) + container);
             e.call(
                 LIST_BOX_INITIALIZE,
@@ -1766,7 +1771,7 @@ pub fn stats_menu_create(e: &mut Engine) -> u32 {
         }
         let skills = open_menu(e) + 0x1b0;
         e.vcall(skills, 0x20, &args![0x007d_a270u32]);
-        let template = e.call(STRING_CHARS_00559450, &args![text]).u32();
+        let template = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         let container = e.mem.u32(open_menu(e) + 0x118);
         e.call(
             LIST_BOX_INITIALIZE,
@@ -1774,7 +1779,7 @@ pub fn stats_menu_create(e: &mut Engine) -> u32 {
         );
         stats_menu_update_perks(e);
         for (list, container) in [(0x270u32, 0x148u32), (0x210, 0xb0)] {
-            let template = e.call(STRING_CHARS_00559450, &args![text]).u32();
+            let template = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let container = e.mem.u32(open_menu(e) + container);
             e.call(
                 LIST_BOX_INITIALIZE,
@@ -1887,7 +1892,7 @@ pub fn stats_menu_create(e: &mut Engine) -> u32 {
             let value = e.call(SETTING_STRING_00403DF0, &args![setting]).u32();
             e.call(STRING_ASSIGN_00438390, &args![text, value]);
             e.call(METER_LABEL_007B52A0, &args![text]);
-            let string = e.call(STRING_CHARS_00559450, &args![text]).u32();
+            let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let trait_id = e.call(ADD_USER_TRAIT, &args![name, 0xffff_ffffu32]).u32();
             e.call(TILE_SET_STRING, &args![tile, trait_id, string, 1u32]);
         }
@@ -1952,8 +1957,10 @@ pub fn stats_menu_create(e: &mut Engine) -> u32 {
 const DEHYDRATION_STAGE_004018B0: u32 = 0x0040_18b0;
 const SLEEP_STAGE_00402760: u32 = 0x0040_2760;
 const HUNGER_STAGE_00402030: u32 = 0x0040_2030;
+#[cfg(test)]
 const EFFECT_ITEM_0084E3A0: u32 = 0x0084_e3a0;
 const IS_USAGE_MONITOR_EFFECT: u32 = 0x0040_4730;
+#[cfg(test)]
 const EFFECT_TARGET_0044DDC0: u32 = 0x0044_ddc0;
 const STAGE_GET_WORLDSPACE: u32 = 0x0044_1110;
 const STAGE_EFFECT_CONSTRUCT_007DF140: u32 = 0x007d_f140;
@@ -2047,7 +2054,7 @@ pub fn stats_menu_update_active_effects(e: &mut Engine, this: Ptr) {
                 break;
             }
             if e.call(EFFECT_ACTIVE_00833C20, &args![effect]).bool() {
-                let item = e.call(EFFECT_ITEM_0084E3A0, &args![effect]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
                 if !e.call(IS_USAGE_MONITOR_EFFECT, &args![item]).bool() {
                     let setting = fn_007df1d0(e, Ptr::new(effect));
                     let skip = fn_007df1b0(e, Ptr::new(setting)) && {
@@ -2102,7 +2109,7 @@ pub fn stats_menu_update_active_effects(e: &mut Engine, this: Ptr) {
                 let entry = node_item(e, entry_node);
                 let value = e.mem.u32(entry);
                 e.call(STRING_FORMAT, &args![text, SIGNED_FORMAT, value]);
-                let string = e.call(STRING_CHARS_00559450, &args![text]).u32();
+                let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                 set_string(e, line, 0xfc4, string);
                 let entry = node_item(e, entry_node);
                 let abbreviation = e
@@ -2139,9 +2146,11 @@ pub fn stats_menu_update_active_effects(e: &mut Engine, this: Ptr) {
                 )
                 .u32();
             if item != 0
-                && e.call(WORD_AT_4_00726070, &args![item.wrapping_add(0x9c)])
-                    .u32()
-                    == 0xd
+                && typed_call!(
+                    leaf::FAMILY,
+                    0x0072_6070,
+                    leaf::word_at_4(e, item.wrapping_add(0x9c))
+                ) == 0xd
             {
                 let name = e
                     .call(SETTING_STRING_00403DF0, &args![KIND_D_SETTING_011D1EF0])
@@ -2175,14 +2184,14 @@ pub fn stats_menu_update_active_effects(e: &mut Engine, this: Ptr) {
             while entry_node != 0 && node_item(e, entry_node) != 0 {
                 let entry = node_item(e, entry_node);
                 let result = e.call(ENTRY_STRING_004046B0, &args![entry, piece]).u32();
-                let string = e.call(STRING_CHARS_00559450, &args![result]).u32();
+                let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, result));
                 e.call(STRING_DESTROY, &args![piece]);
                 if string != 0 {
                     let entry = node_item(e, entry_node);
                     let result = e
                         .call(ENTRY_STRING_004046B0, &args![entry, second_piece])
                         .u32();
-                    let string = e.call(STRING_CHARS_00559450, &args![result]).u32();
+                    let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, result));
                     e.call(STRING_FORMAT, &args![text, ONE_STRING_FORMAT, string]);
                     e.call(STRING_DESTROY, &args![second_piece]);
                     e.call(STRING_APPEND_STRING_007E0D80, &args![description, text]);
@@ -2224,7 +2233,7 @@ pub fn stats_menu_update_active_effects(e: &mut Engine, this: Ptr) {
                 }
                 entry_node = node_next(e, entry_node);
             }
-            let string = e.call(STRING_CHARS_00559450, &args![description]).u32();
+            let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, description));
             set_string(e, last, 0x1005, string);
             e.call(STRING_DESTROY, &args![description]);
             node = node_next(e, node);
@@ -2253,7 +2262,7 @@ pub fn stats_menu_update_active_effects(e: &mut Engine, this: Ptr) {
 /// order radiation +0x74, +0x78, +0x7c, +0x80) and registered with the status effect list.
 fn update_effect(e: &mut Engine, this: Ptr, effect: u32, stages: [u32; 4]) {
     let base = this.addr();
-    let target = e.call(EFFECT_TARGET_0044DDC0, &args![effect]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, effect));
     let world = e
         .call(
             RT_DYNAMIC_CAST,
@@ -2292,9 +2301,9 @@ fn update_effect(e: &mut Engine, this: Ptr, effect: u32, stages: [u32; 4]) {
             );
         }
     }
-    let item = e.call(EFFECT_ITEM_0084E3A0, &args![effect]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
     if e.call(EFFECT_FLAG_00403EE0, &args![item]).bool() {
-        let item = e.call(EFFECT_ITEM_0084E3A0, &args![effect]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
         let key = e.call(EFFECT_KEY_00403EA0, &args![item]).u32();
         if e.call(AV_ABBREVIATION, &args![key]).u32() != 0 {
             let magnitude = fn_007df1f0(e, Ptr::new(effect));
@@ -2499,7 +2508,7 @@ fn description_tile(e: &mut Engine, this: Ptr, slot_fn: u32) -> u32 {
 fn update_description_scroll(e: &mut Engine, text_tile: u32, scroll_tile: u32, scale: u32) {
     e.call(TILE_UPDATE_TILE, &args![text_tile, 0u32]);
     let height = e.call(TILE_GET_FLOAT, &args![text_tile, 0xfb0u32]).f64();
-    let child = e.call(WORD_AT_28_0045CD60, &args![text_tile]).u32();
+    let child = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, text_tile));
     let child_height = e.call(TILE_GET_FLOAT, &args![child, 0xfb0u32]).f64();
     // `FSUBR double [height]`: the height minus the child's.
     let range = x87_store32(x87_sub(height, child_height));
@@ -2588,24 +2597,24 @@ pub fn stats_menu_do_click(e: &mut Engine, this: Ptr, id: i32, tile: u32) {
         let record = base + index * 0x10;
         if tile == e.mem.u32(record + 0x2c) && e.mem.u32(record + 0x30) != 0 {
             let entry = e.mem.u32(record + 0x30);
-            let extra_lists = e.call(STRING_CHARS_00559450, &args![entry]).u32();
+            let extra_lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
             let extra_list = if extra_lists != 0 {
                 let entry = e.mem.u32(record + 0x30);
-                let lists = e.call(STRING_CHARS_00559450, &args![entry]).u32();
+                let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
                 node_item(e, lists)
             } else {
                 0
             };
             let entry = e.mem.u32(record + 0x30);
-            let count = e.call(WORD_AT_4_00726070, &args![entry]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
             let entry = e.mem.u32(record + 0x30);
-            let form = e.call(EFFECT_TARGET_0044DDC0, &args![entry]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             e.call(
                 ACTOR_QUEUE_EQUIP_OBJECT,
                 &args![player(e), form, count, extra_list, 0u32, 0u32, 1u32],
             );
             let entry = e.mem.u32(record + 0x30);
-            let form = e.call(EFFECT_TARGET_0044DDC0, &args![entry]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             let mut node = e
                 .call(
                     RT_DYNAMIC_CAST,
@@ -2697,7 +2706,7 @@ pub fn stats_menu_do_gamepad(e: &mut Engine, this: Ptr, key: u32, value: u32) ->
             _ => return false,
         };
         let object = fade(e);
-        let current = e.call(STRING_CHARS_00559450, &args![object]).u32();
+        let current = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
         let object = fade(e);
         let picked = fn_007dc010(e, object, current, group);
         if (picked as i32) < 6 {
@@ -3199,7 +3208,7 @@ pub fn stats_menu_update_all(e: &mut Engine, this: Ptr) {
     }
     for (trait_id, setting) in [(0x100du32, 0x011d_2e80u32), (0x100e, 0x011d_41bc)] {
         let text = setting_string(e, setting);
-        let root = e.call(WORD_AT_4_00726070, &args![this]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         set_string(e, root, trait_id, text);
     }
     for (name, setting, title) in UPDATE_ALL_CHILDREN {
@@ -3209,7 +3218,7 @@ pub fn stats_menu_update_all(e: &mut Engine, this: Ptr) {
         } else {
             0xfc4
         };
-        let root = e.call(WORD_AT_4_00726070, &args![this]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         let child = e.call(TILE_GET_CHILD_BY_NAME, &args![root, name]).u32();
         set_string(e, child, trait_id, text);
     }
@@ -3258,7 +3267,7 @@ pub fn fn_007dd8c0(e: &mut Engine, this: Ptr) {
                         .call(STRING_CHARS_00408DA0, &args![reputation.wrapping_add(0x18)])
                         .u32();
                     e.call(STRING_FORMAT, &args![text, ONE_STRING_FORMAT, name]);
-                    let chars = e.call(STRING_CHARS_00559450, &args![text]).u32();
+                    let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                     let menu = open_menu(e);
                     fn_007e16d0(e, Ptr::new(menu + 0x270), reputation, chars, 0x007e_0510, 0);
                     e.call(STRING_DESTROY, &args![text]);
@@ -3296,7 +3305,7 @@ pub fn fn_007ddaa0(e: &mut Engine, this: Ptr) {
 /// computed and stored but not used. A `d` strictly between 0 and 1 becomes 1, any other
 /// `004bd510(d, 1.0)`; it goes to the trait of tile +4.
 fn hardcore_meter(e: &mut Engine, this: Ptr, value: u32, trait_id: u32) {
-    let root = e.call(WORD_AT_4_00726070, &args![this]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     let range = e.call(TILE_GET_FLOAT, &args![root, 0x1008u32]).f64();
     let thousand: f64 = e.global(THOUSAND_DOUBLE);
     let two: f64 = e.global(TWO_DOUBLE);
@@ -3651,12 +3660,12 @@ pub fn fn_007e0540(e: &mut Engine, first: u32, second: u32) -> i32 {
         let made = e
             .call(ENTRY_STRING_004046B0, &args![second, second_text])
             .u32();
-        let second_chars = e.call(STRING_CHARS_00559450, &args![made]).u32();
+        let second_chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, made));
         e.with_stack(8, |e, first_text| {
             let made = e
                 .call(ENTRY_STRING_004046B0, &args![first, first_text])
                 .u32();
-            let first_chars = e.call(STRING_CHARS_00559450, &args![made]).u32();
+            let first_chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, made));
             let result = e
                 .call(COMPARE_00404DC0, &args![first_chars, second_chars])
                 .i32();
@@ -3675,7 +3684,7 @@ pub fn fn_007e06b0(e: &mut Engine) -> u32 {
         return 0xffff_ffff;
     }
     let object = fn_007db1c0(e);
-    let group = e.call(STRING_CHARS_00559450, &args![object]).u32();
+    let group = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
     fn_007df9c0(e, group)
 }
 
@@ -3711,14 +3720,14 @@ pub fn fn_007e06f0(e: &mut Engine, record: Ptr) -> bool {
 /// (`007e0480`). An effect whose setting has flag `0x2000` goes to the entry's stage list
 /// (+0x10, `007e09d0`), any other to its data list (+4, `007e0a20`).
 pub fn stats_menu_status_effect_list_register(e: &mut Engine, this: Ptr, effect: u32) {
-    let target = e.call(EFFECT_TARGET_0044DDC0, &args![effect]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, effect));
     let form = e
         .call(
             RT_DYNAMIC_CAST,
             &args![target, 0u32, TYPE_TARGET_01183140, TYPE_FORM_01183028, 0u32],
         )
         .u32();
-    let key = e.call(EFFECT_ITEM_0084E3A0, &args![form]).u32();
+    let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     let mut entry = fn_007e0c50(e, this, key);
     if entry == 0 {
         let block = e.call(ALLOCATE, &args![0x1cu32]).u32();
@@ -3771,7 +3780,7 @@ pub fn fn_007e0a20(e: &mut Engine, this: Ptr, effect: u32) {
     if effect == 0 {
         return;
     }
-    let item = e.call(EFFECT_ITEM_0084E3A0, &args![effect]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
     let key = e.call(EFFECT_KEY_00403EA0, &args![item]).u32();
     let found = fn_007e0ce0(e, this, key);
     if found != 0 {
@@ -3787,7 +3796,7 @@ pub fn fn_007e0a20(e: &mut Engine, this: Ptr, effect: u32) {
     } else {
         0
     };
-    let item = e.call(EFFECT_ITEM_0084E3A0, &args![effect]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
     let key = e.call(EFFECT_KEY_00403EA0, &args![item]).u32();
     e.mem.set_u32(entry.wrapping_add(0x10), key);
     let magnitude = e.call(MAGNITUDE_00495460, &args![effect]).f64();
@@ -3809,7 +3818,7 @@ pub fn fn_007e0c50(e: &mut Engine, this: Ptr, key: u32) -> u32 {
     while found == 0 && node != 0 && node_item(e, node) != 0 {
         let entry = node_item(e, node);
         let form = e.mem.u32(entry);
-        if e.call(EFFECT_ITEM_0084E3A0, &args![form]).u32() == key {
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form)) == key {
             found = node_item(e, node);
         }
         node = node_next(e, node);
@@ -3831,10 +3840,10 @@ pub fn stats_menu_do_controller_switch(e: &mut Engine, this: Ptr, _unused_1: u32
 /// to the end, the length set by `004039c0`); a string without text takes the source
 /// (`BSStringT::Set`). Returns `this`.
 pub fn bs_string_operator_add_assign_ov2(e: &mut Engine, this: Ptr, source: u32) -> Ptr {
-    if e.call(STRING_CHARS_00559450, &args![source]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, source)) == 0 {
         return this;
     }
-    if e.call(STRING_CHARS_00559450, &args![this]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) == 0 {
         e.call(STRING_SET, &args![this, source]);
         return this;
     }
@@ -3842,11 +3851,11 @@ pub fn bs_string_operator_add_assign_ov2(e: &mut Engine, this: Ptr, source: u32)
     let added = e.call(STRING_LENGTH_004048E0, &args![source]).u32();
     let length = own.wrapping_add(added);
     if length > e.call(STRING_CAPACITY_004039A0, &args![this]).u32() {
-        let chars = e.call(STRING_CHARS_00559450, &args![this]).u32();
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         e.call(STRING_GROW_004037F0, &args![this, chars, length]);
     }
     let count = e.call(STRING_COPY_LENGTH_004F4280, &args![source]).u32();
-    let from = e.call(STRING_CHARS_00559450, &args![source]).u32();
+    let from = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, source));
     let own = e.call(STRING_LENGTH_004048E0, &args![this]).u32();
     let to = own.wrapping_add(e.mem.u32(this.addr()));
     e.call(COPY_00401460, &args![to, from, count]);

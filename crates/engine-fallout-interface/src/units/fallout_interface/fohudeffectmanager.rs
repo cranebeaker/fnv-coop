@@ -35,6 +35,7 @@ const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 /// The `BGSMenuPacker` constructor (`007002d0`, unit run_007001f0).
 const MENU_PACKER_CONSTRUCTOR: u32 = 0x0070_02d0;
 /// The `NiPoint2` constructor (`006815c0`: nothing, returns `this`).
+#[cfg(test)]
 const POINT2_CONSTRUCTOR: u32 = 0x0068_15c0;
 /// `operator new` (`00401000`, cdecl: size).
 const OPERATOR_NEW: u32 = 0x0040_1000;
@@ -77,7 +78,11 @@ pub fn fohud_effect_manager_constructor(
     e.call(NI_POINTER_CONSTRUCT, &args![this, 0u32]);
     e.call(MENU_PACKER_CONSTRUCTOR, &args![this.byte_add(4)]);
     for offset in [0x30u32, 0x38, 0x40, 0x48] {
-        e.call(POINT2_CONSTRUCTOR, &args![this.byte_add(offset)]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.byte_add(offset))
+        );
     }
     let block = e.call(OPERATOR_NEW, &args![0x88u32]).u32();
     let params = if block == 0 {

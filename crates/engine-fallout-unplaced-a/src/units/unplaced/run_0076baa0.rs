@@ -22,6 +22,7 @@ const MENU_BASE_CONSTRUCTOR: u32 = 0x00a1_c4a0;
 const MEMBER_CONSTRUCTOR_0096A2D0: u32 = 0x0096_a2d0;
 const MEMBER_CONSTRUCTOR_0077F970: u32 = 0x0077_f970;
 const MEMBER_CONSTRUCTOR_0041A250: u32 = 0x0041_a250;
+#[cfg(test)]
 const MEMBER_CONSTRUCTOR_006815C0: u32 = 0x0068_15c0;
 /// `memset` (`00403d30`, `cdecl`).
 const MEMSET: u32 = 0x0040_3d30;
@@ -88,7 +89,7 @@ pub fn fn_0076bb40(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(MEMBER_CONSTRUCTOR_0096A2D0, &args![at + 0x18c]);
     e.call(MEMBER_CONSTRUCTOR_0077F970, &args![at + 0x198]);
     e.call(MEMBER_CONSTRUCTOR_0041A250, &args![at + 0x1ac]);
-    e.call(MEMBER_CONSTRUCTOR_006815C0, &args![at + 0x1c8]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at + 0x1c8));
     fn_0076bda0(e, Ptr::new(at + 0x224));
     e.call(MEMBER_CONSTRUCTOR_0096A2D0, &args![at + 0x258]);
     e.call(MEMBER_CONSTRUCTOR_0096A2D0, &args![at + 0x264]);

@@ -136,12 +136,14 @@ const VERTEX_AT: u32 = 0x0065_c720;
 const INDEX_COUNT: u32 = 0x0066_2820;
 const INDEX_AT: u32 = 0x0065_78b0;
 /// `NiPoint3`'s set (`00416870`: `this`; x, y, z), returns `this`.
+#[cfg(test)]
 const POINT_SET: u32 = 0x0041_6870;
 /// The constructors of `BSFaceGenMorphDifferential` (`00660700`: `this`;
 /// count) and `BSFaceGenMorphStatistical` (`00660970`: `this`; count,
 /// data), and the morph's data array (`00726070`: the word at +4).
 const DIFFERENTIAL_CONSTRUCT: u32 = 0x0066_0700;
 const STATISTICAL_CONSTRUCT: u32 = 0x0066_0970;
+#[cfg(test)]
 const MORPH_DATA: u32 = 0x0072_6070;
 /// The expression, modifier and phoneme names (`005dd830`, `005dd840`,
 /// `005dd850`, cdecl: index) and the name compare (`00404dc0`, cdecl: two
@@ -172,6 +174,7 @@ const GEOMETRY_LOCK: u32 = 0x00a6_7360;
 const GEOMETRY_BEGIN: u32 = 0x00a6_7410;
 const GEOMETRY_UNLOCK: u32 = 0x00a6_73d0;
 const ITERATOR_CONSTRUCT: u32 = 0x0053_4550;
+#[cfg(test)]
 const ITERATOR_VALID: u32 = 0x0055_9450;
 const ITERATOR_READ: u32 = 0x0065_6fd0;
 const ITERATOR_NEXT: u32 = 0x0065_7be0;
@@ -230,7 +233,7 @@ fn make_differential(
     e.mem.set_u32(table.wrapping_add(slot * 4), morph);
     let table = e.mem.u32(this.addr().wrapping_add(offset));
     let morph = e.mem.u32(table.wrapping_add(slot * 4));
-    let data = e.call(MORPH_DATA, &args![morph]).u32();
+    let data = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, morph));
     let mut vertex = 0u32;
     while vertex < count {
         let coordinate = |e: &mut Engine, at: u32| {
@@ -244,7 +247,11 @@ fn make_differential(
         let y = coordinate(e, 4);
         let x = coordinate(e, 0);
         e.with_stack(0xc, |e, local| {
-            let point = e.call(POINT_SET, &args![local, x, y, z]).u32();
+            let point = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, local, x, y, z)
+            );
             let target = data.wrapping_add(vertex.wrapping_mul(0xc));
             for i in 0..3u32 {
                 let word = e.mem.u32(point.wrapping_add(i * 4));
@@ -293,7 +300,7 @@ fn make_statistical(
     e.mem.set_u32(table.wrapping_add(slot * 4), morph);
     let table = e.mem.u32(this.addr().wrapping_add(offset));
     let morph = e.mem.u32(table.wrapping_add(slot * 4));
-    let data = e.call(MORPH_DATA, &args![morph]).u32();
+    let data = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, morph));
     let mut i = 0u32;
     while i < count {
         let at = e.call(INDEX_AT, &args![entry.wrapping_add(0x20), i]).u32();
@@ -497,7 +504,7 @@ pub fn fn_006624c0(
             }
         }
         let this_at = |off: u32| this.addr().wrapping_add(off);
-        if e.call(ITERATOR_VALID, &args![iterator]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, iterator)) == 0 {
             e.mem.set_u32(this_at(0xc), 0);
             e.mem.set_u32(this_at(0x14), 0);
             e.mem.set_u32(this_at(0x10), 0);
@@ -528,7 +535,7 @@ pub fn fn_006624c0(
         let mut i = 0u32;
         while i < e.mem.u32(this_at(0x14)) {
             e.with_stack(0xc, |e, point| {
-                e.call(POINT_CONSTRUCT, &args![point]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
                 e.call(ITERATOR_READ, &args![iterator, point]);
                 for k in 0..3u32 {
                     let word = e.mem.u32(point.addr() + k * 4);
@@ -624,7 +631,7 @@ pub fn bs_face_gen_morph_data_hair_construct(e: &mut Engine, this: Ptr, model: u
     };
     e.mem.set_u32(this.addr().wrapping_add(8), morph);
     let morph = e.mem.u32(this.addr().wrapping_add(8));
-    let data = e.call(MORPH_DATA, &args![morph]).u32();
+    let data = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, morph));
     let mut vertex = 0u32;
     while vertex < count {
         let coordinate = |e: &mut Engine, at: u32| {
@@ -638,7 +645,11 @@ pub fn bs_face_gen_morph_data_hair_construct(e: &mut Engine, this: Ptr, model: u
         let y = coordinate(e, 4);
         let x = coordinate(e, 0);
         e.with_stack(0xc, |e, local| {
-            let point = e.call(POINT_SET, &args![local, x, y, z]).u32();
+            let point = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, local, x, y, z)
+            );
             let target = data.wrapping_add(vertex.wrapping_mul(0xc));
             for i in 0..3u32 {
                 let word = e.mem.u32(point.wrapping_add(i * 4));

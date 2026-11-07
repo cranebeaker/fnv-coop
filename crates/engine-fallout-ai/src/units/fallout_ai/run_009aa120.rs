@@ -17,8 +17,10 @@ const ENTRY_CONSTRUCT: u32 = 0x004b_0680;
 /// Appends an entry to the list (`00905820`, `thiscall(entry pointer)`).
 const LIST_APPEND: u32 = 0x0090_5820;
 /// Returns the address of a node item (`006815c0`, `thiscall`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// Returns the first word of an entry (`00559450`, `thiscall`).
+#[cfg(test)]
 const ENTRY_FIRST: u32 = 0x0055_9450;
 /// Removes an entry from the list (`00905330`, `thiscall(entry pointer)`).
 const LIST_REMOVE: u32 = 0x0090_5330;
@@ -52,9 +54,10 @@ pub fn fn_009aa2b0(e: &mut Engine, this: Ptr, a: u32, b: u32) {
 pub fn fn_009aa340(e: &mut Engine, this: Ptr, value: u32) {
     let mut node = this.addr();
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(slot);
-        if entry != 0 && e.call(ENTRY_FIRST, &args![entry]).u32() == value {
+        if entry != 0 && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry)) == value
+        {
             let entry = e.with_stack(4, |e, local| {
                 e.mem.set_u32(local.addr(), entry);
                 e.call(LIST_REMOVE, &args![node, local]);
@@ -82,6 +85,7 @@ const NAME_VALUE_FORMAT: u32 = 0x0101_2600;
 /// `00406d00` (unnamed): `cdecl` formatter (buffer, size, format, ...); here five words.
 const FORMAT_INTO: u32 = 0x0040_6d00;
 /// `00726070` (unnamed): `thiscall`, an entry's second word.
+#[cfg(test)]
 const ENTRY_SECOND: u32 = 0x0072_6070;
 /// `009aad80` (unnamed, `combatworldstate.cpp`): `thiscall`, one word (`RET 4`); copies
 /// a world-state array.
@@ -169,7 +173,7 @@ pub fn fn_009aa280(e: &mut Engine, this: Ptr, value: u32) -> bool {
 pub fn fn_009aa3b0(e: &mut Engine, this: Ptr, kind: u32, value: u32) -> bool {
     let mut node = this.addr();
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(slot);
         if entry != 0 && fn_009aa250(e, Ptr::new(entry), kind, value) {
             return true;
@@ -186,10 +190,10 @@ pub fn fn_009aa3b0(e: &mut Engine, this: Ptr, kind: u32, value: u32) -> bool {
 pub fn fn_009aa410(e: &mut Engine, this: Ptr, kind: u32, out: u32) -> bool {
     let mut node = this.addr();
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(slot);
-        if entry != 0 && e.call(ENTRY_FIRST, &args![entry]).u32() == kind {
-            let value = e.call(ENTRY_SECOND, &args![entry]).u32();
+        if entry != 0 && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry)) == kind {
+            let value = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
             e.mem.set_u32(out, value);
             return true;
         }

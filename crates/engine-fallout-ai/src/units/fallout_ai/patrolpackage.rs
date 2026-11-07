@@ -32,9 +32,11 @@ layout! {
 /// `References` (Xbox PDB): the embedded `BSSimpleArray<TESObjectREFR *,1024>` at `+0x1c`.
 const REFERENCES: u32 = 0x1c;
 /// `0044ddc0` (unnamed in the engine map): `thiscall`, no stack words; the array's size.
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `00877a30` (unnamed in the engine map, `main.cpp`): `thiscall`, `RET 4`; the address of
 /// element `index`.
+#[cfg(test)]
 const ARRAY_AT: u32 = 0x0087_7a30;
 /// `0076b610` (unnamed in the engine map): `thiscall`, no stack words; true (`AL`) when the
 /// array is empty.
@@ -65,7 +67,11 @@ fn references(this: Ptr<PatrolActorPackageData>) -> u32 {
 
 /// The reference at `index` of `References`.
 fn reference_at(e: &mut Engine, this: Ptr<PatrolActorPackageData>, index: u32) -> u32 {
-    let slot = e.call(ARRAY_AT, &args![references(this), index]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, references(this), index)
+    );
     e.mem.u32(slot)
 }
 
@@ -79,7 +85,11 @@ fn extra_data(e: &mut Engine, reference: u32) -> u32 {
 }
 
 fn array_size(e: &mut Engine, this: Ptr<PatrolActorPackageData>) -> u32 {
-    e.call(ARRAY_SIZE, &args![references(this)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, references(this))
+    )
 }
 
 fn array_is_empty(e: &mut Engine, this: Ptr<PatrolActorPackageData>) -> bool {

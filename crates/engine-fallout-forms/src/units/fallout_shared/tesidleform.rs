@@ -88,6 +88,7 @@ const EDITOR_ID_MAXIMUM: u32 = 0x200;
 /// `004013e0` (`ECX` = form): a byte; true skips `InitItem`.
 const FORM_004013E0: u32 = 0x0040_13e0;
 /// `0084e3a0` (`ECX` = form): its form id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `005b5e40` (cdecl: format, arguments...): writes a warning line.
 const LOG_WARNING: u32 = 0x005b_5e40;
@@ -109,6 +110,7 @@ const TYPE_TES_IDLE_FORM: u32 = 0x0118_6a18;
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 const STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// `00559450` (`ECX` = string): its characters.
+#[cfg(test)]
 const STRING_CHARACTERS: u32 = 0x0055_9450;
 /// `LowProcess::SetGenericLocation` (engine map name of `008d8040`; sets
 /// +0x44) and `LowProcess::SetSecondGenericLocation` (`00673400`; sets
@@ -137,6 +139,7 @@ const CHILD_ARRAY: u32 = 0x005f_e770;
 /// array, the form; `RET 4`): -1 when not found.
 const INDEX_FOR_FORM: u32 = 0x004d_6100;
 /// `00440d80` (`ECX` = form): a byte.
+#[cfg(test)]
 const FORM_00440D80: u32 = 0x0044_0d80;
 /// `0061bc10` (`ECX` = array; index, form; `RET 8`): inserts.
 const ARRAY_INSERT: u32 = 0x0061_bc10;
@@ -147,6 +150,7 @@ const ARRAY_REMOVE_AT: u32 = 0x0061_bd20;
 const ARRAY_0061BDC0: u32 = 0x0061_bdc0;
 /// `00877a30` (`ECX` = array, an index; `RET 4`): the address of that
 /// element.
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// The `InitParents` and `FixNextIdles` warnings (`01049f6c`: no loose
 /// idle array; `01049f3c`: no parent array; `01049f9c`: several next
@@ -247,7 +251,7 @@ fn warn_described(e: &mut Engine, this: Ptr<TesIdleForm>, format: u32, id: Optio
     e.with_stack(8, |e, string| {
         e.call(STRING_CONSTRUCT, &args![string]);
         e.vcall(this.addr(), SLOT_DESCRIBE, &args![string]);
-        let text = e.call(STRING_CHARACTERS, &args![string]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
         match id {
             Some(id) => e.call(LOG_WARNING, &args![format, id, text]),
             None => e.call(LOG_WARNING, &args![format, text]),
@@ -299,7 +303,7 @@ pub fn tes_idle_form_init_item(e: &mut Engine, this: Ptr<TesIdleForm>) {
     e.call(CONDITION_INIT_ITEM, &args![conditions, this]);
     let section = tes_idle_form_get_idle_anim_group_section(e, this) as i32;
     if section >= 8 && !(0x14..=0x15).contains(&section) {
-        let id = e.call(FORM_ID, &args![this]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let name = e.vcall(this.addr(), SLOT_NAME, &[]).u32();
         e.call(LOG_WARNING, &args![FORMAT_BAD_SECTION, name, id]);
         e.call(SET_SECTION, &args![this, 7u32]);
@@ -337,12 +341,12 @@ pub fn tes_idle_form_init_parents(e: &mut Engine, this: Ptr<TesIdleForm>) -> boo
             array = e.call(LOOSE_IDLE_ARRAY, &args![manager, this]).u32();
         }
         if array == 0 {
-            let id = e.call(FORM_ID, &args![this]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(this.addr(), SLOT_NAME, &[]).u32();
             e.call(LOG_WARNING, &args![FORMAT_NO_LOOSE_ARRAY, name, id]);
             return false;
         }
-        let count = e.call(FORM_ID, &args![array]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array));
         e.call(ARRAY_INSERT, &args![array, count, this]);
         return true;
     }
@@ -365,8 +369,8 @@ pub fn tes_idle_form_init_parents(e: &mut Engine, this: Ptr<TesIdleForm>) -> boo
             found.wrapping_add(1)
         };
     }
-    if index == 0xffff_ffff || e.call(FORM_00440D80, &args![this]).bool() {
-        index = e.call(FORM_ID, &args![array]).u32().wrapping_add(1);
+    if index == 0xffff_ffff || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
+        index = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array)).wrapping_add(1);
     }
     e.call(ARRAY_INSERT, &args![array, index, this]);
     tes_idle_form_fix_next_idles(e, this, array);
@@ -389,12 +393,16 @@ pub fn tes_idle_form_fix_next_idles(e: &mut Engine, this: Ptr<TesIdleForm>, arra
     }
     let mut skipped = 0u32;
     let mut own = 0xffff_ffffu32;
-    let count = e.call(FORM_ID, &args![array]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array));
     let mut next_index = 0xffff_ffffu32;
     let mut next = 0u32;
     let mut index = 0u32;
     while index < count {
-        let element = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
         let form = e.mem.u32(element);
         let idle = e
             .call(
@@ -488,6 +496,7 @@ const SAVE_SWAPS: u32 = 0x0040_1500;
 /// answers a byte) and the previous idle (`006733e0`); all `thiscall`
 /// without words.
 const IDLE_PARENT: u32 = 0x0080_41a0;
+#[cfg(test)]
 const IDLE_IS_GROUPING: u32 = 0x0044_0d80;
 const IDLE_PREVIOUS: u32 = 0x0067_33e0;
 
@@ -518,16 +527,25 @@ pub fn fn_005fea50(e: &mut Engine, this: Ptr<TesIdleForm>) {
         e.call(FILL_MEMORY, &args![pair, 0u32, 8u32]);
         if e.call(IDLE_PARENT, &args![this]).u32() != 0 {
             let parent = e.call(IDLE_PARENT, &args![this]).u32();
-            let id = e.call(FORM_ID, &args![parent]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, parent));
             e.mem.set_u32(pair.addr(), id);
         }
-        if e.call(IDLE_IS_GROUPING, &args![this]).u8() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this))
+            .into_ret()
+            .u8()
+            == 0
+        {
             let mut previous = e.call(IDLE_PREVIOUS, &args![this]).u32();
-            while previous != 0 && e.call(IDLE_IS_GROUPING, &args![previous]).u8() != 0 {
+            while previous != 0
+                && typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, previous))
+                    .into_ret()
+                    .u8()
+                    != 0
+            {
                 previous = e.call(IDLE_PREVIOUS, &args![previous]).u32();
             }
             if previous != 0 {
-                let id = e.call(FORM_ID, &args![previous]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, previous));
                 e.mem.set_u32(pair.addr() + 4, id);
             }
         }

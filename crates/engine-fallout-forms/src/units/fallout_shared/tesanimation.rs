@@ -6,13 +6,18 @@ use crate::prelude::*;
 
 /// `008256d0` (thiscall): true when both words of the list at `this` (+0
 /// and +4) are zero.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 
 // Translated from 0047fd90 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `TESAnimation::HasKFFiles` (Xbox PDB name in the engine map): the
 /// inverse of `008256d0` (both words zero) on the list at `this + 4`.
 pub fn tes_animation_has_kf_files(e: &mut Engine, this: Ptr) -> bool {
-    !e.call(LIST_IS_EMPTY, &args![this.byte_add(4)]).bool()
+    !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.byte_add(4))
+    )
 }
 
 /// This unit's translated functions, by exe address.

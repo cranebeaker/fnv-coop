@@ -331,6 +331,7 @@ const GET_SPACE: u32 = 0x0057_5ca0;
 /// `memset`-shaped cdecl helper (`00403d30`): address, byte, size.
 const FILL_BYTES: u32 = 0x0040_3d30;
 /// `BSSimpleArray` size getter (`0044ddc0`, +8).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `CombatState::ClearCoverLocation` (Xbox PDB, `009a03d0`).
 const CLEAR_COVER_LOCATION: u32 = 0x009a_03d0;
@@ -1076,7 +1077,7 @@ fn update_location_target(
     let lt = current_location_target(e, this);
     if e.get(lt, CombatLocationTarget::cType) == 3 {
         let lt = current_location_target(e, this);
-        let space = e.call(0x0084_e3a0, &args![lt.addr() + 8]).u32();
+        let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, lt.addr() + 8));
         if space != attacker_space {
             e.call(0x009a_0c50, &args![this, 1u32]);
         }
@@ -1097,9 +1098,10 @@ fn update_location_target(
     let distance = e.with_stack(12 + 16, |e, locals| {
         let (scale, location) = (locals.addr(), locals.addr() + 12);
         let quarter = constant_bits(e, QUARTER);
-        e.call(
+        typed_call!(
+            leaf::FAMILY,
             0x0041_6870,
-            &args![scale, 1.0f32.to_bits(), 1.0f32.to_bits(), quarter],
+            leaf::point3_new(e, scale, 1.0f32.to_bits(), 1.0f32.to_bits(), quarter)
         );
         let mine = e.call(GET_WORLD_LOCATION, &args![attacker, location]).u32();
         let lt = current_location_target(e, this);
@@ -1264,7 +1266,9 @@ pub fn fn_00998a50(e: &mut Engine, this: Ptr<CombatState>) {
     let attacker = attacker(e, this);
     let target = target(e, this);
     let embedded = this.at(CombatState::EmbeddedWeaponsArray).addr();
-    let count = e.call(ARRAY_SIZE, &args![embedded]).i32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, embedded))
+        .into_ret()
+        .i32();
     let embedded_timer = member(this, 0x214);
     if count > 1 {
         let controller = state_controller(e, this);
@@ -1286,7 +1290,9 @@ pub fn fn_00998a50(e: &mut Engine, this: Ptr<CombatState>) {
                 if cancelled && e.get(this, CombatState::pCurrentEmbeddedWeapon) != 0 {
                     let mut skip = e.call(0x0094_4460, &args![0u32, (count - 1) as u32]).i32();
                     let mut index = 0u32;
-                    while index < e.call(ARRAY_SIZE, &args![embedded]).u32() {
+                    while index
+                        < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, embedded))
+                    {
                         let slot = e.call(0x006a_7ad0, &args![embedded, index]).u32();
                         let weapon = e.mem.u32(slot);
                         if weapon != e.get(this, CombatState::pCurrentEmbeddedWeapon) {
@@ -1363,10 +1369,10 @@ pub fn fn_00998a50(e: &mut Engine, this: Ptr<CombatState>) {
 
     let queue = member(this, 0x224);
     let unreachable_timer = member(this, 0x1cc);
-    if e.call(0x0055_9450, &args![queue]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, queue)) != 0 {
         e.with_stack(8, |e, message| {
             e.call(0x006e_9bd0, &args![message]);
-            let queue_object = e.call(0x0055_9450, &args![queue]).u32();
+            let queue_object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, queue));
             if e.vcall(queue_object, 0x10, &args![message]).bool() {
                 if e.mem.u32(message.addr()) == 0 {
                     fn_00999100(e, this);
@@ -1631,7 +1637,7 @@ pub fn fn_009993c0(e: &mut Engine, this: Ptr<CombatState>) {
             .bool()
         {
             let entry = e.mem.u32(item);
-            let object = e.call(ARRAY_SIZE, &args![entry]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             match e.call(0x0040_1170, &args![object]).u32() {
                 0x28 => {
                     if e.call(0x008b_c9d0, &args![attacker, object, 1u32]).bool() {
@@ -1692,17 +1698,19 @@ pub fn fn_009993c0(e: &mut Engine, this: Ptr<CombatState>) {
         }
 
         let mut forced = 0;
-        let process = e.call(0x008d_8520, &args![attacker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
         let acquired = e.vcall(process, 0x148, &args![]).u32();
-        if acquired != 0 && e.call(0x0055_9450, &args![acquired]).u32() != 0 {
-            let extra = e.call(0x0055_9450, &args![acquired]).u32();
-            let list = e.call(0x0068_15c0, &args![extra]).u32();
+        if acquired != 0
+            && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, acquired)) != 0
+        {
+            let extra = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, acquired));
+            let list = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, extra));
             if e.mem.u32(list) != 0 {
-                let extra = e.call(0x0055_9450, &args![acquired]).u32();
-                let list = e.call(0x0068_15c0, &args![extra]).u32();
+                let extra = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, acquired));
+                let list = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, extra));
                 let first = e.mem.u32(list);
                 if e.call(0x0041_8b10, &args![first]).bool() {
-                    forced = e.call(ARRAY_SIZE, &args![acquired]).u32();
+                    forced = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, acquired));
                 }
             }
         }
@@ -1810,10 +1818,12 @@ fn rate_weapons(e: &mut Engine, this: Ptr<CombatState>, frame: Ptr, context: Wea
     let mut best_out_of_range_weapon = 0u32;
     let mut best_in_range = 0.0f32;
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![weapons]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, weapons)) {
         let entry = e.call(0x006d_ad90, &args![weapons, index]).u32();
         let weapon = e.mem.u32(entry);
-        let owner = if acquired != 0 && weapon == e.call(ARRAY_SIZE, &args![acquired]).u32() {
+        let owner = if acquired != 0
+            && weapon == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, acquired))
+        {
             attacker
         } else {
             0
@@ -1823,15 +1833,21 @@ fn rate_weapons(e: &mut Engine, this: Ptr<CombatState>, frame: Ptr, context: Wea
         e.mem.set_u32(ammo, current_ammo);
         let has_ammo = current_ammo == 0 || e.call(0x0099_62f0, &args![others, ammo]).bool();
         if has_ammo {
-            if acquired != 0 && weapon == e.call(ARRAY_SIZE, &args![acquired]).u32() {
-                let process = e.call(0x008d_8520, &args![attacker]).u32();
+            if acquired != 0
+                && weapon == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, acquired))
+            {
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
                 let object = e.vcall(process, 0x14c, &args![]).u32();
                 if object != 0 {
                     let equipped = e.vcall(attacker, 0x1e4, &args![]).u32();
-                    let acquired_weapon = e.call(ARRAY_SIZE, &args![acquired]).u32();
+                    let acquired_weapon =
+                        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, acquired));
                     if equipped != 0 && acquired_weapon != 0 {
                         let needs_reload = object != 0
-                            && e.call(0x0072_6070, &args![object]).i32() <= 0
+                            && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, object))
+                                .into_ret()
+                                .i32()
+                                <= 0
                             && acquired_weapon != 0
                             && e.call(0x0052_4b60, &args![acquired_weapon]).u8() != 0;
                         let busy = e.call(0x008a_8870, &args![attacker]).bool()
@@ -1853,12 +1869,15 @@ fn rate_weapons(e: &mut Engine, this: Ptr<CombatState>, frame: Ptr, context: Wea
                 // The code steps the index back and the loop forward again.
                 continue;
             }
-            if acquired != 0 && weapon == e.call(ARRAY_SIZE, &args![acquired]).u32() {
+            if acquired != 0
+                && weapon == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, acquired))
+            {
                 let equipped = e.vcall(attacker, 0x1e4, &args![]).u32();
                 let busy = e.call(0x008a_8870, &args![attacker]).bool()
                     || (equipped != 0 && e.call(0x0088_46c0, &args![equipped]).bool());
                 if !busy {
-                    let process = e.call(0x008d_8520, &args![attacker]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
                     let replacement = e.mem.u32(other_ammo);
                     let count = e.call(0x004c_8f30, &args![changes, replacement]).u32();
                     let block = e.call(0x0040_1000, &args![0xcu32]).u32();
@@ -1933,7 +1952,7 @@ fn rate_weapons(e: &mut Engine, this: Ptr<CombatState>, frame: Ptr, context: Wea
     }
 
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![weapons]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, weapons)) {
         let entry = e.call(0x006d_ad90, &args![weapons, index]).u32();
         let weapon_local = local(0x114);
         let weapon = e.mem.u32(entry);
@@ -2240,11 +2259,11 @@ pub fn fn_0099a7d0(
     if !e.call(0x0098_1990, &args![controller]).bool() {
         return;
     }
-    let form = e.call(0x007a_f430, &args![activated]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, activated));
     if e.call(0x0040_1170, &args![form]).u32() != 0x1c {
         return;
     }
-    let door = e.call(0x0084_e3a0, &args![activated]).u32();
+    let door = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, activated));
     e.set(this, CombatState::iLastFleeDoor, door);
     let now = game_time_bits(e);
     let stamp = time_stamp_word(e, now);
@@ -2499,9 +2518,9 @@ pub fn combat_state_find_combat_location(
                 fn_0099b520(e, location, space);
             }
             let world = local(0x64);
-            let source = e.call(0x0068_15c0, &args![location]).u32();
+            let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
             copy_words(e, world, source, 4);
-            let point = e.call(0x0068_15c0, &args![world]).u32();
+            let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, world));
             let at_origin = e.call(0x0043_90c0, &args![point, ZERO_POINT]).bool();
             if at_origin
                 || e.call(0x009a_02a0, &args![this, world, 1u32, near_flag as u32])
@@ -2610,7 +2629,11 @@ fn find_location_of_kind(e: &mut Engine, this: Ptr<CombatState>, context: FindCo
             let location_target = e.get(this, CombatState::pLocationTarget);
             if location_target != 0 && e.mem.u8(location_target) == 0 {
                 let location_target = e.get(this, CombatState::pLocationTarget);
-                let spot = e.call(0x0068_15c0, &args![location_target + 8]).u32();
+                let spot = typed_call!(
+                    leaf::FAMILY,
+                    0x0068_15c0,
+                    leaf::same_word(e, location_target + 8)
+                );
                 e.call(
                     0x0099_d030,
                     &args![
@@ -2694,7 +2717,7 @@ fn find_location_of_kind(e: &mut Engine, this: Ptr<CombatState>, context: FindCo
             true
         }
         0xf => {
-            let spot = e.call(0x0068_15c0, &args![location]).u32();
+            let spot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
             let controller = state_controller(e, this);
             let group = e.call(CONTROLLER_GROUP, &args![controller]).u32();
             let search = e
@@ -2763,7 +2786,7 @@ pub fn fn_0099b540(e: &mut Engine, this: Ptr<CombatLocation>, flags: u32, set: u
 // Translated from 0099b580 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The location's space (`0084e3a0`: the word at +0xc).
 pub fn fn_0099b580(e: &mut Engine, this: Ptr<CombatLocation>) -> u32 {
-    e.call(0x0084_e3a0, &args![this]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this))
 }
 
 /// Stack frame of `0099b5a0`; a local at `EBP - k` is at
@@ -2810,7 +2833,7 @@ pub fn fn_0099b5a0(
         e.call(0x009a_8050, &args![origin, attacker]);
         let spot = local(0x48);
         for attempt in 0u32..2 {
-            e.call(0x0068_15c0, &args![spot]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, spot));
             if attempt == 0 {
                 let world = local(0x5c);
                 e.call(0x0097_ede0, &args![world]);
@@ -2819,11 +2842,11 @@ pub fn fn_0099b5a0(
                 if !e.call(0x0098_90e0, &args![group, target, world]).bool() {
                     continue;
                 }
-                let space = e.call(0x0084_e3a0, &args![world]).u32();
+                let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world));
                 if space != e.call(GET_SPACE, &args![attacker]).u32() {
                     continue;
                 }
-                let source = e.call(0x0068_15c0, &args![world]).u32();
+                let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, world));
                 copy_words(e, spot, source, 3);
             } else {
                 let elapsed = e.call(TIME_STAMP_ELAPSED, &args![member(this, 0x98)]).f64();
@@ -2859,7 +2882,7 @@ pub fn fn_0099b5a0(
                 continue;
             }
             let landing = local(0x3c);
-            e.call(0x0068_15c0, &args![landing]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, landing));
             let minus_one = constant_bits(e, MINUS_ONE);
             let (ox, oy, oz) = (
                 e.mem.u32(origin),
@@ -3106,7 +3129,7 @@ pub fn fn_0099b8e0(
         }
 
         let origin = local(0x18);
-        e.call(0x0068_15c0, &args![origin]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
         let location_target = e.get(this, CombatState::pLocationTarget);
         let near_location_target = location_target != 0 && {
             let target_kind = e.mem.u8(e.get(this, CombatState::pLocationTarget));
@@ -3114,7 +3137,11 @@ pub fn fn_0099b8e0(
         };
         if near_location_target {
             let location_target = e.get(this, CombatState::pLocationTarget);
-            let source = e.call(0x0068_15c0, &args![location_target + 8]).u32();
+            let source = typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, location_target + 8)
+            );
             copy_words(e, origin, source, 3);
             distance = e.call(0x009a_0b00, &args![this]).f32();
         } else {
@@ -3130,8 +3157,8 @@ pub fn fn_0099b8e0(
         let info = search_info.addr();
         if kind == 5 {
             let (group_point, member_point) = (local(0x198), local(0x17c));
-            e.call(0x0068_15c0, &args![group_point]);
-            e.call(0x0068_15c0, &args![member_point]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, group_point));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, member_point));
             let controller = state_controller(e, this);
             let group = e.call(CONTROLLER_GROUP, &args![controller]).u32();
             e.call(0x0098_9eb0, &args![group, group_point]);
@@ -3199,7 +3226,7 @@ pub fn fn_0099b8e0(
             let cover_map = e.call(0x0096_11e0, &args![manager]).u32();
             fn_0099c210(e, cover_map);
             let mut index = 0u32;
-            while index < e.call(ARRAY_SIZE, &args![locations]).u32() {
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, locations)) {
                 let entry = e.call(0x0090_52c0, &args![locations, index]).u32();
                 let entry_state = local(0x1a4);
                 e.mem.set_u32(entry_state, 0);
@@ -3447,8 +3474,8 @@ pub fn fn_0099c230(e: &mut Engine, this: Ptr<CombatState>, check: CoverCheck) ->
                 reason = 9;
                 continue;
             }
-            e.call(0x0068_15c0, &args![point]);
-            e.call(0x0068_15c0, &args![lean_point]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, lean_point));
             let controller = state_controller(e, this);
             e.call(
                 0x009a_93a0,
@@ -3651,12 +3678,12 @@ pub fn fn_0099ca00(e: &mut Engine, this: Ptr<CombatState>, location: u32, ignore
             let world = local(0x1c);
             e.call(0x0097_ede0, &args![world]);
             let position = local(0x28);
-            e.call(0x0068_15c0, &args![position]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
             let three = constant_bits(e, THREE);
             if e.call(0x0098_9140, &args![group, index, world, three])
                 .bool()
             {
-                let source = e.call(0x0068_15c0, &args![world]).u32();
+                let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, world));
                 copy_words(e, position, source, 3);
             } else {
                 let source = e.vcall(ally, 0x1f4, &args![]).u32();
@@ -3677,7 +3704,7 @@ pub fn fn_0099ca00(e: &mut Engine, this: Ptr<CombatState>, location: u32, ignore
 pub fn fn_0099cb00(e: &mut Engine, location: u32, points: u32) -> bool {
     e.with_stack(12, |e, point| {
         let mut index = 0u32;
-        while index < e.call(ARRAY_SIZE, &args![points]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, points)) {
             let source = e.call(0x006a_7af0, &args![points, index]).u32();
             copy_words(e, point.addr(), source, 3);
             if e.call(0x0099_cc60, &args![location, point, 0u32]).bool() {
@@ -3840,12 +3867,12 @@ pub fn fn_0099cb70(e: &mut Engine, this: Ptr<CombatState>, points: u32) {
             let world = local(0x1c);
             e.call(0x0097_ede0, &args![world]);
             let position = local(0x28);
-            e.call(0x0068_15c0, &args![position]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
             let three = constant_bits(e, THREE);
             if e.call(0x0098_9140, &args![group, index, world, three])
                 .bool()
             {
-                let source = e.call(0x0068_15c0, &args![world]).u32();
+                let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, world));
                 copy_words(e, position, source, 3);
             } else {
                 let source = e.vcall(member, 0x1f4, &args![]).u32();
@@ -3996,7 +4023,7 @@ pub fn combat_state_check_ledge_cover_angle(
             return false;
         }
         let crossing = local(0x48);
-        e.call(0x0068_15c0, &args![crossing]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, crossing));
         let crossed = e
             .call(
                 0x006b_a6e0,
@@ -4759,7 +4786,7 @@ pub fn combat_state_add_unreachable_cover_location(
 pub fn fn_009a0d70(e: &mut Engine, this: Ptr<CombatState>, key: u32) -> bool {
     let array = member(this, 0x164);
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![array]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
         let entry = e.call(0x0084_4160, &args![array, index]).u32();
         let age = e.call(TIME_STAMP_ELAPSED, &args![entry + 4]).f64();
         let limit: f64 = e.global(TEN_DOUBLE);
@@ -4784,10 +4811,10 @@ pub fn combat_state_build_unreachable_cover_locations_array(
     out: u32,
 ) {
     let array = member(this, 0x164);
-    let count = e.call(ARRAY_SIZE, &args![array]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array));
     e.call(0x0084_b5c0, &args![out, count]);
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![array]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
         let entry = e.call(0x0084_4160, &args![array, index]).u32();
         let age = e.call(TIME_STAMP_ELAPSED, &args![entry + 4]).f64();
         let limit: f64 = e.global(TEN_DOUBLE);
@@ -4840,7 +4867,7 @@ pub fn combat_state_is_location_unreachable(
     };
     let array = member(this, 0x174);
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![array]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
         let entry = e.call(0x006d_ad90, &args![array, index]).u32();
         let age = e.call(TIME_STAMP_ELAPSED, &args![entry + 0x10]).f64();
         let limit: f64 = e.global(TEN_DOUBLE);
@@ -5123,7 +5150,7 @@ pub fn fn_009a1400(e: &mut Engine, this: Ptr<CombatState>, kind: u32) -> bool {
         return false;
     }
     let queue = member(this, 0x224);
-    if e.call(0x0055_9450, &args![queue]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, queue)) == 0 {
         let block = e.call(0x00aa_13e0, &args![0x1cu32]).u32();
         let created = if block != 0 {
             e.call(0x008d_f900, &args![block]).u32()
@@ -5138,8 +5165,8 @@ pub fn fn_009a1400(e: &mut Engine, this: Ptr<CombatState>, kind: u32) -> bool {
             e.with_stack(0x10, |e, world| {
                 e.call(GET_WORLD_LOCATION, &args![target, world]);
                 let minus_one = constant_bits(e, MINUS_ONE);
-                let space = e.call(0x0084_e3a0, &args![world]).u32();
-                let point = e.call(0x0068_15c0, &args![world]).u32();
+                let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world));
+                let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, world));
                 e.call(
                     0x008b_38d0,
                     &args![attacker, request, point, space, minus_one, 0u32],
@@ -5364,7 +5391,7 @@ pub fn combat_cover_search_info_save_game(
     let count = if array == 0 {
         0
     } else {
-        e.call(ARRAY_SIZE, &args![array]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
     };
     e.call(SAVE_VARIABLE_SIZE, &args![buffer, count]);
     for index in 0..count {
@@ -5912,7 +5939,13 @@ pub fn fn_0099d480(e: &mut Engine, request: u32, radius: f32, keep_reservations:
                 preferred,
             };
             let mut index = 0u32;
-            while index < e.call(ARRAY_SIZE, &args![search_info + 0x20]).u32() {
+            while index
+                < typed_call!(
+                    leaf::FAMILY,
+                    0x0044_ddc0,
+                    leaf::word_at_8(e, search_info + 0x20)
+                )
+            {
                 let candidate = e
                     .call(ELEMENT_TARGET_009052C0, &args![search_info + 0x20, index])
                     .u32();
@@ -6074,7 +6107,7 @@ fn check_cover_candidate(
         return false;
     }
     let points = e.call(0x006e_4fb0, &args![check.request]).u32();
-    let exposed = if e.call(ARRAY_SIZE, &args![points]).u32() != 0 {
+    let exposed = if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, points)) != 0 {
         let points = e.call(0x006e_4fb0, &args![check.request]).u32();
         fn_0099cb00(e, location, points)
     } else {
@@ -6143,7 +6176,7 @@ fn check_cover_candidate(
     e.mem.set_u8(cover + 2, byte);
     e.call(0x0054_07b0, &args![cover, 0u32]);
     if check.preferred == 0 {
-        if e.call(ARRAY_SIZE, &args![steps]).u32() > 1 {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, steps)) > 1 {
             let next = local(0x22c);
             let step = e.call(0x006d_ad90, &args![steps, 1u32]).u32();
             e.call(0x006a_6eb0, &args![step, next]);
@@ -6172,7 +6205,11 @@ fn check_cover_candidate(
             ],
         )
         .bool()
-            && e.call(ARRAY_SIZE, &args![preferred_steps]).u32() > 1
+            && typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, preferred_steps)
+            ) > 1
         {
             let step = e.call(0x006d_ad90, &args![preferred_steps, 1u32]).u32();
             let source = e.call(0x006a_6eb0, &args![step, local(0x2e8)]).u32();
@@ -6239,7 +6276,7 @@ pub fn combat_state_find_best_dodge_location(
         let world = local(0xb4);
         e.call(GET_WORLD_LOCATION, &args![attacker, world]);
         let position = local(0x98);
-        let source = e.call(0x0068_15c0, &args![world]).u32();
+        let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, world));
         copy_words(e, position, source, 3);
         let target_position = local(0x50);
         let source = e.vcall(target, 0x1f4, &args![]).u32();
@@ -6264,7 +6301,7 @@ pub fn combat_state_find_best_dodge_location(
                 continue;
             }
             let direction = local(0xd4);
-            e.call(0x0068_15c0, &args![direction]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
             match bit {
                 1 => copy_words(e, direction, side, 3),
                 2 => {
@@ -6337,7 +6374,7 @@ pub fn combat_state_find_best_dodge_location(
                 e.call(0x004f_f7e0, &args![hit]);
                 continue;
             }
-            let space = e.call(0x0084_e3a0, &args![world]).u32();
+            let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world));
             if !e
                 .call(0x009a_0260, &args![this, point, space, 1u32, 0u32])
                 .bool()
@@ -6458,7 +6495,7 @@ pub fn fn_0099e840(
         let from = local(0xa0);
         e.call(0x006d_cd70, &args![from, attacker]);
         let closest = local(0x2c);
-        e.call(0x0068_15c0, &args![closest]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, closest));
         let cell = e.call(0x006d_d4f0, &args![from]).u32();
         let space = e.call(0x0044_1110, &args![from]).u32();
         if !e
@@ -6721,7 +6758,7 @@ fn flee_through_door(
         != 0
     {
         let mut index = 0u32;
-        while index < e.call(ARRAY_SIZE, &args![doors]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, doors)) {
             let element = e.call(0x006a_7ad0, &args![doors, index]).u32();
             let candidate = e.mem.u32(element);
             index += 1;
@@ -6729,13 +6766,13 @@ fn flee_through_door(
                 continue;
             }
             let last = e.get(this, CombatState::iLastFleeDoor);
-            if e.call(0x0084_e3a0, &args![candidate]).u32() == last {
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, candidate)) == last {
                 continue;
             }
             let teleport = e.call(0x0056_8e50, &args![candidate]).u32();
-            let linked = e.call(0x0055_9450, &args![teleport]).u32();
+            let linked = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, teleport));
             let last = e.get(this, CombatState::iLastFleeDoor);
-            if e.call(0x0084_e3a0, &args![linked]).u32() == last
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, linked)) == last
                 || e.call(0x0043_7b90, &args![linked]).bool()
             {
                 continue;
@@ -6944,7 +6981,11 @@ pub fn fn_0099f6d0(e: &mut Engine, this: Ptr<CombatState>) -> bool {
         return false;
     }
     if e.get(this, CombatState::pCurrentEmbeddedWeapon) != 0
-        || e.call(ARRAY_SIZE, &args![member(this, 0x24)]).u32() != 0
+        || typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, member(this, 0x24))
+        ) != 0
     {
         return false;
     }
@@ -6954,14 +6995,14 @@ pub fn fn_0099f6d0(e: &mut Engine, this: Ptr<CombatState>) -> bool {
             return false;
         }
     }
-    let process = e.call(0x008d_8520, &args![attacker]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
     let entry = e.vcall(process, 0x148, &args![]).u32();
-    if entry != 0 && e.call(0x0055_9450, &args![entry]).u32() != 0 {
-        let list = e.call(0x0055_9450, &args![entry]).u32();
-        let list = e.call(0x0068_15c0, &args![list]).u32();
+    if entry != 0 && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry)) != 0 {
+        let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
+        let list = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         if e.mem.u32(list) != 0 {
-            let list = e.call(0x0055_9450, &args![entry]).u32();
-            let list = e.call(0x0068_15c0, &args![list]).u32();
+            let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
+            let list = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let extra = e.mem.u32(list);
             if e.call(0x0041_8b10, &args![extra]).bool() {
                 return false;
@@ -7117,10 +7158,10 @@ fn consider_pickup(
     }
     let item = e.mem.u32(item_slot);
     let form = if item != 0 {
-        e.call(0x0044_ddc0, &args![item]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
     } else {
         let reference = e.mem.u32(reference_slot);
-        e.call(0x007a_f430, &args![reference]).u32()
+        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
     };
     let mut fraction = 1.0f32.to_bits();
     let minus_one: f64 = e.global(MINUS_ONE_DOUBLE);
@@ -7195,10 +7236,10 @@ fn consider_pickup(
         return;
     }
     let reference = e.mem.u32(reference_slot);
-    if e.call(0x007a_f430, &args![reference]).u32() != 0 {
-        let base = e.call(0x007a_f430, &args![reference]).u32();
+    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference)) != 0 {
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         if e.call(0x0040_1170, &args![base]).u32() == 0x1b
-            && e.call(0x007a_f430, &args![reference]).u32() != 0
+            && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference)) != 0
         {
             if e.call(0x0056_9160, &args![reference]).u32() != 0 {
                 let lock = e.call(0x0056_9160, &args![reference]).u32();
@@ -7342,7 +7383,7 @@ fn saved_count(e: &mut Engine, array: u32) -> u32 {
     if array == 0 {
         0
     } else {
-        e.call(ARRAY_SIZE, &args![array]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
     }
 }
 

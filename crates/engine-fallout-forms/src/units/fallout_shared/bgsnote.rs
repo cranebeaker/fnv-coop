@@ -53,6 +53,7 @@ const CAST_SOUND_TYPE: u32 = 0x0118_32fc;
 const CAST_TOPIC_TYPE: u32 = 0x0118_4720;
 const CAST_ACTOR_BASE_TYPE: u32 = 0x0118_46e8;
 /// `0084e3a0`: the word at +0xc (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The form vtable slot (byte offset) whose answer the warnings print as
 /// `%s`.
@@ -70,8 +71,11 @@ const MISSING_ACTOR_BASE_FORMAT: u32 = 0x0104_69f8;
 /// (`006815c0`), next (`00726070`), remove the head (`0063f7b0`), set the
 /// item from an address (`00726c60`, `RET 4`) and remove the following item
 /// (`00905330`, `RET 4`, that item's address).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
 const NODE_SET_ITEM: u32 = 0x0072_6c60;
@@ -217,7 +221,7 @@ fn resolve(e: &mut Engine, this: Ptr<BGSNote>, id: u32, target: u32) -> (u32, u3
 /// The warning for an id that did not resolve: the format, the id, the
 /// note's name (vtable `+0x130`) and its form id (`0084e3a0`, called first).
 fn warn_missing(e: &mut Engine, this: Ptr<BGSNote>, format: u32, id: u32) {
-    let form_id = e.call(FORM_ID, &args![this]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let name = e.vcall(this.addr(), NAME_SLOT, &args![]).u32();
     e.call(PRINT_WARNING, &args![format, id, name, form_id]);
 }
@@ -238,8 +242,8 @@ pub fn bgs_note_init_item(e: &mut Engine, this: Ptr<BGSNote>) {
     }
     let mut node = this.addr().wrapping_add(0x74);
     let mut previous = 0;
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let id = e.mem.u32(item_address);
         let (quest, id) = resolve(e, this, id, CAST_QUEST_TYPE);
         if quest != 0 {
@@ -248,13 +252,13 @@ pub fn bgs_note_init_item(e: &mut Engine, this: Ptr<BGSNote>) {
                 e.call(NODE_SET_ITEM, &args![node, local]);
             });
             previous = node;
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         } else {
             warn_missing(e, this, MISSING_QUEST_FORMAT, id);
             if previous != 0 {
-                let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+                let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 e.call(LIST_REMOVE_AFTER, &args![previous, item_address]);
-                node = e.call(NODE_NEXT, &args![previous]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
             } else {
                 e.call(LIST_REMOVE_HEAD, &args![node]);
             }
@@ -346,10 +350,10 @@ pub fn fn_005e8c00(e: &mut Engine, this: Ptr<BGSNote>, source: u32) {
     }
     e.call(0x0047_0470, &args![this.addr() + 0x74]);
     let mut node = e.call(OWNER_QUESTS_OF, &args![other]).u32();
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.call(0x005a_e3d0, &args![this.addr() + 0x74, item]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let read = e.get(other, BGSNote::bHasBeenRead);
     e.set(this, BGSNote::bHasBeenRead, read);
@@ -421,8 +425,8 @@ pub fn fn_005e8d60(e: &mut Engine, this: Ptr<BGSNote>, other: u32) -> bool {
         return true;
     }
     let mut node = e.call(OWNER_QUESTS_OF, &args![this]).u32();
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let quest = e.mem.u32(item);
         let found = e.with_stack(4, |e, local| {
             e.mem.set_u32(local.addr(), quest);
@@ -432,7 +436,7 @@ pub fn fn_005e8d60(e: &mut Engine, this: Ptr<BGSNote>, other: u32) -> bool {
         if !found {
             return true;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }

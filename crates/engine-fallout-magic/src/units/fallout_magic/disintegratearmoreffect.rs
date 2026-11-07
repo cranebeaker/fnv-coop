@@ -56,6 +56,7 @@ const MESSAGE_00703C00: u32 = 0x0070_3c00;
 /// `"%s's %s takes %0.2f disintegrate armor damage!"` (`01079f88`).
 const ARMOR_DAMAGE_FORMAT: u32 = 0x0107_9f88;
 /// `0044ddc0` (thiscall): the word at +8 (an item change's form).
+#[cfg(test)]
 const WORD_AT_8_0044DDC0: u32 = 0x0044_ddc0;
 /// `__RTDynamicCast` (`00ec43fb`, cdecl: object, vfDelta, source type, target type, isReference).
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
@@ -201,9 +202,9 @@ pub fn disintegrate_armor_effect_save_game(
     e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), 0xffff_ffff);
         let change = e.get(this, DisintegrateArmorEffect::pArmor);
-        if change != 0 && e.call(WORD_AT_8_0044DDC0, &args![change]).u32() != 0 {
+        if change != 0 && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change)) != 0 {
             let change = e.get(this, DisintegrateArmorEffect::pArmor);
-            let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
             let armor = e
                 .call(
                     RT_DYNAMIC_CAST,

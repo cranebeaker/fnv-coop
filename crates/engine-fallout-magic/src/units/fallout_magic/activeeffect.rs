@@ -74,8 +74,10 @@ const EFFECT_FLAG_00803E80: u32 = 0x0080_3e80;
 /// comes from folded code): the effect's magic target object.
 const EFFECT_TARGET_0059BB30: u32 = 0x0059_bb30;
 /// `006815c0` (thiscall on a list node, returns the address of its item).
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (thiscall on a list node, returns the next node).
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// `00833c20` (thiscall on an item, returns `AL`; unnamed).
 const ITEM_TEST_00833C20: u32 = 0x0083_3c20;
@@ -98,12 +100,14 @@ const EFFECT_REAL_006B9130: u32 = 0x006b_9130;
 /// `00406cc0` (cdecl, one `float`, returns `ST0`; unnamed).
 const FLOAT_FUNCTION_00406CC0: u32 = 0x0040_6cc0;
 /// `0084e3a0` (thiscall, returns a word; unnamed getter).
+#[cfg(test)]
 const GETTER_0084E3A0: u32 = 0x0084_e3a0;
 /// `00409140` (thiscall, returns a pointer; unnamed, `enchantmentitem.cpp`).
 const GETTER_00409140: u32 = 0x0040_9140;
 /// `TESCondition::IsTrue` (`00680c30`, thiscall: two words).
 const TES_CONDITION_IS_TRUE: u32 = 0x0068_0c30;
 /// `0044ddc0` (thiscall, returns a pointer; unnamed getter).
+#[cfg(test)]
 const GETTER_0044DDC0: u32 = 0x0044_ddc0;
 /// The player pointer (as other units name `011dea3c`).
 const PLAYER_POINTER: u32 = 0x011d_ea3c;
@@ -350,7 +354,7 @@ pub fn fn_00804250(e: &mut Engine, this: Ptr<ActiveEffect>) -> bool {
         let target_object = e.call(EFFECT_TARGET_0059BB30, &args![this]).u32();
         let mut node = e.vcall(target_object, 8, &[]).u32();
         while node != 0 && !found {
-            let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(slot);
             if item != 0 && e.call(ITEM_TEST_00833C20, &args![item]).bool() {
                 let item_spell = e.mem.u32(item + 8);
@@ -370,7 +374,7 @@ pub fn fn_00804250(e: &mut Engine, this: Ptr<ActiveEffect>) -> bool {
                     }
                 }
             }
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     if found && excluded {
@@ -425,7 +429,7 @@ pub fn fn_008043f0(e: &mut Engine, this: Ptr<ActiveEffect>, seconds: f32, force:
         return;
     }
     let value = e.vcall(target_object, 4, &[]).u32();
-    let owner = e.call(GETTER_0084E3A0, &args![this]).u32();
+    let owner = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let condition = e.call(GETTER_00409140, &args![owner]).u32();
     let holds = e
         .call(TES_CONDITION_IS_TRUE, &args![condition, value, 0u32])
@@ -492,7 +496,7 @@ pub fn fn_00804560(e: &mut Engine, this: Ptr<ActiveEffect>, seconds: f32) {
         if !(x87_load32(seconds.to_bits()) > zero) || e.get(this, ActiveEffect::bDone) != 0 {
             break 'update;
         }
-        let owner = e.call(GETTER_0044DDC0, &args![this]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
         let target_object = e.call(EFFECT_TARGET_0059BB30, &args![this]).u32();
         let target_reference = e.vcall(target_object, 4, &[]).u32();
         let spell_type = e.get(this, ActiveEffect::eSpellType) as i32;
@@ -694,7 +698,7 @@ pub fn fn_00804ba0(e: &mut Engine, this: Ptr<ActiveEffect>, mask: u32) {
 /// `007df1f0 * factor` to `00693d50`; otherwise the magnitude becomes
 /// `00404040(00495460 * factor)`, at least 1.
 pub fn active_effect_adjust_effectiveness(e: &mut Engine, this: Ptr<ActiveEffect>, factor: f32) {
-    let owner = e.call(GETTER_0084E3A0, &args![this]).u32();
+    let owner = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let setting = e.call(GETTER_00825C00, &args![owner]).u32();
     if e.call(FLAG_TEST_00408680, &args![setting, 0x180u32]).bool() {
         return;
@@ -704,7 +708,7 @@ pub fn active_effect_adjust_effectiveness(e: &mut Engine, this: Ptr<ActiveEffect
     if x87_load32(factor.to_bits()) == one {
         return;
     }
-    let owner = e.call(GETTER_0084E3A0, &args![this]).u32();
+    let owner = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let setting = e.call(GETTER_00825C00, &args![owner]).u32();
     if e.call(FLAG_TEST_00403E60, &args![setting, 0x100u32]).bool() {
         let value = e.call(EFFECT_REAL_007DF1F0, &args![this]).f64();
@@ -760,12 +764,12 @@ pub fn fn_00804cd0(e: &mut Engine, this: Ptr<ActiveEffect>) {
         } else {
             let pointer = e.call(EFFECT_POINTER_007DF1D0, &args![this]).u32();
             let object = e.call(GETTER_004FD3E0, &args![pointer]).u32();
-            e.call(GETTER_0084E3A0, &args![object]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object))
         };
         if sound_id == 0 || e.call(EFFECT_TARGET_0059BB30, &args![this]).u32() == 0 {
             return;
         }
-        let owner = e.call(GETTER_0044DDC0, &args![this]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
         if e.vcall(owner, 0x18, &[]).u32() == 4 {
             return;
         }
@@ -906,7 +910,7 @@ pub fn active_effect_save_game_ov2(e: &mut Engine, this: Ptr<ActiveEffect>, buff
     let handle = e.call(START_VARIABLE_SIZED_VALUE, &args![buffer]).u32();
     let mut node = e.get(this, ActiveEffect::pHitEffects);
     while node != 0 {
-        let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let hit_effect = e.mem.u32(slot);
         if hit_effect != 0 {
             let kind = e.vcall(hit_effect, 0x9c, &[]).u8();
@@ -917,7 +921,7 @@ pub fn active_effect_save_game_ov2(e: &mut Engine, this: Ptr<ActiveEffect>, buff
             e.vcall(hit_effect, 0xa8, &args![buffer]);
             count = count.wrapping_add(1);
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SAVE_VARIABLE_SIZED_VALUE_OV2, &args![buffer, count, handle]);
 }
@@ -953,9 +957,9 @@ pub fn fn_00806840(e: &mut Engine, buffer: u32, effect: Ptr<ActiveEffect>) {
     let value = e.call(GETTER_00810FD0, &args![setting]).u32();
     e.call(SAVE_VARIABLE_SIZED_VALUE, &args![buffer, value]);
     let handle = e.call(START_VARIABLE_SIZED_VALUE, &args![buffer]).u32();
-    let start = e.call(GETTER_0084E3A0, &args![buffer]).u32();
+    let start = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, buffer));
     e.vcall(effect.addr(), 0x14, &args![buffer]);
-    let end = e.call(GETTER_0084E3A0, &args![buffer]).u32();
+    let end = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, buffer));
     e.call(
         SAVE_VARIABLE_SIZED_VALUE_OV2,
         &args![buffer, end.wrapping_sub(start), handle],
@@ -971,13 +975,13 @@ pub fn active_effect_save_active_effect_list(e: &mut Engine, buffer: u32, list: 
     let handle = e.call(START_VARIABLE_SIZED_VALUE, &args![buffer]).u32();
     let mut node = list;
     while node != 0 {
-        let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect = e.mem.u32(slot);
         if effect != 0 {
             fn_00806840(e, buffer, Ptr::new(effect));
             count = count.wrapping_add(1);
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SAVE_VARIABLE_SIZED_VALUE_OV2, &args![buffer, count, handle]);
 }
@@ -1006,6 +1010,7 @@ const USE_SAVE_GAME_BLOCKS: u32 = 0x0086_2110;
 const LOAD_RECORD_004FD3C0: u32 = 0x004f_d3c0;
 /// `008256d0` (thiscall on a list node, `AL`): true when the node's item and next are
 /// both null.
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `00408d60` (thiscall on a setting): the address of its value (+4).
 const SETTING_VALUE_ADDRESS: u32 = 0x0040_8d60;
@@ -1014,6 +1019,7 @@ const SETTING_011DE4E8: u32 = 0x011d_e4e8;
 /// `004839c0` (cdecl, one word: a form id; returns the form).
 const LOOKUP_FORM_004839C0: u32 = 0x0048_39c0;
 /// `Error` (`0040fbe0`, cdecl, variable arguments; map name, `tesdatahandler.cpp`).
+#[cfg(test)]
 const ERROR_0040FBE0: u32 = 0x0040_fbe0;
 /// `005b5e40` (cdecl, variable arguments, a format first; unnamed, `tesscriptfunctions.cpp`).
 const MESSAGE_005B5E40: u32 = 0x005b_5e40;
@@ -1041,6 +1047,7 @@ const PROCESS_LISTS_ADD_TEMP_EFFECT: u32 = 0x0097_3fd0;
 const PROCESS_LISTS: u32 = 0x011e_0e80;
 /// `008d8520` (thiscall on an actor; the map's name `MiddleHighProcess::GetSavedAcquireObject`
 /// may come from folded code).
+#[cfg(test)]
 const ACTOR_OBJECT_008D8520: u32 = 0x008d_8520;
 /// `TESBoundObject`'s RTTI type descriptor (`.?AVTESBoundObject@@`).
 const TES_BOUND_OBJECT_TYPE: u32 = 0x0118_3108;
@@ -1117,23 +1124,23 @@ pub(crate) fn size_reports_enabled(e: &mut Engine) -> bool {
 /// Walks a `BSSimpleList` from `node` as these functions do: it stops at a null node or at
 /// one `008256d0` reports empty, and hands `body` each node's item (`*006815c0(node)`).
 fn for_each_until_empty(e: &mut Engine, mut node: u32, mut body: impl FnMut(&mut Engine, u32)) {
-    while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         body(e, item);
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
 /// Walks a `BSSimpleList` from `node` to its end and hands `body` each non-null item.
 fn for_each_item(e: &mut Engine, mut node: u32, mut body: impl FnMut(&mut Engine, u32)) {
     while node != 0 {
-        let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         if item != 0 {
             body(e, item);
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -1204,12 +1211,9 @@ pub(crate) fn report_save_size(e: &mut Engine, formats: [u32; 2], size: u32, fil
         let word = e.mem.u32(record + 5);
         let name = e.vcall(form, 0x130, &[]).u32();
         let id = e.mem.u32(record);
-        e.call(
-            ERROR_0040FBE0,
-            &args![formats[0], size, id, name, word, line, file],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words formats[0], size, id, name, word, line, file);
     } else {
-        e.call(ERROR_0040FBE0, &args![formats[1], size, line, file]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words formats[1], size, line, file);
     }
 }
 
@@ -1412,7 +1416,7 @@ pub fn active_effect_save_game(e: &mut Engine, this: Ptr<ActiveEffect>, argument
         let id = if source == 0 {
             0
         } else {
-            e.call(GETTER_0084E3A0, &args![source]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, source))
         };
         e.mem.set_u32(local(0xc), id);
         let game = save_load_game(e);
@@ -1759,7 +1763,7 @@ pub fn fn_00805d40(e: &mut Engine, list: u32, argument: u32) {
                 )
                 .u32();
             if cast != 0 && argument != 0 {
-                e.call(ACTOR_OBJECT_008D8520, &args![argument]);
+                typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, argument));
             }
             if effect != 0 {
                 bs_simple_list_active_effect_insert(
@@ -1794,8 +1798,8 @@ pub fn fn_00806130(e: &mut Engine, list: u32, actor: u32) {
     for_each_until_empty(e, list, |e, effect| {
         e.vcall(effect, 0x2c, &args![actor]);
     });
-    if actor != 0 && e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32() != 0 {
-        let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+    if actor != 0 && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(object, 0x580, &args![1u32, 1u32, 1u32]);
     }
 }

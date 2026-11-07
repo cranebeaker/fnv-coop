@@ -66,6 +66,7 @@ const POINT_CROSS: u32 = 0x004b_3800;
 /// `fabs` (engine map, `00ec6cde`): a `double` argument, result in ST0.
 const FABS: u32 = 0x00ec_6cde;
 /// `NiPoint3::Dot` (engine map, `004b6190`): `(this, &other)`, result in ST0.
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 /// `00439f50(this, index, out)`: column `index` of the matrix at `this`.
 const MATRIX_GET_COLUMN: u32 = 0x0043_9f50;
@@ -435,7 +436,9 @@ const REFLECT_FRAME: u32 = 0x1b0;
 /// `temporary`) and writes `scaled normal - work` (`00439ef0`) into `out`.
 fn reflect_axis(e: &mut Engine, plane: Ptr, work: u32, out: u32, temporary: u32) {
     e.call(POINT_UNITIZE, &args![work]);
-    let dot = e.call(POINT_DOT, &args![plane, work]).f64();
+    let dot = typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, plane, work))
+        .into_ret()
+        .f64();
     let two: f64 = e.global(TWO);
     let scale = quiet((dot * two) as f32);
     let scaled = e.call(SCALE_POINT, &args![temporary, scale, plane]).u32();
@@ -477,7 +480,13 @@ pub fn bs_utilities_reflect_camera_about_arbitrary_plane(
         copy_words(e, local(0x54), local(0x108), 3);
 
         // The signed distance of the position from the plane.
-        let dot = e.call(POINT_DOT, &args![plane, local(0x18)]).f64();
+        let dot = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, plane, local(0x18))
+        )
+        .into_ret()
+        .f64();
         let constant = e.mem.f32(plane_at + 0x0c);
         let distance = (dot - constant as f64) as f32;
         e.mem.set_f32(local(0x10c), distance);

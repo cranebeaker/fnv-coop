@@ -189,14 +189,18 @@ const LIST_CONTAINS: u32 = 0x005f_65d0;
 /// at the address given (`00905330`).
 const LIST_REMOVE_ITEM: u32 = 0x0090_5330;
 /// `BSSimpleList::IsEmpty`: no item and no next (`008256d0`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `MOV EAX,ECX`: the address of a list node is the address of its item slot
 /// (`006815c0`).
+#[cfg(test)]
 const LIST_ITEM_SLOT: u32 = 0x0068_15c0;
 /// `MOV EAX,[ECX+4]`: the next node of a list node (`00726070`).
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// `BGSSaveFormBuffer::GetForm` (`007af430`, `MOV EAX,[ECX+0x20]`): on a
 /// reference, its base form.
+#[cfg(test)]
 const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 /// `TESForm::GetFormType` (`00401170`, `MOVZX EAX,[ECX+4]`).
 const FORM_TYPE: u32 = 0x0040_1170;
@@ -484,7 +488,7 @@ fn remove_from_reference_list(e: &mut Engine, list: Ptr<ExtraDataList>, extra_ty
         e.mem.set_u32(slot.addr(), item);
         e.call(LIST_REMOVE_ITEM, &args![head, slot]);
     });
-    if e.call(LIST_IS_EMPTY, &args![head]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head)) {
         remove_extra(e, list, extra);
     }
 }
@@ -675,17 +679,17 @@ pub fn fn_0041df00(e: &mut Engine, this: Ptr<ExtraDataList>) -> u32 {
     }
     let mut node = extra.addr() + 0x0c;
     while found == 0 && node != 0 {
-        let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         if item == 0 {
             return 0;
         }
-        let form = e.call(REFERENCE_BASE_FORM, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
         let form_type = e.call(FORM_TYPE, &args![form]).u32();
         if form_type == FORM_TYPE_DROPPED_ITEM_MATCH {
             found = item;
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     found
 }
@@ -1001,7 +1005,7 @@ pub fn extra_data_list_remove_activate_parent(
         e.call(LIST_REMOVE_ITEM, &args![head, slot]);
     });
     e.call(OPERATOR_DELETE, &args![entry]);
-    if e.call(LIST_IS_EMPTY, &args![head]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head)) {
         remove_extra_by_type(e, this, EXTRA_ACTIVATE_REF_TYPE);
     }
 }
@@ -1122,7 +1126,7 @@ fn set_reflect_ref_flag(
     if !extra.is_null() {
         let mut node = extra.addr() + 0x0c;
         while node != 0 {
-            let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let entry: Ptr<RefReflectData> = Ptr::new(e.mem.u32(slot));
             if entry.is_null() {
                 break;
@@ -1136,14 +1140,18 @@ fn set_reflect_ref_flag(
                     e.set(entry, RefReflectData::iEffectFlags, flags);
                     if flags == 0 {
                         e.call(REFLECT_REFS_REMOVE, &args![extra, reference]);
-                        if e.call(LIST_IS_EMPTY, &args![extra.addr() + 0x0c]).bool() {
+                        if typed_call!(
+                            leaf::FAMILY,
+                            0x0082_56d0,
+                            leaf::both_words_zero(e, extra.addr() + 0x0c)
+                        ) {
                             remove_extra(e, list, extra);
                         }
                     }
                 }
                 return;
             }
-            node = e.call(LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     if set {
@@ -1183,7 +1191,9 @@ fn change_reference_in_list(
                 }
             } else {
                 e.call(LIST_REMOVE_ITEM, &args![head, slot]);
-                if delete_when_empty && e.call(LIST_IS_EMPTY, &args![head]).bool() {
+                if delete_when_empty
+                    && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head))
+                {
                     remove_extra(e, list, extra);
                 }
             }
@@ -1294,15 +1304,15 @@ pub fn extra_data_list_add_activate_ref_child(
     let mut found = false;
     let mut node = extra.addr() + 0x0c;
     while node != 0 {
-        if e.call(LIST_IS_EMPTY, &args![node]).bool() || found {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) || found {
             break;
         }
-        let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry: Ptr<RefActivateData> = Ptr::new(e.mem.u32(slot));
         if e.get(entry, RefActivateData::pActivateRef).addr() == child {
             found = true;
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if !found {
         let entry = new_activate_data(e);
@@ -1330,19 +1340,19 @@ pub fn fn_0041ef20(e: &mut Engine, this: Ptr<ExtraDataList>, child: u32) {
     let head = extra.addr() + 0x0c;
     let mut node = head;
     while node != 0 {
-        if e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             break;
         }
-        let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry: Ptr<RefActivateData> = Ptr::new(e.mem.u32(slot));
         if e.get(entry, RefActivateData::pActivateRef).addr() == child {
             e.call(LIST_REMOVE_HEAD, &args![node]);
             e.call(OPERATOR_DELETE, &args![entry]);
             break;
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
-    if e.call(LIST_IS_EMPTY, &args![head]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head)) {
         remove_extra(e, this, extra);
     }
 }
@@ -1893,7 +1903,11 @@ fn ni_pointer_extra_value(e: &mut Engine, list: Ptr<ExtraDataList>, extra_type: 
     if extra.is_null() {
         0
     } else {
-        e.call(READ_WORD, &args![extra.addr() + 0x0c]).u32()
+        typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, extra.addr() + 0x0c)
+        )
     }
 }
 
@@ -2067,13 +2081,13 @@ pub fn extra_room_ref_data_compare(
     let mut mine_node = mine.addr() + ROOM_DATA_ROOM_LIST;
     let mut theirs_node = theirs.addr() + ROOM_DATA_ROOM_LIST;
     while mine_node != 0 && theirs_node != 0 {
-        let mine_slot = e.call(LIST_ITEM_SLOT, &args![mine_node]).u32();
-        let theirs_slot = e.call(LIST_ITEM_SLOT, &args![theirs_node]).u32();
+        let mine_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine_node));
+        let theirs_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs_node));
         if e.mem.u32(mine_slot) != e.mem.u32(theirs_slot) {
             return true;
         }
-        mine_node = e.call(LIST_NEXT, &args![mine_node]).u32();
-        theirs_node = e.call(LIST_NEXT, &args![theirs_node]).u32();
+        mine_node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine_node));
+        theirs_node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs_node));
     }
     mine_node != 0 || theirs_node != 0
 }
@@ -2176,8 +2190,11 @@ pub fn extra_data_list_get_room_is_master(e: &mut Engine, this: Ptr<ExtraDataLis
     if e.get(data, RoomLinkedRefData::cMaster) != 0 {
         return true;
     }
-    e.call(LIST_IS_EMPTY, &args![data.addr() + ROOM_DATA_ROOM_LIST])
-        .bool()
+    typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, data.addr() + ROOM_DATA_ROOM_LIST)
+    )
 }
 
 // Translated from 00420870 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2233,26 +2250,26 @@ pub fn fn_00420950(e: &mut Engine, this: Ptr<ExtraDataList>, visited: Ptr) -> u3
     }
     let mut node = e.mem.u32(extra.addr() + 0x0c) + ROOM_DATA_ROOM_LIST;
     while node != 0 {
-        let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let room = e.mem.u32(slot);
         let room_list = e.call(REFERENCE_EXTRA_LIST, &args![room]).ptr();
         if extra_data_list_get_room_is_master(e, room_list) {
             return room;
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let mut node = e.mem.u32(extra.addr() + 0x0c) + ROOM_DATA_ROOM_LIST;
     e.with_stack(4, |e, seen| {
         while node != 0 {
-            let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 {
                 break;
             }
-            let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let room = e.mem.u32(slot);
             if !e.call(VISITED_SET_FIND, &args![visited, room, seen]).bool() {
                 let seen_value = e.mem.u8(seen.addr()) as u32;
@@ -2263,7 +2280,7 @@ pub fn fn_00420950(e: &mut Engine, this: Ptr<ExtraDataList>, visited: Ptr) -> u3
                     return found;
                 }
             }
-            node = e.call(LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         0
     })
@@ -2448,8 +2465,8 @@ pub fn extra_collision_data_compare(
     if mine.is_null() || theirs.is_null() {
         return true;
     }
-    let mine_word = e.call(READ_WORD, &args![mine]).u32();
-    let theirs_word = e.call(READ_WORD, &args![theirs]).u32();
+    let mine_word = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mine));
+    let theirs_word = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, theirs));
     mine_word != theirs_word
 }
 

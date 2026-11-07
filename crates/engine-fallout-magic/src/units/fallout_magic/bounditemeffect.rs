@@ -96,8 +96,10 @@ const MODEL_LOADER_RELEASE_MODEL: u32 = 0x0044_5300;
 /// `ModelLoader::LoadFile` (`00447080`, thiscall: six words).
 const MODEL_LOADER_LOAD_FILE: u32 = 0x0044_7080;
 /// `0044ddc0` (thiscall): the word at +8 (an item change's form; an effect's spell).
+#[cfg(test)]
 const WORD_AT_8_0044DDC0: u32 = 0x0044_ddc0;
 /// `0084e3a0` (thiscall): the word at +0xc (an effect's effect item; an item's setting).
+#[cfg(test)]
 const WORD_AT_C_0084E3A0: u32 = 0x0084_e3a0;
 /// `0048cee0` (thiscall on a model, returns a word; unnamed): non-zero when it names a model.
 const MODEL_LENGTH_0048CEE0: u32 = 0x0048_cee0;
@@ -114,6 +116,7 @@ const MAGIC_TARGET_GET_TARGET_AS_ACTOR: u32 = 0x0082_2b40;
 const ASSOCIATED_ITEM_006733E0: u32 = 0x0067_33e0;
 /// `007af430` (thiscall; the map's name `BGSSaveFormBuffer::GetForm` may come from folded
 /// code): a reference's base form.
+#[cfg(test)]
 const BASE_FORM_007AF430: u32 = 0x007a_f430;
 /// `TESActorBase::GetSex` (`005f0cc0`).
 const TES_ACTOR_BASE_GET_SEX: u32 = 0x005f_0cc0;
@@ -122,12 +125,16 @@ const TES_BIPED_MODEL_FORM_GET_BIPED_MODEL: u32 = 0x0048_11e0;
 /// `TESBipedModelForm::FillsBipedSlot` (`00480af0`, thiscall: three words).
 const TES_BIPED_MODEL_FORM_FILLS_BIPED_SLOT: u32 = 0x0048_0af0;
 /// `00559450` (thiscall on an item change; unnamed): its extra-data list node.
+#[cfg(test)]
 const EXTRA_LISTS_00559450: u32 = 0x0055_9450;
 /// `006815c0` (thiscall on a list node, returns the address of its item).
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (thiscall on a list node, returns the next node).
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// `008256d0` (thiscall on a list node, `AL`): true when the node's item and next are null.
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `ExtraDataList::ClearScriptLocals` (`0041afa0`).
 const EXTRA_DATA_LIST_CLEAR_SCRIPT_LOCALS: u32 = 0x0041_afa0;
@@ -189,8 +196,10 @@ const ACTOR_QUEUE_UNEQUIP_OBJECT: u32 = 0x0088_c790;
 const ACTOR_TEST_008A6970: u32 = 0x008a_6970;
 /// `008d8520` (thiscall on an actor; the map's name `MiddleHighProcess::GetSavedAcquireObject`
 /// may come from folded code): the object whose slots +0x148, +0x450, +0x454, +0x530 run here.
+#[cfg(test)]
 const ACTOR_OBJECT_008D8520: u32 = 0x008d_8520;
 /// `0045cd60` (thiscall on that object; unnamed).
+#[cfg(test)]
 const PROCESS_TEST_0045CD60: u32 = 0x0045_cd60;
 /// The player pointer (`011dea3c`).
 const PLAYER_POINTER: u32 = 0x011d_ea3c;
@@ -286,7 +295,7 @@ fn load_model_file(e: &mut Engine, model: u32) -> u32 {
 /// The actor's sex as these functions find it: `TESActorBase::GetSex` of its base form as
 /// a `TESNPC`, 0 when it is none.
 fn actor_sex(e: &mut Engine, actor: u32) -> u32 {
-    let base = e.call(BASE_FORM_007AF430, &args![actor]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
     let npc = cast(e, base, TES_BOUND_OBJECT_TYPE, TES_NPC_TYPE);
     if npc == 0 {
         0
@@ -298,11 +307,11 @@ fn actor_sex(e: &mut Engine, actor: u32) -> u32 {
 /// The first extra-data list of an item change (`*006815c0(00559450(change))`), null when
 /// it has no list.
 fn first_extra_list(e: &mut Engine, change: u32) -> u32 {
-    if e.call(EXTRA_LISTS_00559450, &args![change]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change)) == 0 {
         0
     } else {
-        let lists = e.call(EXTRA_LISTS_00559450, &args![change]).u32();
-        let slot = e.call(LIST_NODE_ITEM, &args![lists]).u32();
+        let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change));
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, lists));
         e.mem.u32(slot)
     }
 }
@@ -335,11 +344,11 @@ fn copy_item_change(e: &mut Engine, change: u32) -> u32 {
 /// The spell's effect setting (`GetAVEffect` with 0) and its costliest effect item
 /// (`GetCostliestEffect` of the spell's list with the effect item's +0xc word and 0).
 fn setting_and_costliest(e: &mut Engine, this: Ptr<BoundItemEffect>) -> (u32, u32) {
-    let spell = e.call(WORD_AT_8_0044DDC0, &args![this]).u32();
+    let spell = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     let setting = e.call(MAGIC_ITEM_GET_AV_EFFECT, &args![spell, 0u32]).u32();
-    let item = e.call(WORD_AT_C_0084E3A0, &args![this]).u32();
-    let item_setting = e.call(WORD_AT_C_0084E3A0, &args![item]).u32();
-    let spell = e.call(WORD_AT_8_0044DDC0, &args![this]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
+    let item_setting = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
+    let spell = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     let costliest = e
         .call(
             EFFECT_ITEM_LIST_GET_COSTLIEST_EFFECT,
@@ -414,7 +423,7 @@ pub fn fn_00807ee0(e: &mut Engine, this: Ptr<BoundItemEffect>) {
     let weapon_change = e.get(this, BoundItemEffect::pDisplacedWeapon);
     if weapon_change != 0 && e.get(this, BoundItemEffect::bWeaponCached) != 0 {
         let change = e.get(this, BoundItemEffect::pDisplacedWeapon);
-        let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
         let weapon = cast(e, form, TES_BOUND_OBJECT_TYPE, TES_OBJECT_WEAP_TYPE);
         if weapon != 0 && has_model(e, weapon + 0x3c) {
             let model = model_of(e, weapon + 0x3c);
@@ -428,7 +437,7 @@ pub fn fn_00807ee0(e: &mut Engine, this: Ptr<BoundItemEffect>) {
             if e.vcall(target, 4, &[]).u32() != 0 {
                 let target = e.call(EFFECT_TARGET_0059BB30, &args![this]).u32();
                 let reference = e.vcall(target, 4, &[]).u32();
-                let base = e.call(BASE_FORM_007AF430, &args![reference]).u32();
+                let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                 let npc = cast(e, base, TES_BOUND_OBJECT_TYPE, TES_NPC_TYPE);
                 if npc != 0 {
                     sex = e.call(TES_ACTOR_BASE_GET_SEX, &args![npc]).u32();
@@ -437,11 +446,13 @@ pub fn fn_00807ee0(e: &mut Engine, this: Ptr<BoundItemEffect>) {
         }
         for index in 0..DISPLACED_ITEM_COUNT {
             let change = e.mem.u32(displaced_item(this, index));
-            if change == 0 || e.call(WORD_AT_8_0044DDC0, &args![change]).u32() == 0 {
+            if change == 0
+                || typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change)) == 0
+            {
                 continue;
             }
             let change = e.mem.u32(displaced_item(this, index));
-            let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
             let biped = cast(e, form, TES_BOUND_OBJECT_TYPE, TES_BIPED_MODEL_FORM_TYPE);
             if biped != 0 {
                 e.set(this, BoundItemEffect::bWornCached, 1);
@@ -465,12 +476,12 @@ pub fn fn_00807ee0(e: &mut Engine, this: Ptr<BoundItemEffect>) {
         }
     }
     if e.get(this, BoundItemEffect::bSpellModelCached) != 0
-        && e.call(WORD_AT_8_0044DDC0, &args![this]).u32() != 0
-        && e.call(WORD_AT_C_0084E3A0, &args![this]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) != 0
+        && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) != 0
     {
         let (setting, costliest) = setting_and_costliest(e, this);
         if has_model(e, setting.wrapping_add(0x18))
-            && e.call(WORD_AT_C_0084E3A0, &args![this]).u32() == costliest
+            && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == costliest
         {
             let model = model_of(e, setting.wrapping_add(0x18));
             release_model(e, model);
@@ -517,7 +528,7 @@ pub fn bound_item_effect_copy(e: &mut Engine, this: Ptr<BoundItemEffect>) -> u32
     let weapon_change = e.get(this, BoundItemEffect::pDisplacedWeapon);
     if weapon_change != 0 && e.get(this, BoundItemEffect::bWeaponCached) != 0 {
         let change = e.get(this, BoundItemEffect::pDisplacedWeapon);
-        let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
         let weapon = cast(e, form, TES_BOUND_OBJECT_TYPE, TES_OBJECT_WEAP_TYPE);
         if weapon != 0 && has_model(e, weapon + 0x3c) {
             e.set(copy, BoundItemEffect::bWeaponCached, 1);
@@ -531,7 +542,7 @@ pub fn bound_item_effect_copy(e: &mut Engine, this: Ptr<BoundItemEffect>) -> u32
         if e.vcall(target, 4, &[]).u32() != 0 {
             let target = e.call(EFFECT_TARGET_0059BB30, &args![this]).u32();
             let reference = e.vcall(target, 4, &[]).u32();
-            let base = e.call(BASE_FORM_007AF430, &args![reference]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             let npc = cast(e, base, TES_BOUND_OBJECT_TYPE, TES_NPC_TYPE);
             if npc != 0 {
                 sex = e.call(TES_ACTOR_BASE_GET_SEX, &args![npc]).u32();
@@ -539,11 +550,13 @@ pub fn bound_item_effect_copy(e: &mut Engine, this: Ptr<BoundItemEffect>) -> u32
         }
         for index in 0..DISPLACED_ITEM_COUNT {
             let change = e.mem.u32(displaced_item(this, index));
-            if change == 0 || e.call(WORD_AT_8_0044DDC0, &args![change]).u32() == 0 {
+            if change == 0
+                || typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change)) == 0
+            {
                 continue;
             }
             let change = e.mem.u32(displaced_item(this, index));
-            let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
             let biped = cast(e, form, TES_BOUND_OBJECT_TYPE, TES_BIPED_MODEL_FORM_TYPE);
             if biped != 0 {
                 e.set(copy, BoundItemEffect::bWornCached, 1);
@@ -585,8 +598,8 @@ pub fn bound_item_effect_start(e: &mut Engine, this: Ptr<BoundItemEffect>) {
         e.call(ACTIVE_EFFECT_DISPEL, &args![this, 0u32]);
         return;
     }
-    if e.call(WORD_AT_8_0044DDC0, &args![this]).u32() == 0
-        || e.call(WORD_AT_C_0084E3A0, &args![this]).u32() == 0
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) == 0
+        || typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == 0
     {
         return;
     }
@@ -596,7 +609,7 @@ pub fn bound_item_effect_start(e: &mut Engine, this: Ptr<BoundItemEffect>) {
     }
     let model = model_of(e, setting.wrapping_add(0x18));
     let file = load_model_file(e, model);
-    let spell = e.call(WORD_AT_8_0044DDC0, &args![this]).u32();
+    let spell = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     let spell_type_4 = e.vcall(spell, 0x18, &[]).u32() == 4;
     if !spell_type_4 {
         if file != 0 {
@@ -611,7 +624,7 @@ pub fn bound_item_effect_start(e: &mut Engine, this: Ptr<BoundItemEffect>) {
     } else {
         e.mem.set_u32(this.addr() + 0xa0, 0);
     }
-    if e.call(WORD_AT_C_0084E3A0, &args![this]).u32() != costliest {
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) != costliest {
         let model = model_of(e, setting.wrapping_add(0x18));
         release_model(e, model);
     }
@@ -642,27 +655,30 @@ pub fn bound_item_effect_update(e: &mut Engine, this: Ptr<BoundItemEffect>, _unu
     let actor = target_actor(e, this);
     let item = e.call(ASSOCIATED_ITEM_006733E0, &args![this]).u32();
     let weapon = cast(e, item, TES_FORM_TYPE, TES_OBJECT_WEAP_TYPE);
-    if actor != 0 && e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32() != 0 && weapon != 0 {
-        let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+    if actor != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
+        && weapon != 0
+    {
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(object, 0x530, &args![weapon]);
         if e.get(this, BoundItemEffect::bSetupItem) != 0 {
-            let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if e.vcall(object, 0x148, &[]).u32() != 0 {
-                let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 let change = e.vcall(object, 0x148, &[]).u32();
-                if weapon == e.call(WORD_AT_8_0044DDC0, &args![change]).u32()
-                    && e.call(EXTRA_LISTS_00559450, &args![change]).u32() != 0
+                if weapon == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change))
+                    && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change)) != 0
                 {
                     e.set(this, BoundItemEffect::bSetupItem, 0);
-                    let lists = e.call(EXTRA_LISTS_00559450, &args![change]).u32();
-                    let slot = e.call(LIST_NODE_ITEM, &args![lists]).u32();
+                    let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change));
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, lists));
                     let extra = e.mem.u32(slot);
                     e.call(EXTRA_DATA_LIST_SET_CAN_NOT_WEAR, &args![extra, 1u32]);
                 }
             }
         }
         if actor == e.global::<u32>(PLAYER_POINTER) {
-            let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if !e.vcall(object, 0x454, &[]).bool()
                 && !e.call(ACTOR_TEST_008A6970, &args![actor]).bool()
             {
@@ -715,14 +731,15 @@ pub fn fn_00808a30(e: &mut Engine, this: Ptr<BoundItemEffect>) {
         let weapon = cast(e, item, TES_FORM_TYPE, TES_OBJECT_WEAP_TYPE);
         let item = e.call(ASSOCIATED_ITEM_006733E0, &args![this]).u32();
         let armor = cast(e, item, TES_FORM_TYPE, TES_OBJECT_ARMO_TYPE);
-        let process = |e: &mut Engine| e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+        let process =
+            |e: &mut Engine| typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         if weapon != 0 {
             let object = process(e);
             if e.vcall(object, 0x148, &[]).u32() != 0 {
                 let object = process(e);
                 let change = e.vcall(object, 0x148, &[]).u32();
                 let node = e.mem.u32(change);
-                let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let mut extra = e.mem.u32(slot);
                 let items = e.call(BASE_EXTRA_LIST_ITEMS_IN_LIST, &args![extra]).u32();
                 if items < 2 {
@@ -735,7 +752,7 @@ pub fn fn_00808a30(e: &mut Engine, this: Ptr<BoundItemEffect>) {
                 }
                 let object = process(e);
                 let change = e.vcall(object, 0x148, &[]).u32();
-                let old = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+                let old = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
                 if old != 0 && e.get(this, BoundItemEffect::bWeaponCached) == 0 {
                     let old_weapon = cast(e, old, TES_BOUND_OBJECT_TYPE, TES_OBJECT_WEAP_TYPE);
                     if old_weapon != 0 && has_model(e, old_weapon + 0x3c) {
@@ -748,10 +765,10 @@ pub fn fn_00808a30(e: &mut Engine, this: Ptr<BoundItemEffect>) {
                 let second = process(e);
                 let change = e.vcall(first, 0x148, &[]).u32();
                 let node = e.mem.u32(change);
-                let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let held_extra = e.mem.u32(slot);
                 let change = e.vcall(second, 0x148, &[]).u32();
-                let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
                 e.call(
                     ACTOR_QUEUE_UNEQUIP_OBJECT,
                     &args![actor, form, 1u32, held_extra, 0u32, 0u32, 1u32],
@@ -785,7 +802,7 @@ pub fn fn_00808a30(e: &mut Engine, this: Ptr<BoundItemEffect>) {
             } else {
                 let object = process(e);
                 let change = e.vcall(object, 0x148, &[]).u32();
-                e.call(WORD_AT_8_0044DDC0, &args![change]).u32() == weapon
+                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change)) == weapon
             };
             if !holds {
                 e.call(
@@ -799,11 +816,13 @@ pub fn fn_00808a30(e: &mut Engine, this: Ptr<BoundItemEffect>) {
                 if e.vcall(object, 0x148, &[]).u32() != 0 {
                     let object = process(e);
                     let change = e.vcall(object, 0x148, &[]).u32();
-                    if e.call(EXTRA_LISTS_00559450, &args![change]).u32() != 0 {
+                    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change)) != 0 {
                         let object = process(e);
                         let change = e.vcall(object, 0x148, &[]).u32();
-                        let lists = e.call(EXTRA_LISTS_00559450, &args![change]).u32();
-                        let slot = e.call(LIST_NODE_ITEM, &args![lists]).u32();
+                        let lists =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change));
+                        let slot =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, lists));
                         let list = e.mem.u32(slot);
                         e.call(EXTRA_DATA_LIST_SET_CAN_NOT_WEAR, &args![list, 1u32]);
                         set_up = true;
@@ -844,8 +863,10 @@ pub fn fn_00808a30(e: &mut Engine, this: Ptr<BoundItemEffect>) {
                 if worn == 0 {
                     continue;
                 }
-                if e.call(WORD_AT_8_0044DDC0, &args![worn]).u32() != 0 && worn_cached == 0 {
-                    let form = e.call(WORD_AT_8_0044DDC0, &args![worn]).u32();
+                if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, worn)) != 0
+                    && worn_cached == 0
+                {
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, worn));
                     let biped = cast(e, form, TES_BOUND_OBJECT_TYPE, TES_BIPED_MODEL_FORM_TYPE);
                     if biped != 0 {
                         let model = e
@@ -856,13 +877,14 @@ pub fn fn_00808a30(e: &mut Engine, this: Ptr<BoundItemEffect>) {
                     }
                 }
                 let node = e.mem.u32(worn);
-                let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let extra = e.mem.u32(slot);
                 e.mem.set_u32(local(0x20), extra);
                 if extra != 0 {
                     e.call(EXTRA_LIST_0041B010, &args![extra, 0u32]);
                     if e.call(EXTRA_LIST_TEST_004BCA60, &args![extra]).bool() {
-                        let lists = e.call(EXTRA_LISTS_00559450, &args![worn]).u32();
+                        let lists =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, worn));
                         e.call(LIST_REMOVE_00905330, &args![lists, local(0x20)]);
                     }
                 }
@@ -920,7 +942,8 @@ pub fn bound_item_effect_finish(e: &mut Engine, this: Ptr<BoundItemEffect>) {
         if e.get(this, BoundItemEffect::bItemSummoned) == 0 || actor == 0 {
             return;
         }
-        let process = |e: &mut Engine| e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+        let process =
+            |e: &mut Engine| typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let item = e.call(ASSOCIATED_ITEM_006733E0, &args![this]).u32();
         let weapon = cast(e, item, TES_FORM_TYPE, TES_OBJECT_WEAP_TYPE);
         let item = e.call(ASSOCIATED_ITEM_006733E0, &args![this]).u32();
@@ -949,10 +972,10 @@ pub fn bound_item_effect_finish(e: &mut Engine, this: Ptr<BoundItemEffect>) {
             if change != 0 {
                 let extra = first_extra_list(e, change);
                 let change = e.get(this, BoundItemEffect::pDisplacedWeapon);
-                let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
                 if e.call(ACTOR_GET_ITEM_COUNT, &args![actor, form]).i32() >= 1 {
                     let change = e.get(this, BoundItemEffect::pDisplacedWeapon);
-                    let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
                     e.call(
                         ACTOR_QUEUE_EQUIP_OBJECT,
                         &args![actor, form, 1u32, 0u32, 1u32, 0u32, 1u32],
@@ -960,7 +983,7 @@ pub fn bound_item_effect_finish(e: &mut Engine, this: Ptr<BoundItemEffect>) {
                 }
                 if e.get(this, BoundItemEffect::bWeaponCached) != 0 {
                     let change = e.get(this, BoundItemEffect::pDisplacedWeapon);
-                    let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
                     let old = cast(e, form, TES_BOUND_OBJECT_TYPE, TES_OBJECT_WEAP_TYPE);
                     if old != 0 && has_model(e, old + 0x3c) {
                         let model = model_of(e, old + 0x3c);
@@ -1009,9 +1032,9 @@ pub fn bound_item_effect_finish(e: &mut Engine, this: Ptr<BoundItemEffect>) {
                 let change = e.mem.u32(displaced_item(this, index));
                 let extra = first_extra_list(e, change);
                 let mut handed = false;
-                let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
                 if e.call(ACTOR_GET_ITEM_COUNT, &args![actor, form]).i32() >= 1 {
-                    let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
                     e.call(
                         ACTOR_QUEUE_EQUIP_OBJECT,
                         &args![actor, form, 1u32, 0u32, 1u32, 0u32, 1u32],
@@ -1027,8 +1050,10 @@ pub fn bound_item_effect_finish(e: &mut Engine, this: Ptr<BoundItemEffect>) {
                         )
                         .u32();
                     let same = now_worn != 0 && {
-                        let worn_form = e.call(WORD_AT_8_0044DDC0, &args![now_worn]).u32();
-                        worn_form == e.call(WORD_AT_8_0044DDC0, &args![change]).u32()
+                        let worn_form =
+                            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, now_worn));
+                        worn_form
+                            == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change))
                     };
                     if !same {
                         handed = fn_0080a700(e, actor, change, this.addr());
@@ -1038,10 +1063,10 @@ pub fn bound_item_effect_finish(e: &mut Engine, this: Ptr<BoundItemEffect>) {
                     }
                 }
                 if e.get(this, BoundItemEffect::bWornCached) != 0
-                    && e.call(WORD_AT_8_0044DDC0, &args![change]).u32() != 0
+                    && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change)) != 0
                     && !handed
                 {
-                    let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
                     let biped = cast(e, form, TES_BOUND_OBJECT_TYPE, TES_BIPED_MODEL_FORM_TYPE);
                     if biped != 0 {
                         let model = e
@@ -1060,14 +1085,14 @@ pub fn bound_item_effect_finish(e: &mut Engine, this: Ptr<BoundItemEffect>) {
                 break 'spell;
             }
             let object = process(e);
-            if e.call(PROCESS_TEST_0045CD60, &args![object]).u32() != 0
-                || e.call(WORD_AT_8_0044DDC0, &args![this]).u32() == 0
-                || e.call(WORD_AT_C_0084E3A0, &args![this]).u32() == 0
+            if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, object)) != 0
+                || typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) == 0
+                || typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == 0
             {
                 break 'spell;
             }
             let (setting, costliest) = setting_and_costliest(e, this);
-            if e.call(WORD_AT_C_0084E3A0, &args![this]).u32() != costliest {
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) != costliest {
                 break 'spell;
             }
             let effect_setting = e.call(EFFECT_SETTING_007DF1D0, &args![this]).u32();
@@ -1284,7 +1309,7 @@ pub fn bound_item_effect_load_game(e: &mut Engine, this: Ptr<BoundItemEffect>, a
             let change = e.mem.u32(displaced_item(this, index));
             e.call(ITEM_CHANGE_LOAD_GAME, &args![change]);
             let change = e.mem.u32(displaced_item(this, index));
-            if e.call(WORD_AT_8_0044DDC0, &args![change]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change)) == 0 {
                 let change = e.mem.u32(displaced_item(this, index));
                 if change != 0 {
                     e.call(DELETE_004459E0, &args![change, 1u32]);
@@ -1340,7 +1365,7 @@ pub fn bound_item_effect_init_load_game(e: &mut Engine, this: Ptr<BoundItemEffec
     if e.get(this, BoundItemEffect::bItemSummoned) != 0 {
         let change = e.get(this, BoundItemEffect::pDisplacedWeapon);
         if change != 0 {
-            let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
             let weapon = cast(e, form, TES_BOUND_OBJECT_TYPE, TES_OBJECT_WEAP_TYPE);
             if weapon != 0 && has_model(e, weapon + 0x3c) {
                 e.set(this, BoundItemEffect::bWeaponCached, 1);
@@ -1355,11 +1380,13 @@ pub fn bound_item_effect_init_load_game(e: &mut Engine, this: Ptr<BoundItemEffec
         let sex = if actor == 0 { 0 } else { actor_sex(e, actor) };
         for index in 0..DISPLACED_ITEM_COUNT {
             let change = e.mem.u32(displaced_item(this, index));
-            if change == 0 || e.call(WORD_AT_8_0044DDC0, &args![change]).u32() == 0 {
+            if change == 0
+                || typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change)) == 0
+            {
                 continue;
             }
             let change = e.mem.u32(displaced_item(this, index));
-            let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
             let biped = cast(e, form, TES_BOUND_OBJECT_TYPE, TES_BIPED_MODEL_FORM_TYPE);
             if biped != 0 {
                 e.set(this, BoundItemEffect::bWornCached, 1);
@@ -1375,7 +1402,7 @@ pub fn bound_item_effect_init_load_game(e: &mut Engine, this: Ptr<BoundItemEffec
         e.call(ITEM_CHANGE_INIT_004BED00, &args![change]);
         replace_old_item_change(e, this.addr() + 0x4c);
         let change = e.get(this, BoundItemEffect::pDisplacedWeapon);
-        let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
         e.call(
             ACTOR_QUEUE_UNEQUIP_OBJECT,
             &args![actor, form, 1u32, 0u32, 0u32, 0u32, 1u32],
@@ -1389,7 +1416,7 @@ pub fn bound_item_effect_init_load_game(e: &mut Engine, this: Ptr<BoundItemEffec
         e.call(ITEM_CHANGE_INIT_004BED00, &args![change]);
         replace_old_item_change(e, displaced_item(this, index));
         let change = e.mem.u32(displaced_item(this, index));
-        let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
         e.call(
             ACTOR_QUEUE_UNEQUIP_OBJECT,
             &args![actor, form, 1u32, 0u32, 0u32, 0u32, 1u32],
@@ -1429,7 +1456,7 @@ pub fn fn_0080a700(e: &mut Engine, actor: u32, change: u32, effect: u32) -> bool
     let biped = if change == 0 {
         0
     } else {
-        let form = e.call(WORD_AT_8_0044DDC0, &args![change]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, change));
         cast(e, form, TES_BOUND_OBJECT_TYPE, TES_BIPED_MODEL_FORM_TYPE)
     };
     if actor == 0 || biped == 0 {
@@ -1437,8 +1464,8 @@ pub fn fn_0080a700(e: &mut Engine, actor: u32, change: u32, effect: u32) -> bool
     }
     let target = if actor == 0 { 0 } else { actor + 0x94 };
     let mut node = e.vcall(target, 8, &[]).u32();
-    while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let other = e.mem.u32(slot);
         let bound = cast(e, other, ACTIVE_EFFECT_TYPE, BOUND_ITEM_EFFECT_TYPE);
         if bound != 0 && bound != effect {
@@ -1466,7 +1493,7 @@ pub fn fn_0080a700(e: &mut Engine, actor: u32, change: u32, effect: u32) -> bool
                 }
             }
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }

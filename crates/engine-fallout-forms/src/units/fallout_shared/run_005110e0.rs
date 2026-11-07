@@ -51,6 +51,7 @@ const SET_USED_ITEM_ACTIVATE: u32 = 0x0060_0940;
 const ACTOR_GET_EYE_LEVEL: u32 = 0x008b_e940;
 /// `MiddleHighProcess::GetSavedAcquireObject` (`008d8520`, engine map;
 /// `thiscall` on the actor).
+#[cfg(test)]
 const GET_SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// The player pointer (`011dea3c`) and the word `005113f0` stores the
 /// form's +0x80 in when the player activates (`011e0788`).
@@ -173,7 +174,7 @@ pub fn fn_005113f0(
             0
         };
         e.call(SET_USED_ITEM_LEVEL, &args![level]);
-        let acquire = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+        let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let accepted = e
             .vcall(acquire, 0x44, &args![actor, 0u32, 3u32, 1u32, 0u32, 1u32])
             .u8();
@@ -315,6 +316,7 @@ const COMPARE_ALL_COMPONENTS: u32 = 0x0048_5270;
 const STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// `0044ddc0` (`thiscall`): the form's flag word; `00403550` stores it
 /// (`thiscall`, one word); `00484b60` (`thiscall`, one word).
+#[cfg(test)]
 const FORM_FLAGS: u32 = 0x0044_ddc0;
 const SET_FORM_FLAGS: u32 = 0x0040_3550;
 const FORM_00484B60: u32 = 0x0048_4b60;
@@ -422,7 +424,7 @@ pub fn fn_005111e0(e: &mut Engine, this: Ptr, form: u32) -> bool {
 /// clears it otherwise, stores the word (`00403550`) and runs
 /// `00484b60(1)`.
 pub fn fn_00511370(e: &mut Engine, this: Ptr, set: u8) {
-    let mut flags = e.call(FORM_FLAGS, &args![this]).u32();
+    let mut flags = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     if set != 0 {
         flags |= 0x4000_0000;
     } else {
@@ -436,7 +438,7 @@ pub fn fn_00511370(e: &mut Engine, this: Ptr, set: u8) {
 /// Unnamed in the engine map: whether bit 0x10000000 of the form's flag
 /// word (`0044ddc0`) is set (0 or 1 in `EAX`).
 pub fn fn_005113d0(e: &mut Engine, this: Ptr) -> bool {
-    e.call(FORM_FLAGS, &args![this]).u32() & 0x1000_0000 != 0
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) & 0x1000_0000 != 0
 }
 
 // Translated from 00511860 (decompiled, FalloutNV.exe 1.4.0.525)

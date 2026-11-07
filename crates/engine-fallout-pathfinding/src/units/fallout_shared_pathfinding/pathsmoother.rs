@@ -42,8 +42,10 @@ const SCRAP_BOOL_ARRAY_VTABLE_0106C990: u32 = 0x0106_c990;
 /// `00401030` (cdecl: block): frees a block.
 const FREE_BLOCK: u32 = 0x0040_1030;
 /// `0044ddc0` (`thiscall`): an array's element count.
+#[cfg(test)]
 const COUNT_0044DDC0: u32 = 0x0044_ddc0;
 /// `00877a30` (`thiscall`, `RET 4`: index): the address of an element.
+#[cfg(test)]
 const ELEMENT_00877A30: u32 = 0x0087_7a30;
 /// `ScrapHeap::Allocate` (engine map, `00aa54a0`; `thiscall`, `RET 8`:
 /// size, alignment) and `ScrapHeap::Deallocate` (`00aa5610`; `RET 4`).
@@ -96,13 +98,21 @@ const DESTRUCT_006F27F0: u32 = 0x006f_27f0;
 /// is given back to the scrap heap at `+0x30` (`ScrapHeap::Deallocate`).
 fn release_elements(e: &mut Engine, base: u32, array: u32, destroy: bool) {
     let mut index = 0u32;
-    while index < e.call(COUNT_0044DDC0, &args![base + array]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + array)) {
         if destroy {
-            let slot = e.call(ELEMENT_00877A30, &args![base + array, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, base + array, index)
+            );
             let element = e.mem.u32(slot);
             fn_006ed4e0(e, Ptr::new(element), 0);
         }
-        let slot = e.call(ELEMENT_00877A30, &args![base + array, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, base + array, index)
+        );
         let element = e.mem.u32(slot);
         e.call(SCRAP_HEAP_DEALLOCATE, &args![base + 0x30, element]);
         index += 1;
@@ -181,7 +191,7 @@ fn scrap_allocate(e: &mut Engine, this: Ptr, bytes: u32) -> u32 {
 /// `old`, the old block given back. Returns the new block.
 fn scrap_reallocate(e: &mut Engine, this: Ptr, old: u32, count: u32, size: u32) -> u32 {
     let block = scrap_allocate(e, this, count.wrapping_mul(size));
-    let used = e.call(COUNT_0044DDC0, &args![this]).u32();
+    let used = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     e.call(
         COPY_BYTES_00401460,
         &args![block, old, used.wrapping_mul(size)],

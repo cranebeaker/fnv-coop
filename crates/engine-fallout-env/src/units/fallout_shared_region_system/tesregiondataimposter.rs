@@ -56,8 +56,10 @@ const DEALLOCATE: u32 = 0x0040_1030;
 const CHUNK_RDID: u32 = 0x4449_4452;
 /// `006815c0` (unnamed in the engine map): returns its `this` (a list
 /// node; the item is the node's first word).
+#[cfg(test)]
 const NODE_ITEM_006815C0: u32 = 0x0068_15c0;
 /// `00726070` (unnamed in the engine map): the node's next (word at +4).
+#[cfg(test)]
 const NODE_FOLLOWING_00726070: u32 = 0x0072_6070;
 /// `TESForm::GetFile` (`00484e60`, Xbox PDB; `thiscall`, one word).
 const TES_FORM_GET_FILE: u32 = 0x0048_4e60;
@@ -184,9 +186,9 @@ pub fn tes_region_data_imposter_init_item(e: &mut Engine, this: Ptr, file: Ptr) 
             if node == 0 {
                 return;
             }
-            let item = e.call(NODE_ITEM_006815C0, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item) != 0 {
-                let item = e.call(NODE_ITEM_006815C0, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let id = e.mem.u32(item);
                 e.mem.set_u32(id_slot, id);
                 let owner = if file.is_null() {
@@ -209,12 +211,12 @@ pub fn tes_region_data_imposter_init_item(e: &mut Engine, this: Ptr, file: Ptr) 
             }
             if e.mem.u32(cast_slot) == 0 {
                 e.call(NODE_REMOVE_0063F7B0, &args![node]);
-                let item = e.call(NODE_ITEM_006815C0, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(item) == 0 {
                     return;
                 }
             } else {
-                node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
     });
@@ -232,6 +234,7 @@ const LIST_CONSTRUCTOR_0096A2D0: u32 = 0x0096_a2d0;
 const LIST_COUNT_005AE380: u32 = 0x005a_e380;
 /// `0084e3a0` (unnamed in the engine map; no stack word): the word at +0xC
 /// of a form (`TESForm`'s form id on PC).
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// `TESForm::AddChunkArray_ov2` (`00485710`, engine map; cdecl: type,
 /// words, count).
@@ -259,9 +262,9 @@ pub fn fn_004f1f70(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
     if e.vcall(source.addr(), SLOT_GET_ID, &args![]).u32() == IMPOSTER_ID {
         let mut node = e.call(LIST_OF_00413F40, &args![source]).u32();
         while node != 0 {
-            let item = e.call(NODE_ITEM_006815C0, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.call(LIST_ADD_00905820, &args![this.addr() + 8, item]);
-            node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     this
@@ -285,11 +288,11 @@ pub fn tes_region_data_imposter_save(e: &mut Engine, this: Ptr) {
         .u32();
     let mut index: u32 = 0;
     while node != 0 && index < count {
-        let item_slot = e.call(NODE_ITEM_006815C0, &args![node]).u32();
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_slot);
-        let id = e.call(FORM_ID_0084E3A0, &args![item]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
         e.mem.set_u32(ids.wrapping_add(index.wrapping_mul(4)), id);
-        node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         index += 1;
     }
     e.call(ADD_CHUNK_ARRAY, &args![CHUNK_RDID, ids, count]);

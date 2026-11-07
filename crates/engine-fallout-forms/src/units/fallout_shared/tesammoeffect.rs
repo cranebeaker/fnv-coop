@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// The effect's operation kind (`0045cd60`, thiscall, no stack words).
+#[cfg(test)]
 const EFFECT_OPERATION: u32 = 0x0045_cd60;
 /// The effect's type (`0059bb30`, thiscall; the engine map's name
 /// `D3DTexture_LockRect` is folded code).
@@ -56,7 +57,7 @@ pub fn tes_ammo_effect_build_menu_string(e: &mut Engine, this: Ptr, buffer: u32,
         let name = frame.addr();
         let sign = frame.addr() + SIGN_OFFSET;
         e.mem.set_u8(sign, 0);
-        let operation = e.call(EFFECT_OPERATION, &args![this]).u32();
+        let operation = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
         match operation {
             0 => {
                 e.call(STRCPY_S, &args![sign, 2u32, SIGN_ADD]);

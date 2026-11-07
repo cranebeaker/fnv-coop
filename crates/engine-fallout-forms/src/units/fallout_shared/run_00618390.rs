@@ -54,8 +54,10 @@ pub fn fn_00618940(e: &mut Engine, this: Ptr) {
 /// (+0x2C).
 const TOPIC_QUEST_LIST: u32 = 0x005d_8a70;
 /// `006815c0` (`ECX` = node): the address of the node's item.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`ECX` = node): the next node, or 0.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `0063f7b0` (`ECX` = node): removes the node's item.
 const NODE_REMOVE: u32 = 0x0063_f7b0;
@@ -64,6 +66,7 @@ const NODE_REMOVE: u32 = 0x0063_f7b0;
 const PLUS_FOUR: u32 = 0x0071_7e50;
 /// `0084e3a0` (`ECX` = object): the word at +0xC (an array's count; a
 /// form's id).
+#[cfg(test)]
 const WORD_AT_0XC: u32 = 0x0084_e3a0;
 /// `004037f0` (`ECX` = `BSStringT`, the text, a word): sets the string.
 const STRING_SET: u32 = 0x0040_37f0;
@@ -92,10 +95,10 @@ const SIG_XIDX: u32 = 0x5844_4958;
 /// `01011584` when that is null.
 pub fn fn_00618660(e: &mut Engine, this: Ptr) -> u32 {
     let text = this.addr() + 0x40;
-    if e.call(0x0055_9450, &args![text]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text)) == 0 {
         0x0101_1584
     } else {
-        e.call(0x0055_9450, &args![text]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text))
     }
 }
 
@@ -147,14 +150,14 @@ pub fn fn_006186d0(e: &mut Engine, this: Ptr) {
     // stays the same while each pass removes its item.
     if list != 0 {
         loop {
-            let at = e.call(NODE_ITEM, &args![list]).u32();
+            let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             if e.mem.u32(at) == 0 {
                 break;
             }
-            let at = e.call(NODE_ITEM, &args![list]).u32();
+            let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let entry = e.mem.u32(at);
             let array = e.call(PLUS_FOUR, &args![entry]).u32();
-            let count = e.call(WORD_AT_0XC, &args![array]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array));
             let mut index = 0u32;
             while index < count {
                 let info = e.call(0x0061_9f20, &args![entry, index]).u32();
@@ -271,16 +274,16 @@ pub fn fn_00618aa0(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
     e.call(0x0048_5110, &args![this, file]);
     let mut node = e.call(TOPIC_QUEST_LIST, &args![this]).u32();
     while node != 0 {
-        let at = e.call(NODE_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(at) == 0 {
             break;
         }
-        let at = e.call(NODE_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(at);
         if entry != 0 {
             e.call(0x0084_54f0, &args![entry + 0x1c, 1u32]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     loop {
         let chunk = e.call(0x0047_26b0, &args![file]).u32();
@@ -308,7 +311,7 @@ pub fn fn_00618aa0(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
                 if entry != 0 {
                     current = entry;
                     let array = e.call(PLUS_FOUR, &args![entry]).u32();
-                    let size = e.call(0x0044_ddc0, &args![array]).u32();
+                    let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array));
                     let array = e.call(PLUS_FOUR, &args![entry]).u32();
                     e.call(0x0086_4280, &args![array, size.wrapping_add(0x64)]);
                     let array = e.call(PLUS_FOUR, &args![entry]).u32();
@@ -331,12 +334,13 @@ pub fn fn_00618aa0(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
                 let value = chunk_word(e, file, u32::MAX);
                 if current != 0 {
                     let list = current + 0x1c;
-                    let last = e.call(0x0044_ddc0, &args![list]).u32().wrapping_sub(1) as i32;
+                    let last = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list))
+                        .wrapping_sub(1) as i32;
                     if last >= 0 {
                         let record = e.call(0x006a_7af0, &args![list, last]).u32();
                         e.mem.set_u32(record + 8, value);
                         // The count read again (stored, not used).
-                        e.call(0x0044_ddc0, &args![list]);
+                        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list));
                         let mut index = 0i32;
                         while index < last {
                             let earlier = e.call(0x006a_7af0, &args![list, index]).u32();
@@ -373,7 +377,7 @@ pub fn fn_00618aa0(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
             break;
         }
     }
-    if e.call(WORD_AT_0XC, &args![this]).u32() <= 0x7ff {
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) <= 0x7ff {
         for kind in 0..8u32 {
             let mut index = 0u32;
             while index < e.mem.u32(TOPIC_COUNTS + 4 * kind) {
@@ -506,18 +510,22 @@ pub fn fn_006189c0(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
     e.call(0x0046_00f0, &args![tes]);
     let mut node = e.call(TOPIC_QUEST_LIST, &args![this]).u32();
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(slot);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         let infos = e.call(PLUS_FOUR, &args![entry]).u32();
-        let count = e.call(WORD_AT_0XC, &args![infos]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, infos));
         let mut index = 0u32;
         while index < count {
-            let at = e.call(0x0087_7a30, &args![infos, index]).u32();
+            let at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, infos, index)
+            );
             let info = e.mem.u32(at);
             if info != 0 {
                 let byte = u32::from(e.call(0x0047_1c20, &args![file]).u8());

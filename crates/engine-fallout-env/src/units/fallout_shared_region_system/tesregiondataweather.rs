@@ -91,6 +91,7 @@ const WEATHER_LIST_MERGE_005825A0: u32 = 0x0058_25a0;
 const WEATHER_LIST_SAVE: u32 = 0x0058_2380;
 /// `008256d0` (unnamed in the engine map; no stack word): a byte answer
 /// about the weather list (non-zero makes `Validate` false).
+#[cfg(test)]
 const WEATHER_LIST_TEST_008256D0: u32 = 0x0082_56d0;
 /// `004f1540` (unnamed in the engine map; no stack word): `TESRegionData::bOverride` (+4).
 const REGION_DATA_GET_OVERRIDE: u32 = 0x004f_1540;
@@ -253,9 +254,13 @@ pub fn tes_region_data_weather_blend_into(e: &mut Engine, this: Ptr, source: Ptr
 /// `TESRegionDataWeather::Validate` (Xbox PDB): 1 when `008256d0` on the
 /// weather list at +8 answers 0, else 0 (the whole word).
 pub fn tes_region_data_weather_validate(e: &mut Engine, this: Ptr) -> u32 {
-    let answer = e
-        .call(WEATHER_LIST_TEST_008256D0, &args![this.addr() + 8])
-        .u8();
+    let answer = typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.addr() + 8)
+    )
+    .into_ret()
+    .u8();
     u32::from(answer == 0)
 }
 

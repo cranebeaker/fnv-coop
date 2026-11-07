@@ -65,6 +65,7 @@ const BASE_DESTRUCT: u32 = 0x0080_d930;
 const POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const POINTER_DESTRUCT: u32 = 0x0045_cec0;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `BoltShader::Stop` (`00bc1470`) and `BoltShader::Start` (`00bc18d0`), `cdecl` (node,
 /// shader / node, 1), engine map names.
@@ -95,6 +96,7 @@ const SETTING_HAS_FLAG: u32 = 0x0040_3e60;
 const DOUBLE_ZERO: u32 = 0x0101_2060;
 /// The caster (`0045cd60`, then `MagicCaster::GetCasterAsActor` `00815410`) and the target
 /// (`0059bb30`, then `MagicTarget::GetTargetAsActor` `00822b40`).
+#[cfg(test)]
 const CASTER_OF: u32 = 0x0045_cd60;
 const CASTER_AS_ACTOR: u32 = 0x0081_5410;
 const TARGET_OF: u32 = 0x0059_bb30;
@@ -112,6 +114,7 @@ const SETTING_FLOAT: u32 = 0x0040_3e20;
 const SETTING_WORD: u32 = 0x0043_d4d0;
 const WEAPON_REACH: u32 = 0x0064_63e0;
 /// `MiddleHighProcess::GetSavedAcquireObject` (`008d8520`).
+#[cfg(test)]
 const SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// The settings `Update` and `Update3D` read (`011d1aa8` the reach, `011d1c10` the bolt
 /// length) and `Start3D` gives the bolt.
@@ -130,6 +133,7 @@ const DEFAULT_POINT: u32 = 0x011f_426c;
 const WORLD_POSITION: u32 = 0x0045_bb80;
 const SET_POSITION: u32 = 0x0044_0460;
 const POINT_MINUS: u32 = 0x0043_9ef0;
+#[cfg(test)]
 const SELF: u32 = 0x0068_15c0;
 const POINT_LENGTH: u32 = 0x0045_7990;
 const ATAN2: u32 = 0x004b_5550;
@@ -165,8 +169,11 @@ const TEXT_SPINE: u32 = 0x0102_0584;
 
 /// The node member (`this + offset`) read through `00559450`.
 fn member(e: &mut Engine, this: Ptr, offset: u32) -> u32 {
-    e.call(POINTER_GET, &args![this.addr().wrapping_add(offset)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(offset))
+    )
 }
 
 /// Whether the effect's setting is detrimental (`00403e60` with 2 on `00825c00` of the item at
@@ -179,10 +186,10 @@ fn is_detrimental(e: &mut Engine, this: Ptr) -> bool {
 
 /// The caster as an actor (0 without a caster).
 fn caster_actor(e: &mut Engine, this: Ptr) -> u32 {
-    if e.call(CASTER_OF, &args![this]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this)) == 0 {
         return 0;
     }
-    let caster = e.call(CASTER_OF, &args![this]).u32();
+    let caster = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
     e.call(CASTER_AS_ACTOR, &args![caster]).u32()
 }
 
@@ -365,8 +372,8 @@ pub fn absorb_effect_update(e: &mut Engine, this: Ptr, elapsed: f32) {
         let reach = e.call(WEAPON_REACH, &args![reach_setting]).f64();
         if x87_load32(distance) > reach {
             e.call(DISPEL, &args![this, 0u32]);
-        } else if e.call(SAVED_ACQUIRE_OBJECT, &args![caster]).u32() != 0 {
-            let acquire = e.call(SAVED_ACQUIRE_OBJECT, &args![caster]).u32();
+        } else if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, caster)) != 0 {
+            let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, caster));
             let found = e.vcall(acquire, 0x504, &args![target, 0u32]).u32();
             if found != 0 && e.mem.u8(found.wrapping_add(0x1e)) == 0 {
                 e.call(DISPEL, &args![this, 0u32]);
@@ -483,8 +490,8 @@ pub fn absorb_effect_start3_d(e: &mut Engine, this: Ptr) {
     } else {
         0
     };
-    let caster = if e.call(CASTER_OF, &args![this]).u32() != 0 {
-        let caster = e.call(CASTER_OF, &args![this]).u32();
+    let caster = if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this)) != 0 {
+        let caster = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
         e.vcall(caster, 0x2c, &[]).u32()
     } else {
         0
@@ -641,7 +648,7 @@ pub fn absorb_effect_update3_d(e: &mut Engine, this: Ptr, elapsed: f32) {
         let target_spine = member(e, this, 0x54);
         let target_position = e.call(WORLD_POSITION, &args![target_spine]).u32();
         e.call(POINT_MINUS, &args![target_position, difference, point]);
-        e.call(SELF, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         let height = x87_quiet_bits(e.mem.u32(difference + 8));
         e.mem.set_u32(difference + 8, x87_store32(0.0));
         let flat = e.call(POINT_LENGTH, &args![difference]).f64();

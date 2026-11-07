@@ -24,8 +24,10 @@ pub fn fn_008d1550(e: &mut Engine, this: Ptr, flags: u32) -> u32 {
 /// `BSSimpleList`-shaped list at `011dfe14`).
 const PROCESS_LIST: u32 = 0x011d_fe14;
 /// `008256d0` (`thiscall`, no stack words): whether the list is empty (`AL`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (`thiscall`, no stack words): the list's first item address.
+#[cfg(test)]
 const LIST_ITEM: u32 = 0x0068_15c0;
 /// `0063f7b0` (`thiscall`, no stack words): removes the list's head.
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -37,8 +39,12 @@ const LIST_ADD: u32 = 0x0090_5330;
 /// `RET`): while `008256d0` says it is not empty, calls the virtual slot
 /// +0x1c4 of the first item and removes the head (`0063f7b0`).
 pub fn fn_008d1560(e: &mut Engine) {
-    while !e.call(LIST_IS_EMPTY, &args![PROCESS_LIST]).bool() {
-        let item_address = e.call(LIST_ITEM, &args![PROCESS_LIST]).u32();
+    while !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, PROCESS_LIST)
+    ) {
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, PROCESS_LIST));
         let item = e.mem.u32(item_address);
         e.vcall(item, 0x1c4, &[]);
         e.call(LIST_REMOVE_HEAD, &args![PROCESS_LIST]);
@@ -89,6 +95,7 @@ const VECTOR_SET: u32 = 0x0055_32a0;
 /// `bhkCharacterProxy::GethkLinearVelocity` (engine map name of `00807080`).
 const LINEAR_VELOCITY: u32 = 0x0080_7080;
 /// The no-op constructor of an `NiPoint3` (`006815c0`).
+#[cfg(test)]
 const CONSTRUCT_IN_PLACE: u32 = 0x0068_15c0;
 
 // Translated from 008d10e0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -196,10 +203,10 @@ pub fn fn_008d12e0(e: &mut Engine, arrow: u32, body: u32, point: u32, normal: u3
         if actor == 0 || e.vcall(actor, 0x22c, &args![0u32]).bool() {
             return;
         }
-        if e.call(0x008d_8520, &args![actor]).u32() != 0 {
-            let process = e.call(0x008d_8520, &args![actor]).u32();
+        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if e.vcall(process, 0x40c, &[]).u32() != 0 {
-                let process = e.call(0x008d_8520, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 if e.vcall(process, 0x40c, &[]).u32() != 6 {
                     return;
                 }
@@ -226,9 +233,9 @@ pub fn fn_008d12e0(e: &mut Engine, arrow: u32, body: u32, point: u32, normal: u3
                 return;
             }
         }
-        e.call(CONSTRUCT_IN_PLACE, &args![place]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, place));
         e.call(0x0045_8620, &args![place, point]);
-        e.call(CONSTRUCT_IN_PLACE, &args![direction]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
         e.call(0x004a_3970, &args![direction, normal]);
         if e.call(FILTER_HIGH_HALF, &args![filter]).u32() == 1 {
             e.call(0x008c_c740, &args![arrow, place, direction]);
@@ -261,12 +268,12 @@ pub fn fn_008d14e0(e: &mut Engine, this: Ptr, contact: u32) {
     let arrow = e.mem.u32(this.addr() + LISTENER_ARROW);
     if arrow == 0
         || e.call(0x008c_e390, &args![arrow]).u32() != 0
-        || e.call(0x0044_0d80, &args![arrow]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, arrow))
     {
         return;
     }
     let normal = e.call(0x0046_0140, &args![contact]).u32();
-    let point = e.call(CONSTRUCT_IN_PLACE, &args![contact]).u32();
+    let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, contact));
     let body = e.mem.u32(contact + 0x48);
     fn_008d12e0(e, arrow, body, point, normal);
 }

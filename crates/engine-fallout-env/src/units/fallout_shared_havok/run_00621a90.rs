@@ -9,6 +9,7 @@ use crate::prelude::*;
 const FIRST_CALL: u32 = 0x0062_1a90;
 /// `0044ddc0`: thiscall on that result; its result is the argument of
 /// `00621480`.
+#[cfg(test)]
 const SECOND_CALL: u32 = 0x0044_ddc0;
 /// `00621480`: cdecl, one word; the result is left in EAX.
 const FINAL_CALL: u32 = 0x0062_1480;
@@ -19,7 +20,7 @@ const FINAL_CALL: u32 = 0x0062_1480;
 /// `00621480` returns.
 pub fn fn_00621ad0(e: &mut Engine, this: Ptr) -> u32 {
     let first = e.call(FIRST_CALL, &args![this]).u32();
-    let second = e.call(SECOND_CALL, &args![first]).u32();
+    let second = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, first));
     e.call(FINAL_CALL, &args![second]).u32()
 }
 

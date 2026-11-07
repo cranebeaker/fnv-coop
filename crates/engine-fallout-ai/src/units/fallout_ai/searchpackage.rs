@@ -11,6 +11,7 @@ const PACKAGE_DESTRUCT_006708B0: u32 = 0x0067_08b0;
 /// The `SearchPackage` vtable (`01093674`).
 const SEARCH_PACKAGE_VTABLE: u32 = 0x0109_3674;
 /// `006815c0` (`ECX` only): returns `this` (a point's trivial constructor).
+#[cfg(test)]
 const POINT_CONSTRUCT_006815C0: u32 = 0x0068_15c0;
 /// `PathingRequestCover::PathingRequestCover` (`006e4080`, engine map; `ECX` only).
 const PATHING_REQUEST_COVER_CONSTRUCT: u32 = 0x006e_4080;
@@ -66,6 +67,7 @@ const FIND_POINT_ON_NAV_MESH: u32 = 0x006d_7110;
 /// `0076b610` (`ECX` only): whether an array's size (+8) is zero.
 const ARRAY_IS_EMPTY_0076B610: u32 = 0x0076_b610;
 /// `0044ddc0` (`ECX` only): an array's size.
+#[cfg(test)]
 const ARRAY_SIZE_0044DDC0: u32 = 0x0044_ddc0;
 /// `009a3280` (`thiscall`, `RET 4`): the address of a cover location by index.
 const COVER_AT_009A3280: u32 = 0x009a_3280;
@@ -121,7 +123,11 @@ pub fn search_package_search_package(
     let base = this.addr();
     e.call(PACKAGE_CONSTRUCT, &args![this]);
     e.mem.set_u32(base, SEARCH_PACKAGE_VTABLE);
-    e.call(POINT_CONSTRUCT_006815C0, &args![base + SEARCH_POINT]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base + SEARCH_POINT)
+    );
     e.call(
         PATHING_REQUEST_COVER_CONSTRUCT,
         &args![base + COVER_REQUEST],
@@ -298,7 +304,8 @@ pub fn search_package_calculate_location_to_examine(
             fn_009f6830(e, this, x, y, z, point_x, point_y, point_z, cell, world);
         }
         let has_next = e.call(ARRAY_IS_EMPTY_0076B610, &args![covers]).u8() == 0
-            && e.mem.u32(base + NEXT_COVER) < e.call(ARRAY_SIZE_0044DDC0, &args![covers]).u32();
+            && e.mem.u32(base + NEXT_COVER)
+                < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, covers));
         if has_next {
             let index = e.mem.u32(base + NEXT_COVER);
             let cover = e.call(COVER_AT_009A3280, &args![covers, index]).u32();

@@ -73,6 +73,7 @@ const SOLUTION_COUNT_005A4320: u32 = 0x005a_4320;
 const SOLUTION_COUNT_008B6800: u32 = 0x008b_6800;
 /// `0044ddc0` (thiscall): the word at +8 of `this` (a `BSSimpleArray`'s
 /// `iSize`).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `PathingLocation::ResolveNavMeshInfo` (`006dd6f0`, thiscall
 /// `(location, filter)`, byte result).
@@ -431,7 +432,7 @@ pub fn fn_006c9170(e: &mut Engine, this: Ptr, index: u32, point: Ptr) -> i32 {
 /// `0044ddc0`.
 pub fn fn_006c9350(e: &mut Engine, this: Ptr) {
     let nodes = this.addr() + PathingSolution::CurrentPathingNodes.off;
-    let size = e.call(ARRAY_SIZE, &args![nodes]).u32();
+    let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, nodes));
     e.call(
         PATHING_NODES_006CF000,
         &args![nodes, size.wrapping_sub(1), 1u32],

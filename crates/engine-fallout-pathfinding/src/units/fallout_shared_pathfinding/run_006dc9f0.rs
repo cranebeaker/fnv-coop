@@ -9,6 +9,7 @@ const ZERO: u32 = 0x0101_2060;
 /// The zero point (`011f426c`, three words).
 const POINT_011F426C: u32 = 0x011f_426c;
 /// `0044ddc0` (`thiscall`): the element count of the array at `this`.
+#[cfg(test)]
 const COUNT: u32 = 0x0044_ddc0;
 /// `006a1400` (`thiscall`, `RET 4`: index): the address of an element.
 const ELEMENT: u32 = 0x006a_1400;
@@ -17,6 +18,7 @@ const POINT_SUBTRACT: u32 = 0x0043_9ef0;
 /// `00439e90` (`thiscall`, `RET 8`: out, other): `this + other` into `out`.
 const POINT_ADD: u32 = 0x0043_9e90;
 /// `NiPoint3::Dot` (engine map, `004b6190`; `thiscall`, `RET 4`, ST0).
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 /// `004a7290` (`thiscall`, ST0): a point's squared length.
 const POINT_LENGTH_SQUARED: u32 = 0x004a_7290;
@@ -60,7 +62,7 @@ pub fn fn_006dc9f0(e: &mut Engine, this: Ptr, point: Ptr, out: Ptr) -> f32 {
             e.mem.set_u32(out + offset, word);
         }
         e.mem.set_u32(weights, x87_store32(0.0));
-        let count = e.call(COUNT, &args![this]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
         if count > 0 {
             let chosen = l(0x1c);
             let weight = l(0x24);
@@ -77,7 +79,13 @@ pub fn fn_006dc9f0(e: &mut Engine, this: Ptr, point: Ptr, out: Ptr) -> f32 {
                     let (direction, to_point) = (l(0x40), l(0x34));
                     e.call(POINT_SUBTRACT, &args![element + 0xc, direction, element]);
                     e.call(POINT_SUBTRACT, &args![point, to_point, element]);
-                    let dot = e.call(POINT_DOT, &args![to_point, direction]).f64();
+                    let dot = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, to_point, direction)
+                    )
+                    .into_ret()
+                    .f64();
                     e.mem.set_u32(l(0x28), x87_store32(dot));
                     let zero: f64 = e.global(ZERO);
                     // `TEST AH,0x5; JP`: on when not below 0 (NaN included).

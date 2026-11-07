@@ -94,6 +94,7 @@ const READ_POINT: u32 = 0x0053_4570;
 const WRITE_POINT: u32 = 0x0065_b390;
 /// `007af430` / `0055b980` (named `BGSSaveFormBuffer::GetForm` / unnamed; folded
 /// getters): `thiscall`; two arrays of the data (12-byte and 8-byte elements).
+#[cfg(test)]
 const FIRST_ARRAY: u32 = 0x007a_f430;
 const SECOND_ARRAY: u32 = 0x0055_b980;
 /// `004a8ae0` (named `TESActorBaseData::GetFatigue`; a folded getter): `thiscall`; a
@@ -251,12 +252,12 @@ pub fn fn_009aba90(e: &mut Engine, _this: Ptr, node: u32, factor: f32) {
         });
         return;
     }
-    if e.call(FIRST_ARRAY, &args![data]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data)) == 0 {
         return;
     }
     let mut index = 0i32;
     while index < i32::from(e.call(ARRAY_LENGTH, &args![data]).u16()) {
-        let first = e.call(FIRST_ARRAY, &args![data]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data));
         let element = first.wrapping_add((index as u32).wrapping_mul(0xc)) + 0x4;
         scale_float(e, element, factor);
         let second = e.call(SECOND_ARRAY, &args![data]).u32();

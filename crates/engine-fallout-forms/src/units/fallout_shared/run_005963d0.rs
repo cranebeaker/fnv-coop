@@ -472,7 +472,7 @@ pub fn fn_00597a60(e: &mut Engine, this: Ptr, time: u32, flag: u8, location: u32
         let volume = x87_quiet_bits(e.mem.u32(track + 8));
         let fresh = u32::from(fn_00598000(e, Ptr::new(location)) == 0);
         let fade = fistp_chop_low(fade_millis(e));
-        let name = e.call(0x0055_9450, &args![track]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, track));
         e.call(
             MEDIA_START,
             &args![2u32, name, fade, fresh, 1u32, volume, offset],
@@ -502,11 +502,15 @@ pub fn fn_00598020(e: &mut Engine, this: Ptr) -> u8 {
 /// The list helpers of the controller's form lists: the item slot of a
 /// node (`006815c0`, its address), the next node (`00726070`), whether the
 /// list is empty (`008256d0`) and its count (`005ae380`).
+#[cfg(test)]
 const LIST_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 const LIST_COUNT: u32 = 0x005a_e380;
 /// The form id of a form (`0084e3a0`, thiscall).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// Writes a 4-byte chunk (`00485910`, cdecl: the chunk type, the word).
 const WRITE_CHUNK: u32 = 0x0048_5910;
@@ -543,7 +547,7 @@ const LOCATION_BYTE: u32 = 0x0071_aa80;
 
 /// The word in the item slot of a list node.
 fn list_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(LIST_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -553,7 +557,7 @@ fn list_item(e: &mut Engine, node: u32) -> u32 {
 /// `BSAudio::QInstance()`, `BSSoundHandle::Play(0)` on what it returns,
 /// then the handle's destructor.
 fn play_form_sound(e: &mut Engine, form: u32) {
-    let id = e.call(FORM_ID, &args![form]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     e.with_stack(0xc, |e, handle| {
         let audio = e.call(AUDIO_INSTANCE, &args![]).u32();
         let sound = e
@@ -602,7 +606,7 @@ pub fn fn_00596790(e: &mut Engine, this: Ptr) {
     e.call(WRITE_CHUNK, &args![0x374d_414eu32, value]);
     for (offset, chunk) in SAVED_LISTS {
         let mut node = base + offset;
-        if e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             continue;
         }
         while node != 0 {
@@ -610,14 +614,14 @@ pub fn fn_00596790(e: &mut Engine, this: Ptr) {
             if form == 0 {
                 break;
             }
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(WRITE_CHUNK, &args![chunk, id]);
-            node = e.call(LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     let form = e.mem.u32(base + 0x60);
     if form != 0 {
-        let id = e.call(FORM_ID, &args![form]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.call(WRITE_CHUNK, &args![0x4d41_4e52u32, id]);
     }
     let word = e.mem.u32(base + 0x64);
@@ -660,9 +664,9 @@ pub fn fn_00596ac0(e: &mut Engine, this: Ptr, source: u32) {
         e.call(LIST_CLEAR, &args![base + offset]);
         let mut node = other + offset;
         while node != 0 && list_item(e, node) != 0 {
-            let slot = e.call(LIST_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.call(LIST_ADD, &args![base + offset, slot]);
-            node = e.call(LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
 }
@@ -730,12 +734,12 @@ pub fn fn_00596d70(e: &mut Engine, this: Ptr, form: u32) -> bool {
                     found = true;
                     break;
                 }
-                other_node = e.call(LIST_NEXT, &args![other_node]).u32();
+                other_node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other_node));
             }
             if !found {
                 return true;
             }
-            node = e.call(LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     false
@@ -844,7 +848,7 @@ pub fn fn_00598060(e: &mut Engine, this: Ptr, time: u32, flag: u8, location: u32
             } else {
                 fistp_chop_low(millis_of(e, base, 0xb4))
             };
-            let name = e.call(0x0055_9450, &args![track]).u32();
+            let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, track));
             e.call(
                 MEDIA_START,
                 &args![3u32, name, fade, 1u32, 1u32, volume, offset],
@@ -871,7 +875,7 @@ pub fn fn_00598060(e: &mut Engine, this: Ptr, time: u32, flag: u8, location: u32
 fn start_first_track(e: &mut Engine, base: u32, channel: u32) {
     let volume = x87_quiet_bits(e.mem.u32(base + 0x50));
     let fade = fistp_chop_low(millis_of(e, base, 0xb0));
-    let name = e.call(0x0055_9450, &args![base + 0x48]).u32();
+    let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x48));
     e.call(
         MEDIA_START,
         &args![channel, name, fade, 1u32, 1u32, volume, 0u32],
@@ -973,7 +977,7 @@ pub fn fn_00598890(e: &mut Engine, this: Ptr, time: u32) -> bool {
         return true;
     }
     let holder = e.global::<u32>(0x011d_ea10);
-    let object = e.call(0x008d_8520, &args![holder]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, holder));
     let first = if object != 0 {
         let low = e.call(0x0059_5ea0, &args![object]).f64();
         let middle = e.call(0x0096_6a20, &args![object]).f64();

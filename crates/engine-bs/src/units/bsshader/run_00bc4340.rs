@@ -212,6 +212,7 @@ pub fn fn_00bc49a0(e: &mut Engine, this: Ptr) {
 
 /// The stage call `00e890c0` (unit `NiXenonRenderer`, unnamed; `thiscall` on the stage's
 /// +0x10, four words).
+#[cfg(test)]
 const STAGE_CALL_00E890C0: u32 = 0x00e8_90c0;
 /// The beam pass's render states, in order.
 const BEAM_RENDER_STATES: [(u32, u32); 10] = [
@@ -254,7 +255,11 @@ pub fn fn_00bc4c00(e: &mut Engine, this: Ptr) {
             e.call(SETUP_DEFAULT_STAGE, &args![stage, 0u32, 1u32, 2u32, 1u32]);
             let stage = e.mem.u32(local);
             let target = e.mem.u32(stage + 0x10);
-            e.call(STAGE_CALL_00E890C0, &args![target, 7u32, 0u32, 0u32, 0u32]);
+            typed_call!(
+                leaf::FAMILY,
+                0x00e8_90c0,
+                leaf::set_state_slot(e, target, 7u32, 0u32, 0u32, 0u32)
+            );
             let stage = e.mem.u32(local);
             let position = e.mem.u32(pass + 0x14);
             e.call(PASS_SET_STAGE, &args![pass, position, stage]);

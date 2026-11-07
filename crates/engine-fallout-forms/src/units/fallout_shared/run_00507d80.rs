@@ -58,7 +58,11 @@ fn fistp_truncate_low(value: f64) -> u32 {
 /// Returns what `00559450` returns for the member at `this + 0xdc` (that
 /// function reads the word at its `this`).
 pub fn fn_00507d80(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(0x0055_9450, &args![this.addr() + 0xdc]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xdc)
+    )
 }
 
 // Translated from 00507da0 (decompiled, FalloutNV.exe 1.4.0.525)

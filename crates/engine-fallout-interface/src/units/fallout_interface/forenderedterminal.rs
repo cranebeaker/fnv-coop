@@ -16,12 +16,14 @@ pub fn fn_007ff8c0(e: &mut Engine, this: Ptr) -> bool {
 }
 
 /// `00456630` (`thiscall`, `RET 4`): whether the word at +0x30 has a bit of the mask.
+#[cfg(test)]
 const FLAG_TEST_00456630: u32 = 0x0045_6630;
 /// `00450b80` (`cdecl`, one word, `ECX` unused): the word at `011f91c8 + 4 * index`.
 const TES_00450B80: u32 = 0x0045_0b80;
 /// The holder at `011db63c`: `00559450` (`thiscall`) returns its first word, `0066b0d0`
 /// (`thiscall`, `RET 4`) is called on it with 0.
 const HOLDER_011DB63C: u32 = 0x011d_b63c;
+#[cfg(test)]
 const HOLDER_GET_00559450: u32 = 0x0055_9450;
 const HOLDER_SET_0066B0D0: u32 = 0x0066_b0d0;
 /// `ModelLoader::ReleaseModel` (`00445300`, `thiscall` on the model loader at `011c3b3c`,
@@ -34,7 +36,11 @@ const TERMINAL_MODEL_PATH_011A0BB0: u32 = 0x011a_0bb0;
 /// Unnamed (`thiscall`, plain `RET`): `00456630(this, 0x4000)`, its `EAX` returned
 /// unchanged (0 or 1).
 pub fn fn_007ff8e0(e: &mut Engine, this: Ptr) -> bool {
-    e.call(FLAG_TEST_00456630, &args![this, 0x4000u32]).bool()
+    typed_call!(
+        leaf::FAMILY,
+        0x0045_6630,
+        leaf::flags_at_30_any(e, this, 0x4000u32)
+    )
 }
 
 // Translated from 007ffad0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -50,7 +56,12 @@ pub fn fn_007ffad0(e: &mut Engine, _this: Ptr) -> u32 {
 /// terminal model (`ModelLoader::ReleaseModel(path, 1, 1)` with the path at `011a0bb0`),
 /// then `0066b0d0(holder, 0)`.
 pub fn fo_rendered_terminal_release_static_geometry(e: &mut Engine) {
-    if e.call(HOLDER_GET_00559450, &args![HOLDER_011DB63C]).u32() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, HOLDER_011DB63C)
+    ) != 0
+    {
         let path: u32 = e.global(TERMINAL_MODEL_PATH_011A0BB0);
         let loader: u32 = e.global(MODEL_LOADER_011C3B3C);
         e.call(MODEL_LOADER_RELEASE_MODEL, &args![loader, path, 1u32, 1u32]);
@@ -140,6 +151,7 @@ const SECURITY_COOKIE: u32 = 0x011c_16bc;
 /// (`00a71080`, `RET 0x14`), `NiPick::PickObjects` (`00e98e20`, `RET 0xc`), the results
 /// (`00500940`), a record (`00968670`, `RET 4`), its object (`00458b50`) and
 /// `NiPick::~NiPick` (`00e98fa0`).
+#[cfg(test)]
 const POINT_INIT_006815C0: u32 = 0x0068_15c0;
 const CAMERA_008B6200: u32 = 0x008b_6200;
 const GETTER_0045C670: u32 = 0x0045_c670;
@@ -172,7 +184,11 @@ fn update_object(e: &mut Engine, object: u32) {
 
 /// The terminal geometry the static holder at `011db63c` holds (`00559450`).
 fn terminal_geometry(e: &mut Engine) -> u32 {
-    e.call(HOLDER_GET_00559450, &args![HOLDER_011DB63C]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, HOLDER_011DB63C)
+    )
 }
 
 // Translated from 007ff650 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -303,6 +319,7 @@ const PRINT_MESSAGE: u32 = 0x005b_5e40;
 /// `this`) and the light's setters: `004bc280` (`RET 4`, a point), `0050c630`,
 /// `0050c660`, `0050c690`, `0050dd20` (`RET 4`, a `float` each) and `0050dd50` (`RET 4`,
 /// a point).
+#[cfg(test)]
 const POINT_FROM_FLOATS_00416870: u32 = 0x0041_6870;
 const LIGHT_004BC280: u32 = 0x004b_c280;
 const LIGHT_0050C630: u32 = 0x0050_c630;
@@ -351,23 +368,31 @@ pub fn fo_rendered_terminal_init_light(e: &mut Engine, this: Ptr<FORenderedTermi
         let second = frame.addr() + 0xc;
         let color = frame.addr() + 0x18;
         let data = frame.addr() + 0x24;
-        let point = e
-            .call(POINT_FROM_FLOATS_00416870, &args![first, zero, zero, zero])
-            .u32();
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, first, zero, zero, zero)
+        );
         e.call(LIGHT_004BC280, &args![light, point]);
         e.call(LIGHT_0050C630, &args![light, zero]);
         e.call(LIGHT_0050C660, &args![light, zero]);
         e.call(LIGHT_0050C690, &args![light, zero]);
         e.call(LIGHT_0050DD20, &args![light, x87_store32(1.0)]);
         let x = setting(e, 0x011d_b644);
-        let point = e
-            .call(POINT_FROM_FLOATS_00416870, &args![second, x, zero, zero])
-            .u32();
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, second, x, zero, zero)
+        );
         e.call(LIGHT_0050DD50, &args![light, point]);
         let blue = setting(e, 0x011d_b5f8);
         let green = setting(e, 0x011d_b668);
         let red = setting(e, 0x011d_b608);
-        e.call(POINT_FROM_FLOATS_00416870, &args![color, red, green, blue]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, color, red, green, blue)
+        );
         e.call(MENU_LIGHT_COLOR_006B0570, &args![this, color]);
         let value = setting(e, 0x011d_b650);
         e.call(MENU_00965580, &args![this, value]);
@@ -433,7 +458,7 @@ pub fn fn_007ffba0(
 ) -> bool {
     let base = this.addr();
     let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
-    let has_button = e.call(HOLDER_GET_00559450, &args![base + 0xe4]).u32() != 0;
+    let has_button = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0xe4)) != 0;
     if has_button && flag != 0 {
         // The frame below `EBP`: the points at `EBP - 0x58` and `- 0x64`, the pick at
         // `EBP - 0x4c` (to `EBP - 0x18`).
@@ -442,8 +467,8 @@ pub fn fn_007ffba0(
             let origin = local(0x58);
             let direction = local(0x64);
             let pick = local(0x4c);
-            e.call(POINT_INIT_006815C0, &args![origin]);
-            e.call(POINT_INIT_006815C0, &args![direction]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
             let mut camera = e.call(CAMERA_008B6200, &args![this]).u32();
             if camera == 0 {
                 let object = e.call(GETTER_0045C670, &args![]).u32();
@@ -451,7 +476,7 @@ pub fn fn_007ffba0(
             }
             e.call(NI_PICK_CONSTRUCT, &args![pick, 0u32, 8u32]);
             e.call(PICK_00458B30, &args![pick, 0u32]);
-            let button = e.call(HOLDER_GET_00559450, &args![base + 0xe4]).u32();
+            let button = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0xe4));
             e.call(PICK_SET_TARGET_00705FC0, &args![pick, button]);
             e.call(PICK_006ECD40, &args![pick, 1u32]);
             let x = e.call(CURSOR_00792760, &args![interface]).f64();
@@ -470,7 +495,8 @@ pub fn fn_007ffba0(
                 let record = e.call(PICK_RECORD_00968670, &args![results, 0u32]).u32();
                 if record != 0 {
                     let object = e.call(RECORD_OBJECT_00458B50, &args![record]).u32();
-                    let button = e.call(HOLDER_GET_00559450, &args![base + 0xe4]).u32();
+                    let button =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0xe4));
                     if object == button {
                         fn_007ffd50(e, this);
                         hit = true;
@@ -626,6 +652,7 @@ const TRANSLATE_0043C490: u32 = 0x0043_c490;
 /// `NiAVObject::GetWorldBound` (`0043d450`), the bound's radius (`0084d030`, `ST0`), 3.0
 /// (`01021928`, `double`), `ShadowSceneNode::AddAllLightsFromNode_Recurse`
 /// (`00b5ca70`, `RET 8`).
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 const BOUND_RADIUS_0084D030: u32 = 0x0084_d030;
 const THREE_DOUBLE: u32 = 0x0102_1928;
@@ -711,8 +738,8 @@ pub fn fo_rendered_terminal_initialize(e: &mut Engine, this: Ptr<FORenderedTermi
             e.call(HOLDER_SET_0066B0D0, &args![base + 0xe4, child]);
         }
         let (turn, tilt, product) = (local(0x58), local(0xf8), local(0x128));
-        e.call(POINT_INIT_006815C0, &args![turn]);
-        e.call(POINT_INIT_006815C0, &args![tilt]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, turn));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, tilt));
         let angle = x87_quiet_bits(e.global::<u32>(TERMINAL_ANGLE_010559CC));
         e.call(MAKE_Y_ROTATION, &args![turn, angle]);
         e.call(MATRIX_004A0C90, &args![tilt, angle]);
@@ -745,7 +772,7 @@ pub fn fo_rendered_terminal_initialize(e: &mut Engine, this: Ptr<FORenderedTermi
         e.call(FOUR_FLOATS_00414430, &args![viewport, zero, one, one, zero]);
         e.call(CAMERA_00712E60, &args![camera, viewport]);
         let rows = local(0xa4);
-        e.call(POINT_INIT_006815C0, &args![rows]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rows));
         e.call(MATRIX_ROW_007133B0, &args![rows, 0u32, zero, zero, one]);
         e.call(MATRIX_ROW_007133B0, &args![rows, 1u32, one, zero, zero]);
         e.call(MATRIX_ROW_007133B0, &args![rows, 2u32, zero, one, zero]);
@@ -823,7 +850,7 @@ pub fn fo_rendered_terminal_initialize(e: &mut Engine, this: Ptr<FORenderedTermi
         let offset = x87_quiet_bits(e.global::<u32>(ROOT_OFFSET_01078BB0));
         let root = e.call(MENU_ROOT_0063D040, &args![this]).u32();
         e.call(SET_TRANSLATE_004BC1F0, &args![root, offset, zero, zero]);
-        let bound = e.call(GET_WORLD_BOUND, &args![model]).u32();
+        let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, model));
         let radius = e.call(BOUND_RADIUS_0084D030, &args![bound]).f64();
         let reach = x87_store32(x87_mul(radius, e.global::<f64>(THREE_DOUBLE)));
         let scene = e.call(TES_00450B80, &args![1u32]).u32();

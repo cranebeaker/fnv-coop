@@ -114,6 +114,7 @@ const VECTOR_DESTRUCT: u32 = 0x00ec_5fce;
 const LIST_HEAD: u32 = READ_WORD;
 const LIST_NEXT: u32 = 0x007b_52d0;
 const LIST_ITEM_ADDRESS: u32 = 0x0063_17a0;
+#[cfg(test)]
 const LIST_COUNT: u32 = 0x0044_ddc0;
 const LIST_ADD_HEAD: u32 = 0x0055_97d0;
 const LIST_REMOVE: u32 = 0x0049_c0b0;
@@ -125,12 +126,14 @@ const LIST_CONSTRUCT: u32 = 0x0071_8d90;
 
 /// `NiPoint3::NiPoint3()` (`006815c0`, shared with the `BSSimpleList`
 /// item accessor: both return `ECX`).
+#[cfg(test)]
 const NI_POINT3_CONSTRUCT: u32 = 0x0068_15c0;
 /// `KFModel` release `~Animation` runs on every model of `kfModelList`.
 const KF_MODEL_RELEASE: u32 = 0x0043_bac0;
 /// `TESObjectREFR::GetBaseForm`-style getter and the form-type getter
 /// `fn_0048ffd0` runs on its reference (the maps name `007af430`
 /// `BGSSaveFormBuffer::GetForm`, a folded name).
+#[cfg(test)]
 const REFERENCE_FORM: u32 = 0x007a_f430;
 const FORM_TYPE: u32 = 0x0040_1170;
 /// The form type `fn_0048ffd0` compares the reference's form with.
@@ -162,8 +165,11 @@ const SEQUENCE_END_TIME: u32 = 0x0050_8100;
 /// push back (pointer to the item), and the list's scalar deleting
 /// destructor.
 const SIMPLE_LIST_CONSTRUCT: u32 = 0x0096_a2d0;
+#[cfg(test)]
 const SIMPLE_LIST_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const SIMPLE_LIST_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const SIMPLE_LIST_IS_EMPTY: u32 = 0x0082_56d0;
 const SIMPLE_LIST_POP_FRONT: u32 = 0x0063_f7b0;
 const SIMPLE_LIST_CLEAR: u32 = 0x0047_0470;
@@ -219,6 +225,7 @@ const SOUND_PRIORITY_BONE_NAMES: u32 = 0x0119_9bcc;
 /// the name of object `i` (`GetObjectNameAt(i, buffer)`), and
 /// `BSAnimGroupSequence::BSAnimGroupSequence(group, sequence)`.
 const SEQUENCE_CYCLE_TYPE: u32 = 0x0059_bb30;
+#[cfg(test)]
 const SEQUENCE_OBJECT_COUNT: u32 = 0x0084_e3a0;
 const SEQUENCE_OBJECT_NAME_AT: u32 = 0x00a3_07c0;
 const ANIM_GROUP_SEQUENCE_CONSTRUCT: u32 = 0x004e_e9f0;
@@ -242,6 +249,7 @@ const MANAGER_RESET: u32 = 0x00a2_e9a0;
 const MANAGER_TARGET: u32 = 0x0055_b980;
 const ACTIVE_SET_ELEMENT: u32 = 0x0062_9ab0;
 const SEQUENCE_ARRAY_COUNT: u32 = 0x0065_8930;
+#[cfg(test)]
 const SEQUENCE_ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// Root-node helper of `GetAccumRoot` (`005f5f80`, on the first sequence's
 /// object).
@@ -333,7 +341,9 @@ const VATS_OBJECT: u32 = 0x011f_2250;
 const VATS_CURRENT_ACTION: u32 = 0x009c_71c0;
 /// The word at +8 of an object (`0044ddc0`), the word at +0xc (`0084e3a0`:
 /// the object count of a sequence, the form ID of a reference).
+#[cfg(test)]
 const WORD_AT_8: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const WORD_AT_C: u32 = 0x0084_e3a0;
 /// `StartGroup_ov2` asks `0047c850(object)` (a constant `false` in this
 /// build) of the object whose pointer is at `011de45c`; `00705a00` is
@@ -353,6 +363,7 @@ const SOUND_FLAG_CHECK: u32 = 0x0070_9cb0;
 /// test (`004938e0`), the process byte at +0x384 (`004938c0`), the word at
 /// +0x108 (`004f8960`), `TESObjectREFR::GetScale` (ST0) and the flag-word
 /// setter `008b0140(actor, value, mask)` (+0x11c).
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 const ACTOR_IS_WEAPON_DRAWN: u32 = 0x008a_16d0;
 const ACTOR_GET_ANIM_ACTION: u32 = 0x008a_7570;
@@ -435,6 +446,7 @@ const MOVE_NAME_TABLE: u32 = 0x0119_7794;
 /// first three floats of a transform record).
 const VECTOR_SCALE: u32 = 0x0045_bb20;
 const VECTOR_SUBTRACT: u32 = 0x0043_9ef0;
+#[cfg(test)]
 const RECORD_ADDRESS: u32 = 0x0068_15c0;
 /// `NiMatrix3::TransformVertices(matrix, translate, count, in, out)`
 /// (`__cdecl`).
@@ -480,7 +492,6 @@ const RESET_CONTROLLERS: u32 = 0x0049_6280;
 const IDLE_SET_WORD_8: u32 = 0x0040_3550;
 const RAGDOLL_REFRESH: u32 = 0x00c7_5b40;
 const GROUP_BYTE_28: u32 = 0x0097_4d90;
-const PROCESS_WORD_28: u32 = 0x0045_cd60;
 /// Format strings of the log messages (`.rdata`).
 const LOG_IDLE_FREE_ANIMATING: u32 = 0x0101_da98;
 const LOG_NO_ACCUM_ROOT: u32 = 0x0101_db48;
@@ -671,6 +682,7 @@ const FORM_BY_ID: u32 = 0x0048_39c0;
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const TYPE_DESCRIPTOR_FORM: u32 = 0x0118_3028;
 const TYPE_DESCRIPTOR_IDLE_FORM: u32 = 0x0118_6a18;
+#[cfg(test)]
 const ERROR_LOG: u32 = 0x0040_fbe0;
 /// `AnimIdle` helpers: the idle form of an idle (`0055b980`, the word at
 /// +0x2c), the save size (`004efb10(sequence)`), save (`004efb20(sequence,
@@ -806,6 +818,7 @@ const LIGHT_FADE: u32 = 0x0081_c470;
 const MANAGER_SET_FLAG: u32 = 0x0047_aa40;
 /// `00726070(object)`: the word at +4 (the next node of a `BSSimpleList`, or a
 /// field of the actor's sub-object).
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// `BSBipNode::UpdateBipOnly` (Xbox PDB): `004efe80(root, time, accumRoot)`, and
 /// `004f05c0(root, object)` (a method of the animation root).
@@ -1016,7 +1029,7 @@ layout! {
 
 /// `*(NiPointer*)pointer`: the pointer held by the `NiPointer` at `pointer`.
 fn ni_pointer_get(e: &mut Engine, pointer: u32) -> u32 {
-    e.call(READ_WORD, &args![pointer]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer))
 }
 
 /// The `ModelLoader` singleton.
@@ -1396,13 +1409,13 @@ pub fn anim_sequence_multiple_get_sequence_to_play(
     let use_random = if index == -1 {
         true
     } else {
-        let count = e.call(LIST_COUNT, &args![list]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list));
         (index as i32 as u32) >= count
     };
     let mut remaining = if use_random {
         let random = e.call(RANDOM, &args![]).u32();
         let list = e.get(this, AnimSequenceMultiple::pSeqList);
-        let count = e.call(LIST_COUNT, &args![list]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list));
         random % count
     } else {
         index as i32 as u32
@@ -1524,7 +1537,9 @@ pub fn anim_sequence_multiple_get_sequence(
 /// on it; the body is the group getter.
 pub fn fn_0048f7f0(e: &mut Engine, this: Ptr<BSAnimGroupSequence>) -> Ptr {
     let group = this.byte_add(BSAnimGroupSequence::spAnimGroup.off);
-    e.call(READ_WORD, &args![group]).ptr()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, group))
+        .into_ret()
+        .ptr()
 }
 
 // ---- Animation ---------------------------------------------------------------------
@@ -1539,8 +1554,8 @@ pub fn fn_0048f7f0(e: &mut Engine, this: Ptr<BSAnimGroupSequence>) -> Ptr {
 pub fn animation_animation(e: &mut Engine, this: Ptr<Animation>) -> Ptr<Animation> {
     let a = this.addr();
     e.call(NI_POINTER_INIT, &args![a + 0x8, 0u32]);
-    e.call(NI_POINT3_CONSTRUCT, &args![a + 0x10]);
-    e.call(NI_POINT3_CONSTRUCT, &args![a + 0x1c]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, a + 0x10));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, a + 0x1c));
     e.call(NI_POINTER_INIT, &args![a + 0xd8, 0u32]);
     e.call(SIMPLE_LIST_CONSTRUCT, &args![a + 0x104]);
     e.call(NI_POINTER_INIT, &args![a + 0x124, 0u32]);
@@ -1689,11 +1704,11 @@ pub fn fn_0048fb50(e: &mut Engine, this: Ptr<Animation>) {
 
     // Release the KF models.
     let mut node = a + Animation::kfModelList.off;
-    while node != 0 && !e.call(SIMPLE_LIST_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let model = e.mem.u32(item);
         e.call(KF_MODEL_RELEASE, &args![model]);
-        node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SIMPLE_LIST_CLEAR, &args![a + 0x104]);
     let map = e.get(this, Animation::pAnimSequenceMap).addr();
@@ -1706,13 +1721,17 @@ pub fn fn_0048fb50(e: &mut Engine, this: Ptr<Animation>) {
     e.set(this, Animation::pAccumRoot, Ptr::NULL);
 
     // Free the replay delay entries.
-    if !e.call(SIMPLE_LIST_IS_EMPTY, &args![a + 0x134]).bool() {
+    if !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, a + 0x134)
+    ) {
         let mut node = a + Animation::replayDelayList.off;
         while node != 0 {
-            let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let entry = e.mem.u32(item);
             e.call(OPERATOR_DELETE, &args![entry]);
-            node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         e.call(SIMPLE_LIST_CLEAR, &args![a + 0x134]);
     }
@@ -1740,7 +1759,7 @@ pub fn ni_controller_manager_deactivate_all(
 ) {
     let active = this.addr() + NiControllerManager::m_kActiveSequences.off;
     let mut i = 0u32;
-    while i < e.call(LIST_COUNT, &args![active]).u32() {
+    while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, active)) {
         let slot = e.call(ACTIVE_SET_ELEMENT, &args![active, i]).u32();
         let sequence = e.mem.u32(slot);
         e.call(MANAGER_DEACTIVATE, &args![this, sequence, ease_out]);
@@ -1799,7 +1818,7 @@ pub fn fn_0048ffd0(
             }
             // The actor's base form type, compared with 0x2a (the value is
             // not used afterwards).
-            let form = e.call(REFERENCE_FORM, &args![actor]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
             let _is_form_type_2a = e.call(FORM_TYPE, &args![form]).u32() == FORM_TYPE_COMPARED;
             e.call(NI_POINTER_SET, &args![a + 8, root]);
             for i in 0..8u32 {
@@ -1822,8 +1841,8 @@ pub fn fn_0048ffd0(
             };
             e.call(NI_POINTER_SET, &args![a + 0xd8, manager]);
             let queue_cloning = animation_should_queue_sequence_cloning(e, this);
-            while !e.call(SIMPLE_LIST_IS_EMPTY, &args![list]).bool() {
-                let item = e.call(SIMPLE_LIST_ITEM, &args![list]).u32();
+            while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                 let name = e.mem.u32(item);
                 let loader = model_loader(e);
                 let kf = e.call(MODEL_LOADER_LOAD_KF, &args![loader, name]).u32();
@@ -1899,7 +1918,7 @@ pub fn animation_add_special_animations(
     }
     let mut node = list.addr();
     while node != 0 {
-        let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let name = e.mem.u32(item);
         e.with_stack(0x104, |e, path| {
             e.call(
@@ -1920,7 +1939,7 @@ pub fn animation_add_special_animations(
                 animation_add_animation(e, this, kf, queue_cloning);
             }
         });
-        node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -1935,8 +1954,8 @@ pub fn animation_add_animations_from_list(e: &mut Engine, this: Ptr<Animation>, 
     }
     with_scope_guard(e, 0x2ee, |e| {
         let queue_cloning = animation_should_queue_sequence_cloning(e, this);
-        while !e.call(SIMPLE_LIST_IS_EMPTY, &args![list]).bool() {
-            let item = e.call(SIMPLE_LIST_ITEM, &args![list]).u32();
+        while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let name = e.mem.u32(item);
             let loader = model_loader(e);
             let kf = e.call(MODEL_LOADER_LOAD_KF, &args![loader, name]).u32();
@@ -2144,7 +2163,7 @@ fn add_animation_body(
     let use_sequence = if e
         .call(IS_KIND_OF, &args![RTTI_ANIM_GROUP_SEQUENCE, new_sequence])
         .bool()
-        && e.call(SIMPLE_LIST_NEXT, &args![new_sequence]).u32() == 1
+        && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, new_sequence)) == 1
     {
         // The sequence has a single reference (`+4` is its count): reuse it.
         new_sequence
@@ -2189,7 +2208,7 @@ fn add_animation_body(
     e.call(LOG, &args![LOG_UNABLE_TO_ADD, sequence_name, root_name]);
     e.call(DISABLE_WARNINGS, &args![1u32]);
     let mut i = 0u32;
-    while i < e.call(SEQUENCE_OBJECT_COUNT, &args![use_sequence]).u32() {
+    while i < typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, use_sequence)) {
         // The name buffer the game passes here is null, so `GetObjectNameAt`
         // writes nothing and the name stays null.
         let name = 0u32;
@@ -2232,10 +2251,10 @@ pub fn ni_controller_manager_get_accum_root(e: &mut Engine, this: Ptr<NiControll
         let array = this.addr() + NiControllerManager::m_kSequenceArray.off;
         let mut i = 0u32;
         while i < e.call(SEQUENCE_ARRAY_COUNT, &args![array]).u32() {
-            let slot = e.call(SEQUENCE_ARRAY_ELEMENT, &args![array, i]).u32();
-            if e.call(READ_WORD, &args![slot]).u32() != 0 {
-                let slot = e.call(SEQUENCE_ARRAY_ELEMENT, &args![array, i]).u32();
-                let sequence = e.call(READ_WORD, &args![slot]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, array, i));
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) != 0 {
+                let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, array, i));
+                let sequence = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
                 return e.call(ACCUM_ROOT_OF_SEQUENCE, &args![sequence]).ptr();
             }
             i += 1;
@@ -2259,7 +2278,9 @@ pub fn fn_00490e10(e: &mut Engine, this: Ptr<AnimSequenceSingle>) -> Ptr<AnimSeq
 /// name for it).
 pub fn fn_00490e40(e: &mut Engine, this: Ptr) -> Ptr {
     let field = this.byte_add(0x18);
-    e.call(READ_WORD, &args![field]).ptr()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, field))
+        .into_ret()
+        .ptr()
 }
 
 // Translated from 00490e60 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2321,7 +2342,9 @@ pub fn animation_should_queue_sequence_cloning(e: &mut Engine, this: Ptr<Animati
 /// address); the map has no name for it.
 pub fn fn_00490f80(e: &mut Engine, this: Ptr) -> Ptr {
     let field = this.byte_add(0x69c);
-    e.call(READ_WORD, &args![field]).ptr()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, field))
+        .into_ret()
+        .ptr()
 }
 
 // Translated from 00490fa0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2511,13 +2534,14 @@ fn update_queued_reload(e: &mut Engine, this: Ptr<Animation>, actor: Ptr) {
                 e.vcall(player, 0x4b0, &args![queued, 1u32]);
             }
             let mut has_item = false;
-            if e.call(ACTOR_PROCESS, &args![actor]).u32() != 0 {
-                let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 let equipped = e.vcall(process, 0x148, &args![]).u32();
                 let owner = if equipped != 0 {
-                    let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     let equipped = e.vcall(process, 0x148, &args![]).u32();
-                    e.call(WORD_AT_8, &args![equipped]).u32()
+                    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, equipped))
                 } else {
                     // The game calls `004938c0` with null here too.
                     0
@@ -2538,12 +2562,12 @@ fn update_queued_reload(e: &mut Engine, this: Ptr<Animation>, actor: Ptr) {
 /// the ones that reach zero are removed and freed.
 fn update_replay_delays(e: &mut Engine, this: Ptr<Animation>, delta_time: f32) {
     let list = this.addr() + Animation::replayDelayList.off;
-    if e.call(SIMPLE_LIST_IS_EMPTY, &args![list]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         return;
     }
     let mut node = list;
     while node != 0 {
-        let cell = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+        let cell = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let delay = e.mem.u32(cell);
         let remaining = (e.mem.f32(delay + 4) as f64 - delta_time as f64) as f32;
         e.mem.set_f32(delay + 4, remaining);
@@ -2551,7 +2575,7 @@ fn update_replay_delays(e: &mut Engine, this: Ptr<Animation>, delta_time: f32) {
             node = if node == list {
                 0
             } else {
-                e.call(SIMPLE_LIST_NEXT, &args![node]).u32()
+                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
             };
             let item = e.with_stack(4, |e, item| {
                 e.mem.set_u32(item.addr(), delay);
@@ -2559,11 +2583,12 @@ fn update_replay_delays(e: &mut Engine, this: Ptr<Animation>, delta_time: f32) {
                 e.mem.u32(item.addr())
             });
             e.call(OPERATOR_DELETE, &args![item]);
-            if node == 0 && !e.call(SIMPLE_LIST_IS_EMPTY, &args![list]).bool() {
+            if node == 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list))
+            {
                 node = list;
             }
         } else {
-            node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
 }
@@ -2581,7 +2606,7 @@ fn update_free_idles(e: &mut Engine, this: Ptr<Animation>) {
         let sequence = fn_00490e40(e, Ptr::new(idle));
         if sequence.is_null() {
             let idle = ni_pointer_get(e, field);
-            if e.call(WORD_AT_8, &args![idle]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, idle)) != 0 {
                 e.call(ANIM_IDLE_FREE, &args![this, field]);
             }
             continue;
@@ -2666,7 +2691,7 @@ pub fn animation_update(
                 break;
             }
             let queue = a + Animation::kfModelList.off;
-            let cell = e.call(SIMPLE_LIST_ITEM, &args![queue]).u32();
+            let cell = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, queue));
             let model = e.mem.u32(cell);
             animation_add_animation(e, this, model, false);
             e.call(KF_MODEL_RELEASE, &args![model]);
@@ -2968,7 +2993,7 @@ fn update_slot_stage(
                     let (section, elapsed) = section_and_elapsed(e, this, sequence, 3);
                     if section <= elapsed {
                         let idle = ni_pointer_get(e, a + Animation::spAnimIdle.off);
-                        if e.call(WORD_AT_C, &args![idle]).u32() == 1 {
+                        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, idle)) == 1 {
                             let idle = ni_pointer_get(e, a + Animation::spAnimIdle.off);
                             e.call(IDLE_SET_WORD_8, &args![idle, 3u32]);
                         } else {
@@ -2988,7 +3013,11 @@ fn update_slot_stage(
                         if process_actor != 0 {
                             let kind = type_column(e, SEQUENCE_TYPE_CATEGORY, current_type);
                             if kind == 3 || kind == 4 {
-                                let process = e.call(ACTOR_PROCESS, &args![process_actor]).u32();
+                                let process = typed_call!(
+                                    leaf::FAMILY,
+                                    0x008d_8520,
+                                    leaf::word_at_68(e, process_actor)
+                                );
                                 if process != 0 {
                                     if process_actor == player {
                                         e.call(ACTOR_SET_HAVOK_WEAPON, &args![process_actor]);
@@ -3010,15 +3039,27 @@ fn update_slot_stage(
             // Category 9.
             advance_action(e, this, slot, sequence, 3);
             if e.mem.i32(action_at(this, slot)) == 2 && process_actor != 0 {
-                let process = e.call(ACTOR_PROCESS, &args![process_actor]).u32();
+                let process = typed_call!(
+                    leaf::FAMILY,
+                    0x008d_8520,
+                    leaf::word_at_68(e, process_actor)
+                );
                 if process != 0 {
-                    let process = e.call(ACTOR_PROCESS, &args![process_actor]).u32();
+                    let process = typed_call!(
+                        leaf::FAMILY,
+                        0x008d_8520,
+                        leaf::word_at_68(e, process_actor)
+                    );
                     let aiming = e.vcall(process, 0x6dc, &args![]).bool()
                         && e.call(ACTOR_GET_ANIM_ACTION, &args![process_actor]).i32() == 2;
                     let reference = e.get(this, Animation::pActorRef).addr();
                     let aiming = aiming
                         || (reference == player
-                            && e.call(WORD_AT_8, &args![VATS_OBJECT]).u32() == 4
+                            && typed_call!(
+                                leaf::FAMILY,
+                                0x0044_ddc0,
+                                leaf::word_at_8(e, VATS_OBJECT)
+                            ) == 4
                             && e.call(VATS_CURRENT_ACTION, &args![VATS_OBJECT]).u32() != 0);
                     if aiming {
                         let group = fn_0048f7f0(e, Ptr::new(sequence));
@@ -3282,8 +3323,18 @@ fn update_movement_and_notes(
     }
 
     let mut notes_blocked = false;
-    if process_actor != 0 && e.call(ACTOR_PROCESS, &args![process_actor]).u32() != 0 {
-        let process = e.call(ACTOR_PROCESS, &args![process_actor]).u32();
+    if process_actor != 0
+        && typed_call!(
+            leaf::FAMILY,
+            0x008d_8520,
+            leaf::word_at_68(e, process_actor)
+        ) != 0
+    {
+        let process = typed_call!(
+            leaf::FAMILY,
+            0x008d_8520,
+            leaf::word_at_68(e, process_actor)
+        );
         notes_blocked = e.vcall(process, 0x2d8, &args![]).bool();
     }
     if !notes_blocked {
@@ -3490,7 +3541,7 @@ pub fn animation_update_movement_no_world_update(e: &mut Engine, this: Ptr<Anima
     let accumulator = e.call(SHADER_ACCUMULATOR, &args![]).u32();
     let mut accumulator_accepts = false;
     if accumulator != 0 {
-        let form_id = e.call(WORD_AT_C, &args![actor]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
         accumulator_accepts = e
             .call(SHADER_ACCUMULATOR_TEST, &args![accumulator, form_id, 0u32])
             .bool();
@@ -3648,7 +3699,7 @@ pub fn animation_init_group_speed(e: &mut Engine, this: Ptr<Animation>, group: P
             let mut index = 0u32;
             loop {
                 let sequence = ni_pointer_get(e, sequence_ref.addr());
-                let count = e.call(WORD_AT_C, &args![sequence]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sequence));
                 if index >= count {
                     break;
                 }
@@ -3676,8 +3727,10 @@ pub fn animation_init_group_speed(e: &mut Engine, this: Ptr<Animation>, group: P
                     e.vcall(interpolator, 0x8c, &args![begin, 0u32, start]);
                     e.vcall(interpolator, 0x8c, &args![end, 0u32, finish]);
                     if fn_004942c0(e, Ptr::new(start)) && fn_004942c0(e, Ptr::new(finish)) {
-                        let start_translate = e.call(RECORD_ADDRESS, &args![start]).u32();
-                        let finish_translate = e.call(RECORD_ADDRESS, &args![finish]).u32();
+                        let start_translate =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, start));
+                        let finish_translate =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, finish));
                         e.call(
                             VECTOR_SUBTRACT,
                             &args![finish_translate, difference, start_translate],
@@ -4118,12 +4171,15 @@ pub fn animation_start_group_ov2(
             let weight = if slot == 4 { 1.0 } else { 0.0 };
             fn_00495480(e, Ptr::new(sequence), weight);
         } else {
-            let process = e.call(ACTOR_PROCESS, &args![reference]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference));
             let mut weight_unset = true;
             let aims = e.call(GROUP_ID_IS_AIM, &args![kind as u16]).bool();
             if (aims || e.call(GROUP_ID_IS_ATTACK, &args![kind as u16]).bool())
                 && process != 0
-                && e.call(PROCESS_WORD_28, &args![process]).i32() <= 1
+                && typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process))
+                    .into_ret()
+                    .i32()
+                    <= 1
             {
                 let held = fn_00495560(e, Ptr::new(process), slot - 4);
                 if held != 0 {
@@ -4157,7 +4213,7 @@ pub fn animation_start_group_ov2(
     let pipboy_object: u32 = e.global(PIPBOY_QUERY_OBJECT);
     let skip_clearing = root_is_first_person_in_menu(e, a, player)
         && !e.call(PIPBOY_QUERY, &args![pipboy_object]).bool()
-        && e.call(WORD_AT_8, &args![VATS_OBJECT]).u32() == 0;
+        && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, VATS_OBJECT)) == 0;
     if !skip_clearing {
         let mut handled = false;
         if e.call(IS_IN_PIPBOY_MENU, &args![]).bool() {
@@ -4222,8 +4278,10 @@ pub fn animation_start_group_ov2(
                     let new_group = ni_pointer_get(e, new_ref.addr());
                     let new_value = e.call(GROUP_BYTE_28, &args![new_group]).u8() as i8;
                     if old_value == new_value {
-                        let old_count = e.call(WORD_AT_C, &args![current]).u32();
-                        let new_count = e.call(WORD_AT_C, &args![sequence]).u32();
+                        let old_count =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, current));
+                        let new_count =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sequence));
                         if old_count == new_count {
                             if e.call(SEQUENCE_MORPH_COMPATIBLE, &args![sequence, current])
                                 .bool()
@@ -4239,9 +4297,14 @@ pub fn animation_start_group_ov2(
                         } else {
                             let root = ni_pointer_get(e, a + Animation::pAnimRoot.off);
                             let root_name = object_name(e, root);
-                            let new_count = e.call(WORD_AT_C, &args![sequence]).u32();
+                            let new_count = typed_call!(
+                                leaf::FAMILY,
+                                0x0084_e3a0,
+                                leaf::word_at_c(e, sequence)
+                            );
                             let new_name = object_name(e, sequence);
-                            let old_count = e.call(WORD_AT_C, &args![current]).u32();
+                            let old_count =
+                                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, current));
                             let old_name = object_name(e, current);
                             e.call(
                                 LOG,
@@ -4722,8 +4785,14 @@ pub fn ni_controller_manager_get_sequence_at(
     index: u32,
 ) -> Ptr {
     let array = this.addr() + NiControllerManager::m_kSequenceArray.off;
-    let element = e.call(SEQUENCE_ARRAY_ELEMENT, &args![array, index]).u32();
-    e.call(READ_WORD, &args![element]).ptr()
+    let element = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    );
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element))
+        .into_ret()
+        .ptr()
 }
 
 // Translated from 00495d50 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -4738,7 +4807,9 @@ pub fn ni_blend_interpolator_get_interpolator(e: &mut Engine, this: Ptr, index: 
         return Ptr::new(e.mem.u32(a + 0x18));
     }
     let entry = (index as u32 * 0x18).wrapping_add(e.mem.u32(a + 0x14));
-    e.call(READ_WORD, &args![entry]).ptr()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry))
+        .into_ret()
+        .ptr()
 }
 
 // Translated from 00495da0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -5405,7 +5476,7 @@ pub fn fn_00496a50(e: &mut Engine, idle: Ptr<AnimIdle>) {
         && !actor.is_null()
         && e.call(ACTOR_GET_ANIM_ACTION, &args![actor]).i32() == 0xd
     {
-        let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let held = e.vcall(process, SLOT_PROCESS_HELD_OBJECT, &args![]).u32();
         let sequence = ni_pointer_get(e, a + AnimIdle::pSeq.off);
         if held == sequence {
@@ -5714,23 +5785,9 @@ pub fn fn_004974c0(e: &mut Engine, _unused_0: u32, idle: Ptr<AnimIdle>) -> u16 {
             let kind = e.call(FORM_BY_ID, &args![form_id]).u32();
             let name = e.vcall(kind, SLOT_FORM_TYPE_NAME, &args![]).u32();
             let flags = e.mem.u32(record + 5);
-            e.call(
-                ERROR_LOG,
-                &args![
-                    LOG_SAVE_SIZE_FORM,
-                    written,
-                    form_id,
-                    name,
-                    flags,
-                    0x11f3u32,
-                    SOURCE_FILE
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words LOG_SAVE_SIZE_FORM, written, form_id, name, flags, 0x11f3u32, SOURCE_FILE);
         } else {
-            e.call(
-                ERROR_LOG,
-                &args![LOG_SAVE_SIZE, written, 0x11f3u32, SOURCE_FILE],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words LOG_SAVE_SIZE, written, 0x11f3u32, SOURCE_FILE);
         }
     }
     size
@@ -5787,7 +5844,7 @@ pub fn fn_004975e0(
         e.mem.set_u32(form_id, 0);
         if !idle.is_null() && e.call(IDLE_FORM_OF, &args![idle]).u32() != 0 {
             let form = e.call(IDLE_FORM_OF, &args![idle]).u32();
-            let id = e.call(WORD_AT_C, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.mem.set_u32(form_id, id);
         }
         let save = e.global::<u32>(SAVE_GAME_OBJECT);
@@ -6139,7 +6196,7 @@ pub fn fn_00497f20(
             NI_POINTER_SET,
             &args![this.addr() + Animation::spAnimIdleQueued.off, idle],
         );
-        let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, SLOT_PROCESS_SET_IDLE, &args![idle_form]);
         e.call(SPECIAL_IDLE_CHECK, &args![this]);
     });
@@ -6159,7 +6216,7 @@ fn idle_in(e: &mut Engine, this: Ptr<Animation>, offset: u32) -> Ptr<AnimIdle> {
 
 /// The state (`eFlags`) of an idle, read through `0044ddc0`.
 fn idle_state(e: &mut Engine, idle: Ptr<AnimIdle>) -> u32 {
-    e.call(WORD_AT_8, &args![idle]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, idle))
 }
 
 // Translated from 00498030 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -6352,12 +6409,12 @@ pub fn fn_00498290(e: &mut Engine, this: Ptr<Animation>) -> bool {
     let idle = idle_in(e, this, current);
     e.call(IDLE_SET_WORD_8, &args![idle, 3u32]);
     let idle = idle_in(e, this, current);
-    let play_type = e.call(WORD_AT_C, &args![idle]).u32();
+    let play_type = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, idle));
     if play_type == 2 {
         animation_special_idle_free(e, this, 1, 0);
     } else {
         let idle = idle_in(e, this, current);
-        if e.call(WORD_AT_C, &args![idle]).u32() == 3 {
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, idle)) == 3 {
             animation_special_idle_free(e, this, 1, 0);
         }
     }
@@ -6636,7 +6693,7 @@ pub fn animation_special_idle_working(e: &mut Engine, this: Ptr<Animation>, form
             if e.call(IDLE_FORM_OF, &args![idle]).u32() == form.addr() {
                 return true;
             }
-            if e.call(WORD_AT_8, &args![VATS_OBJECT]).u32() == 4 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, VATS_OBJECT)) == 4 {
                 let idle = idle_in(e, this, offset);
                 if fn_00490e40(e, idle.cast()).addr() != 0 {
                     return true;
@@ -6737,7 +6794,7 @@ pub fn animation_clear_blend_interps(e: &mut Engine, this: Ptr<Animation>) {
     }
     let list = this.addr() + Animation::kfModelList.off;
     while e.call(MODEL_QUEUE_NOT_EMPTY, &args![this]).bool() {
-        let cell = e.call(RECORD_ADDRESS, &args![list]).u32();
+        let cell = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let model = e.mem.u32(cell);
         e.call(KF_MODEL_RELEASE, &args![model]);
         e.call(KF_MODEL_RELEASE, &args![model]);
@@ -6836,8 +6893,10 @@ pub fn animation_reload_targets(e: &mut Engine, this: Ptr<Animation>, retarget: 
         }
         let manager = manager_of(e, this);
         let sequence = ni_controller_manager_get_sequence_at(e, manager, index);
-        if !sequence.is_null() && e.call(WORD_AT_C, &args![sequence]).u32() > largest {
-            largest = e.call(WORD_AT_C, &args![sequence]).u32();
+        if !sequence.is_null()
+            && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sequence)) > largest
+        {
+            largest = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sequence));
         }
         index += 1;
     }
@@ -6940,7 +6999,7 @@ pub fn animation_blend_out(e: &mut Engine, this: Ptr<Animation>, slot: i32, flag
     if drawn {
         let mut held = false;
         if flag != 0 && e.call(ACTOR_GET_ANIM_ACTION, &args![actor]).i32() == 2 {
-            let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if e.vcall(process, SLOT_PROCESS_HELD_OBJECT, &args![]).u32() != 0 {
                 held = true;
             }
@@ -6977,7 +7036,7 @@ pub fn animation_blend_out(e: &mut Engine, this: Ptr<Animation>, slot: i32, flag
         animation_clear_group(e, this, slot, time);
     }
     if start_held {
-        let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let held = e.vcall(process, SLOT_PROCESS_HELD_OBJECT, &args![]).u32();
         let group = fn_0048f7f0(e, Ptr::new(held));
         let mut group_type = e.call(ANIM_GROUP_SEQUENCE_TYPE, &args![group]).u16() as u32;
@@ -7117,23 +7176,9 @@ pub fn fn_004997f0(e: &mut Engine, this: Ptr<Animation>, actor: Ptr) -> u16 {
             let kind = e.call(FORM_BY_ID, &args![form_id]).u32();
             let name = e.vcall(kind, SLOT_FORM_TYPE_NAME, &args![]).u32();
             let flags = e.mem.u32(record + 5);
-            e.call(
-                ERROR_LOG,
-                &args![
-                    LOG_SAVE_SIZE_FORM,
-                    written,
-                    form_id,
-                    name,
-                    flags,
-                    0x15b8u32,
-                    SOURCE_FILE
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words LOG_SAVE_SIZE_FORM, written, form_id, name, flags, 0x15b8u32, SOURCE_FILE);
         } else {
-            e.call(
-                ERROR_LOG,
-                &args![LOG_SAVE_SIZE, written, 0x15b8u32, SOURCE_FILE],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words LOG_SAVE_SIZE, written, 0x15b8u32, SOURCE_FILE);
         }
     }
     size
@@ -7174,20 +7219,9 @@ fn log_written_since(e: &mut Engine, start: u32, line: u32, form_format: u32, pl
         let kind = e.call(FORM_BY_ID, &args![form_id]).u32();
         let name = e.vcall(kind, SLOT_FORM_TYPE_NAME, &args![]).u32();
         let flags = e.mem.u32(record + 5);
-        e.call(
-            ERROR_LOG,
-            &args![
-                form_format,
-                written,
-                form_id,
-                name,
-                flags,
-                line,
-                SOURCE_FILE
-            ],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words form_format, written, form_id, name, flags, line, SOURCE_FILE);
     } else {
-        e.call(ERROR_LOG, &args![plain_format, written, line, SOURCE_FILE]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words plain_format, written, line, SOURCE_FILE);
     }
 }
 
@@ -7291,7 +7325,7 @@ pub fn animation_save_game(e: &mut Engine, this: Ptr<Animation>, actor: Ptr) {
                 e.mem.set_u8(selector, chosen);
             }
             if e.mem.u32(current_sequence_at(this, index)) == 0 {
-                let id = e.call(WORD_AT_C, &args![actor]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
                 let name = e.vcall(actor.addr(), SLOT_FORM_TYPE_NAME, &args![]).u32();
                 let group = e.mem.u16(group_at(this, index)) as u32;
                 let action = e.mem.u32(action_at(this, index));
@@ -7334,7 +7368,7 @@ pub fn animation_save_game(e: &mut Engine, this: Ptr<Animation>, actor: Ptr) {
             let time = e.get(this, Animation::time);
             e.call(SEQUENCE_SAVE, &args![sequence, time]);
             let sub = owner.addr() + ACTOR_SUB_OBJECT;
-            let object = e.call(WORD_AT_4, &args![sub]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, sub));
             e.mem.set_f32(value, 0.0);
             if object != 0 {
                 let amount = e.call(FLOAT_AT_10, &args![object]).f32();
@@ -7497,7 +7531,7 @@ pub fn fn_0049a1c0(e: &mut Engine, this: Ptr<Animation>, actor: Ptr) {
                 e.call(SEQUENCE_LOAD, &args![sequence, time]);
                 e.call(SAVE_READ, &args![save, value, 4u32]);
                 let sub = owner.addr() + ACTOR_SUB_OBJECT;
-                let object = e.call(WORD_AT_4, &args![sub]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, sub));
                 if object != 0 {
                     let end = e.call(SEQUENCE_END_TIME, &args![sequence]).f64();
                     let fade = (end * double_constant(e, DOUBLE_THREE_QUARTERS)) as f32;
@@ -7716,7 +7750,7 @@ pub fn fn_0049ab40(e: &mut Engine, this: Ptr<Animation>, buffer: Ptr) {
     let start = e.call(SAVE_BUFFER_START_VARIABLE, &args![buffer]).u32();
     let mut node = a + Animation::replayDelayList.off;
     while node != 0 {
-        let cell = e.call(RECORD_ADDRESS, &args![node]).u32();
+        let cell = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(cell);
         if item != 0 {
             let form = e.mem.u32(item);
@@ -7724,7 +7758,7 @@ pub fn fn_0049ab40(e: &mut Engine, this: Ptr<Animation>, buffer: Ptr) {
             e.call(SAVE_BUFFER_FIELD, &args![buffer, item + 4, 4u32, 0u32]);
             count += 1;
         }
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SAVE_BUFFER_END_VARIABLE, &args![buffer, count, start]);
     let queued = idle_field(this, Animation::spAnimIdleQueued.off);
@@ -7742,9 +7776,9 @@ pub fn fn_0049ab40(e: &mut Engine, this: Ptr<Animation>, buffer: Ptr) {
     e.call(SAVE_BUFFER_FORM_ID, &args![buffer, form, 0u32]);
     if idle != 0 && e.call(IDLE_FORM_OF, &args![idle]).u32() != 0 {
         let start = e.call(SAVE_BUFFER_START_VARIABLE, &args![buffer]).u32();
-        let before = e.call(WORD_AT_C, &args![buffer]).u32();
+        let before = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, buffer));
         fn_00497bc0(e, Ptr::new(idle), buffer, a);
-        let after = e.call(WORD_AT_C, &args![buffer]).u32();
+        let after = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, buffer));
         e.call(
             SAVE_BUFFER_END_VARIABLE,
             &args![buffer, after.wrapping_sub(before), start],
@@ -7776,10 +7810,10 @@ pub fn fn_0049ab40(e: &mut Engine, this: Ptr<Animation>, buffer: Ptr) {
         }
         e.call(SAVE_BUFFER_FIELD, &args![buffer, mask, 1u32, 0u32]);
         e.mem.set_u8(held_slot, 0xff);
-        let process = e.call(ACTOR_PROCESS, &args![owner]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner));
         let word = e.vcall(process, SLOT_PROCESS_HELD_PHASE, &args![]).u16();
         e.mem.set_u16(phase, word);
-        let process = e.call(ACTOR_PROCESS, &args![owner]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner));
         let held = e.vcall(process, SLOT_PROCESS_HELD_OBJECT, &args![]).u32();
         e.mem.set_u8(idle_slot, 0xff);
         let own_sequence = if idle != 0 {
@@ -7857,27 +7891,27 @@ pub fn fn_0049b050(e: &mut Engine, this: Ptr<Animation>, buffer: Ptr) {
         .vcall(buffer.addr(), SLOT_LOAD_BUFFER_OWNER, &args![])
         .u32();
     let list = a + Animation::kfModelList.off;
-    while !e.call(SIMPLE_LIST_IS_EMPTY, &args![list]).bool() {
-        let cell = e.call(RECORD_ADDRESS, &args![list]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let cell = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let model = e.mem.u32(cell);
         animation_add_animation(e, this, model, false);
         e.call(KF_MODEL_RELEASE, &args![model]);
         e.call(SIMPLE_LIST_POP_FRONT, &args![list]);
     }
-    let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(process, SLOT_PROCESS_RELOAD, &args![actor, this]);
     if e.vcall(actor, SLOT_ACTOR_FLAG_22C, &args![0u32]).bool()
         || e.vcall(actor, SLOT_ACTOR_FLAG_2E8, &args![]).bool()
     {
         animation_force_section(e, this, 0x14, 0xe0, -1, 0.0, 0xff);
     }
-    let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     let byte = e.vcall(process, SLOT_PROCESS_BYTE, &args![]).u8();
     fn_004974a0(e, this);
     let player: u32 = e.global(PLAYER_SINGLETON);
     if actor == player {
         if e.call(PLAYER_GET_ANIMATION, &args![player, 1u32]).u32() == a {
-            let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             let biped = e.call(PLAYER_BIPED, &args![player, 1u32]).u32();
             // 0049b1e4: `this` and the player pushed before `00950b00` (RET 4) are
             // the last two words of slot 0x1cc (RET 0x10).
@@ -7887,7 +7921,7 @@ pub fn fn_0049b050(e: &mut Engine, this: Ptr<Animation>, buffer: Ptr) {
                 &args![byte, biped, this, player],
             );
         } else {
-            let process = e.call(ACTOR_PROCESS, &args![player]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
             let biped = e.call(PLAYER_BIPED, &args![player, 0u32]).u32();
             e.vcall(
                 process,
@@ -7896,7 +7930,7 @@ pub fn fn_0049b050(e: &mut Engine, this: Ptr<Animation>, buffer: Ptr) {
             );
         }
     } else {
-        let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         // 0049b271: slot 0x1e8 takes no stack words; `this` and the actor are
         // the last two words of slot 0x1cc.
         let biped = e.vcall(actor, SLOT_ACTOR_BIPED, &args![]).u32();
@@ -7906,11 +7940,11 @@ pub fn fn_0049b050(e: &mut Engine, this: Ptr<Animation>, buffer: Ptr) {
             &args![byte, biped, this, actor],
         );
     }
-    let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(process, SLOT_PROCESS_NOTIFY, &args![actor]);
-    let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(process, SLOT_PROCESS_REFRESH, &args![]);
-    let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(process, SLOT_PROCESS_SET_HELD, &args![0xffff_ffffu32, 0u32]);
     for index in 0..8u32 {
         let sequence = e.mem.u32(current_sequence_at(this, index));
@@ -8095,7 +8129,7 @@ pub fn fn_0049b050(e: &mut Engine, this: Ptr<Animation>, buffer: Ptr) {
         if held_index != -1 {
             let held = e.mem.u32(current_sequence_at(this, held_index as u32));
             if held != 0 {
-                let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 let phase_value = e.mem.u16(phase) as i16 as i32;
                 e.vcall(process, SLOT_PROCESS_SET_HELD, &args![phase_value, held]);
             }
@@ -8184,10 +8218,10 @@ pub fn fn_0049bb70(e: &mut Engine, this: Ptr<Animation>, _unused_0: u32) {
     let list = this.addr() + Animation::replayDelayList.off;
     let mut node = list;
     while node != 0 {
-        let cell = e.call(RECORD_ADDRESS, &args![node]).u32();
+        let cell = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(cell);
         e.call(OPERATOR_DELETE, &args![item]);
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SIMPLE_LIST_CLEAR, &args![list]);
 }
@@ -8237,11 +8271,11 @@ pub fn animation_update_bip_only(
 pub fn fn_0049bd30(e: &mut Engine, this: Ptr<Animation>) -> u32 {
     let list = this.addr() + Animation::kfModelList.off;
     let mut count = 0u32;
-    if !e.call(SIMPLE_LIST_IS_EMPTY, &args![list]).bool() {
+    if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         let mut node = list;
         while node != 0 {
             count += 1;
-            node = e.call(WORD_AT_4, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     count
@@ -8551,13 +8585,15 @@ pub fn fn_0049c5a0(e: &mut Engine, this: Ptr<NiTPointerMap>, flags: u32) -> Ptr<
 /// (the third one a byte) and the result 0.
 pub fn fn_0058cb00(e: &mut Engine, this: Ptr, out_a: Ptr, out_b: Ptr, out_c: Ptr) -> u32 {
     let field = this.addr() + 0x2c;
-    if e.call(READ_WORD, &args![field]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, field)) == 0 {
         e.mem.set_u32(out_a.addr(), 0);
         e.mem.set_u32(out_b.addr(), 0);
         e.mem.set_u8(out_c.addr(), 0);
         return 0;
     }
-    let object = e.call(READ_WORD, &args![field]).ptr();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, field))
+        .into_ret()
+        .ptr();
     fn_0058cb60(e, object, out_a, out_b, out_c)
 }
 

@@ -69,8 +69,10 @@ const LIST_CONSTRUCT: u32 = 0x0096_a2d0;
 /// Appends the value whose address is passed to the list in `ECX`.
 const LIST_ADD: u32 = 0x005a_e3d0;
 /// Whether the list in `ECX` is empty.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// Returns the item slot of the list node in `ECX` (the node itself).
+#[cfg(test)]
 const LIST_ITEM_SLOT: u32 = 0x0068_15c0;
 /// Removes the first node of the list in `ECX`.
 const LIST_POP_FRONT: u32 = 0x0063_f7b0;
@@ -307,8 +309,8 @@ pub fn fn_004a8bb0(
                 outer = outer.wrapping_add(1);
             }
         }
-        while !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-            let slot = e.call(LIST_ITEM_SLOT, &args![list]).u32();
+        while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let scene_info = e.mem.u32(slot);
             e.call(LIST_POP_FRONT, &args![list]);
             let count = e

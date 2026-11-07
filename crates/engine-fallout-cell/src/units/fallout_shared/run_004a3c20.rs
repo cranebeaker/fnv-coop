@@ -21,6 +21,7 @@ use crate::units::fallout_shared::bgsdecalmanager::{
 // Constants
 
 /// `hkVector4` constructor (does nothing; returns `this`).
+#[cfg(test)]
 const HK_VECTOR4_CONSTRUCT: u32 = 0x0068_15c0;
 /// `hkBool` constructor: stores the byte argument at `this` and returns
 /// `this`.
@@ -36,11 +37,13 @@ const HK_VECTOR4_COMPONENT: u32 = 0x0056_0d30;
 const REFR_SET_VECTOR: u32 = 0x0056_d340;
 /// Pointer dereference: returns the word at the address in `this`
 /// (`NiPointer`-style `operator T*`).
+#[cfg(test)]
 const LOAD_POINTER: u32 = 0x0055_9450;
 /// List iteration helper: advances the iterator word at the argument to
 /// the next node and returns the address of the current node's element.
 const LIST_ITERATE: u32 = 0x0057_cbe0;
 /// The list's count (the word at `this + 8`).
+#[cfg(test)]
 const LIST_COUNT: u32 = 0x0044_ddc0;
 /// `NiTPointerListBase::RemoveAll`.
 const LIST_REMOVE_ALL: u32 = 0x004e_d900;
@@ -190,7 +193,7 @@ pub fn fn_004a3d40(
     e: &mut Engine,
     this: Ptr<HkpShapeRayCastCollectorOutput>,
 ) -> Ptr<HkpShapeRayCastCollectorOutput> {
-    e.call(HK_VECTOR4_CONSTRUCT, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     fn_004a3d60(e, this);
     this
 }
@@ -229,8 +232,8 @@ pub fn fn_004a3cc0(e: &mut Engine, this: Ptr<HkpWorldRayCastInput>) -> Ptr<HkpWo
     let from = this.at(HkpWorldRayCastInput::m_from);
     let to = this.at(HkpWorldRayCastInput::m_to);
     let filter = this.byte_add(HkpWorldRayCastInput::m_enableShapeCollectionFilter.off);
-    e.call(HK_VECTOR4_CONSTRUCT, &args![from]);
-    e.call(HK_VECTOR4_CONSTRUCT, &args![to]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, from));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, to));
     e.call(HK_BOOL_CONSTRUCT, &args![filter, 0u32]);
     e.set(this, HkpWorldRayCastInput::m_filterInfo, 0);
     this
@@ -284,7 +287,7 @@ pub fn fn_004a3e00(e: &mut Engine, out: Ptr, input: Ptr) -> Ptr {
 /// `hkVector4` and passes it to the setter `0x0056d340` on `this`.
 pub fn fn_004a3da0(e: &mut Engine, this: Ptr, input: Ptr) {
     e.with_stack(16, |e, temp| {
-        e.call(HK_VECTOR4_CONSTRUCT, &args![temp]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, temp));
         let converted = fn_004a3e00(e, temp, input);
         e.call(REFR_SET_VECTOR, &args![this, converted]);
     });
@@ -311,7 +314,7 @@ pub fn fn_004a3f40(e: &mut Engine, this: Ptr<BhkPickData>, to: Ptr) {
 /// `fn_004a3f40` (`bhkPickData`: set the end point).
 pub fn fn_004a3eb0(e: &mut Engine, this: Ptr<BhkPickData>, input: Ptr) {
     e.with_stack(16, |e, temp| {
-        e.call(HK_VECTOR4_CONSTRUCT, &args![temp]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, temp));
         let converted = fn_004a3e00(e, temp, input);
         fn_004a3f40(e, this, converted);
     });
@@ -323,7 +326,7 @@ pub fn fn_004a3eb0(e: &mut Engine, this: Ptr<BhkPickData>, input: Ptr) {
 pub fn fn_004a3f70(e: &mut Engine, this: Ptr<BhkPickData>, value: u32) {
     let loaded = e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), value);
-        e.call(LOAD_POINTER, &args![slot]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
     });
     let input = this.at(BhkPickData::input);
     e.set(input, HkpWorldRayCastInput::m_filterInfo, loaded);
@@ -379,7 +382,7 @@ pub fn fn_004a42a0(e: &mut Engine) {
     e.call(PENDING_LIST_RESET, &args![pending]);
     let list = manager.at(BGSDecalManager::DecalEmitterList);
     e.with_stack(4, |e, iterator| {
-        let head = e.call(LOAD_POINTER, &args![list]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
         e.mem.set_u32(iterator.addr(), head);
         while e.mem.u32(iterator.addr()) != 0 {
             let element = e.call(LIST_ITERATE, &args![list, iterator]).ptr::<()>();
@@ -413,18 +416,18 @@ pub fn fn_004a4410(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 /// flag 1) and clears the pointer. The list itself is left as it is.
 pub fn fn_004a4340(e: &mut Engine, this: Ptr<BGSDecalManager>) {
     let list = this.at(BGSDecalManager::PendingSimpleDecalList);
-    if e.call(LIST_COUNT, &args![list]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) == 0 {
         return;
     }
     let lock_owner = e.call(PENDING_LOCK_OWNER, &args![]).u32();
     e.call(PENDING_LOCK_BEGIN, &args![lock_owner]);
     e.with_stack(8, |e, iterator| {
         let zero_word = iterator.addr() + 4;
-        let head = e.call(LOAD_POINTER, &args![list]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
         e.mem.set_u32(iterator.addr(), head);
         while e.mem.u32(iterator.addr()) != 0 {
             let element = e.call(LIST_ITERATE, &args![list, iterator]).ptr::<()>();
-            let decal = e.call(LOAD_POINTER, &args![element]).u32();
+            let decal = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element));
             if decal == 0 {
                 continue;
             }
@@ -556,7 +559,11 @@ pub fn fn_004a41e0(e: &mut Engine, this: Ptr) -> u16 {
 /// The word at the sub-object's +0x20 (`0x007af430`, named
 /// `BGSSaveFormBuffer::GetForm` in the engine map by code folding).
 pub fn fn_004a4220(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(0x007a_f430, &args![sub_object(this)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x007a_f430,
+        leaf::word_at_20(e, sub_object(this))
+    )
 }
 
 // ---------------------------------------------------------------------

@@ -34,6 +34,7 @@ const PRECIPITATION_VTABLE: u32 = 0x0104_ed98;
 /// `NiPointer` helpers (`thiscall` on the pointer's address): the pointer's value (`00559450`,
 /// no stack words), assignment of a raw pointer (`0066b0d0`, `RET 4`), assignment of another
 /// `NiPointer` (`006e5cc0`, `RET 4`: its address) and the destructor (`0045cec0`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const POINTER_ASSIGN_POINTER: u32 = 0x006e_5cc0;
@@ -105,7 +106,7 @@ const BLEND_RTTI_011F3E58: u32 = 0x011f_3e58;
 
 /// The value of the `NiPointer` at `slot`.
 fn pointer_get(e: &mut Engine, slot: u32) -> u32 {
-    e.call(POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// The parent's detach of the `NiPointer` at `this + offset` when it holds a node, then the
@@ -1210,11 +1211,13 @@ const RANDOM_FACTOR_01011590: u32 = 0x0101_1590;
 const RANDOM_ADDEND_0101A6B0: u32 = 0x0101_a6b0;
 /// `00416870` (`thiscall`, `RET 0xc`: three floats): sets a point and
 /// answers it.
+#[cfg(test)]
 const POINT_SET_00416870: u32 = 0x0041_6870;
 /// `00658930` (`thiscall`, plain `RET`): the 16-bit count at `+0xa` of the
 /// array at `+0x18`, zero-extended.
 const ARRAY_COUNT_00658930: u32 = 0x0065_8930;
 /// `00877a30` (`thiscall`, `RET 4`: an index): the element's slot.
+#[cfg(test)]
 const ARRAY_AT_00877A30: u32 = 0x0087_7a30;
 /// `00401000` (`cdecl`, one word: bytes): allocates a block.
 const ALLOCATE_00401000: u32 = 0x0040_1000;
@@ -1279,17 +1282,17 @@ pub fn fn_006397c0(e: &mut Engine) -> f32 {
 /// copied through `FLD`/`FSTP`), its three words copied to `this`.
 pub fn fn_006397f0(e: &mut Engine, this: Ptr, x: f32, y: f32, z: f32) {
     e.with_stack(12, |e, temporary| {
-        let point = e
-            .call(
-                POINT_SET_00416870,
-                &args![
-                    temporary,
-                    x87_quiet_bits(x.to_bits()),
-                    x87_quiet_bits(y.to_bits()),
-                    x87_quiet_bits(z.to_bits())
-                ],
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(
+                e,
+                temporary,
+                x87_quiet_bits(x.to_bits()),
+                x87_quiet_bits(y.to_bits()),
+                x87_quiet_bits(z.to_bits())
             )
-            .u32();
+        );
         for word in 0..3 {
             let value = e.mem.u32(point.wrapping_add(word * 4));
             e.mem.set_u32(this.addr().wrapping_add(word * 4), value);
@@ -1356,8 +1359,12 @@ pub fn fn_00639a30(e: &mut Engine, this: Ptr, mask: u32, shift: u32) -> i32 {
 pub fn fn_00639a60(e: &mut Engine, this: Ptr, index: u32) -> u32 {
     let array = this.addr() + 0x18;
     if index < e.call(ARRAY_COUNT_00658930, &args![array]).u32() {
-        let slot = e.call(ARRAY_AT_00877A30, &args![array, index]).u32();
-        e.call(POINTER_GET, &args![slot]).u32()
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
     } else {
         0
     }
@@ -1369,10 +1376,12 @@ pub fn fn_00639a60(e: &mut Engine, this: Ptr, index: u32) -> u32 {
 /// slot (`00877a30`, then `00559450`); otherwise null.
 pub fn fn_00639ac0(e: &mut Engine, this: Ptr, index: u32) -> u32 {
     if index < u32::from(fn_00639b00(e, this)) {
-        let slot = e
-            .call(ARRAY_AT_00877A30, &args![this.addr() + 0x54, index])
-            .u32();
-        e.call(POINTER_GET, &args![slot]).u32()
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, this.addr() + 0x54, index)
+        );
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
     } else {
         0
     }
@@ -1593,6 +1602,7 @@ const GETTER_005081B0: u32 = 0x0050_81b0;
 const MODEL_GEOMETRY_005495F0: u32 = 0x0054_95f0;
 const VERTEX_COUNT_004A8AE0: u32 = 0x004a_8ae0;
 const TRIANGLE_COUNT_008041A0: u32 = 0x0080_41a0;
+#[cfg(test)]
 const VERTICES_007AF430: u32 = 0x007a_f430;
 const TEXTURE_COORDINATES_0055B980: u32 = 0x0055_b980;
 const TRIANGLES_00A7B850: u32 = 0x00a7_b850;
@@ -1812,7 +1822,11 @@ fn height_bound(e: &mut Engine, clamp: u32, scale: u32, rotated_z: u32, translat
 /// The box/sphere/cylinder/mesh corner made by `00416870` into `temporary`
 /// and copied to `to`.
 fn corner(e: &mut Engine, temporary: u32, to: u32, x: u32, y: u32, z: u32) {
-    let point = e.call(POINT_SET_00416870, &args![temporary, x, y, z]).u32();
+    let point = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, temporary, x, y, z)
+    );
     copy_words(e, point, to, 3);
 }
 
@@ -1915,8 +1929,8 @@ fn build_precipitation(e: &mut Engine, root: u32, snow: u32, at: &dyn Fn(u32) ->
     let mut count = crate::x87::fistp_chop(fld(e, birth_rate)) as u16;
     e.mem.set_u32(extent, 0.0f32.to_bits());
     e.call(TRANSFORM_CONSTRUCT_00476A80, &args![transform]);
-    e.call(POINT_CONSTRUCT_006815C0, &args![low]);
-    e.call(POINT_CONSTRUCT_006815C0, &args![high]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, low));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, high));
     if is_kind_of(e, RTTI_MODEL_NODE_01202538, root) {
         let mut index = 0u32;
         loop {
@@ -1949,7 +1963,8 @@ fn build_precipitation(e: &mut Engine, root: u32, snow: u32, at: &dyn Fn(u32) ->
             let data = e.call(KIND_OF_CAST, &args![RTTI_011F4A88, geometry]).u32();
             vertices = e.call(VERTEX_COUNT_004A8AE0, &args![data]).u32() as u16;
             let triangles = e.call(TRIANGLE_COUNT_008041A0, &args![data]).u32() as u16;
-            let source_positions = e.call(VERTICES_007AF430, &args![data]).u32();
+            let source_positions =
+                typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data));
             let source_coordinates = e.call(TEXTURE_COORDINATES_0055B980, &args![data]).u32();
             let source_indices = e.call(TRIANGLES_00A7B850, &args![data]).u32();
             let most = 0xffff / u32::from(vertices);
@@ -2041,7 +2056,11 @@ fn build_precipitation(e: &mut Engine, root: u32, snow: u32, at: &dyn Fn(u32) ->
                 (at(0x4fc), at(0x508), minus, zero, one),
             ];
             for (k, (temporary, out, x, y, z)) in (0u32..).zip(corners) {
-                let point = e.call(POINT_SET_00416870, &args![temporary, x, y, z]).u32();
+                let point = typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, temporary, x, y, z)
+                );
                 let scaled = e
                     .call(
                         POINT_SCALED_004A3760,
@@ -2151,9 +2170,10 @@ fn particles(
     let z = float_arg(e, cos_declination);
     let y = x87_store32(x87_mul(fld(e, sin_declination), fmem(e, plane_sin)));
     let x = x87_store32(x87_mul(fld(e, sin_declination), fmem(e, plane_cos)));
-    e.call(
-        POINT_SET_00416870,
-        &args![direction, x87_quiet_bits(x), x87_quiet_bits(y), z],
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, direction, x87_quiet_bits(x), x87_quiet_bits(y), z)
     );
     e.call(
         POINT_SCALED_004A3760,
@@ -2161,7 +2181,7 @@ fn particles(
     );
     let emitter_scale = x87_store32(f64::from(fn_00639aa0(e, Ptr::new(emitter))));
     e.mem.set_u32(scale, emitter_scale);
-    e.call(POINT_CONSTRUCT_006815C0, &args![rotated]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotated));
     let mut box_emitter = 0u32;
     let mut cylinder = 0u32;
     let mut sphere = 0u32;
@@ -2268,7 +2288,7 @@ fn particles(
         let holder = fn_00639ac0(e, Ptr::new(mesh), 0);
         let source = e.call(BOUND_00537B10, &args![holder]).u32();
         copy_words(e, source, bound, 4);
-        let source = e.call(POINT_CONSTRUCT_006815C0, &args![bound]).u32();
+        let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
         copy_words(e, source, center, 3);
         let value = x87_store32(e.call(BOUND_RADIUS_0084D030, &args![bound]).f64());
         e.mem.set_u32(radius, value);
@@ -2290,14 +2310,14 @@ fn particles(
     let positions = new_elements(e, total, 0xc);
     let mesh_point = at(0x44);
     let scaled = at(0xac);
-    e.call(POINT_CONSTRUCT_006815C0, &args![mesh_point]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mesh_point));
     e.call(
         POINT_SCALED_004A3760,
         &args![scaled, float_arg(e, scale), rotated],
     );
     let point = at(0x434);
     for particle in 0..u32::from(count) {
-        e.call(POINT_CONSTRUCT_006815C0, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         let temporaries = if box_emitter != 0 {
             let r = f64::from(fn_00639b20(e, Ptr::new(box_emitter)));
             let y = x87_store32(x87_mul(

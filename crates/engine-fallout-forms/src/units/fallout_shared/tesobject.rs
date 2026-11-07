@@ -107,6 +107,7 @@ const MOVE_CHARS: u32 = 0x0044_d580;
 /// `ECX`.
 const STRING_FREE: u32 = 0x0064_df10;
 /// The empty `_DebugHeapAllocator` constructor and the proxy constructor.
+#[cfg(test)]
 const ALLOCATOR_CONSTRUCT: u32 = 0x0068_15c0;
 const ALLOCATOR_PROXY_CONSTRUCT: u32 = 0x0065_de30;
 /// `strlen`.
@@ -125,6 +126,7 @@ const TES_FORM_CONSTRUCT: u32 = 0x0048_3370;
 const LIST_REMOVE: u32 = 0x0051_0130;
 
 /// `NiPoint3(x, y, z)` constructor.
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// Subtraction / addition of two `NiPoint3` into a result.
 const POINT3_SUBTRACT: u32 = 0x0043_9ef0;
@@ -156,6 +158,7 @@ const FORM_MODEL_LENGTH: u32 = 0x0048_9540;
 /// Name comparison (0 when equal).
 const COMPARE_NAMES: u32 = 0x0040_4dc0;
 /// A second type code of a form, used by `IsMarker` (`0084e3a0`).
+#[cfg(test)]
 const FORM_SUBTYPE: u32 = 0x0084_e3a0;
 /// `"EditorMarker.NIF"`.
 const EDITOR_MARKER_MODEL: u32 = 0x0102_9c94;
@@ -234,7 +237,7 @@ pub fn std_string_construct_c_str(
 ) -> Ptr<DebugString> {
     let slot = e.mem.alloc(4);
     e.mem.set_u32(slot, this.addr());
-    e.call(ALLOCATOR_CONSTRUCT, &args![slot]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, slot));
     let allocator = e.mem.u32(slot);
     e.mem.free(slot);
     fn_0044a7b0(e, this, allocator);
@@ -527,8 +530,12 @@ pub fn fn_0050e990(e: &mut Engine, this: Ptr<TESBoundObject>, flags: u32) -> Ptr
 /// The constructor of `BoundData` (Xbox PDB `TESBoundObject::BOUND_DATA`):
 /// runs the empty constructors of the two points (at +0 and +6).
 pub fn fn_0050e9c0(e: &mut Engine, this: Ptr<BoundData>) -> Ptr<BoundData> {
-    e.call(ALLOCATOR_CONSTRUCT, &args![this]);
-    e.call(ALLOCATOR_CONSTRUCT, &args![this.byte_add(6)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(6))
+    );
     this
 }
 
@@ -604,7 +611,11 @@ fn point_to_floats(e: &mut Engine, point: Ptr<NiNPShortPoint3>, result: Ptr) -> 
     let y = fn_0050eb50(e, point);
     let x = fn_0050eb30(e, point);
     e.with_stack(12, |e, temporary| {
-        e.call(POINT3_CONSTRUCT, &args![temporary, x, y, z]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, temporary, x, y, z)
+        );
         copy_three_words(e, temporary.addr(), result.addr());
     });
     result
@@ -771,7 +782,7 @@ pub fn tes_bound_object_clone_3d(
     }
     let source = e.vcall(this.addr(), 0x174, &args![reference]).u32();
     if !reference.is_null() && e.call(0x0044_4ed0, &args![reference]).bool() {
-        let owner = e.call(0x007a_f430, &args![reference]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         if e.call(FORM_TYPE, &args![owner]).u32() != 0x1e {
             return Ptr::new(source);
         }
@@ -782,7 +793,7 @@ pub fn tes_bound_object_clone_3d(
     if e.call(0x0050_d4a0, &args![this]).bool() && !reference.is_null() {
         e.call(0x0069_3ef0, &args![reference, 1u32]);
     }
-    if flag == 0 && e.call(0x0072_6070, &args![source]).u32() == 1 {
+    if flag == 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source)) == 1 {
         let mut shareable = false;
         let form_type = e.call(FORM_TYPE, &args![this]).u32();
         match form_type {
@@ -885,7 +896,7 @@ pub fn tes_bound_object_clone_3d(
             e.call(0x0063_3c90, &args![model, 0u32]);
             let loader: u32 = e.global(MODEL_LOADER_POINTER);
             e.call(0x0044_72a0, &args![loader, name, model]);
-            if e.call(0x0055_9450, &args![model]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model)) == 0 {
                 let block = e.call(OPERATOR_NEW, &args![0x10u32]).u32();
                 let created = if block != 0 {
                     e.call(0x0043_abf0, &args![block, name, clone]).u32()
@@ -893,15 +904,15 @@ pub fn tes_bound_object_clone_3d(
                     0
                 };
                 e.call(0x0044_aed0, &args![model, created]);
-                let current = e.call(0x0055_9450, &args![model]).u32();
+                let current = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model));
                 e.call(0x0092_c870, &args![current]);
-                let current = e.call(0x0055_9450, &args![model]).u32();
+                let current = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model));
                 let loader: u32 = e.global(MODEL_LOADER_POINTER);
                 if e.call(0x0044_7010, &args![loader, name, current]).bool() {
                     let counter: u32 = e.global(COUNTER_A);
                     e.set_global(COUNTER_A, counter.wrapping_add(1));
                 } else {
-                    let current = e.call(0x0055_9450, &args![model]).u32();
+                    let current = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model));
                     e.call(0x0044_aed0, &args![model, 0u32]);
                     if current != 0 {
                         e.call(0x0044_31f0, &args![current, 1u32]);
@@ -913,9 +924,9 @@ pub fn tes_bound_object_clone_3d(
                 e.call(0x004a_d270, &args![second_process]);
                 e.mem.free(second_process);
             } else {
-                let current = e.call(0x0055_9450, &args![model]).u32();
+                let current = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model));
                 if e.call(0x0043_b230, &args![current]).u32() != 0 {
-                    let current = e.call(0x0055_9450, &args![model]).u32();
+                    let current = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model));
                     let found = e.call(0x0043_b230, &args![current]).u32();
                     let found_scale = e.call(0x009c_dae0, &args![found]).f64();
                     let reference_scale = e.call(0x0056_7400, &args![reference]).f64();
@@ -1219,7 +1230,7 @@ pub fn tes_object_is_marker(e: &mut Engine, this: Ptr) -> bool {
         }
         _ => {}
     }
-    let subtype = e.call(FORM_SUBTYPE, &args![this]).u32();
+    let subtype = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     (0x64..=0x77).contains(&subtype)
 }
 
@@ -1281,8 +1292,12 @@ pub fn fn_0050fbf0(e: &mut Engine, this: Ptr, reference: Ptr) {
             let model = e.mem.alloc(4);
             e.call(0x0063_3c90, &args![model, 0u32]);
             if e.call(0x0044_72a0, &args![loader, name, model]).bool() {
-                let found = e.call(0x0055_9450, &args![model]).u32();
-                if e.call(0x0044_ddc0, &args![found]).i32() > 0 {
+                let found = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model));
+                if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, found))
+                    .into_ret()
+                    .i32()
+                    > 0
+                {
                     register_plain = false;
                 }
             }

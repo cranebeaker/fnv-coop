@@ -22,6 +22,7 @@ const THREAD_SAFE_STRUCTURES_FILE: u32 = 0x0101_73f8;
 /// (through `00559450`), used as a count.
 const COUNT_0044F3E0: u32 = 0x0044_f3e0;
 /// `00726070` (`thiscall`): the word at the node's `+4` (the next node).
+#[cfg(test)]
 const NODE_FOLLOWING_00726070: u32 = 0x0072_6070;
 /// `006ecd40` (`thiscall`, `RET 4`: one word): stores the word at the
 /// node's `+4`. (The engine map's name for it,
@@ -87,7 +88,7 @@ pub fn fn_006c7610(e: &mut Engine, this: Ptr) {
         let mut kept_count = 0u32;
         while e.mem.u32(base + 0x10) != 0 {
             let node = e.mem.u32(base + 0x10);
-            let next = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+            let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             e.mem.set_u32(base + 0x10, next);
             let mut found = false;
             let mut index = 0u32;

@@ -5,9 +5,11 @@
 use crate::prelude::*;
 
 /// Reads the word at its `this` (`00559450`, thiscall, no stack words).
+#[cfg(test)]
 const READ_POINTER: u32 = 0x0055_9450;
 /// Reads the word at +0x0c of its `this` (`0084e3a0`, thiscall; the form id
 /// when `this` is a form).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The pointer holder the function reads (+0x10 of `this`).
 const HOLDER: u32 = 0x10;
@@ -18,11 +20,11 @@ const HOLDER: u32 = 0x10;
 /// the pointer is read again and `0084e3a0` gives the word at its +0x0c.
 pub fn fn_00878f20(e: &mut Engine, this: Ptr) -> u32 {
     let holder = this.addr() + HOLDER;
-    if e.call(READ_POINTER, &args![holder]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) == 0 {
         return 0;
     }
-    let form = e.call(READ_POINTER, &args![holder]).u32();
-    e.call(FORM_ID, &args![form]).u32()
+    let form = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
 }
 
 /// `004bc3f0` (no arguments: the renderer) and `004dc020` (`thiscall` on it: its Direct3D
@@ -230,7 +232,7 @@ pub fn fn_00878860(e: &mut Engine, name: u32) {
             SYSTEM_FILE_CONSTRUCT,
             &args![file, file_name, 2u32, 2u32, 0u32],
         );
-        if e.call(READ_POINTER, &args![file]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, file)) != 0 {
             e.call(LOG, &args![CANNOT_CREATE_MESSAGE, file_name]);
         } else {
             write_bitmap(e, pixel_data, file, header, written);

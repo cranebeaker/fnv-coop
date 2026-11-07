@@ -44,6 +44,7 @@ const CAST_SOURCE_TYPE: u32 = 0x0118_3028;
 const CAST_TARGET_TYPE: u32 = 0x0118_32fc;
 /// `0084e3a0` (`thiscall`, no stack words): the word at +0xc of the creature
 /// (`TESForm::iFormID`), printed as the second `%08X` of the warning.
+#[cfg(test)]
 const FORM_WORD_FOR_WARNING: u32 = 0x0084_e3a0;
 /// Byte offset of the creature's vtable slot whose result the warning prints
 /// as `%s` (no stack words).
@@ -109,7 +110,7 @@ pub fn creature_sounds_load_creature_sound(
                     .u32();
                 e.mem.set_u32(sound, cast);
                 if e.mem.u32(sound) == 0 {
-                    let word = e.call(FORM_WORD_FOR_WARNING, &args![creature]).u32();
+                    let word = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, creature));
                     let name = e
                         .vcall(creature.addr(), NAME_FOR_WARNING_SLOT, &args![])
                         .u32();

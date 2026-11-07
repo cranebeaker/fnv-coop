@@ -42,6 +42,7 @@ const SETTING_011CE224: u32 = 0x011c_e224;
 /// `004ae750` answers).
 const REFERENCE_FLOAT: u32 = 0x004b_5400;
 /// `006815c0` (`thiscall`): answers `this` (a point's default constructor).
+#[cfg(test)]
 const POINT_DEFAULT: u32 = 0x0068_15c0;
 /// `004a3e00` (`cdecl`, two words: out vector, source point).
 const VECTOR_FROM_POINT: u32 = 0x004a_3e00;
@@ -131,9 +132,9 @@ pub fn fn_0081f000(
         }
         let value = e.call(SETTING_VALUE, &args![SETTING_011CE224]).u32();
         scale = x87_store32(x87_mul(x87_load32(scale), x87_m32(e.mem.u32(value))));
-        e.call(POINT_DEFAULT, &args![vector]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
         e.call(VECTOR_FROM_POINT, &args![vector, second]);
-        e.call(POINT_DEFAULT, &args![other]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
         e.call(VECTOR_FROM_POINT, &args![other, first]);
         e.call(VECTOR_0062AEA0, &args![vector]);
         e.call(VECTOR_FROM_FLOAT, &args![scaled, scale]);

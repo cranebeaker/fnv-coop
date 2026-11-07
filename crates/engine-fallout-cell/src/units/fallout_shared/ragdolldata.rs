@@ -24,6 +24,7 @@ layout! {
 /// The size of a `RagDollBone` (Xbox PDB and PC).
 const BONE_SIZE: u32 = 0x1c;
 /// `006815c0` (`ECX` = point): run on a point before it is set.
+#[cfg(test)]
 const POINT_PREPARE: u32 = 0x0068_15c0;
 /// The point `Bip01Rot` starts at (`011f426c`, three floats).
 const ORIGIN: u32 = 0x011f_426c;
@@ -99,7 +100,7 @@ const CHILD_AT: u32 = 0x0043_b4a0;
 /// `011f426c`. Returns `this`.
 pub fn rag_doll_data_rag_doll_data(e: &mut Engine, this: Ptr<RagDollData>) -> Ptr<RagDollData> {
     let base = this.addr();
-    e.call(POINT_PREPARE, &args![base + 8]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 8));
     e.set(this, RagDollData::iBoneCount, 0);
     e.set(this, RagDollData::pBoneArray, 0);
     for i in 0..3 {
@@ -337,7 +338,7 @@ pub fn fn_004d9dc0(e: &mut Engine, this: Ptr<RagDollData>, node: Ptr, placed: Pt
         let position = bone(e) + 4;
         e.call(NODE_SET_TRANSLATE, &args![node, position]);
         e.with_stack(0x24, |e, matrix| {
-            e.call(POINT_PREPARE, &args![matrix]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
             let x = x87_quiet_bits(e.mem.u32(bone(e) + 0x10));
             let y = x87_quiet_bits(e.mem.u32(bone(e) + 0x14));
             let z = x87_quiet_bits(e.mem.u32(bone(e) + 0x18));
@@ -785,7 +786,7 @@ pub fn fn_004da230(e: &mut Engine, this: Ptr<RagDollData>, reference: Ptr) {
         return;
     }
     e.with_stack(0x24, |e, matrix| {
-        e.call(POINT_PREPARE, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         let x = x87_quiet_bits(e.mem.u32(this.addr() + 8));
         let y = x87_quiet_bits(e.mem.u32(this.addr() + 0xc));
         let z = x87_quiet_bits(e.mem.u32(this.addr() + 0x10));

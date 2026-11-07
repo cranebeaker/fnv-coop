@@ -11,6 +11,7 @@ use crate::prelude::*;
 
 /// `NiPointer<T>::get` (`00559450`), the `NiPointer` constructor from a raw pointer
 /// (`00633c90`) and destructor (`0045cec0`) (`thiscall`).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 const NI_POINTER_FROM_RAW: u32 = 0x0063_3c90;
 const NI_POINTER_DESTRUCT: u32 = 0x0045_cec0;
@@ -42,17 +43,17 @@ pub fn fn_0064d880(e: &mut Engine, this: Ptr) -> u32 {
     if !fn_0064db00(e, Ptr::new(colors)) {
         return colors;
     }
-    if e.call(NI_POINTER_GET, &args![base + 8]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 8)) == 0 {
         return colors;
     }
-    let texture = e.call(NI_POINTER_GET, &args![base + 8]).u32();
+    let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 8));
     let converted = e
         .call(CONVERT_TEXTURE_00B6BBD0, &args![texture, FORMAT_011AA2A0])
         .u32();
     let pointer = e.mem.alloc(4);
     e.call(NI_POINTER_FROM_RAW, &args![pointer, converted]);
-    if e.call(NI_POINTER_GET, &args![pointer]).u32() != 0 {
-        let texture = e.call(NI_POINTER_GET, &args![pointer]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
+        let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         let data = e.call(PIXEL_DATA, &args![texture]).u32();
         let pixels = fn_0064dac0(e, data, 0, 0);
         let width = e.call(PIXEL_WIDTH, &args![data, 0u32, 0u32]).u32();

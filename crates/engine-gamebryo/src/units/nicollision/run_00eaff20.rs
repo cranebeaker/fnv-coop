@@ -15,6 +15,7 @@ const SQR_DISTANCE_POINT_PARALLELOGRAM: u32 = 0x00eb_6150;
 /// point.
 const POINT_PLUS_POINT: u32 = 0x0043_9e90;
 /// `NiPoint3::Dot` (`004b6190`, thiscall on one vector: the other; answers in ST0).
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 /// The CRT square root (`00ec6040`): the value in ST0 (a leading `f64`), the root in ST0.
 const CRT_SQRT: u32 = 0x00ec_6040;
@@ -419,7 +420,9 @@ pub fn fn_00eaff20(
                 _ => {
                     // Inside the segment and the parallelogram: the quadratic form.
                     let [a00, a01, a02, a11, a12, a22, b0, b1, b2] = terms;
-                    let q = e.call(POINT_DOT, &args![sum, sum]).f64();
+                    let q = typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, sum, sum))
+                        .into_ret()
+                        .f64();
                     let r = load_float(e, st.r_out);
                     let s = load_float(e, st.s_out);
                     let two = x87_load64(e.mem.u64(TWO_01011590));

@@ -474,7 +474,9 @@ const CLOSE_FORM: u32 = 0x0048_5680;
 /// The list walk: `00717e50` (the leveled list's first node), `006815c0` (the node, whose
 /// word +0 is its entry) and `00726070` (the next node).
 const LIST_HEAD: u32 = 0x0071_7e50;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `00487f50` (no arguments): a random word.
 const RANDOM_WORD: u32 = 0x0048_7f50;
@@ -669,11 +671,11 @@ pub fn fn_0050bd60(
     let mut best_node = 0u32;
     let mut node = e.call(LIST_HEAD, &args![list]).u32();
     while node != 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             break;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(item);
         let entry_form = e.mem.u32(entry);
         let cast = e
@@ -701,7 +703,7 @@ pub fn fn_0050bd60(
         } else {
             run = run.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if best_node == 0 {
         return;
@@ -709,13 +711,13 @@ pub fn fn_0050bd60(
     let mut steps = e.call(RANDOM_WORD, &args![]).u32() % run;
     let mut node = best_node;
     while steps != 0 {
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         steps -= 1;
         if node == 0 {
             return;
         }
     }
-    let item = e.call(NODE_ITEM, &args![node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     let entry = e.mem.u32(item);
     let mut picked = e.mem.u32(entry);
     let mut number = e.mem.u16(entry + 4);
@@ -785,7 +787,7 @@ pub fn fn_0050c000(e: &mut Engine, this: Ptr, owner: u32, level: u16) -> u32 {
         if e.call(0x0048_78a0, &args![list]).bool() {
             let mut node = e.call(LIST_HEAD, &args![list]).u32();
             while node != 0 {
-                let item = e.call(NODE_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(item);
                 if entry != 0 {
                     if result == 0 {
@@ -818,7 +820,7 @@ pub fn fn_0050c000(e: &mut Engine, this: Ptr, owner: u32, level: u16) -> u32 {
                         }
                     }
                 }
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         } else {
             let picked = fn_0050bf90(e, this, owner, level);
@@ -850,7 +852,7 @@ pub fn fn_0050c1d0(e: &mut Engine, this: Ptr, actor: u32) -> u32 {
             let forms = fn_0050c000(e, this, index as u32, value as u16);
             let mut node = forms;
             while node != 0 {
-                let item = e.call(NODE_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(item);
                 e.mem.set_u32(entry_word, entry);
                 if entry != 0 {
@@ -864,7 +866,7 @@ pub fn fn_0050c1d0(e: &mut Engine, this: Ptr, actor: u32) -> u32 {
                         e.call(LIST_ADD, &args![result, entry_word]);
                     }
                 }
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             if forms != 0 {
                 e.call(0x0047_0470, &args![forms]);

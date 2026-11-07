@@ -84,6 +84,7 @@ const SAVE_NUMERIC_ID: u32 = 0x0085_7a10;
 const LOAD_NUMERIC_ID: u32 = 0x0085_7aa0;
 /// `0084e3a0` (unnamed in the engine map; no stack word): the word at +0xC
 /// of a form (`TESForm`'s form id on PC).
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// `004839c0` (unnamed in the engine map; cdecl, the id): the form of an id.
 const LOOKUP_FORM_004839C0: u32 = 0x0048_39c0;
@@ -131,7 +132,7 @@ pub fn bs_temp_effect_save_game(e: &mut Engine, this: Ptr<BSTempEffect>) {
     e.with_stack(4, |e, id| {
         let cell = e.get(this, BSTempEffect::pCell);
         if cell != 0 {
-            let cell_id = e.call(FORM_ID_0084E3A0, &args![cell]).u32();
+            let cell_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell));
             e.mem.set_u32(id.addr(), cell_id);
         }
         let game = e.global::<u32>(SAVE_LOAD_GAME);

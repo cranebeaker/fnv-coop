@@ -30,6 +30,7 @@ const ARRAY_VALUE: u32 = 0x005d_d4e0;
 const BASE_CONSTRUCTOR: u32 = 0x00a7_b440;
 const VALUE_ARRAY_CONSTRUCTOR: u32 = 0x0064_eb60;
 const LIST_CONSTRUCTOR: u32 = 0x0048_f200;
+#[cfg(test)]
 const POINT_CONSTRUCTOR: u32 = 0x0068_15c0;
 const BIT_SET_CONSTRUCTOR: u32 = 0x0096_a2d0;
 /// The constructor's virtual table (`01064e1c`) and the point it copies twice into
@@ -139,7 +140,11 @@ pub fn fn_00649680(e: &mut Engine, this: Ptr) -> Ptr {
             }
         }
     }
-    e.call(POINT_CONSTRUCTOR, &args![object + 0x124]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, object + 0x124)
+    );
     e.call(BIT_SET_CONSTRUCTOR, &args![object + 0x1a0]);
     e.mem.set_u32(object + 0xc, 0);
     copy_default_point(e, object + 0x124);

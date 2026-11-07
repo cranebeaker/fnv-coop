@@ -22,6 +22,7 @@ const BS_FACE_GEN_IMAGE_VTABLE: u32 = 0x0106_53c4;
 /// (`0066b0d0`, `thiscall`: the pointer), assignment from another (`006e5cc0`, `thiscall`: the
 /// other's address), constructor from a raw pointer (`00633c90`, `thiscall`: the pointer) and
 /// destructor (`0045cec0`, `thiscall`).
+#[cfg(test)]
 const TEXTURE_GET: u32 = 0x0055_9450;
 const TEXTURE_SET: u32 = 0x0066_b0d0;
 const TEXTURE_ASSIGN: u32 = 0x006e_5cc0;
@@ -54,6 +55,7 @@ const CONVERTER_MIPMAPS: u32 = 0x00a7_8090;
 /// `NiPixelData::NiPixelData` (`00a7c190`, `thiscall`: width, height, format, 1, 1) with the
 /// three- and four-channel formats (`011aa2e8`, `011aa2a0`); the pixel data's byte address
 /// (`0064dac0`, `thiscall`: two zeros).
+#[cfg(test)]
 const SIZE_QUERY: u32 = 0x0072_6070;
 const ALLOCATE: u32 = 0x00aa_13e0;
 const PIXEL_DATA_CONSTRUCT: u32 = 0x00a7_c190;
@@ -141,7 +143,7 @@ pub fn bs_face_gen_image_get_compressed_image(
     let image = this.addr();
     let texture = image + 8;
     let values = image + 0xc;
-    let ready = e.call(TEXTURE_GET, &args![texture]).u32() == 0
+    let ready = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture)) == 0
         && e.call(VALUES_EMPTY, &args![values]).u8() == 0
         && e.mem.u32(image + 0x24) != 0
         && e.mem.u32(image + 0x28) != 0
@@ -164,7 +166,7 @@ pub fn bs_face_gen_image_get_compressed_image(
                 .mem
                 .u32(image + 0x24)
                 .wrapping_mul(e.mem.u32(image + 0x28));
-            let three = e.call(SIZE_QUERY, &args![size]).u32() == 0;
+            let three = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, size)) == 0;
             let (format, channels) = if three {
                 (FORMAT_THREE_CHANNELS, 3u32)
             } else {
@@ -230,22 +232,22 @@ pub fn bs_face_gen_image_get_compressed_image(
                     source != pixel_data
                 ));
             }
-            let query = e.call(SIZE_QUERY, &args![size]).u32();
-            if query == 1 || e.call(SIZE_QUERY, &args![size]).u32() == 0 {
+            let query = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, size));
+            if query == 1 || typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, size)) == 0 {
                 e.call(TEXTURE_ASSIGN, &args![texture, made]);
             } else {
-                let raw = e.call(TEXTURE_GET, &args![made]).u32();
+                let raw = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, made));
                 let resized = e.call(TEXTURE_RESIZE, &args![raw, size]).u32();
                 e.call(TEXTURE_SET, &args![texture, resized]);
             }
-            if e.call(TEXTURE_GET, &args![texture]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture)) == 0 {
                 e.call(TEXTURE_ASSIGN, &args![texture, made]);
             }
             e.call(TEXTURE_DESTRUCT, &args![made]);
             e.call(CONVERTER_DESTRUCT, &args![converter]);
         });
     }
-    e.call(TEXTURE_GET, &args![texture]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture))
 }
 
 // Translated from 0064d870 (decompiled, FalloutNV.exe 1.4.0.525)

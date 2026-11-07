@@ -16,6 +16,7 @@ const SKY_VTABLE: u32 = 0x0104_edec;
 const VECTOR_CONSTRUCT: u32 = 0x0040_1050;
 const COLOR_ELEMENT_CONSTRUCT: u32 = 0x0063_3e00;
 /// `NiColor::NiColor(r, g, b)` (`00416870`, `thiscall`, three `float`s).
+#[cfg(test)]
 const COLOR_CONSTRUCT: u32 = 0x0041_6870;
 /// The `float` constants the constructor loads: `01017b78` (`fCurrentGameHour`),
 /// `01018f7c` (`fHighNoon`) and `0104ede4` (the `float` at +0x130).
@@ -58,7 +59,11 @@ pub fn fn_00639d40(e: &mut Engine, this: Ptr) -> Ptr {
     );
     let zero = 0.0f32.to_bits();
     for offset in [0xb4u32, 0xc0] {
-        e.call(COLOR_CONSTRUCT, &args![base + offset, zero, zero, zero]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, base + offset, zero, zero, zero)
+        );
     }
     for offset in [0x20u32, 0x24, 0x2c, 0x28, 0x30, 0x34, 0x38] {
         e.mem.set_u32(base + offset, 0);

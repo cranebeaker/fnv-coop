@@ -83,9 +83,11 @@ const EFFECT_ITEM_CODE: u32 = 0x0040_3ea0;
 /// `EffectItem::GetMagnitude` (engine map), thiscall.
 const EFFECT_ITEM_GET_MAGNITUDE: u32 = 0x0040_4390;
 /// thiscall on a `BSSimpleList` node (no words): answers the node itself.
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
 /// thiscall on a `BSSimpleList` node: the next node (word at +4); on a
 /// menu it reads `pMenu` (+4) the same way.
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// thiscall (setting object): a pointer to the trait-point count.
 const TRAIT_POINTS_VALUE: u32 = 0x0043_d4d0;
@@ -94,6 +96,7 @@ const TRAIT_POINTS_OBJECT: u32 = 0x011d_2f94;
 /// cdecl (text): the string's length.
 const STRING_LENGTH: u32 = 0x0044_a670;
 /// thiscall on a perk entry: the object whose effect list (+0x28) is applied.
+#[cfg(test)]
 const PERK_ENTRY_SPELL: u32 = 0x0044_ddc0;
 /// thiscall on the player: answers the object `008d51f0` reads.
 const PLAYER_PROGRESSION: u32 = 0x0046_4e10;
@@ -327,7 +330,7 @@ pub fn trait_menu_create(e: &mut Engine) -> u32 {
         }
     }
     let menu: u32 = e.global(TRAIT_MENU_ME);
-    if menu != 0 && e.call(LIST_NODE_NEXT, &args![menu]).u32() != 0 {
+    if menu != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
         let menu: u32 = e.global(TRAIT_MENU_ME);
         if menu != 0 {
             e.vcall(menu, 0, &args![1u32]);
@@ -391,18 +394,18 @@ fn create_contents(e: &mut Engine, root: u32) -> u32 {
     let mut node = e.call(LIST_AT_178, &args![owner]).u32();
     e.with_stack(4, |e, perk_slot| {
         while node != 0 {
-            let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item) == 0 {
                 break;
             }
-            let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let perk = e.mem.u32(item);
             e.mem.set_u32(perk_slot.addr(), perk);
             if offer_perk(e, perk) {
                 let menu: u32 = e.global(TRAIT_MENU_ME);
                 e.call(SIMPLE_LIST_ADD, &args![menu + AVAILABLE_PERKS, perk_slot]);
             }
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 
@@ -415,7 +418,7 @@ fn create_contents(e: &mut Engine, root: u32) -> u32 {
         let menu: u32 = e.global(TRAIT_MENU_ME);
         let value = e.mem.u32(menu + field);
         let trait_id: u32 = e.global(trait_global);
-        let tile = e.call(LIST_NODE_NEXT, &args![menu]).u32();
+        let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
         e.call(TILE_SET_VALUE, &args![tile, trait_id, value]);
     }
     let menu: u32 = e.global(TRAIT_MENU_ME);
@@ -517,7 +520,7 @@ pub fn trait_menu_close(e: &mut Engine) {
     e.call(STATS_UPDATE_PLAYER_NAME, &args![]);
     e.call(STATS_UPDATE_PLAYER_TITLE, &args![]);
     let menu: u32 = e.global(TRAIT_MENU_ME);
-    let tile = e.call(LIST_NODE_NEXT, &args![menu]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
     e.call(TILE_SET_VALUE, &args![tile, 0x1772u32, 1u32]);
     let menu: u32 = e.global(TRAIT_MENU_ME);
     e.call(MENU_START_FADE_OUT, &args![menu]);
@@ -591,18 +594,18 @@ pub fn fn_007e7030(e: &mut Engine, this: Ptr) {
     let mut node = base + AVAILABLE_PERKS;
     e.with_stack(0x40, |e, buffer| {
         while node != 0 {
-            let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item) == 0 {
                 break;
             }
-            let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let perk = e.mem.u32(item);
             let player: u32 = e.global(PLAYER);
             let rank = u32::from(
                 e.vcall(player, PLAYER_SLOT_PERK_RANK, &args![perk, 0u32])
                     .u8(),
             );
-            let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let perk = e.mem.u32(item);
             let name = e.call(STRING_C_STR, &args![perk.wrapping_add(0x18)]).u32();
             e.call(COPY_STRING, &args![buffer, 0x40u32, name]);
@@ -610,7 +613,7 @@ pub fn fn_007e7030(e: &mut Engine, this: Ptr) {
                 let text = e.call(SETTING_STRING, &args![NO_NAME_TEXT]).u32();
                 e.call(COPY_STRING, &args![buffer, 0x40u32, text]);
             }
-            let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let perk = e.mem.u32(item);
             let ranks = e.call(PERK_NUM_RANKS, &args![perk]).u8();
             if ranks > 1 && rank > 0 {
@@ -619,7 +622,7 @@ pub fn fn_007e7030(e: &mut Engine, this: Ptr) {
                     &args![buffer, 0x40u32, RANKED_NAME_FORMAT, buffer, rank + 1],
                 );
             }
-            let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let perk = e.mem.u32(item);
             let item_tile = e
                 .call(
@@ -630,7 +633,7 @@ pub fn fn_007e7030(e: &mut Engine, this: Ptr) {
             e.call(TILE_SET_VALUE, &args![item_tile, 0xfaau32, 0xau32]);
             let trait_id: u32 = e.global(USER_TRAIT_011DAF78);
             e.call(TILE_SET_VALUE, &args![item_tile, trait_id, rank + 1]);
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 }
@@ -715,7 +718,7 @@ pub fn trait_menu_do_click(e: &mut Engine, this: Ptr, id: u32, tile: u32) {
 fn show_points(e: &mut Engine, base: u32) {
     let value = e.mem.u32(base + CURR_POINTS);
     let trait_id: u32 = e.global(USER_TRAIT_011DAF64);
-    let tile = e.call(LIST_NODE_NEXT, &args![base]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base));
     e.call(TILE_SET_VALUE, &args![tile, trait_id, value]);
 }
 
@@ -861,9 +864,9 @@ pub fn trait_menu_apply_perk_effects(e: &mut Engine, this: Ptr, tile: u32) {
     if entry == 0 || e.vcall(entry, 0x10, &args![]).u32() != 1 {
         return;
     }
-    let spell = e.call(PERK_ENTRY_SPELL, &args![entry]).u32();
+    let spell = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
     let previous_spell = if previous != 0 {
-        e.call(PERK_ENTRY_SPELL, &args![previous]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, previous))
     } else {
         0
     };
@@ -872,16 +875,16 @@ pub fn trait_menu_apply_perk_effects(e: &mut Engine, this: Ptr, tile: u32) {
     e.with_stack(0x14, |e, data| {
         let data = data.addr();
         while node != 0 {
-            let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item) == 0 {
                 break;
             }
             e.call(EFFECT_ITEM_DATA_CONSTRUCT, &args![data]);
-            let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let effect = e.mem.u32(item);
             let code = e.call(EFFECT_ITEM_CODE, &args![effect]).u32();
             e.mem.set_u32(data + 0x10, code);
-            let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let effect = e.mem.u32(item);
             let magnitude = e.call(EFFECT_ITEM_GET_MAGNITUDE, &args![effect]).u32();
             e.mem.set_u32(data, magnitude);
@@ -893,7 +896,7 @@ pub fn trait_menu_apply_perk_effects(e: &mut Engine, this: Ptr, tile: u32) {
                     e.mem.set_i32(data, magnitude);
                 }
                 let code = e.mem.u32(data + 0x10);
-                let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let effect = e.mem.u32(item);
                 let owner = e.call(EFFECT_ITEM_FIELD_14, &args![effect]).u32();
                 if e.call(EFFECT_CODE_CHECK, &args![owner, code]).bool() {
@@ -902,7 +905,7 @@ pub fn trait_menu_apply_perk_effects(e: &mut Engine, this: Ptr, tile: u32) {
                 }
                 e.call(EFFECT_ARRAY_ADD, &args![PERK_EFFECT_LIST, data]);
             }
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 }
@@ -917,20 +920,20 @@ fn subtract_previous(e: &mut Engine, previous_spell: u32, data: u32) {
         0
     };
     while other != 0 {
-        let item = e.call(LIST_NODE_ITEM, &args![other]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
         if e.mem.u32(item) == 0 {
             break;
         }
-        let item = e.call(LIST_NODE_ITEM, &args![other]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
         let effect = e.mem.u32(item);
         if e.call(EFFECT_ITEM_CODE, &args![effect]).u32() == e.mem.u32(data + 0x10) {
-            let item = e.call(LIST_NODE_ITEM, &args![other]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
             let effect = e.mem.u32(item);
             let other_magnitude = e.call(EFFECT_ITEM_GET_MAGNITUDE, &args![effect]).u32();
             let magnitude = e.mem.u32(data).wrapping_sub(other_magnitude);
             e.mem.set_u32(data, magnitude);
         }
-        other = e.call(LIST_NODE_NEXT, &args![other]).u32();
+        other = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other));
     }
 }
 

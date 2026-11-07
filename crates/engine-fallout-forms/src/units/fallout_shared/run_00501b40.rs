@@ -99,7 +99,7 @@ pub fn fn_00501c60(e: &mut Engine, this: Ptr, text: u32) -> bool {
 /// Compares this string with the one `text` holds (`00559450`) through
 /// `BSStringT<char>::StrCmp` with `flag` (`RET 8`), and answers its value.
 pub fn fn_00501c90(e: &mut Engine, this: Ptr, text: u32, flag: u8) -> i32 {
-    let other = e.call(0x0055_9450, &args![text]).u32();
+    let other = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
     e.call(0x0040_8a80, &args![this, other, u32::from(flag)])
         .i32()
 }

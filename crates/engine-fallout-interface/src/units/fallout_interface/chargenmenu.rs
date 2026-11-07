@@ -66,6 +66,7 @@ const MENU_START_FADE_OUT: u32 = 0x00a1_d910;
 /// The `Menu` destructor body.
 const MENU_DESTRUCTOR: u32 = 0x00a1_c520;
 /// The word at +4 of an object (a menu's `pMenu` tile).
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 /// Sets an integer trait of a tile (`this`, trait, value).
 const SET_TRAIT_FROM_INT: u32 = 0x0070_0320;
@@ -157,6 +158,7 @@ const LIST_INSERT_SORTED: u32 = 0x007a_7eb0;
 /// The list's add-at-head (`this`, address of the item).
 const LIST_ADD_HEAD: u32 = 0x0090_5820;
 /// The word at +0x28 of a tile (its parent, as the code walks it).
+#[cfg(test)]
 const WORD_AT_0X28: u32 = 0x0045_cd60;
 /// Sets a tile's text from a C string (`this`, text).
 const TILE_SET_TEXT: u32 = 0x0070_7e10;
@@ -401,7 +403,7 @@ pub fn char_gen_menu_create(
             );
         }
     }
-    if me(e) != 0 && e.call(WORD_AT_FOUR, &args![me(e)]).u32() != 0 {
+    if me(e) != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e))) != 0 {
         let menu = me(e);
         e.vcall(menu, 0, &args![1u32]);
     }
@@ -456,7 +458,7 @@ fn finish_create(
     let only_trait = e
         .call(TILE_TEXT_TO_TRAIT, &args![ONLY_ADD_TRAIT_NAME])
         .i32();
-    let tile = e.call(WORD_AT_FOUR, &args![me(e)]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e)));
     set_trait_from_int(e, tile, only_trait, only_add_values as i32);
 
     let text = e.call(SETTING_STRING, &args![TITLE_SETTING_ONE]).u32();
@@ -473,11 +475,11 @@ fn finish_create(
     }
     let points = e.get(Ptr::<CharGenMenu>::new(me(e)), CharGenMenu::iCurrPoints);
     let trait_id = e.global::<u32>(TRAIT_CURRENT_POINTS);
-    let tile = e.call(WORD_AT_FOUR, &args![me(e)]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e)));
     e.call(SET_TRAIT_FROM_INT, &args![tile, trait_id, points]);
     let points = e.get(Ptr::<CharGenMenu>::new(me(e)), CharGenMenu::iMaxPoints);
     let trait_id = e.global::<u32>(TRAIT_MAXIMUM_POINTS);
-    let tile = e.call(WORD_AT_FOUR, &args![me(e)]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e)));
     e.call(SET_TRAIT_FROM_INT, &args![tile, trait_id, points]);
     char_gen_menu_update_point_counter(e, Ptr::new(me(e)));
 
@@ -544,7 +546,7 @@ pub fn char_gen_menu_close(e: &mut Engine) {
         let list = me(e).wrapping_add(ITEM_LIST);
         for_each(e, list, TAG_SKILLS_CALLBACK);
     }
-    let tile = e.call(WORD_AT_FOUR, &args![me(e)]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e)));
     set_trait_from_int(e, tile, TRAIT_0X1772, 1);
     let menu = me(e);
     e.call(MENU_START_FADE_OUT, &args![menu]);
@@ -583,9 +585,9 @@ pub fn char_gen_menu_do_enter(e: &mut Engine, this: Ptr<CharGenMenu>, id: i32, t
             e.set(this, CharGenMenu::fPrevHighlightIndex, x87_store32(index));
         }
         10 | 11 => {
-            let parent = e.call(WORD_AT_0X28, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             e.vcall(this.addr() + ITEM_LIST, 0, &args![parent]);
-            let parent = e.call(WORD_AT_0X28, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             e.vcall(this.addr(), 0x10, &args![8u32, parent]);
         }
         _ => {}
@@ -787,20 +789,20 @@ pub fn char_gen_menu_do_click(e: &mut Engine, this: Ptr<CharGenMenu>, id: i32, t
             char_gen_menu_update_point_counter(e, this);
         }
         10 | 11 => {
-            let parent = e.call(WORD_AT_0X28, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             e.call(LIST_BOX_VALUE_OF, &args![list, parent]);
             let step = if id != 10 { 1i32 } else { -1 };
             let points = e.get(this, CharGenMenu::iCurrPoints).wrapping_add(step);
             e.set(this, CharGenMenu::iCurrPoints, points);
             set_points_trait(e, this);
             let added = e.global::<u32>(TRAIT_ADDED_VALUE);
-            let parent = e.call(WORD_AT_0X28, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             let value = float_trait(e, parent, added);
             let bits = x87_store32(x87_add(value, f64::from(step)));
             let added = e.global::<u32>(TRAIT_ADDED_VALUE);
-            let parent = e.call(WORD_AT_0X28, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             set_float_bits(e, parent, added, x87_quiet_bits(bits));
-            let parent = e.call(WORD_AT_0X28, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             char_gen_menu_set_display_string(e, this, parent);
             char_gen_menu_update_point_counter(e, this);
         }
@@ -828,7 +830,7 @@ pub fn char_gen_menu_do_click(e: &mut Engine, this: Ptr<CharGenMenu>, id: i32, t
 fn set_points_trait(e: &mut Engine, this: Ptr<CharGenMenu>) {
     let points = e.get(this, CharGenMenu::iCurrPoints);
     let trait_id = e.global::<u32>(TRAIT_CURRENT_POINTS);
-    let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     e.call(SET_TRAIT_FROM_INT, &args![tile, trait_id, points]);
 }
 

@@ -53,11 +53,11 @@ pub fn fn_0067da20(e: &mut Engine, this: Ptr, _unused_1: u32) {
 /// and +4 cleared.
 pub fn fn_0067dad0(e: &mut Engine, this: Ptr, other: Ptr) {
     let base = this.addr();
-    let word = e.call(0x0055_9450, &args![other]).u32();
+    let word = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
     e.call(0x0053_7e90, &args![this, word]);
-    let word = e.call(0x0044_ddc0, &args![other]).u32();
+    let word = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other));
     e.call(0x0040_3550, &args![this, word]);
-    let word = e.call(0x0084_e3a0, &args![other]).u32();
+    let word = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, other));
     e.call(0x0041_fd00, &args![this, word]);
     if e.mem.u32(other.addr() + 4) != 0 {
         if e.mem.u32(base + 4) == 0 {

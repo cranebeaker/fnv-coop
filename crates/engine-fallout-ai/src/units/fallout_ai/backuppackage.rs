@@ -53,6 +53,7 @@ const TARGET_CONSTRUCT: u32 = 0x0067_ff70;
 const SET_PACKAGE_TARGET: u32 = 0x0067_2fc0;
 const TARGET_DELETE: u32 = 0x007b_3fa0;
 const PACKAGE_SET_WORD: u32 = 0x0098_4f60;
+#[cfg(test)]
 const PACKAGE_TARGET: u32 = 0x0067_1d10;
 const SET_TARG_TYPE: u32 = 0x0068_00b0;
 const SET_TARG_REFERENCE: u32 = 0x0068_0110;
@@ -183,9 +184,9 @@ pub fn back_up_package_initialize_back_up_package(
             e.call(TARGET_DELETE, &args![target, 1u32]);
         }
         e.call(PACKAGE_SET_WORD, &args![this, 0x30u32]);
-        let package_target = e.call(PACKAGE_TARGET, &args![this]).u32();
+        let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, this));
         e.call(SET_TARG_TYPE, &args![package_target, 0u32]);
-        let package_target = e.call(PACKAGE_TARGET, &args![this]).u32();
+        let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, this));
         e.call(SET_TARG_REFERENCE, &args![package_target, actor]);
     }
     e.call(SET_IS_CREATED, &args![this, 1u32]);

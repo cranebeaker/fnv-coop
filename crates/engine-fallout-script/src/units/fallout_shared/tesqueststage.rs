@@ -83,6 +83,7 @@ const DISABLE_WARNINGS: u32 = 0x0043_b2b0;
 /// `Script::InitItem` (`005ab400`, one stack word: the quest).
 const SCRIPT_INIT_ITEM: u32 = 0x005a_b400;
 /// `0084e3a0`: the word at `this + 0xc` (the form ID).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `009373f0`: the byte at `this` (a stage's number).
 const READ_BYTE_0: u32 = 0x0093_73f0;
@@ -292,7 +293,7 @@ pub fn fn_0060fa10(e: &mut Engine, this: Ptr<TESQuestStageItem>, quest: Ptr<TESQ
     let errors = e.call(GET_ERROR_COUNT, &args![]).u32();
     e.call(SET_ERROR_COUNT, &args![saved_errors]);
     if errors != 0 {
-        let form_id = e.call(FORM_ID, &args![quest]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, quest));
         let editor_id = e.vcall(quest.addr(), SLOT_EDITOR_ID, &args![]).u32();
         let number = e.call(READ_BYTE_0, &args![stage]).u8();
         e.call(
@@ -441,6 +442,7 @@ pub fn fn_0060fd90(e: &mut Engine, this: Ptr<TESQuestStageItem>) -> bool {
 /// `004037f0(text, length)` and read with `00559450`).
 const LOG_ENTRY_ITEM: u32 = 0x011c_b86c;
 const LOG_ENTRY_TEXT: u32 = 0x011c_b8a0;
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 /// `TESFile::GetThreadSafeFile` (`004739b0`), `TESFile::SetOffset`
 /// (`004723a0`, `RET 4`: the record's offset), `TESFile::GetTESForm`
@@ -513,7 +515,12 @@ pub fn tes_quest_stage_item_get_log_entry(e: &mut Engine, this: Ptr, quest: u32)
                 }
                 index = index.wrapping_add(1);
             }
-            if e.call(STRING_TEXT, &args![LOG_ENTRY_TEXT]).u32() != 0 {
+            if typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, LOG_ENTRY_TEXT)
+            ) != 0
+            {
                 break;
             }
             if !e.call(FILE_NEXT_CHUNK, &args![file]).bool() {
@@ -521,8 +528,17 @@ pub fn tes_quest_stage_item_get_log_entry(e: &mut Engine, this: Ptr, quest: u32)
             }
         }
     }
-    if e.call(STRING_TEXT, &args![LOG_ENTRY_TEXT]).u32() != 0 {
-        e.call(STRING_TEXT, &args![LOG_ENTRY_TEXT]).u32()
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, LOG_ENTRY_TEXT)
+    ) != 0
+    {
+        typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, LOG_ENTRY_TEXT)
+        )
     } else {
         0
     }

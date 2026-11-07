@@ -5,12 +5,13 @@
 use crate::prelude::*;
 
 /// `006815c0`: thiscall on the same object.
+#[cfg(test)]
 const INITIALISE: u32 = 0x0068_15c0;
 
 // Translated from 006240d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// No map name. `__fastcall`: runs `006815c0` on `this` and returns `this`.
 pub fn fn_006240d0(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(INITIALISE, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     this
 }
 

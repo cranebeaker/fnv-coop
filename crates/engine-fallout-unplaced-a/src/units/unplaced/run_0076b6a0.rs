@@ -59,6 +59,7 @@ pub fn fn_0076b8a0(e: &mut Engine, this: Ptr) {
 }
 
 /// `00559450` (`thiscall`, no stack word): the word at `this`.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `0076a3b0` (`thiscall`, one word; unit `fallout/interface/menus/hackingmenu.cpp`).
 const CHECK_0076A3B0: u32 = 0x0076_a3b0;
@@ -71,7 +72,7 @@ const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// Unnamed in the engine map (`thiscall`, one word): whether `value` equals the word
 /// `00559450` reads at `this`.
 pub fn fn_0076b780(e: &mut Engine, this: Ptr, value: u32) -> bool {
-    value == e.call(FIRST_WORD, &args![this]).u32()
+    value == typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this))
 }
 
 // Translated from 0076b900 (decompiled, FalloutNV.exe 1.4.0.525)

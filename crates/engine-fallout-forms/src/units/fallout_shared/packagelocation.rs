@@ -36,6 +36,7 @@ const ADD_COMPILE_INDEX: u32 = 0x0048_5d50;
 /// Form lookup by form ID (`004839c0`, cdecl), 0 if there is no such form.
 const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// Form ID getter (`0084e3a0`, the dword at +0xC of its `this`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// Test on a form (`00474cb0`, thiscall): non-zero when its virtual slot
 /// `0x130` (used here to fetch a name) returns something.
@@ -46,6 +47,7 @@ const FORM_NAME_SLOT: u32 = 0x130;
 const LOG_MESSAGE: u32 = 0x005b_5e40;
 /// `007af430` (the engine map calls it `BGSSaveFormBuffer::GetForm`, a
 /// folded-code name): the body returns the dword at +0x20 of its `this`.
+#[cfg(test)]
 const GET_FORM_FIELD: u32 = 0x007a_f430;
 /// First helper of `fn_0067f220` (`0062ddb0`, cdecl): from a reference to
 /// the object the test needs, 0 if there is none.
@@ -57,6 +59,7 @@ const TEST_OBJECT_RESULT: u32 = 0x0062_df20;
 const REFERENCE_RESOLVE: u32 = 0x0056_9b80;
 /// `MiddleHighProcess::GetSavedAcquireObject` (Xbox PDB, `008d8520`): the
 /// dword at +0x68 of its `this`.
+#[cfg(test)]
 const SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// Virtual slot `0x514` of that object, called with no arguments.
 const ACQUIRE_OBJECT_SLOT: u32 = 0x514;
@@ -256,7 +259,7 @@ pub fn fn_0067f220(
     if reference.is_null() {
         return false;
     }
-    let form = e.call(GET_FORM_FIELD, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let form_type = e.call(FORM_TYPE_BYTE, &args![form]).u32();
     if form_type != 0x15 {
         return false;
@@ -295,7 +298,7 @@ pub fn fn_0067f2a0(e: &mut Engine, this: Ptr<PackageLocation>, actor: Ptr) -> Pt
             }
         }
         4 | 5 => {
-            let object = e.call(SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             resolved = e.vcall(object, ACQUIRE_OBJECT_SLOT, &args![]).ptr();
             if resolved.is_null() {
                 resolved = actor;
@@ -478,7 +481,7 @@ pub fn package_location_save(e: &mut Engine, this: Ptr<PackageLocation>, form: P
         } else {
             let stored = e.get(this, PackageLocation::pObject);
             if !stored.is_null() {
-                let id = e.call(FORM_ID, &args![stored]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, stored));
                 e.mem.set_u32(record.addr() + 4, id);
             }
         }
@@ -501,7 +504,7 @@ fn report_missing(e: &mut Engine, owner: Ptr, id: u32, named_format: u32, id_for
         let name = e.vcall(owner.addr(), FORM_NAME_SLOT, &args![]).u32();
         e.call(LOG_MESSAGE, &args![named_format, id, name]);
     } else {
-        let owner_id = e.call(FORM_ID, &args![owner]).u32();
+        let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
         e.call(LOG_MESSAGE, &args![id_format, id, owner_id]);
     }
 }
@@ -599,7 +602,7 @@ pub fn fn_0067fa00(e: &mut Engine, this: Ptr<PackageLocation>) {
         e.with_stack(4, |e, id_slot| {
             let stored = e.get(this, PackageLocation::pObject);
             if !stored.is_null() {
-                let id = e.call(FORM_ID, &args![stored]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, stored));
                 e.mem.set_u32(id_slot.addr(), id);
             }
             e.call(STREAM_SAVE_NUMERIC_ID, &args![stream, id_slot, 4u32]);

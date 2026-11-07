@@ -42,8 +42,11 @@ layout! {
 }
 
 /// List helpers (`thiscall`); see the module comment.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
 const LIST_ADD: u32 = 0x0090_5820;
@@ -72,6 +75,7 @@ const TOPIC_TEST_0083DE60: u32 = 0x0083_de60;
 /// `009611e0` (`thiscall`): the word at +0x18 (a menu topic's `pInfo`).
 const WORD_18: u32 = 0x0096_11e0;
 /// `0045cd60` (`thiscall`): the word at +4 of a menu topic.
+#[cfg(test)]
 const WORD_4_0045CD60: u32 = 0x0045_cd60;
 /// `TESTopicInfo::AddTopicList` (`0061f150`, `thiscall`) and `TESTopicInfo::RunResult`
 /// (`0061f170`, `thiscall`, two words).
@@ -128,7 +132,7 @@ const MANAGER_SINGLETON: u32 = 0x011d_dde4;
 
 /// The item of a list node (`*006815c0(node)`).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -188,10 +192,16 @@ pub fn menu_topic_manager_destructor(e: &mut Engine, this: Ptr<MenuTopicManager>
 pub fn menu_topic_manager_clear_data(e: &mut Engine, this: Ptr<MenuTopicManager>) {
     let lists = this.addr() + 4;
     e.set(this, MenuTopicManager::pSpeaker, 0);
-    while e.call(LIST_IS_EMPTY, &args![lists]).u8() == 0 {
+    while typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, lists))
+        .into_ret()
+        .u8()
+        == 0
+    {
         let list = node_item(e, lists);
         e.call(LIST_REMOVE_HEAD, &args![lists]);
-        let last = e.call(LIST_IS_EMPTY, &args![lists]).u8();
+        let last = typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, lists))
+            .into_ret()
+            .u8();
         menu_topic_manager_clear_topic_list(e, this, list, last);
         e.call(TOPIC_LIST_CLEAR, &args![list]);
         if list != 0 {
@@ -215,9 +225,14 @@ pub fn menu_topic_manager_clear_topic_list(
     e.set(this, MenuTopicManager::pCurrentTopic, 0);
     let mut node = list;
     if keep_first == 0 && node != 0 {
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
-    while node != 0 && e.call(LIST_IS_EMPTY, &args![node]).u8() == 0 {
+    while node != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            == 0
+    {
         let topic = node_item(e, node);
         if e.mem.u8(topic + 0x24) == 0 {
             let topic = node_item(e, node);
@@ -248,7 +263,7 @@ pub fn menu_topic_manager_first_topic(
     e.set(this, MenuTopicManager::pCurrentTopic, first);
     if skip_first != 0 && e.get(this, MenuTopicManager::pCurrentTopic) != 0 {
         let current = e.get(this, MenuTopicManager::pCurrentTopic);
-        let next = e.call(NODE_NEXT, &args![current]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, current));
         e.set(this, MenuTopicManager::pCurrentTopic, next);
     }
     current_holds_topic(e, this)
@@ -260,7 +275,7 @@ pub fn menu_topic_manager_first_topic(
 pub fn menu_topic_manager_next_topic(e: &mut Engine, this: Ptr<MenuTopicManager>) -> bool {
     let current = e.get(this, MenuTopicManager::pCurrentTopic);
     if current != 0 {
-        let next = e.call(NODE_NEXT, &args![current]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, current));
         e.set(this, MenuTopicManager::pCurrentTopic, next);
     }
     current_holds_topic(e, this)
@@ -274,10 +289,10 @@ pub fn fn_0083e430(e: &mut Engine, this: Ptr<MenuTopicManager>, index: i32) -> b
     let mut count = 0i32;
     let mut node = fn_0083f260(e, this);
     if node != 0 {
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     while node != 0 && count < index {
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         count += 1;
     }
     if node != 0 {
@@ -421,7 +436,7 @@ pub fn menu_topic_manager_initialize(
                 };
                 e.mem.set_u32(greeting_slot, greeting);
                 let value = x87_quiet_bits(e.mem.u32(VALUE_0107DD24));
-                let object = e.call(WORD_4_0045CD60, &args![greeting]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, greeting));
                 e.call(SET_VALUE_00965250, &args![object, value]);
                 e.call(MENU_TOPIC_KEEP_0083E0C0, &args![greeting]);
                 let shown = fn_0083f260(e, this);
@@ -514,7 +529,7 @@ pub fn menu_topic_manager_load_next_topic_list(e: &mut Engine, this: Ptr<MenuTop
         let player = e.mem.u32(PLAYER);
         e.call(PLAYER_LIST_00464E30, &args![player]).u32()
     };
-    let word = e.call(WORD_4_0045CD60, &args![topic]).u32();
+    let word = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, topic));
     if list != 0 {
         let shown = fn_0083f260(e, this);
         menu_topic_manager_clear_topic_list(e, this, shown, 0);
@@ -591,7 +606,7 @@ pub fn menu_topic_manager_fill_topic_list(
         let mut node = list;
         while node != 0 && node_item(e, node) != 0 {
             let topic = node_item(e, node);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             if wanted != 0 {
                 if e.call(TOPIC_TEST_0083DE60, &args![topic]).u8() == 0 {
                     continue;
@@ -718,7 +733,7 @@ pub fn fn_0083f0d0(e: &mut Engine, this: Ptr) -> u32 {
 /// again).
 pub fn fn_0083f110(e: &mut Engine, first: u32, second: u32) -> i32 {
     let value = |e: &mut Engine, topic: u32| {
-        let object = e.call(WORD_4_0045CD60, &args![topic]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, topic));
         e.call(VALUE_00526AE0, &args![object]).f64()
     };
     let a = value(e, first);
@@ -816,6 +831,7 @@ const SAVE_VERSION_008DF040: u32 = 0x008d_f040;
 /// reported (`Error`, `0040fbe0`, `cdecl`, variable).
 const SETTING_011DE4E8: u32 = 0x011d_e4e8;
 const SETTING_VALUE_00408D60: u32 = 0x0040_8d60;
+#[cfg(test)]
 const ERROR_0040FBE0: u32 = 0x0040_fbe0;
 /// `"D:\_Fallout3\...\MenuTopic.cpp"` (`0107dd88`) and the messages: the save size
 /// (`01012cb0` with a form, `01012c78` without), the save (`010153a0`, `0101536c`), the block
@@ -838,11 +854,13 @@ const BLOCK_TAG: u32 = 0x424c_4f4b;
 /// `strlen` (`0044a670`, `cdecl`), `00559450` (`thiscall`: the string's characters), `memset`
 /// (`00403d30`, `cdecl`), the string setters `004037f0` (two words) and `00438390` (one word).
 const STRLEN_0044A670: u32 = 0x0044_a670;
+#[cfg(test)]
 const STRING_CHARS_00559450: u32 = 0x0055_9450;
 const MEMSET_00403D30: u32 = 0x0040_3d30;
 const STRING_SET_004037F0: u32 = 0x0040_37f0;
 const STRING_SET_00438390: u32 = 0x0043_8390;
 /// A form's save id (`0084e3a0`, `thiscall`) and `004839c0` (`cdecl`, one word).
+#[cfg(test)]
 const FORM_SAVE_ID_0084E3A0: u32 = 0x0084_e3a0;
 const CAST_SOURCE_004839C0: u32 = 0x0048_39c0;
 /// The type descriptors: the source `01183028` and the targets quest (`01186500`), topic
@@ -900,23 +918,9 @@ fn report_size(e: &mut Engine, size: u32, line: u32, form_message: u32, message:
         let flags = e.mem.u32(form + 5);
         let name = e.vcall(object, 0x130, &args![]).u32();
         let id = e.mem.u32(form);
-        e.call(
-            ERROR_0040FBE0,
-            &args![
-                form_message,
-                size,
-                id,
-                name,
-                flags,
-                line,
-                SOURCE_FILE_0107DD88
-            ],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words form_message, size, id, name, flags, line, SOURCE_FILE_0107DD88);
     } else {
-        e.call(
-            ERROR_0040FBE0,
-            &args![message, size, line, SOURCE_FILE_0107DD88],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words message, size, line, SOURCE_FILE_0107DD88);
     }
 }
 
@@ -1036,7 +1040,7 @@ pub fn menu_topic_manager_do_speech_challenge_check(
         let greeting_at = locals.addr() + 4;
         let topic_at = locals.addr() + 8;
         let argument_at = locals.addr() + 0xc;
-        let word = e.call(WORD_4_0045CD60, &args![topic]).u32();
+        let word = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, topic));
         let player = e.global::<u32>(PLAYER);
         let matching = e
             .call(
@@ -1116,7 +1120,7 @@ pub fn menu_topic_manager_do_speech_challenge_check(
 /// deleted (`004702f0` with 1). Returns the list now shown (the first node's item).
 pub fn menu_topic_manager_pop_topic_list(e: &mut Engine, this: Ptr<MenuTopicManager>) -> u32 {
     let lists = this.addr() + 4;
-    if e.call(NODE_NEXT, &args![lists]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, lists)) != 0 {
         let list = node_item(e, lists);
         if list != 0 {
             e.call(LIST_REMOVE_HEAD, &args![lists]);
@@ -1142,7 +1146,7 @@ pub fn fn_0083f280(e: &mut Engine, this: Ptr<MenuTopic>) -> u16 {
     if e.call(USE_SAVE_GAME_BLOCKS_00862110, &args![saver]).u8() != 0 {
         size = size.wrapping_add(4).wrapping_add(2);
     }
-    let text = e.call(STRING_CHARS_00559450, &args![this]).u32();
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     size = size.wrapping_add(1);
     let length = e.call(STRLEN_0044A670, &args![text]).u32();
     size = size.wrapping_add(length as u16);
@@ -1194,7 +1198,7 @@ pub fn fn_0083f3e0(e: &mut Engine, this: Ptr<MenuTopic>) {
             let saver = save_load(e);
             e.call(SAVE_WRITE_008579B0, &args![saver, size_at, 2u32]);
         }
-        let text = e.call(STRING_CHARS_00559450, &args![base]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base));
         let length = e.call(STRLEN_0044A670, &args![text]).u32() as u8;
         e.mem.set_u8(length_at, length);
         let saver = save_load(e);
@@ -1212,7 +1216,7 @@ pub fn fn_0083f3e0(e: &mut Engine, this: Ptr<MenuTopic>) {
             e.mem.set_u32(id_at, 0);
             let form = e.mem.u32(base + offset);
             if form != 0 {
-                let id = e.call(FORM_SAVE_ID_0084E3A0, &args![form]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 e.mem.set_u32(id_at, id);
             }
             let saver = save_load(e);
@@ -1360,7 +1364,7 @@ pub fn menu_topic_load_game(e: &mut Engine, this: Ptr<MenuTopic>, _unused_1: u32
 /// (one byte each), then the form ids of `+0x14`, `+0x28`, `+0x1c` and `pInfo`.
 pub fn menu_topic_save_game(e: &mut Engine, this: Ptr<MenuTopic>, buffer: u32) {
     let base = this.addr();
-    let text = e.call(STRING_CHARS_00559450, &args![base]).u32();
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base));
     e.call(SAVE_STRING_00865E70, &args![buffer, text, 0u32]);
     for offset in [8u32, 0x24, 0x25, 9, 0xa] {
         e.call(

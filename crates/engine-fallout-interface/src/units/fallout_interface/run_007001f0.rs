@@ -8,6 +8,7 @@ use crate::prelude::*;
 /// first (`00700480`, thiscall: two words).
 const PACKED_MENUS_CONSTRUCTOR: u32 = 0x0070_0480;
 /// Reads the word at `this` (`00559450`, thiscall).
+#[cfg(test)]
 const READ_WORD: u32 = 0x0055_9450;
 /// Sets a tile's float trait (`00a012d0`, thiscall: trait, value, flag).
 const TILE_SET_FLOAT: u32 = 0x00a0_12d0;
@@ -27,7 +28,11 @@ pub fn fn_007002d0(e: &mut Engine, this: Ptr) -> Ptr {
 /// The word at `this + 0x20` (through `00559450`; for a `BGSMenuPacker`,
 /// `dump_info_flag` and the bytes after it).
 pub fn fn_00700300(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(READ_WORD, &args![this.byte_add(0x20)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0x20))
+    )
 }
 
 // Translated from 00700320 (decompiled, FalloutNV.exe 1.4.0.525)

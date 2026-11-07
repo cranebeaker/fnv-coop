@@ -503,6 +503,7 @@ pub fn fn_0065dbf0(e: &mut Engine, this: Ptr, first: u32, last: u32) {
 /// `0044abd0` (thiscall on the allocator, one word), `006e6da0` (cdecl, two words) and
 /// `008c71b0` (thiscall, one word; the map names the folded body
 /// `BGSChangeFlags::IsForcedChange`, which does not fit this use).
+#[cfg(test)]
 const BASE_CTOR_006815C0: u32 = 0x0068_15c0;
 const ALLOCATOR_0044ABD0: u32 = 0x0044_abd0;
 const CONSTRUCT_006E6DA0: u32 = 0x006e_6da0;
@@ -515,7 +516,7 @@ const CONSTRUCT_008C71B0: u32 = 0x008c_71b0;
 /// gets `n = 0044abd0(this + 4, 1)` and `p = 006e6da0(4, n)`; when `p` is not null,
 /// `008c71b0(p, this)` is stored at `+0`, else 0. Returns `this`.
 pub fn fn_0065dc90(e: &mut Engine, this: Ptr, allocator: u32) -> Ptr {
-    e.call(BASE_CTOR_006815C0, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     e.with_stack(4, |e, argument| {
         e.mem.set_u32(argument.addr(), allocator);
         fn_0065de30(e, this.byte_add(4), argument.addr());
@@ -917,13 +918,14 @@ pub fn fn_0065e970(e: &mut Engine, first: u32, last: u32, allocator: u32, _unuse
 
 /// `0040fbe0` (cdecl, one word; the map's name `Error` is a folded body): the element
 /// destructor of the 8- and 0xc-byte allocators.
+#[cfg(test)]
 const DESTROY_0040FBE0: u32 = 0x0040_fbe0;
 
 // Translated from 0065e9a0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The allocator's `destroy(p)` for the 8- and 0xc-byte elements (thiscall, one word):
 /// `0040fbe0(p)`.
 pub fn fn_0065e9a0(e: &mut Engine, _this: Ptr, p: u32) {
-    e.call(DESTROY_0040FBE0, &args![p]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words p);
 }
 
 // Translated from 0065ea00 (decompiled, FalloutNV.exe 1.4.0.525)

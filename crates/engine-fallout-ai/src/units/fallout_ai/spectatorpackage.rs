@@ -100,12 +100,16 @@ const ARRAY_SIZE: u32 = 0x08;
 const ARRAY_ALLOC_SIZE: u32 = 0x0c;
 
 /// `0044ddc0` (`ECX` only): the word at +8 (an array's size).
+#[cfg(test)]
 const WORD_AT_8: u32 = 0x0044_ddc0;
 /// `00559450` (`ECX` only): the word at +0 (a threat's `pSource`).
+#[cfg(test)]
 const WORD_AT_0: u32 = 0x0055_9450;
 /// `00726070` (`ECX` only): the word at +4 (a threat's `pTarget`).
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// `0084e3a0` (`ECX` only): the word at +0xC (a threat's `iLastPerceivedTime`).
+#[cfg(test)]
 const WORD_AT_C: u32 = 0x0084_e3a0;
 /// The actor's virtual slot (byte offset) whose result the threat keeps as
 /// its target.
@@ -200,6 +204,7 @@ const POINT_LENGTH_SQUARED: u32 = 0x004a_7290;
 /// largest squared distance).
 const RADIUS_OF_004019D0: u32 = 0x0040_19d0;
 /// `008d8520` (`ECX` only): the word at +0x68 of an actor (its process).
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// `Actor::StopMoving` (`008b3ab0`, engine map; `ECX` only).
 const ACTOR_STOP_MOVING: u32 = 0x008b_3ab0;
@@ -241,6 +246,7 @@ const SLOT_ACTOR_0X234: u32 = 0x234;
 const SLOT_ACTOR_0X230: u32 = 0x230;
 const SLOT_ACTOR_0X218: u32 = 0x218;
 /// `00440d80` (`ECX` only): bit 0x20 of the word at +8 of a form.
+#[cfg(test)]
 const FORM_FLAG_20_00440D80: u32 = 0x0044_0d80;
 /// `004534f0` (`thiscall`, `RET 4`, `tes.cpp`): the step `009f8020` ends with.
 const PACKAGE_UPDATE_004534F0: u32 = 0x0045_34f0;
@@ -531,12 +537,12 @@ pub fn fn_009f7410(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     let pointer = base + DEBUG_GEOMETRY;
     e.mem.set_u32(base, SPECTATOR_PACKAGE_VTABLE);
-    if e.call(WORD_AT_0, &args![pointer]).u32() != 0 {
-        let geometry = e.call(WORD_AT_0, &args![pointer]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         if e.call(WORD_AT_18, &args![geometry]).u32() != 0 {
-            let geometry = e.call(WORD_AT_0, &args![pointer]).u32();
+            let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             let parent = e.call(WORD_AT_18, &args![geometry]).u32();
-            let geometry = e.call(WORD_AT_0, &args![pointer]).u32();
+            let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             e.vcall(parent, SLOT_DETACH_CHILD, &args![geometry]);
         }
         e.call(NI_POINTER_ASSIGN_0066B0D0, &args![pointer, 0u32]);
@@ -574,7 +580,11 @@ pub fn fn_009f7500(e: &mut Engine, this: Ptr, other: Ptr) {
     copy_words(e, base + EVENT_CENTER, source + EVENT_CENTER, 3);
     let completed = e.mem.u8(source + FLAG_COMPLETED);
     e.mem.set_u8(base + FLAG_COMPLETED, completed);
-    let count = e.call(WORD_AT_8, &args![source + THREAT_INFO_LIST]).u32();
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, source + THREAT_INFO_LIST)
+    );
     fn_009f8b30(e, Ptr::new(base + THREAT_INFO_LIST), count, 1);
     let mut index: i32 = 0;
     while index < count as i32 {
@@ -673,10 +683,10 @@ fn widen_bounds(e: &mut Engine, threat: u32, source: bool, high: u32, low: u32, 
 pub fn fn_009f76e0(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     let list = base + THREAT_INFO_LIST;
-    if e.call(WORD_AT_8, &args![list]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) == 0 {
         return;
     }
-    let count = e.call(WORD_AT_8, &args![list]).u32() as i32;
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) as i32;
     // The frame from EBP-0x1CC: `at(n)` is EBP-n. The high bound (EBP-0x38),
     // the low bound (EBP-0x2C), the center (EBP-0x14) and the 12-byte
     // temporaries each call uses.
@@ -805,7 +815,7 @@ pub fn fn_009f76e0(e: &mut Engine, this: Ptr) {
 /// its virtual slot +0x100, else 0.
 fn watchable_target(e: &mut Engine, this: Ptr) -> u32 {
     let first = fn_009f8aa0(e, Ptr::new(this.addr() + THREAT_INFO_LIST));
-    let target = e.call(WORD_AT_4, &args![first]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, first));
     if target != 0 && e.vcall(target, SLOT_TARGET_WATCHABLE, &args![]).u8() != 0 {
         target
     } else {
@@ -828,12 +838,17 @@ pub fn fn_009f7d70(e: &mut Engine, this: Ptr, actor: Ptr, watching: u8) {
     let base = this.addr();
     let actor = actor.addr();
     if watching == 0 {
-        let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, SLOT_PROCESS_0X310, &args![0u32]);
         e.call(ACTOR_STOP_MOVING, &args![actor]);
         return;
     }
-    if e.call(WORD_AT_8, &args![base + THREAT_INFO_LIST]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, base + THREAT_INFO_LIST)
+    ) == 0
+    {
         return;
     }
     let roll = e.call(RANDOM_00487F50, &args![]).u32() % 100;
@@ -841,9 +856,9 @@ pub fn fn_009f7d70(e: &mut Engine, this: Ptr, actor: Ptr, watching: u8) {
     if target == 0 {
         return;
     }
-    let talks = e.call(ACTOR_PROCESS, &args![actor]).u32() != 0
+    let talks = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
         && {
-            let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             e.vcall(process, SLOT_PROCESS_0X30C, &args![]).u8() == 0
         }
         && {
@@ -860,7 +875,7 @@ pub fn fn_009f7d70(e: &mut Engine, this: Ptr, actor: Ptr, watching: u8) {
         let topic = e.call(TOPIC_GET_TOPIC, &args![6u32, 0u32]).u32();
         if topic != 0 {
             e.call(REFERENCE_STEP_0057BD60, &args![actor, target]);
-            let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             e.vcall(
                 process,
                 SLOT_PROCESS_0X2A4,
@@ -884,18 +899,20 @@ pub fn fn_009f7d70(e: &mut Engine, this: Ptr, actor: Ptr, watching: u8) {
 pub fn fn_009f7f20(e: &mut Engine, this: Ptr, actor: Ptr, watching: u8) {
     let actor = actor.addr();
     if watching != 0
-        && e.call(WORD_AT_8, &args![this.addr() + THREAT_INFO_LIST])
-            .u32()
-            != 0
+        && typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, this.addr() + THREAT_INFO_LIST)
+        ) != 0
     {
         let target = watchable_target(e, this);
         if target != 0 {
-            let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             e.vcall(process, SLOT_PROCESS_0X628, &args![target]);
             return;
         }
     }
-    let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(process, SLOT_PROCESS_0X644, &args![1u32]);
 }
 
@@ -904,7 +921,11 @@ pub fn fn_009f7f20(e: &mut Engine, this: Ptr, actor: Ptr, watching: u8) {
 /// no threats, or `bFlagCompleted` set.
 pub fn fn_009f7fe0(e: &mut Engine, this: Ptr) -> bool {
     let base = this.addr();
-    e.call(WORD_AT_8, &args![base + THREAT_INFO_LIST]).u32() == 0
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, base + THREAT_INFO_LIST)
+    ) == 0
         || e.mem.u8(base + FLAG_COMPLETED) != 0
 }
 
@@ -916,11 +937,11 @@ fn source_still_fighting(e: &mut Engine, actor: u32, source: u32) -> bool {
     if source == 0 || e.vcall(source, SLOT_ACTOR_0X218, &args![]).u8() == 0 {
         return true;
     }
-    if e.call(ACTOR_PROCESS, &args![actor]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) == 0 {
         return true;
     }
-    let found = if e.call(ACTOR_PROCESS, &args![actor]).u32() != 0 {
-        let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+    let found = if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, SLOT_PROCESS_0X504, &args![source, 0u32])
             .u32()
     } else {
@@ -946,30 +967,32 @@ pub fn fn_009f8020(e: &mut Engine, this: Ptr, actor: Ptr) {
     let list = base + THREAT_INFO_LIST;
     let actor_word = actor.addr();
     let mut changed = false;
-    let count = e.call(WORD_AT_8, &args![list]).u32() as i32;
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) as i32;
     let mut index: i32 = 0;
     while index < count {
         let threat = threat_at(e, this, index as u32);
-        if e.call(WORD_AT_0, &args![threat]).u32() != 0
-            && e.call(WORD_AT_4, &args![threat]).u32() != 0
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, threat)) != 0
+            && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, threat)) != 0
         {
-            let source = e.call(WORD_AT_0, &args![threat]).u32();
+            let source = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, threat));
             let aimed = e.vcall(source, SLOT_ACTOR_TARGET, &args![]).u32();
-            if aimed != 0 && aimed != e.call(WORD_AT_4, &args![threat]).u32() {
+            if aimed != 0
+                && aimed != typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, threat))
+            {
                 fn_009f8330(e, this, actor);
                 changed = true;
             }
         }
         index = index.wrapping_add(1);
     }
-    let mut count = e.call(WORD_AT_8, &args![list]).u32() as i32;
+    let mut count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) as i32;
     let mut index: i32 = 0;
     while index < count {
         let threat = threat_at(e, this, index as u32);
-        let source = e.call(WORD_AT_0, &args![threat]).u32();
-        let target = e.call(WORD_AT_4, &args![threat]).u32();
+        let source = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, threat));
+        let target = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, threat));
         let now = e.call(CURRENT_TIME_00457FE0, &args![]).u32();
-        let last = e.call(WORD_AT_C, &args![threat]).u32();
+        let last = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, threat));
         if now <= last.wrapping_add(0x7d0) {
             index = index.wrapping_add(1);
             continue;
@@ -978,7 +1001,11 @@ pub fn fn_009f8020(e: &mut Engine, this: Ptr, actor: Ptr) {
         // `FLD setting; FMUL 1000.0; FADD last; FCOMP now; TEST AH,5; JP`:
         // removed when the deadline is below now (ordered).
         let now = f64::from(e.call(CURRENT_TIME_00457FE0, &args![]).u32());
-        let last = f64::from(e.call(WORD_AT_C, &args![threat]).u32());
+        let last = f64::from(typed_call!(
+            leaf::FAMILY,
+            0x0084_e3a0,
+            leaf::word_at_c(e, threat)
+        ));
         let value = e.call(SETTING_VALUE, &args![SETTING_011CD264]).u32();
         let thousand: f64 = e.global(THOUSAND);
         let deadline = x87_add(x87_mul(x87_load32(e.mem.u32(value)), thousand), last);
@@ -991,7 +1018,10 @@ pub fn fn_009f8020(e: &mut Engine, this: Ptr, actor: Ptr) {
         }
         if target != 0 {
             let gone = e.vcall(target, SLOT_ACTOR_0X22C, &args![0u32]).u8() != 0
-                || e.call(FORM_FLAG_20_00440D80, &args![target]).u8() != 0
+                || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, target))
+                    .into_ret()
+                    .u8()
+                    != 0
                 || e.vcall(target, SLOT_ACTOR_0X234, &args![]).u8() != 0
                 || e.vcall(target, SLOT_ACTOR_0X230, &args![]).u8() != 0;
             if gone {
@@ -1040,13 +1070,13 @@ pub fn fn_009f8330(e: &mut Engine, this: Ptr, source: Ptr) {
     let base = this.addr();
     let list = base + THREAT_INFO_LIST;
     let target = e.vcall(source.addr(), SLOT_ACTOR_TARGET, &args![]).u32();
-    let count = e.call(WORD_AT_8, &args![list]).u32() as i32;
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) as i32;
     let mut found = 0u32;
     let mut index: i32 = 0;
     while index < count {
         let threat = threat_at(e, this, index as u32);
-        if e.call(WORD_AT_0, &args![threat]).u32() == source.addr()
-            && e.call(WORD_AT_4, &args![threat]).u32() == target
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, threat)) == source.addr()
+            && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, threat)) == target
         {
             found = threat;
             break;
@@ -1054,7 +1084,7 @@ pub fn fn_009f8330(e: &mut Engine, this: Ptr, source: Ptr) {
         index = index.wrapping_add(1);
     }
     if found == 0 {
-        let size = e.call(WORD_AT_8, &args![list]).u32();
+        let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list));
         fn_009f8b30(e, Ptr::new(list), size.wrapping_add(1), 1);
         found = threat_at(e, this, size);
     }
@@ -1068,15 +1098,16 @@ pub fn fn_009f8330(e: &mut Engine, this: Ptr, source: Ptr) {
 /// (`pTarget` 0, `bHasTarget` 0). The indices are compared signed.
 pub fn fn_009f8420(e: &mut Engine, this: Ptr, actor: Ptr) {
     let list = this.addr() + THREAT_INFO_LIST;
-    let mut count = e.call(WORD_AT_8, &args![list]).u32() as i32;
+    let mut count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) as i32;
     let mut index: i32 = 0;
     while index < count {
         let threat = threat_at(e, this, index as u32);
-        if e.call(WORD_AT_0, &args![threat]).u32() == actor.addr() {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, threat)) == actor.addr() {
             fn_009f8c70(e, Ptr::new(list), index as u32, 1);
             count = count.wrapping_sub(1);
             index = index.wrapping_sub(1);
-        } else if e.call(WORD_AT_4, &args![threat]).u32() == actor.addr() {
+        } else if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, threat)) == actor.addr()
+        {
             e.mem.set_u32(threat + THREAT_TARGET, 0);
             e.mem.set_u8(threat + THREAT_HAS_TARGET, 0);
         }
@@ -1089,12 +1120,12 @@ pub fn fn_009f8420(e: &mut Engine, this: Ptr, actor: Ptr) {
 /// `actor` (`009f8c70(index, 1)`; the indices compared signed).
 pub fn fn_009f84d0(e: &mut Engine, this: Ptr, actor: Ptr) {
     let list = this.addr() + THREAT_INFO_LIST;
-    let mut count = e.call(WORD_AT_8, &args![list]).u32() as i32;
+    let mut count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) as i32;
     let mut index: i32 = 0;
     while index < count {
         let threat = threat_at(e, this, index as u32);
-        if e.call(WORD_AT_0, &args![threat]).u32() == actor.addr()
-            || e.call(WORD_AT_4, &args![threat]).u32() == actor.addr()
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, threat)) == actor.addr()
+            || typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, threat)) == actor.addr()
         {
             fn_009f8c70(e, Ptr::new(list), index as u32, 1);
             count = count.wrapping_sub(1);
@@ -1118,13 +1149,15 @@ pub fn fn_009f8570(e: &mut Engine, this: Ptr) -> Ptr {
     } else {
         0
     };
-    let count = e
-        .call(WORD_AT_8, &args![this.addr() + THREAT_INFO_LIST])
-        .u32() as i32;
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + THREAT_INFO_LIST)
+    ) as i32;
     let mut index: i32 = 0;
     while index < count {
         let threat = threat_at(e, this, index as u32);
-        let size = e.call(WORD_AT_8, &args![array]).u32();
+        let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array));
         e.call(
             SHAPE_ARRAY_SET_SIZE_006E3AD0,
             &args![array, size.wrapping_add(1), 1u32],
@@ -1143,15 +1176,17 @@ pub fn fn_009f8570(e: &mut Engine, this: Ptr) -> Ptr {
 /// holding it; the indices compared signed).
 pub fn spectator_package_create_threat_array(e: &mut Engine, this: Ptr, out: Ptr) {
     e.call(ARRAY_RELEASE_008454F0, &args![out, 1u32]);
-    let count = e
-        .call(WORD_AT_8, &args![this.addr() + THREAT_INFO_LIST])
-        .u32();
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + THREAT_INFO_LIST)
+    );
     e.call(ARRAY_SET_RESERVED_SIZE, &args![out, count << 1]);
     e.with_stack(4, |e, slot| {
         let mut index: i32 = 0;
         while index < count as i32 {
             let threat = threat_at(e, this, index as u32);
-            let source = e.call(WORD_AT_0, &args![threat]).u32();
+            let source = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, threat));
             e.mem.set_u32(slot.addr(), source);
             if source != 0 {
                 e.call(ARRAY_ADD, &args![out, slot]);
@@ -1230,7 +1265,7 @@ pub fn spectator_package_save_game(e: &mut Engine, this: Ptr, buffer: Ptr) {
     }
     let list = base.wrapping_add(THREAT_INFO_LIST);
     let count = if list != 0 {
-        e.call(WORD_AT_8, &args![list]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list))
     } else {
         0
     };
@@ -1284,9 +1319,11 @@ pub fn spectator_package_load_game(e: &mut Engine, this: Ptr, buffer: Ptr) {
 /// each threat's `InitLoadGame` step (`009f7230`).
 pub fn fn_009f8a10(e: &mut Engine, this: Ptr, buffer: Ptr) {
     e.call(PACKAGE_INIT_LOAD_GAME, &args![this, buffer]);
-    let count = e
-        .call(WORD_AT_8, &args![this.addr() + THREAT_INFO_LIST])
-        .u32();
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + THREAT_INFO_LIST)
+    );
     let mut index = 0u32;
     while index < count {
         let threat = threat_at(e, this, index);

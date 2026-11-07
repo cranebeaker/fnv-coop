@@ -58,6 +58,7 @@ const TES_GET_WORLD_SPACE: u32 = 0x004f_d3e0;
 /// `D3DTexture_LockRect`, a folded body).
 const WORD_24_0059BB30: u32 = 0x0059_bb30;
 /// `0045cd60` (`thiscall`): the word at +0x28.
+#[cfg(test)]
 const WORD_28_0045CD60: u32 = 0x0045_cd60;
 /// `TESObjectREFR::GetWorldSpace` (`00575d70`, engine map; `thiscall`).
 const REFR_GET_WORLD_SPACE: u32 = 0x0057_5d70;
@@ -71,8 +72,10 @@ const LOADING_MENU_SAVE_0078D6B0: u32 = 0x0078_d6b0;
 /// `00461190` (`thiscall`): the data handler's global list (first node).
 const DATA_HANDLER_GLOBALS_00461190: u32 = 0x0046_1190;
 /// `006815c0` (`thiscall`): returns `this`; here a node's item word.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`thiscall`): the word at +4; here the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `00549580` (`thiscall`, a `bool` in AL): globals for which it answers
 /// true are skipped.
@@ -83,6 +86,7 @@ const GLOBAL_GET_VALUE: u32 = 0x0052_6ac0;
 /// objects [`fn_0084cf30`] saves.
 const TES_LIST_0043B5D0: u32 = 0x0043_b5d0;
 /// `00559450` (`thiscall`): the object a smart-pointer member holds.
+#[cfg(test)]
 const POINTER_GET_00559450: u32 = 0x0055_9450;
 /// `00529990` (`cdecl`, no words): `FLD dword [011c96fc]`.
 const GLOBAL_VALUE_00529990: u32 = 0x0052_9990;
@@ -172,7 +176,7 @@ pub fn bgs_save_load_global_data_save_location_data(e: &mut Engine, buffer: u32)
         let first = e.call(WORD_24_0059BB30, &args![tes]).u32();
         e.mem.set_u32(base + 0xc, first);
         let tes: u32 = e.global(TES);
-        let second = e.call(WORD_28_0045CD60, &args![tes]).u32();
+        let second = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tes));
         e.mem.set_u32(base + 4, second);
         e.call(BUFFER_SAVE_DATA, &args![buffer, base + 0xc, 4u32, 0u32]);
         e.call(BUFFER_SAVE_DATA, &args![buffer, base + 4, 4u32, 0u32]);
@@ -213,7 +217,7 @@ pub fn bgs_save_load_global_data_save_globals(e: &mut Engine, buffer: u32) {
     let start = e.call(BUFFER_START_VARIABLE_SIZED, &args![buffer]).u32();
     e.with_stack(4, |e, value| {
         while node != 0 {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let global = e.mem.u32(slot);
             if global != 0 && !e.call(GLOBAL_SKIP_00549580, &args![global]).bool() {
                 e.call(BUFFER_SAVE_FORM_ID, &args![buffer, global, 0u32]);
@@ -222,7 +226,7 @@ pub fn bgs_save_load_global_data_save_globals(e: &mut Engine, buffer: u32) {
                 e.call(BUFFER_SAVE_DATA, &args![buffer, value, 4u32, 0u32]);
                 count = count.wrapping_add(1);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
     e.call(BUFFER_SAVE_VARIABLE_SIZED, &args![buffer, count, start]);
@@ -244,8 +248,8 @@ pub fn fn_0084cf30(e: &mut Engine, buffer: u32) {
     e.with_stack(8, |e, locals| {
         let base = locals.addr();
         while node != 0 {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
-            let object = e.call(POINTER_GET_00559450, &args![slot]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
             if object != 0 && !fn_0084d050(e, Ptr::new(object)) {
                 let inner = e.vcall(object, 0x94, &args![]).u32();
                 if inner != 0 {
@@ -261,7 +265,7 @@ pub fn fn_0084cf30(e: &mut Engine, buffer: u32) {
                     count = count.wrapping_add(1);
                 }
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
     e.call(BUFFER_SAVE_VARIABLE_SIZED, &args![buffer, count, start]);
@@ -375,6 +379,7 @@ const COMBAT_MANAGER_REVERT_00993800: u32 = 0x0099_3800;
 const INTERFACE_REVERT_00706AE0: u32 = 0x0070_6ae0;
 const ACTOR_CAUSE_REVERT_0066E910: u32 = 0x0066_e910;
 const FALLOUT_RADIO_REVERT: u32 = 0x0083_6ef0;
+#[cfg(test)]
 const REVERT_0040FBE0: u32 = 0x0040_fbe0;
 const PROCESS_LISTS_REVERT_00975C50: u32 = 0x0097_5c50;
 /// `BGSLoadGameBuffer::BGSLoadGameBuffer` (engine map, `008646b0`) and its destructor
@@ -403,6 +408,7 @@ const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// forms to (`007af430` on it; the engine map's `BGSSaveFormBuffer::GetForm` is a folded
 /// name), `BGSReconstructFormsInAllFilesMap::AddForm` (`00843630`; `thiscall`: form, word).
 const SAVE_LOAD_GAME: u32 = 0x011d_df38;
+#[cfg(test)]
 const RECONSTRUCT_MAP_007AF430: u32 = 0x007a_f430;
 const RECONSTRUCT_ADD_FORM: u32 = 0x0084_3630;
 /// The global map's vtable-driven removal (`00405430`, `thiscall`: key; engine map name
@@ -668,7 +674,7 @@ pub fn fn_0084c330(e: &mut Engine, kind: u32, buffer: u32, flag: u8) -> bool {
             true
         }
         11 => {
-            e.call(REVERT_0040FBE0, &args![buffer]);
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words buffer);
             true
         }
         1000 => {
@@ -715,12 +721,14 @@ const CELL_GET_3D: u32 = 0x0054_5cb0;
 const CELL_REMOVE_REFERENCE: u32 = 0x0054_ca90;
 const TES_00454450: u32 = 0x0045_4450;
 /// `006815c0` (`thiscall`): answers `this` (the constructor of a 12-byte local here).
+#[cfg(test)]
 const RETURNS_THIS_006815C0: u32 = 0x0068_15c0;
 /// `00406d90` (`cdecl`, a `float`): the integer the cell coordinate is made from (`SAR 12`).
 const FLOAT_TO_INT_00406D90: u32 = 0x0040_6d90;
 /// `00401170` (`thiscall` on a form): its type byte.
 const FORM_TYPE: u32 = 0x0040_1170;
 /// `0084e3a0` (`thiscall` on a form): its id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The fallback of `0084c5a0`: the data handler's quest list (`00455600`), the quest's member
 /// at +0x30 read by `00408da0` (its text; the engine map's `MapMarkerData::GetLocationName` is a
@@ -819,7 +827,7 @@ pub fn fn_0084c5a0(e: &mut Engine, buffer: u32) {
         e.call(BUFFER_LOAD_DATA, &args![buffer, y_at, 4u32]);
         let id = e.call(BUFFER_LOAD_FORM_ID, &args![buffer]).u32();
         let location = e.call(LOOKUP_FORM, &args![id]).u32();
-        e.call(RETURNS_THIS_006815C0, &args![position]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
         e.call(BUFFER_LOAD_DATA, &args![buffer, position, 0xcu32]);
         e.call(LOADING_MENU_LOAD_0078D770, &args![buffer]);
         let saved_position = |e: &Engine| {
@@ -866,7 +874,7 @@ pub fn fn_0084c5a0(e: &mut Engine, buffer: u32) {
                 }
             }
             if placed {
-                e.call(RETURNS_THIS_006815C0, &args![point]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
                 let x = (e.mem.u32(x_at) << 12) as i32;
                 e.mem.set_u32(point, x87_store32(f64::from(x)));
                 let y = (e.mem.u32(y_at) << 12) as i32;
@@ -925,35 +933,39 @@ pub fn fn_0084c5a0(e: &mut Engine, buffer: u32) {
             let handler: u32 = e.global(DATA_HANDLER);
             let mut node = e.call(HANDLER_QUESTS_00455600, &args![handler]).u32();
             while node != 0 {
-                let slot = e.call(NODE_ITEM, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(slot) == 0 {
                     break;
                 }
-                let slot = e.call(NODE_ITEM, &args![node]).u32();
-                let id = e.call(FORM_ID, &args![e.mem.u32(slot)]).u32();
-                let slot = e.call(NODE_ITEM, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
+                let id = typed_call!(
+                    leaf::FAMILY,
+                    0x0084_e3a0,
+                    leaf::word_at_c(e, e.mem.u32(slot))
+                );
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let text = e
                     .call(STRING_TEXT_00408DA0, &args![e.mem.u32(slot) + 0x30])
                     .u32();
                 fn_0084cbd0(e, QUEST_DEBUG_FORMAT, &[text, id]);
-                let slot = e.call(NODE_ITEM, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.call(STRING_LENGTH_0048CEE0, &args![e.mem.u32(slot) + 0x30])
                     .u32()
                     > 8
                 {
-                    let slot = e.call(NODE_ITEM, &args![node]).u32();
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let text = e
                         .call(STRING_TEXT_00408DA0, &args![e.mem.u32(slot) + 0x30])
                         .u32();
                     if e.call(STRSTR, &args![text, PATCH_DEBUG_TEXT]).u32() != 0 {
-                        let slot = e.call(NODE_ITEM, &args![node]).u32();
+                        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                         let player: u32 = e.global(PLAYER);
                         let quest = e.mem.u32(slot);
                         e.mem.set_u32(player + PLAYER_QUEST_WORD, quest);
                         break;
                     }
                 }
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             let player: u32 = e.global(PLAYER);
             e.call(PLAYER_0095F530, &args![player, 0u32, 0xffu32]);
@@ -1095,7 +1107,7 @@ pub fn fn_0084cc40(e: &mut Engine, this: Ptr, set: u8) {
 /// (`BGSReconstructFormsInAllFilesMap::AddForm(global, 0)`); the map is destroyed (`0084d3f0`).
 pub fn bgs_save_load_global_data_load_globals(e: &mut Engine, buffer: u32) {
     let save_load: u32 = e.global(SAVE_LOAD_GAME);
-    let reconstruct = e.call(RECONSTRUCT_MAP_007AF430, &args![save_load]).u32();
+    let reconstruct = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, save_load));
     // The exe's locals from EBP-0x48: the map at EBP-0x20, the value at EBP-0x38, the
     // position at EBP-0x10, the key at EBP-0x44 and the byte at EBP-0x3D.
     e.with_stack(0x48, |e, frame| {
@@ -1109,12 +1121,12 @@ pub fn bgs_save_load_global_data_load_globals(e: &mut Engine, buffer: u32) {
         let handler: u32 = e.global(DATA_HANDLER);
         let mut node = e.call(DATA_HANDLER_GLOBALS_00461190, &args![handler]).u32();
         while node != 0 {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let global = e.mem.u32(slot);
             if global != 0 {
                 fn_0084d310(e, Ptr::new(map), global, 1);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let count = e.call(BUFFER_LOAD_VARIABLE_SIZED, &args![buffer]).u32();
         let mut index = 0u32;
@@ -1160,14 +1172,14 @@ pub fn bgs_save_load_global_data_load_globals(e: &mut Engine, buffer: u32) {
 /// `BGSReconstructFormsInAllFilesMap::AddForm(global, 0)`.
 pub fn fn_0084ced0(e: &mut Engine) {
     let save_load: u32 = e.global(SAVE_LOAD_GAME);
-    let reconstruct = e.call(RECONSTRUCT_MAP_007AF430, &args![save_load]).u32();
+    let reconstruct = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, save_load));
     let handler: u32 = e.global(DATA_HANDLER);
     let mut node = e.call(DATA_HANDLER_GLOBALS_00461190, &args![handler]).u32();
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let global = e.mem.u32(slot);
         e.call(RECONSTRUCT_ADD_FORM, &args![reconstruct, global, 0u32]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -1242,8 +1254,8 @@ pub fn bgs_save_load_global_data_revert_effects(e: &mut Engine) {
     // The exe's smart pointer local at EBP-0x18.
     e.with_stack(4, |e, pointer| {
         while node != 0 {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
-            let object = e.call(POINTER_GET_00559450, &args![slot]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
             if object != 0 && !fn_0084d050(e, Ptr::new(object)) {
                 e.call(POINTER_CONSTRUCT, &args![pointer, object]);
                 e.call(LIST_REMOVE, &args![node, pointer]);
@@ -1253,7 +1265,7 @@ pub fn bgs_save_load_global_data_revert_effects(e: &mut Engine) {
             if object != 0 {
                 e.call(EFFECT_SET_0063F790, &args![object, 0u32]);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 }

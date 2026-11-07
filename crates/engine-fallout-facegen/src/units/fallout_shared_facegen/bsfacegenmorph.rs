@@ -48,6 +48,7 @@ const POINT_SCALE: u32 = 0x0045_bb20;
 const POINT_ADD: u32 = 0x0063_c8a0;
 const POINT_DIFFERENCE: u32 = 0x0043_9ef0;
 /// The word at +0xC (`0084e3a0`): the statistical basis of a base.
+#[cfg(test)]
 const WORD_AT_C: u32 = 0x0084_e3a0;
 
 /// `weight` in 0..=1 as the exe tests it: false when not above 0.0
@@ -148,7 +149,7 @@ pub fn bs_face_gen_morph_differential_apply_morph(
         e.call(ITERATOR_CONSTRUCT, &args![iterator]);
         e.call(GEOMETRY_BEGIN, &args![geometry, iterator]);
         e.with_stack(0xc, |e, point| {
-            e.call(POINT_CONSTRUCT, &args![point]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
             let count = e.mem.u32(this.addr().wrapping_add(8));
             let vertices = e.call(GEOMETRY_VERTEX_COUNT, &args![geometry]).u16();
             let n = fn_00660940(e, vertices, count);
@@ -242,17 +243,17 @@ pub fn bs_face_gen_morph_statistical_apply_morph(
     if object == 0 || !weight_in_range(e, weight.to_bits()) {
         return;
     }
-    if e.call(WORD_AT_C, &args![base]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, base)) == 0 {
         return;
     }
     let weight = x87_quiet_bits(weight.to_bits());
-    let basis = e.call(WORD_AT_C, &args![base]).u32();
+    let basis = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, base));
     let geometry = e.call(OBJECT_GEOMETRY, &args![object]).u32();
     e.with_stack(0xc, |e, iterator| {
         e.call(ITERATOR_CONSTRUCT, &args![iterator]);
         e.call(GEOMETRY_BEGIN, &args![geometry, iterator]);
         e.with_stack(0xc, |e, point| {
-            e.call(POINT_CONSTRUCT, &args![point]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
             let mut i = 0u32;
             while i < e.mem.u32(this.addr().wrapping_add(8)) {
                 let indices = e.mem.u32(this.addr().wrapping_add(4));

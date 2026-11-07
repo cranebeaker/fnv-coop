@@ -75,6 +75,7 @@ layout! {
 
 /// `00559450` (unnamed): `return *this` (the `NiPointer` read and the
 /// first-field read the unoptimised code calls), `thiscall`.
+#[cfg(test)]
 const DEREF: u32 = 0x0055_9450;
 /// `00aa13e0` (unnamed, `cdecl`, one word): the object allocation.
 const NI_NEW: u32 = 0x00aa_13e0;
@@ -124,7 +125,7 @@ type PathFormatter = fn(&mut Engine, u32, u32, u32, i16, i16);
 
 /// `00559450` on `p`.
 fn deref(e: &mut Engine, p: u32) -> u32 {
-    e.call(DEREF, &args![p]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, p))
 }
 
 /// `NiNew` of `size` bytes and the constructor `ctor` on it (0 when the
@@ -313,7 +314,7 @@ pub fn bgs_terrain_chunk_get_texture(
         let node = e.get(this, BGSTerrainChunk::pNode);
         let y = i32::from(e.call(0x004a_8ae0, &args![node]).u16() as i16);
         let node = e.get(this, BGSTerrainChunk::pNode);
-        let level = e.call(0x0072_6070, &args![node]).u32();
+        let level = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         e.call(0x005b_5e40, &args![NO_LIGHTING_MESSAGE, level, y, x]);
     }
     texture
@@ -788,7 +789,7 @@ pub fn bgs_terrain_chunk_load_task_run(e: &mut Engine, this: Ptr<BGSTerrainChunk
         );
         let file = e.call(0x00c3_cff0, &args![this, 0u32, 1u32]).u32();
         e.call(0x0043_cfd0, &args![stream]);
-        let name = e.call(0x0045_cd60, &args![this]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
         if e.call(0x00c3_a8a0, &args![stream, name, file]).bool() {
             let first = e.call(0x0043_b200, &args![stream, 0u32]).u32();
             if e.vcall(first, 0xc, &args![]).u32() != 0 {
@@ -933,8 +934,11 @@ pub fn bgs_terrain_chunk_load_task_get_file_index(
 /// on a node) answers whether it is empty, `006815c0` gives the address of its item and
 /// `00726070` the next node.
 const CHUNK_LIST_011D8624: u32 = 0x011d_8624;
+#[cfg(test)]
 const LIST_IS_EMPTY_008256D0: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_ITEM_006815C0: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT_00726070: u32 = 0x0072_6070;
 
 /// The walk shared by [`fn_006fb5d0`] and [`fn_006fb640`]: from the head node until a null node
@@ -942,13 +946,17 @@ const LIST_NEXT_00726070: u32 = 0x0072_6070;
 fn each_listed_chunk(e: &mut Engine, visit: fn(&mut Engine, u32)) {
     let mut node = CHUNK_LIST_011D8624;
     while node != 0 {
-        if e.call(LIST_IS_EMPTY_008256D0, &args![node]).u8() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            != 0
+        {
             return;
         }
-        let item = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let chunk = e.mem.u32(item);
         visit(e, chunk);
-        node = e.call(LIST_NEXT_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 

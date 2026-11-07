@@ -59,7 +59,9 @@ pub fn fn_005edac0(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 const PLAYER: u32 = 0x011d_ea3c;
 /// The list helpers on a node: its item's slot (`006815c0`) and the next
 /// node (`00726070`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The address of the quest's flag byte (`005a8080`, on the quest).
 const QUEST_FLAGS: u32 = 0x005a_8080;
@@ -74,7 +76,9 @@ const OBJECTIVE_TEXT: u32 = 0x005e_c330;
 /// The array helpers the ragdoll uses: its element count (`0044ddc0`),
 /// element `i`'s address (`00877a30`) and the clear (`008454f0`, one
 /// word); `00401030` frees a block.
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const ARRAY_AT: u32 = 0x0087_7a30;
 const ARRAY_CLEAR: u32 = 0x0084_54f0;
 const FREE: u32 = 0x0040_1030;
@@ -88,7 +92,7 @@ const FREE: u32 = 0x0040_1030;
 /// `00610190` of the item, and the item is added to `targets` (`00905820`,
 /// given the item's address).
 pub fn fn_005ec500(e: &mut Engine, this: Ptr, targets: u32) {
-    if e.call(0x007a_f430, &args![this]).u32() != 1 {
+    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this)) != 1 {
         return;
     }
     let mut node = e.call(0x007d_6bb0, &args![this]).u32();
@@ -96,14 +100,14 @@ pub fn fn_005ec500(e: &mut Engine, this: Ptr, targets: u32) {
         if node == 0 {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let target = e.mem.u32(slot);
         e.mem.set_u32(target_slot.addr(), target);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         let reference = e.call(0x0061_01b0, &args![target, 0u32]).u32();
         let condition = e.call(0x0071_7e50, &args![target]).u32();
         if e.call(0x0068_0c30, &args![condition, reference, 0u32])
@@ -359,8 +363,8 @@ pub fn fn_005edc30(e: &mut Engine, this: Ptr) {
 /// then clears the array at `other` and the array itself (`008454f0(1)`).
 fn free_elements_and_clear(e: &mut Engine, array: u32, other: u32) {
     let mut i = 0u32;
-    while i < e.call(ARRAY_COUNT, &args![array]).u32() {
-        let slot = e.call(ARRAY_AT, &args![array, i]).u32();
+    while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, array, i));
         let element = e.mem.u32(slot);
         e.call(FREE, &args![element]);
         i = i.wrapping_add(1);
@@ -465,29 +469,54 @@ fn arrays_differ(
     names: u32,
 ) -> bool {
     let mut differs = false;
-    let mine = e.call(ARRAY_COUNT, &args![this + elements]).u32();
-    if mine != e.call(ARRAY_COUNT, &args![other + elements]).u32() {
+    let mine = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this + elements)
+    );
+    if mine
+        != typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, other + elements)
+        )
+    {
         differs = true;
     }
     if !differs {
         let mut i = 0u32;
-        while i < e.call(ARRAY_COUNT, &args![this + elements]).u32() && !differs {
+        while i < typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, this + elements)
+        ) && !differs
+        {
             let theirs = e.call(element_at, &args![other + elements, i]).u32();
             let mine = e.call(element_at, &args![this + elements, i]).u32();
             differs = element_differs(e, Ptr::new(mine), theirs);
             i = i.wrapping_add(1);
         }
     }
-    let mine = e.call(ARRAY_COUNT, &args![this + names]).u32();
-    if mine != e.call(ARRAY_COUNT, &args![other + names]).u32() {
+    let mine = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this + names));
+    if mine != typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other + names)) {
         differs = true;
     }
     if !differs {
         let mut i = 0u32;
-        while i < e.call(ARRAY_COUNT, &args![this + names]).u32() && !differs {
-            let slot = e.call(ARRAY_AT, &args![other + names, i]).u32();
+        while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this + names))
+            && !differs
+        {
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, other + names, i)
+            );
             let theirs = e.mem.u32(slot);
-            let slot = e.call(ARRAY_AT, &args![this + names, i]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, this + names, i)
+            );
             let mine = e.mem.u32(slot);
             differs = e.call(TEXT_COMPARE, &args![mine, theirs]).u32() != 0;
             i = i.wrapping_add(1);
@@ -514,34 +543,58 @@ fn copy_arrays(
 ) {
     e.call(ARRAY_CLEAR, &args![this + elements, 1u32]);
     let mut i = 0u32;
-    while i < e.call(ARRAY_COUNT, &args![this + names]).u32() {
-        let slot = e.call(ARRAY_AT, &args![this + names, i]).u32();
+    while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this + names)) {
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, this + names, i)
+        );
         let text = e.mem.u32(slot);
         e.call(FREE, &args![text]);
         i = i.wrapping_add(1);
     }
     e.call(ARRAY_CLEAR, &args![this + names, 1u32]);
-    let count = e.call(ARRAY_COUNT, &args![other + elements]).u32();
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, other + elements)
+    );
     e.call(set_size, &args![this + elements, count, 1u32]);
-    let count = e.call(ARRAY_COUNT, &args![other + names]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other + names));
     e.call(STRING_ARRAY_SET_SIZE, &args![this + names, count, 1u32]);
     let mut i = 0u32;
-    while i < e.call(ARRAY_COUNT, &args![other + elements]).u32() {
+    while i < typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, other + elements)
+    ) {
         let source = e.call(element_at, &args![other + elements, i]).u32();
         let destination = e.call(element_at, &args![this + elements, i]).u32();
         copy_element(e, source, destination);
         i = i.wrapping_add(1);
     }
     let mut i = 0u32;
-    while i < e.call(ARRAY_COUNT, &args![other + names]).u32() {
-        let slot = e.call(ARRAY_AT, &args![other + names, i]).u32();
+    while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other + names)) {
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, other + names, i)
+        );
         let text = e.mem.u32(slot);
         let size = e.call(TEXT_LENGTH, &args![text]).u32().wrapping_add(1);
         let copy = e.call(ALLOCATE, &args![size]).u32();
-        let slot = e.call(ARRAY_AT, &args![other + names, i]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, other + names, i)
+        );
         let text = e.mem.u32(slot);
         e.call(TEXT_COPY, &args![copy, size, text]);
-        let slot = e.call(ARRAY_AT, &args![this + names, i]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, this + names, i)
+        );
         e.mem.set_u32(slot, copy);
         i = i.wrapping_add(1);
     }

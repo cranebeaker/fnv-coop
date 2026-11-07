@@ -184,6 +184,7 @@ const OPERATOR_NEW: u32 = 0x0040_1000;
 const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// The no-op constructor of an `NiPoint3`/`NiMatrix3` (`006815c0`,
 /// `thiscall`, returns `this`).
+#[cfg(test)]
 const CONSTRUCT_IN_PLACE: u32 = 0x0068_15c0;
 /// `MobileObject::GetCharController` (Xbox PDB name of `009306d0`).
 const GET_CHAR_CONTROLLER: u32 = 0x0093_06d0;
@@ -220,8 +221,10 @@ const COLLISION_OBJECT_BODY: u32 = 0x006f_a820;
 const REFERENCE_3D: u32 = 0x0043_fcd0;
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map name of the
 /// folded `008d8520`): the reference's process.
+#[cfg(test)]
 const REFERENCE_PROCESS: u32 = 0x008d_8520;
 /// `0045cd60` (`thiscall` on a process): its level (word at +0x28).
+#[cfg(test)]
 const PROCESS_LEVEL: u32 = 0x0045_cd60;
 /// `008d6f30` (`thiscall` on a reference): its parent cell (word at +0x40).
 const PARENT_CELL: u32 = 0x008d_6f30;
@@ -380,7 +383,7 @@ pub fn fn_008cab20(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(0x0092_eb50, &args![this]);
     e.mem.set_u32(at, VTABLE);
     e.mem.set_u32(at + 0x18, VTABLE_2);
-    e.call(CONSTRUCT_IN_PLACE, &args![at + DELTA]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at + DELTA));
     e.call(0x0046_a010, &args![this, 1u32]);
     let block = e.call(OPERATOR_NEW, &args![0x46cu32]).u32();
     let process = if block == 0 {
@@ -449,7 +452,7 @@ pub fn fn_008cac60(e: &mut Engine, this: Ptr) {
             };
             if body != 0 {
                 e.with_stack(0x10, |e, point| {
-                    e.call(CONSTRUCT_IN_PLACE, &args![point]);
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
                     e.vcall(body, 0xf0, &args![point]);
                     let record = collision(e, this);
                     let closest = e.mem.u32(record + COLLISION_CLOSEST_OBJECT);
@@ -468,8 +471,11 @@ pub fn fn_008cac60(e: &mut Engine, this: Ptr) {
             let collidee = e.mem.u32(record + COLLISION_COLLIDEE);
             if e.vcall(collidee, 0x100, &[]).bool() {
                 let collidee = e.mem.u32(collision(e, this) + COLLISION_COLLIDEE);
-                if collidee != 0 && e.call(REFERENCE_PROCESS, &args![collidee]).u32() != 0 {
-                    let process = e.call(REFERENCE_PROCESS, &args![collidee]).u32();
+                if collidee != 0
+                    && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, collidee)) != 0
+                {
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, collidee));
                     e.vcall(process, 0x6a8, &args![this]);
                 }
             }
@@ -505,7 +511,7 @@ pub fn fn_008cac60(e: &mut Engine, this: Ptr) {
 pub fn fn_008caea0(e: &mut Engine, this: Ptr, shooter: Ptr, value: f32) {
     let at = this.addr();
     let process = e.mem.u32(at + PROCESS);
-    if process == 0 || e.call(PROCESS_LEVEL, &args![process]).u32() != 0 {
+    if process == 0 || typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) != 0 {
         return;
     }
     let mut controller = e.call(GET_CHAR_CONTROLLER, &args![this]).u32();
@@ -694,7 +700,7 @@ pub fn fn_008cb3c0(e: &mut Engine, this: Ptr, seconds: f32) {
         if x87_load32(e.mem.u32(limit)) < x87_load32(e.mem.u32(at + AGE)) {
             e.mem.set_u32(at + STATE, 3);
         }
-        if e.call(0x0044_0d80, &args![this]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
             return;
         }
         if e.mem.u32(at + STATE) == 0 && e.call(GET_CHAR_CONTROLLER, &args![this]).u32() != 0 {
@@ -747,7 +753,11 @@ fn update_flight(e: &mut Engine, this: Ptr, node: u32, seconds_bits: u32) -> boo
 
         let step = x87_mul(x87_load32(e.mem.u32(at + SPEED)), x87_m32(seconds_bits));
         let step = x87_store32(step);
-        e.call(0x0041_6870, &args![velocity, 0.0f32, step, 0.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, velocity, 0.0f32, step, 0.0f32)
+        );
         let source = e.vcall(at, 0x1f4, &[]).u32();
         copy_words(e, start, source, 3);
         let controller = e.call(GET_CHAR_CONTROLLER, &args![this]).u32();
@@ -932,7 +942,7 @@ fn actor_hit(
     e.call(0x008a_5300, &args![target]);
     let collidee = e.mem.u32(collision(e, this) + COLLISION_COLLIDEE);
     let collidee_word = e.call(0x005d_43c0, &args![collidee]).u32();
-    let item = e.call(0x007a_f430, &args![this]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
     e.call(0x005a_c750, &args![item, collidee_word, 0x100u32]);
 
     let shooter = e.mem.u32(at + SHOOTER);
@@ -961,9 +971,9 @@ fn actor_hit(
     let direction = local(0xd8);
     let heading = local(0xfc);
     let pitch = local(0x120);
-    e.call(CONSTRUCT_IN_PLACE, &args![direction]);
-    e.call(CONSTRUCT_IN_PLACE, &args![heading]);
-    e.call(CONSTRUCT_IN_PLACE, &args![pitch]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, heading));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, pitch));
     let angle = e.vcall(at, 0x2bc, &args![0u32]).f64();
     e.call(0x004a_0c90, &args![heading, x87_store32(angle)]);
     let looking = e.call(0x0093_1d70, &args![this]).f64();
@@ -1023,7 +1033,7 @@ fn actor_hit(
 
     let mut blocked = false;
     if e.call(0x0089_4d60, &args![target]).bool()
-        && e.call(REFERENCE_PROCESS, &args![target]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target)) != 0
         && e.call(0x009a_6ae0, &args![target, this, 0u32]).bool()
     {
         let source = e.call(0x0043_6aa0, &args![target]).u32();
@@ -1043,7 +1053,7 @@ fn actor_hit(
         let pick = local(0x240);
         let from = local(0x250);
         e.call(0x0062_40d0, &args![pick]);
-        e.call(CONSTRUCT_IN_PLACE, &args![from]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, from));
         e.call(0x004a_3e00, &args![from, point]);
         e.call(0x008a_50f0, &args![pick, from]);
         let radius = x87_quiet_bits(e.mem.u32(FLOAT_200));
@@ -1060,7 +1070,7 @@ fn actor_hit(
             let object = e.call(0x004a_e750, &args![body]).u32();
             let owner = e.call(0x004b_5a20, &args![object]).u32();
             if owner != 0 {
-                bone = e.call(0x0044_ddc0, &args![owner]).u32();
+                bone = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, owner));
                 let depth = x87_quiet_bits(e.mem.u32(FLOAT_EIGHTEEN));
                 e.call(POINT_SCALE, &args![direction, local(0x264), depth]);
                 place_on_bone(
@@ -1134,7 +1144,7 @@ fn actor_hit(
         let roll = e.call(0x0048_7f50, &[]).u32() % 100;
         let chance = e.call(SETTING_INT_VALUE, &args![SETTING_KEEP_CHANCE]).u32();
         if roll < e.mem.u32(chance) {
-            let item = e.call(0x007a_f430, &args![this]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
             e.vcall(target_at, 0x190, &args![item, 0u32, 1u32]);
             e.mem.set_u8(at + ADDED_TO_INVENTORY, 1);
         }
@@ -1202,7 +1212,7 @@ fn place_on_bone(
     let record = collision(e, this);
     copy_words(e, record + COLLISION_POINT, result, 3);
     let rotation = local(locals.rotation);
-    e.call(CONSTRUCT_IN_PLACE, &args![rotation]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
     let world = e.call(NODE_ROTATION, &args![bone]).u32();
     e.call(MATRIX_INVERSE, &args![world, rotation]);
     let own = e.call(NODE_ROTATION, &args![node]).u32();
@@ -1244,7 +1254,7 @@ fn push_target(e: &mut Engine, this: Ptr, node: u32, target_node: u32, local: &d
         .u32();
     copy_words(e, forward, from, 3);
     let origin = local(0xc0);
-    e.call(CONSTRUCT_IN_PLACE, &args![origin]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
     e.call(0x004a_3e00, &args![origin, forward]);
     e.call(
         0x0062_b660,
@@ -1263,7 +1273,11 @@ pub fn fn_008cc6f0(e: &mut Engine, this: Ptr) -> Ptr {
         COLLISION_VELOCITY,
         COLLISION_ROTATION,
     ] {
-        e.call(CONSTRUCT_IN_PLACE, &args![this.addr() + offset]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.addr() + offset)
+        );
     }
     this
 }
@@ -1358,7 +1372,7 @@ fn cast_on_hit(e: &mut Engine, this: Ptr, spell: u32) {
     e.vcall(caster, 0x40, &args![spell]);
     let caster = e.mem.u32(this.addr() + SHOOTER) + 0x88;
     e.vcall(caster, 0x48, &args![0u32]);
-    let item = e.call(0x007a_f430, &args![this]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
     let caster = e.mem.u32(this.addr() + SHOOTER) + 0x88;
     e.call(0x0081_5870, &args![caster, item]);
 }
@@ -1522,8 +1536,8 @@ pub fn fn_008cd390(e: &mut Engine, this: Ptr, _unused_1: Ptr) -> bool {
     e.vcall(bone, 0xdc, &args![node, 1u32]);
     e.call(0x00b5_eeb0, &args![shadow, node]);
     let collidee = e.mem.u32(collision(e, this) + COLLISION_COLLIDEE);
-    if collidee != 0 && e.call(REFERENCE_PROCESS, &args![collidee]).u32() != 0 {
-        let process = e.call(REFERENCE_PROCESS, &args![collidee]).u32();
+    if collidee != 0 && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, collidee)) != 0 {
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, collidee));
         e.vcall(process, 0x6a4, &args![this]);
     }
     true
@@ -1580,7 +1594,7 @@ pub fn fn_008cd520(e: &mut Engine, this: Ptr, body: Ptr) -> bool {
             // `FCOMP 0.0; TEST AH,0x41; JNZ`: only above zero (ordered).
             if mass > e.mem.f64(DOUBLE_ZERO) {
                 let velocity = local(0x40);
-                e.call(CONSTRUCT_IN_PLACE, &args![velocity]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, velocity));
                 e.vcall(body.addr(), 0xf0, &args![velocity]);
                 let bone = e.mem.u32(collision(e, this) + COLLISION_CLOSEST_OBJECT);
                 e.call(0x0062_a7e0, &args![velocity, bone]);
@@ -1677,7 +1691,9 @@ pub fn fn_008cd780(e: &mut Engine, this: Ptr, body: Ptr) -> bool {
         let normal = collision(e, this) + COLLISION_NORMAL;
         e.call(NORMALIZE, &args![normal]);
         let normal = collision(e, this) + COLLISION_NORMAL;
-        let dot = e.call(0x004b_6190, &args![normal, back]).f64();
+        let dot = typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, normal, back))
+            .into_ret()
+            .f64();
         let dot = x87_store32(dot);
         let normal = collision(e, this) + COLLISION_NORMAL;
         let along = e
@@ -1701,7 +1717,7 @@ pub fn fn_008cd780(e: &mut Engine, this: Ptr, body: Ptr) -> bool {
         e.call(0x0056_15d0, &args![body, launch]);
 
         let inverse = local(0x34);
-        e.call(CONSTRUCT_IN_PLACE, &args![inverse]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, inverse));
         let node = e.vcall(at, 0x1d0, &[]).u32();
         let rotation = e.call(NODE_ROTATION, &args![node]).u32();
         e.call(MATRIX_INVERSE, &args![rotation, inverse]);
@@ -1738,9 +1754,16 @@ pub fn fn_008cd780(e: &mut Engine, this: Ptr, body: Ptr) -> bool {
         );
         let first = x87_store32(first);
         let spin = local(0x50);
-        e.call(
+        typed_call!(
+            leaf::FAMILY,
             0x0041_6870,
-            &args![spin, x87_quiet_bits(first), 0.0f32, x87_quiet_bits(third)],
+            leaf::point3_new(
+                e,
+                spin,
+                x87_quiet_bits(first),
+                0.0f32,
+                x87_quiet_bits(third)
+            )
         );
         let node = e.vcall(at, 0x1d0, &[]).u32();
         let rotation = e.call(NODE_ROTATION, &args![node]).u32();
@@ -1819,7 +1842,7 @@ pub fn fn_008cdaf0(e: &mut Engine, this: Ptr, body: Ptr) -> bool {
 pub fn fn_008cdbf0(e: &mut Engine, this: Ptr) -> bool {
     let at = this.addr();
     let process = e.mem.u32(at + PROCESS);
-    let level = e.call(PROCESS_LEVEL, &args![process]).u32();
+    let level = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process));
     let mut wanted = 3u32;
     let mut cell = e.call(PARENT_CELL, &args![this]).u32();
     if e.mem.u32(at + STATE) == 2 && collision(e, this) != 0 {

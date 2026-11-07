@@ -42,8 +42,10 @@ const GET_FACTION_RANK: u32 = 0x0047_d680;
 /// Returns `ECX + 0x2c`: the `listFactions` head node of the actor base data.
 const FACTION_LIST_HEAD: u32 = 0x005d_8a70;
 /// Returns `ECX`: the item slot of a `BSSimpleList` node.
+#[cfg(test)]
 const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
 /// Returns the next node of a `BSSimpleList` node (`ECX` = node).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// Returns the base form of the reference in `ECX` (`MOV EAX,[ECX+0x20]`).
 const REFERENCE_BASE_FORM: u32 = 0x0041_81e0;
@@ -119,11 +121,11 @@ pub fn fn_0047ea70(e: &mut Engine, this: Ptr<TESActorBaseData>, buffer: Ptr) {
 pub fn fn_0047ead0(e: &mut Engine, this: Ptr<TESActorBaseData>, mode: u32) {
     let mut node = e.call(FACTION_LIST_HEAD, &args![this]).u32();
     while node != 0 {
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let rank_entry = e.mem.u32(slot);
         // `pFaction` is the first word of the `FACTION_RANK`.
         let faction = e.mem.u32(rank_entry);
@@ -145,7 +147,7 @@ pub fn fn_0047ead0(e: &mut Engine, this: Ptr<TESActorBaseData>, mode: u32) {
                 }
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -182,12 +184,12 @@ pub fn fn_0047ebd0(e: &mut Engine, this: Ptr, value: u8) {
 pub fn fn_0047ebf0(e: &mut Engine, this: Ptr<TESActorBaseData>, faction: u32) -> bool {
     let mut node = e.call(FACTION_LIST_HEAD, &args![this]).u32();
     while node != 0 {
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let rank_entry = e.mem.u32(slot);
         if rank_entry != 0 && e.mem.u32(rank_entry) == faction {
             return true;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }

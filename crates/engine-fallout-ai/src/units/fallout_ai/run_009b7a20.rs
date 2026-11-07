@@ -119,6 +119,7 @@ pub fn fn_009b7c90(e: &mut Engine, this: Ptr) -> u32 {
 }
 
 /// `0044ddc0` (`thiscall` on `011f2250`, no stack word).
+#[cfg(test)]
 const GLOBAL_STATE: u32 = 0x0044_ddc0;
 /// The object `0044ddc0` is called on (`011f2250`).
 const STATE_OWNER: u32 = 0x011f_2250;
@@ -146,7 +147,8 @@ const AFTER_FLAGS: u32 = 0x009b_da10;
 /// `positive && !second`, 0x100 gets 1, 0x8000 `second == 0`, 0x2000 `second`. Then
 /// `009bda10`.
 pub fn fn_009b7cc0(e: &mut Engine, this: Ptr) {
-    let in_state_four = e.call(GLOBAL_STATE, &args![STATE_OWNER]).u32() == 4;
+    let in_state_four =
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, STATE_OWNER)) == 4;
     let object = e.call(BASE_OBJECT, &args![this]).u32();
     let first = e.call(FIRST_TEST, &args![object]).u8();
     let second = if in_state_four {
@@ -193,8 +195,10 @@ const TEST_FLAG: u32 = 0x0044_4d00;
 const NODE_CHILD: u32 = 0x0043_b4a0;
 /// `0043d450` (`thiscall`, no stack word; engine map `NiAVObject::GetWorldBound`): the
 /// address of the node's four-word bound.
+#[cfg(test)]
 const WORLD_BOUND: u32 = 0x0043_d450;
 /// `006815c0` (`thiscall`, no stack word).
+#[cfg(test)]
 const BOUND_CENTER: u32 = 0x0068_15c0;
 /// `0043c490` (`thiscall`, no stack word; unit `fallout shared/modelloader.cpp`).
 const NODE_TRANSFORM: u32 = 0x0043_c490;
@@ -207,6 +211,7 @@ const BOUND_RADIUS: u32 = 0x0084_d030;
 /// `009669c0` (`thiscall`, no stack word; returns a float in ST0).
 const DIVISOR: u32 = 0x0096_69c0;
 /// `00416870` (`thiscall`, `RET 0xc`: three floats): builds a point and returns its address.
+#[cfg(test)]
 const MAKE_POINT: u32 = 0x0041_6870;
 /// `009bf370` (`thiscall`, `RET 0x10`: a float and a point by value).
 const SET_SCALED_POINT: u32 = 0x009b_f370;
@@ -264,12 +269,12 @@ pub fn fn_009b7e40(e: &mut Engine, this: Ptr) {
     // The frame below `EBP`: offsets are `0x58 - k` for the exe's `[EBP - k]`.
     e.with_stack(0x58, |e, frame| {
         let at = |k: u32| frame.addr() + 0x58 - k;
-        let bound = e.call(WORLD_BOUND, &args![node]).u32();
+        let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
         for word in 0..4u32 {
             let value = e.mem.u32(bound + 4 * word);
             e.mem.set_u32(at(0x1c) + 4 * word, value);
         }
-        let center = e.call(BOUND_CENTER, &args![at(0x1c)]).u32();
+        let center = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x1c)));
         let transform = e.call(NODE_TRANSFORM, &args![node]).u32();
         e.call(TRANSFORM_APPLY, &args![transform, at(0x28), center]);
         let length = e.call(LOCAL_LENGTH, &args![at(0x28)]).f64();
@@ -277,7 +282,11 @@ pub fn fn_009b7e40(e: &mut Engine, this: Ptr) {
         let size = x87_store32(x87_add(radius, length));
         let divisor = e.call(DIVISOR, &args![this]).f64();
         let scale = x87_store32(x87_div(x87_m32(size), divisor));
-        let point = e.call(MAKE_POINT, &args![at(0x44), 0u32, size, 0u32]).u32();
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, at(0x44), 0u32, size, 0u32)
+        );
         let point_x = e.mem.u32(point);
         let point_y = e.mem.u32(point + 4);
         let point_z = e.mem.u32(point + 8);

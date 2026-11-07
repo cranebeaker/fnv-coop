@@ -23,8 +23,10 @@ layout! {
 const LIST_HEAD: u32 = 0x0071_7e50;
 /// `006815c0` (`thiscall`): returns `this`; here the address of a node's
 /// item word.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`thiscall`): the word at +4; here the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `0063f7b0` (`thiscall` on a list node, no stack words; no Xbox PDB
 /// name): called on the node whose form is missing.
@@ -53,6 +55,7 @@ const OWNER_HAS_NAME: u32 = 0x0047_4cb0;
 /// The owner's name: its vtable slot +0x130.
 const OWNER_NAME_SLOT: u32 = 0x130;
 /// `0084e3a0` (`thiscall`): the owner's word at +0xC (`TESForm` form id).
+#[cfg(test)]
 const OWNER_FORM_ID: u32 = 0x0084_e3a0;
 /// The warning printer (`005b5e40`, `cdecl`, format and arguments).
 const PRINT_WARNING: u32 = 0x005b_5e40;
@@ -79,7 +82,7 @@ fn report_missing(e: &mut Engine, owner: Ptr, id: u32, formats: [u32; 3]) {
         let name = e.vcall(owner.addr(), OWNER_NAME_SLOT, &args![]).u32();
         e.call(PRINT_WARNING, &args![by_name, id, name]);
     } else {
-        let owner_id = e.call(OWNER_FORM_ID, &args![owner]).u32();
+        let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
         e.call(PRINT_WARNING, &args![by_id, id, owner_id]);
     }
 }
@@ -103,7 +106,7 @@ pub fn tes_leveled_list_init_item(e: &mut Engine, this: Ptr<TESLeveledList>, own
     };
     e.with_stack(4, |e, form_id| {
         while node != 0 {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let mut item = e.mem.u32(slot);
             if item == 0 {
                 break;
@@ -130,7 +133,7 @@ pub fn tes_leveled_list_init_item(e: &mut Engine, this: Ptr<TESLeveledList>, own
                     ],
                 );
             } else {
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             if item != 0 && e.mem.u32(item + 8) != 0 {
                 let extra = e.mem.u32(item + 8);
@@ -182,6 +185,7 @@ const BUFFER_LOAD_FORM_ID: u32 = 0x0086_48a0;
 const BUFFER_READ: u32 = 0x0086_4980;
 /// `008256d0` (`thiscall`, answers a byte), asked of `ScriptAddedList`
 /// (+0x14); when it answers 0, `00487980` (`thiscall` on the leveled list).
+#[cfg(test)]
 const LIST_008256D0: u32 = 0x0082_56d0;
 const LEVELED_LIST_00487980: u32 = 0x0048_7980;
 /// The allocator (`00401000`, `cdecl (size)`), the `ContainerItemExtra`
@@ -217,7 +221,15 @@ pub fn tes_leveled_list_load_game(e: &mut Engine, this: Ptr<TESLeveledList>, buf
         return;
     }
     // TESLeveledList::ScriptAddedList (Xbox PDB) +0x14.
-    if e.call(LIST_008256D0, &args![this.addr() + 0x14]).u8() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.addr() + 0x14)
+    )
+    .into_ret()
+    .u8()
+        == 0
+    {
         e.call(LEVELED_LIST_00487980, &args![this]);
     }
     let count = e

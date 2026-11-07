@@ -76,6 +76,7 @@ const CELL_FLAG_20: u32 = 0x0050_2180;
 /// The form type byte of a form (`00401170`).
 const FORM_TYPE: u32 = 0x0040_1170;
 /// `BGSSaveFormBuffer::GetForm` (Xbox PDB name of `007af430`).
+#[cfg(test)]
 const SAVE_FORM_BUFFER_GET_FORM: u32 = 0x007a_f430;
 /// `__RTDynamicCast` (`00ec43fb`, cdecl, five words).
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
@@ -318,7 +319,7 @@ pub fn fn_005021c0(e: &mut Engine, this: Ptr<DoorLock>, actor: u32, use_faction:
     let mut answer = true;
     let mut base = e.vcall(actor, 0x1a4, &args![]).u32();
     if base == 0 {
-        base = e.call(SAVE_FORM_BUFFER_GET_FORM, &args![actor]).u32();
+        base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
     }
     let mut actor_base = 0;
     let kind = e.call(FORM_TYPE, &args![base]).i32();

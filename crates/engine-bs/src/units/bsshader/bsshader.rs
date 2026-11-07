@@ -731,6 +731,7 @@ pub fn fn_00be0dc0(e: &mut Engine, buffer: Ptr, source: Ptr, name: Ptr, _unused_
 /// words), the stage's `00e7de90` (`thiscall`, one word) and
 /// `NiD3DTextureStage::SetFilterMode` (`00e7def0`, `thiscall`, one word) (unnamed but the last).
 const STAGE_STATE_00E88FC0: u32 = 0x00e8_8fc0;
+#[cfg(test)]
 const SAMPLER_STATE_00E890C0: u32 = 0x00e8_90c0;
 const STAGE_MODE_00E7DE90: u32 = 0x00e7_de90;
 const SET_FILTER_MODE: u32 = 0x00e7_def0;
@@ -765,9 +766,10 @@ pub fn bs_shader_setup_default_stage(
     e.call(STAGE_MODE_00E7DE90, &args![stage, stage_mode]);
     for state in [5u32, 6, 7] {
         let block = e.mem.u32(stage + 0x10);
-        e.call(
-            SAMPLER_STATE_00E890C0,
-            &args![block, state, sampler, 0u32, 0u32],
+        typed_call!(
+            leaf::FAMILY,
+            0x00e8_90c0,
+            leaf::set_state_slot(e, block, state, sampler, 0u32, 0u32)
         );
     }
     let filter_mode = u32::from(filter) * 4 + 2;

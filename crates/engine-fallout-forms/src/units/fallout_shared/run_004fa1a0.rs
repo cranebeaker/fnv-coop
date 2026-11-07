@@ -129,7 +129,7 @@ pub fn fn_004fa970(e: &mut Engine, this: Ptr, a: u32, b: u32) {
         .call(0x0040_9140, &args![this.addr().wrapping_sub(0x18)])
         .u32();
     while node != 0 {
-        let item_address = e.call(0x0068_15c0, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(item_address);
         if entry != 0 && e.mem.u32(entry + 4) != 0 {
             let name = e.mem.u32(entry + 4);
@@ -142,7 +142,7 @@ pub fn fn_004fa970(e: &mut Engine, this: Ptr, a: u32, b: u32) {
                 );
             }
         }
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -177,13 +177,15 @@ pub fn fn_004faa20(e: &mut Engine, this: Ptr) {
 /// `00409140` (`thiscall`): the first node of the entry list.
 const FIRST_NODE: u32 = 0x0040_9140;
 /// `006815c0` (`thiscall`): the node itself, whose word +0 is its entry.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`thiscall`): the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 
 /// The entry a list node holds (`006815c0`, then its word +0).
 fn node_entry(e: &mut Engine, node: u32) -> u32 {
-    let item = e.call(NODE_ITEM, &args![node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(item)
 }
 
@@ -201,7 +203,7 @@ pub fn fn_004fa1a0(e: &mut Engine, this: Ptr) {
         if entry != 0 && e.mem.u32(entry + 0x4) != 0 {
             save_entry(e, entry);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(0x0048_5680, &args![this]);
 }
@@ -258,7 +260,7 @@ pub fn fn_004fa2f0(e: &mut Engine, this: Ptr, other: u32) {
             let priority = e.mem.u8(entry) as i8;
             fn_004fa500(e, this, priority, name, flag);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -303,8 +305,8 @@ pub fn fn_004fa390(e: &mut Engine, this: Ptr, other: u32) -> bool {
                 return true;
             }
         }
-        ours = e.call(NODE_NEXT, &args![ours]).u32();
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
+        ours = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, ours));
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
     }
     false
 }
@@ -342,7 +344,7 @@ pub fn fn_004fa6f0(e: &mut Engine, this: Ptr, target: u32, point: u32, count: u3
                 }
                 let mut piece = 0u32;
                 while piece < pieces {
-                    e.call(NODE_ITEM, &args![direction]);
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
                     for axis in 0..3 {
                         let low = x87_quiet_bits(e.global::<u32>(0x0101_2054));
                         let value = e.call(0x0047_6b70, &args![low, 0x3f80_0000u32]).f64();
@@ -412,7 +414,7 @@ pub fn fn_004fa6f0(e: &mut Engine, this: Ptr, target: u32, point: u32, count: u3
                     piece += 1;
                 }
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 }

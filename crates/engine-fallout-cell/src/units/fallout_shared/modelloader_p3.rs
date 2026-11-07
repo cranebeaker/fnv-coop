@@ -63,7 +63,9 @@ const LOG: u32 = 0x005b_5e40;
 
 /// List node accessors: the item address of a node (`006815c0`, the node
 /// itself) and the next node (`00726070`, the dword at +4).
+#[cfg(test)]
 const LIST_NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT_NODE: u32 = 0x0072_6070;
 /// Removes the head of a list (`0063f7b0`).
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -75,8 +77,10 @@ const LIST_CONSTRUCT: u32 = 0x0096_a2d0;
 /// Appends the item whose address is passed (`005ae3d0`).
 const LIST_PUSH_BACK: u32 = 0x005a_e3d0;
 /// The dword at +8 of an object (`0044ddc0`).
+#[cfg(test)]
 const FIELD_AT_8: u32 = 0x0044_ddc0;
 /// `NiPointer` read (`00559450`): the pointer stored at the address.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer<QueuedFile>::operator_` (Xbox PDB, `006f74f0`),
 /// `__thiscall(object)`.
@@ -197,6 +201,7 @@ const ACTOR_BASE_FORM_TYPE: u32 = 0x2a;
 /// A reference's form (`007af430`, the engine map's folded
 /// `BGSSaveFormBuffer::GetForm`) and `TESObjectREFR::GetTESModel` (Xbox
 /// PDB, `00571630`).
+#[cfg(test)]
 const REFERENCE_GET_FORM: u32 = 0x007a_f430;
 const REFERENCE_GET_TES_MODEL: u32 = 0x0057_1630;
 /// Form type id getter (`00401170`).
@@ -356,7 +361,7 @@ fn with_prefixed_name<R>(
 
 /// The item of the list node `node` (the dword at the node's item address).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(LIST_NODE_ITEM_ADDRESS, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -444,7 +449,7 @@ pub fn model_loader_queue_creature_parts(
             .u32()
         });
         if first != 0 {
-            let queued = e.call(FIELD_AT_8, &args![first]).u32();
+            let queued = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, first));
             e.call(
                 MODEL_LOADER_QUEUE_PARTS,
                 &args![this, queued, key, parent, actor],
@@ -455,7 +460,7 @@ pub fn model_loader_queue_creature_parts(
             .call(INVENTORY_FIND_SECOND, &args![changes, creature, 0u32])
             .u32();
         if second != 0 {
-            let queued = e.call(FIELD_AT_8, &args![second]).u32();
+            let queued = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, second));
             e.call(
                 MODEL_LOADER_QUEUE_PARTS,
                 &args![this, queued, key, parent, actor],
@@ -664,7 +669,7 @@ fn queue_special_animations(
             e.call(STRING_COPY, &args![copy, size, item]);
             e.call(LIST_PUSH_BACK, &args![list, holder]);
         });
-        node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let model_path = e.vcall(model.addr(), 0x14, &args![]).u32();
     e.with_stack(PATH_BUFFER_SIZE, |e, directory| {
@@ -729,7 +734,7 @@ pub fn fn_004463b0(
             });
         }
         index += 1;
-        node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -755,7 +760,7 @@ pub fn fn_00446500(e: &mut Engine, this: Ptr, list: Ptr, key: u32, parent: Ptr, 
     while node != 0 {
         let item = node_item(e, node);
         if item == 0 {
-            node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         with_prefixed_name(e, prefix, item, |e, name| {
@@ -814,7 +819,7 @@ pub fn fn_004465f0(
             while node != 0 {
                 let item = node_item(e, node);
                 if item == 0 {
-                    node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+                    node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                     continue;
                 }
                 with_prefixed_name(e, prefix, item, |e, name| {
@@ -826,7 +831,7 @@ pub fn fn_004465f0(
                         e.call(ANIMATION_KF_LOADED, &args![animation, model]);
                         return;
                     }
-                    if e.call(POINTER_GET, &args![queued_list]).u32() == 0
+                    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, queued_list)) == 0
                         && !e.vcall(list_map, 8, &args![animation, queued_list]).bool()
                     {
                         let block = e
@@ -843,7 +848,8 @@ pub fn fn_004465f0(
                         .call(MEMORY_ALLOC, &args![QUEUED_REPLACEMENT_KF_SIZE])
                         .u32();
                     let kf = if block != 0 {
-                        let owner = e.call(POINTER_GET, &args![queued_list]).u32();
+                        let owner =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, queued_list));
                         e.call(
                             QUEUED_REPLACEMENT_KF_CONSTRUCT,
                             &args![block, name, key, animation, owner],
@@ -854,10 +860,13 @@ pub fn fn_004465f0(
                     };
                     e.with_stack(4, |e, kf_pointer| {
                         e.call(TASK_POINTER_CONSTRUCT, &args![kf_pointer, kf]);
-                        let owner = e.call(POINTER_GET, &args![queued_list]).u32();
-                        let child = e.call(POINTER_GET, &args![kf_pointer]).u32();
+                        let owner =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, queued_list));
+                        let child =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, kf_pointer));
                         e.call(QUEUED_FILE_SET_PARENT, &args![child, owner]);
-                        let child = e.call(POINTER_GET, &args![kf_pointer]).u32();
+                        let child =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, kf_pointer));
                         e.vcall(child, 0x20, &args![]);
                         e.call(TASK_POINTER_DESTRUCT, &args![kf_pointer]);
                     });
@@ -865,16 +874,19 @@ pub fn fn_004465f0(
                 e.call(MEMORY_FREE, &args![item]);
                 e.call(LIST_REMOVE_HEAD, &args![node]);
             }
-            let queued = e.call(POINTER_GET, &args![queued_list]).u32();
+            let queued = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, queued_list));
             if queued == 0 || fn_00446990(e, Ptr::new(queued)) == 0 {
                 e.call(QUEUED_FILE_POINTER_ASSIGN, &args![queued_list, 0u32]);
             } else {
-                let queued = e.call(POINTER_GET, &args![queued_list]).u32();
+                let queued =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, queued_list));
                 e.call(QUEUED_FILE_SET_PARENT, &args![queued, parent]);
                 e.vcall(list_map, 0x10, &args![animation, queued_list, 1u32]);
-                let queued = e.call(POINTER_GET, &args![queued_list]).u32();
+                let queued =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, queued_list));
                 e.call(TASK_SET_DONE, &args![queued]);
-                let queued = e.call(POINTER_GET, &args![queued_list]).u32();
+                let queued =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, queued_list));
                 e.vcall(queued, 0x28, &args![]);
             }
             e.call(TASK_POINTER_DESTRUCT, &args![queued_list]);
@@ -891,7 +903,7 @@ pub fn fn_00446990(e: &mut Engine, this: Ptr) -> u32 {
     if children == 0 {
         0
     } else {
-        e.call(FIELD_AT_8, &args![children]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, children))
     }
 }
 
@@ -950,7 +962,12 @@ pub fn queued_replacement_kf_list_check_finished(
 /// reference's owner when the owner (`GetOwner`) has type `0x2a` (else 0).
 /// Anything else gives 0.
 pub fn fn_00446a60(e: &mut Engine, _this: Ptr, form: Ptr, reference: Ptr) -> Ptr {
-    if !reference.is_null() && e.call(REFERENCE_GET_FORM, &args![reference]).ptr::<()>() == form {
+    if !reference.is_null()
+        && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+            .into_ret()
+            .ptr::<()>()
+            == form
+    {
         return e.call(REFERENCE_GET_TES_MODEL, &args![reference]).ptr();
     }
     if !form.is_null() && e.call(FORM_TYPE, &args![form]).u32() == WEAPON_FORM_TYPE {
@@ -1008,7 +1025,8 @@ pub fn fn_00446b50(e: &mut Engine, this: Ptr, cell: Ptr) {
                     let reference = e.mem.u32(key.addr());
                     let entry_cell = e.call(REFERENCE_CELL, &args![reference]).u32();
                     if entry_cell != 0 {
-                        let task = e.call(POINTER_GET, &args![value]).u32();
+                        let task =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, value));
                         let current = e.call(TASK_PRIORITY, &args![task]).u32();
                         let critical = entry_cell == cell.addr()
                             && e.call(REFERENCE_IS_3D_CRITICAL, &args![reference]).bool();
@@ -1020,7 +1038,8 @@ pub fn fn_00446b50(e: &mut Engine, this: Ptr, cell: Ptr) {
                                 .u32()
                         };
                         if current != wanted {
-                            let task = e.call(POINTER_GET, &args![value]).u32();
+                            let task =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, value));
                             e.vcall(task, 0x1c, &args![wanted]);
                         }
                     }
@@ -1080,7 +1099,7 @@ pub fn fn_00446cb0(e: &mut Engine, this: Ptr) {
         e.mem.set_u8(STATUS_SHOWN_FLAG, 0);
         let text = e.global::<u32>(WINDOW_TEXT);
         let owner = e.global::<u32>(WINDOW_OWNER);
-        let window = e.call(FIELD_AT_8, &args![owner]).u32();
+        let window = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, owner));
         e.call(SET_WINDOW_TEXT, &args![window, text]);
     }
 }
@@ -1186,7 +1205,7 @@ pub fn fn_00446f20(e: &mut Engine, this: Ptr) {
 /// current thread id differs from the thread's `iThreadID` (+8), runs
 /// [`fn_00446f70`].
 pub fn fn_00446f40(e: &mut Engine, this: Ptr) {
-    let thread_id = e.call(FIELD_AT_8, &args![this]).u32();
+    let thread_id = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     if thread_id != e.call(CURRENT_THREAD_ID, &args![]).u32() {
         fn_00446f70(e, this);
     }
@@ -1219,7 +1238,7 @@ pub fn fn_00446fa0(e: &mut Engine, this: Ptr) {
 /// current thread id differs from the thread's `iThreadID` (+8), runs
 /// [`fn_00446ff0`].
 pub fn fn_00446fc0(e: &mut Engine, this: Ptr) {
-    let thread_id = e.call(FIELD_AT_8, &args![this]).u32();
+    let thread_id = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     if thread_id != e.call(CURRENT_THREAD_ID, &args![]).u32() {
         fn_00446ff0(e, this);
     }
@@ -1294,9 +1313,11 @@ pub fn model_loader_load_file(
             fn_00447190(e, task.cast(), 1);
             e.call(QUEUED_MODEL_RUN, &args![task]);
             e.call(QUEUED_MODEL_FINISH, &args![task]);
-            let loaded = e
-                .call(POINTER_GET, &args![task.byte_add(QueuedModel::spModel.off)])
-                .u32();
+            let loaded = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, task.byte_add(QueuedModel::spModel.off))
+            );
             e.call(QUEUED_MODEL_DESTRUCT, &args![task]);
             loaded
         });
@@ -1339,9 +1360,11 @@ pub fn model_loader_load_kf(e: &mut Engine, this: Ptr, name: u32) -> Ptr {
             e.call(QUEUED_KF_CONSTRUCT, &args![task, name, 0u32]);
             e.call(QUEUED_KF_RUN, &args![task]);
             e.call(QUEUED_KF_FINISH, &args![task]);
-            let loaded = e
-                .call(POINTER_GET, &args![task.byte_add(QueuedKF::spKFModel.off)])
-                .u32();
+            let loaded = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, task.byte_add(QueuedKF::spKFModel.off))
+            );
             e.call(QUEUED_KF_DESTRUCT, &args![task]);
             loaded
         });
@@ -1391,6 +1414,7 @@ pub fn model_loader_build_file_list(
 /// `__thiscall(path, list, flag)` on the idle manager.
 const ADD_ROOT_IDLE_ARRAY: u32 = 0x0060_0170;
 /// `BSSimpleList::IsEmpty` (`008256d0`): no item and no next node.
+#[cfg(test)]
 const SIMPLE_LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// Source line of the memory scope `BuildKFFileList` opens (context `0x33`).
 const KF_LIST_SOURCE_LINE: u32 = 0x108e;
@@ -1532,6 +1556,7 @@ const SYNC_VTABLE: u32 = 0x0101_7138;
 /// The value `0043b460` compare-exchanges (`004491c0`) and the call the
 /// function makes afterwards (`0040fbe0`).
 const COMPARE_EXCHANGE: u32 = 0x0043_b460;
+#[cfg(test)]
 const AFTER_COMPARE_EXCHANGE: u32 = 0x0040_fbe0;
 /// `004fd400(object) -> i32`, which `00447950` tests for a positive value.
 const OBJECT_POSITIVE_COUNT: u32 = 0x004f_d400;
@@ -1542,9 +1567,9 @@ const OBJECT_POSITIVE_COUNT: u32 = 0x004f_d400;
 fn start_queued_task(e: &mut Engine, task: u32, parent: u32, slot: u32) {
     e.with_stack(4, |e, pointer| {
         e.call(TASK_POINTER_CONSTRUCT, &args![pointer, task]);
-        let child = e.call(POINTER_GET, &args![pointer]).u32();
+        let child = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(QUEUED_FILE_SET_PARENT, &args![child, parent]);
-        let child = e.call(POINTER_GET, &args![pointer]).u32();
+        let child = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.vcall(child, slot, &args![]);
         e.call(TASK_POINTER_DESTRUCT, &args![pointer]);
     });
@@ -1676,7 +1701,7 @@ fn build_kf_file_list_from_disk(e: &mut Engine, this: Ptr, path: u32, locomotion
                 if hurt != 0 {
                     let manager = e.global::<u32>(IDLE_MANAGER);
                     e.call(ADD_ROOT_IDLE_ARRAY, &args![manager, directory, hurt, 1u32]);
-                    while !e.call(SIMPLE_LIST_IS_EMPTY, &args![hurt]).bool() {
+                    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, hurt)) {
                         let item = node_item(e, hurt);
                         e.call(MEMORY_FREE, &args![item]);
                         e.call(LIST_REMOVE_HEAD, &args![hurt]);
@@ -1716,7 +1741,7 @@ pub fn model_loader_copy_filename_list(
             e.call(STRING_COPY, &args![copy, size, item]);
             e.call(LIST_PUSH_BACK, &args![destination, holder]);
         });
-        node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     destination
 }
@@ -1747,7 +1772,7 @@ pub fn fn_00447980(e: &mut Engine, _this: Ptr, first: u32, second: u32) {
     };
     e.with_stack(4, |e, pointer| {
         e.call(TASK_POINTER_CONSTRUCT, &args![pointer, task]);
-        let queued = e.call(POINTER_GET, &args![pointer]).u32();
+        let queued = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.vcall(queued, QUEUED_RUN_SLOT, &args![]);
         e.call(TASK_POINTER_DESTRUCT, &args![pointer]);
     });
@@ -1771,7 +1796,7 @@ pub fn model_loader_queue_face_gen_file(
     e.with_stack(4, |e, loaded| {
         let found = fn_004483a0(e, this, name);
         e.call(LOADED_FILE_POINTER_CONSTRUCT, &args![loaded, found]);
-        if e.call(POINTER_GET, &args![loaded]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, loaded)) == 0 {
             let block = allocate_task_block(e);
             let task = if block != 0 {
                 e.call(QUEUED_FACE_GEN_FROM_NAME, &args![block, name, key, flag])
@@ -1783,7 +1808,7 @@ pub fn model_loader_queue_face_gen_file(
         } else if parent != 0 {
             let block = allocate_task_block(e);
             let task = if block != 0 {
-                let file = e.call(POINTER_GET, &args![loaded]).u32();
+                let file = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, loaded));
                 e.call(QUEUED_FACE_GEN_FROM_FILE, &args![block, file, key])
                     .u32()
             } else {
@@ -1802,7 +1827,7 @@ fn face_gen_cache_lookup(e: &mut Engine, name_object: Ptr, first: Ptr, second: P
     if e.call(FACE_GEN_GET_MODEL_CACHE, &args![]).u32() == 0 {
         return false;
     }
-    let file = e.call(POINTER_GET, &args![name_object]).u32();
+    let file = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name_object));
     let cache = e.call(FACE_GEN_GET_MODEL_CACHE, &args![]).u32();
     e.call(FACE_GEN_CACHE_LOOKUP, &args![cache, file, first, second])
         .bool()
@@ -1817,8 +1842,8 @@ fn start_face_gen_pair(e: &mut Engine, first: Ptr, second: Ptr, parent: u32) {
     }
     let block = allocate_task_block(e);
     let task = if block != 0 {
-        let second_value = e.call(POINTER_GET, &args![second]).u32();
-        let first_value = e.call(POINTER_GET, &args![first]).u32();
+        let second_value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, second));
+        let first_value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
         e.call(
             QUEUED_FACE_GEN_FROM_PAIR,
             &args![block, first_value, second_value],
@@ -1852,18 +1877,18 @@ fn queue_egm_part(e: &mut Engine, queue: &FaceGenQueue, path: u32, index: u32) {
         let (first, second) = (queue.first, queue.second);
         let mut found = face_gen_cache_lookup(e, name_object, first, second);
         if found {
-            found = e.call(POINTER_GET, &args![first]).u32() != 0
-                && e.call(POINTER_GET, &args![second]).u32() != 0;
+            found = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first)) != 0
+                && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, second)) != 0;
         }
         if found {
-            let second_value = e.call(POINTER_GET, &args![second]).u32();
+            let second_value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, second));
             // Slot object +8 (no layout known).
             found = e.mem.u32(second_value + 8) != 0;
         }
         if found {
             start_face_gen_pair(e, first, second, queue.parent);
         } else {
-            let name = e.call(POINTER_GET, &args![name_object]).u32();
+            let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name_object));
             model_loader_queue_face_gen_file(e, queue.this, name, queue.key, queue.parent, 1);
         }
         e.call(NAME_OBJECT_DESTRUCT, &args![name_object]);
@@ -1939,8 +1964,10 @@ pub fn model_loader_queue_tri_file(
                     e.call(FACE_GEN_GET_AS_EGM_FILE, &args![egm_name, path, u32::MAX]);
                     let mut found = face_gen_cache_lookup(e, egm_name, first, second);
                     if found {
-                        found = e.call(POINTER_GET, &args![first]).u32() != 0
-                            && e.call(POINTER_GET, &args![second]).u32() != 0;
+                        found = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first))
+                            != 0
+                            && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, second))
+                                != 0;
                     }
                     if found {
                         start_face_gen_pair(e, first, second, parent);
@@ -1948,7 +1975,11 @@ pub fn model_loader_queue_tri_file(
                         e.with_stack(8, |e, tri_name| {
                             e.call(NAME_OBJECT_CONSTRUCT, &args![tri_name]);
                             e.call(FACE_GEN_GET_AS_TRI_FILE, &args![tri_name, path, u32::MAX]);
-                            let name = e.call(POINTER_GET, &args![tri_name]).u32();
+                            let name = typed_call!(
+                                leaf::FAMILY,
+                                0x0055_9450,
+                                leaf::word_at_0(e, tri_name)
+                            );
                             model_loader_queue_face_gen_file(e, this, name, key, parent, 1);
                             e.call(NAME_OBJECT_DESTRUCT, &args![tri_name]);
                         });
@@ -2020,7 +2051,7 @@ fn cancel_tasks_in_map(e: &mut Engine, map: u32, iterator: Ptr) {
                     .bool()
                 {
                     let manager = e.global::<u32>(TASK_MANAGER);
-                    let queued = e.call(POINTER_GET, &args![task]).u32();
+                    let queued = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, task));
                     e.call(TASK_MANAGER_CANCEL_TASK, &args![manager, queued, 0u32]);
                 }
                 e.call(TASK_POINTER_DESTRUCT, &args![task]);
@@ -2283,11 +2314,11 @@ pub fn fn_00448c10(e: &mut Engine, this: Ptr) -> bool {
         e.call(TASK_POINTER_CONSTRUCT, &args![slot, 0u32]);
         e.call(QUEUE_NEXT_TASK, &args![queue, slot]);
         loop {
-            let task = e.call(POINTER_GET, &args![slot]).u32();
+            let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
             if task == 0 {
                 break;
             }
-            let task = e.call(POINTER_GET, &args![slot]).u32();
+            let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
             e.vcall(task, 0x14, &args![]);
             e.call(QUEUE_NEXT_TASK, &args![queue, slot]);
         }
@@ -2325,7 +2356,8 @@ pub fn fn_00448cc0(e: &mut Engine, this: Ptr) -> bool {
                         )
                         .bool()
                         {
-                            let queued = e.call(POINTER_GET, &args![task]).u32();
+                            let queued =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, task));
                             e.vcall(queued, 0x20, &args![]);
                         }
                         e.call(TASK_POINTER_DESTRUCT, &args![task]);
@@ -2413,7 +2445,7 @@ pub fn fn_00448f80(e: &mut Engine, this: Ptr, name: u32) -> u32 {
         e.call(TASK_POINTER_CONSTRUCT, &args![pointer, 0u32]);
         let found = e.vcall(target, 8, &args![name, pointer]).bool();
         let result = if found {
-            e.call(POINTER_GET, &args![pointer]).u32()
+            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer))
         } else {
             0
         };
@@ -2508,7 +2540,7 @@ pub fn fn_004491c0(e: &mut Engine, target: Ptr, new: u32, expected: u32) -> bool
     let previous = e
         .call(COMPARE_EXCHANGE, &args![target, expected, new])
         .u32();
-    e.call(AFTER_COMPARE_EXCHANGE, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     previous == expected
 }
 
@@ -2767,7 +2799,7 @@ pub fn fn_00449750(e: &mut Engine, this: Ptr, text: u32) -> u32 {
         hash = hash.wrapping_mul(0x21).wrapping_add(lowered);
         at += 1;
     }
-    let buckets = e.call(FIELD_AT_8, &args![this]).u32();
+    let buckets = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     hash % buckets
 }
 

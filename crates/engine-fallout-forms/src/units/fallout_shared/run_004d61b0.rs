@@ -125,10 +125,12 @@ const OPERATOR_NEW: u32 = 0x0040_1000;
 /// `00658930` (thiscall): the number of strings in a string list.
 const STRING_COUNT: u32 = 0x0065_8930;
 /// `00877a30` (thiscall, `RET 4`): the address of a string list's entry.
+#[cfg(test)]
 const STRING_AT: u32 = 0x0087_7a30;
 /// `005e03d0` (thiscall): empties a string list.
 const STRING_CLEAR: u32 = 0x005e_03d0;
 /// `00559450` (thiscall): the word at +0 of an object.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `004add50` (cdecl: destination, source, count): copies a name.
 const COPY_NAME: u32 = 0x004a_dd50;
@@ -182,7 +184,11 @@ fn delete_string_list(e: &mut Engine, list: u32) {
 fn insert_list_strings(e: &mut Engine, this: u32, item: u32, list: u32) {
     let mut index = 0u32;
     while index < e.call(STRING_COUNT, &args![list]).u32() {
-        let entry = e.call(STRING_AT, &args![list, index]).u32();
+        let entry = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, list, index)
+        );
         let string = e.mem.u32(entry);
         let text = e.call(ITEM_TEXT, &args![string, 0u32]).u32();
         e.mem.set_u32(item + 0x18, text);
@@ -198,7 +204,7 @@ fn insert_list_strings(e: &mut Engine, this: u32, item: u32, list: u32) {
 /// `004add50`) into the 0x40-byte `buffer`, whose last byte is cleared.
 fn copy_object_name(e: &mut Engine, object: u32, buffer: u32) {
     let named = e.vcall(object, 8, &args![]).u32();
-    let name = e.call(FIRST_WORD, &args![named]).u32();
+    let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, named));
     e.call(COPY_NAME, &args![buffer, name, 0x3fu32]);
     e.mem.set_u8(buffer + 0x3f, 0);
 }
@@ -465,15 +471,15 @@ pub fn fn_004d65a0(e: &mut Engine, this: Ptr, object: u32) {
         }
         let mut node = list;
         while node != 0 {
-            let entry = e.call(0x0068_15c0, &args![node]).u32();
+            let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(entry) == 0 {
                 break;
             }
-            let entry = e.call(0x0068_15c0, &args![node]).u32();
+            let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(entry);
             let tree = e.mem.u32(base + 0xc);
             send_message(e, tree, TVM_EXPAND, 2, item);
-            node = e.call(0x0072_6070, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         if e.mem.u32(found) != 0 {
             let tree = e.mem.u32(base + 0xc);
@@ -523,7 +529,7 @@ pub fn fn_004d66d0(e: &mut Engine, this: Ptr, parent: u32, object: Ptr) {
         let named = e.call(0x0041_3f40, &args![object]).u32();
         let name = e.mem.u32(named);
         let kind = e.vcall(object, 8, &args![]).u32();
-        let kind_name = e.call(FIRST_WORD, &args![kind]).u32();
+        let kind_name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, kind));
         e.call(
             SPRINTF_S,
             &args![text, 0x104u32, 0x0102_0e7cu32, kind_name, name, x, y, z],
@@ -577,12 +583,12 @@ pub fn fn_004d66d0(e: &mut Engine, this: Ptr, parent: u32, object: Ptr) {
         if !e.call(0x0076_b610, &args![properties]).bool() {
             let properties = e.call(0x0043_0830, &args![object]).u32();
             let position = ebp - 0x278;
-            let first = e.call(FIRST_WORD, &args![properties]).u32();
+            let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, properties));
             e.mem.set_u32(position, first);
             while e.mem.u32(position) != 0 {
                 let properties = e.call(0x0043_0830, &args![object]).u32();
                 let node = e.call(LIST_NEXT, &args![properties, position]).u32();
-                let property = e.call(FIRST_WORD, &args![node]).u32();
+                let property = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
                 if e.call(0x0043_b230, &args![property]).u32() != 0 {
                     entry_has_controllers = true;
                     break;
@@ -601,12 +607,12 @@ pub fn fn_004d66d0(e: &mut Engine, this: Ptr, parent: u32, object: Ptr) {
             if entry_has_controllers {
                 let properties = e.call(0x0043_0830, &args![object]).u32();
                 let position = ebp - 0x2d4;
-                let first = e.call(FIRST_WORD, &args![properties]).u32();
+                let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, properties));
                 e.mem.set_u32(position, first);
                 while e.mem.u32(position) != 0 {
                     let properties = e.call(0x0043_0830, &args![object]).u32();
                     let node = e.call(LIST_NEXT, &args![properties, position]).u32();
-                    let property = e.call(FIRST_WORD, &args![node]).u32();
+                    let property = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
                     let mut controller = e.call(0x0043_b230, &args![property]).u32();
                     while controller != 0 {
                         e.mem.set_u32(item, group);
@@ -623,12 +629,12 @@ pub fn fn_004d66d0(e: &mut Engine, this: Ptr, parent: u32, object: Ptr) {
             let group = insert_group(e, base, item, own_item, 0x0102_0e44);
             let properties = e.call(0x0043_0830, &args![object]).u32();
             let position = ebp - 0x32c;
-            let first = e.call(FIRST_WORD, &args![properties]).u32();
+            let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, properties));
             e.mem.set_u32(position, first);
             while e.mem.u32(position) != 0 {
                 let properties = e.call(0x0043_0830, &args![object]).u32();
                 let node = e.call(LIST_NEXT, &args![properties, position]).u32();
-                let property = e.call(FIRST_WORD, &args![node]).u32();
+                let property = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
                 e.mem.set_u32(item, group);
                 insert_named_object(e, base, item, ebp - 0x37c, property, 6, list);
             }
@@ -970,7 +976,11 @@ pub fn fn_004d7ab0(e: &mut Engine, this: Ptr, parent: u32, object: u32) {
 // Translated from 004d7d50 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The number of entries of the list at +0xC8 (`0044ddc0`).
 pub fn fn_004d7d50(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(0x0044_ddc0, &args![this.addr() + 0xc8]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + 0xc8)
+    )
 }
 
 // Translated from 004d7d70 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -978,16 +988,16 @@ pub fn fn_004d7d50(e: &mut Engine, this: Ptr) -> u32 {
 /// (`0044ddc0`) or the walk (`00559450`, `0057cbe0`) ends first.
 pub fn fn_004d7d70(e: &mut Engine, this: Ptr, index: u32) -> u32 {
     let list = this.addr() + 0xc8;
-    if index >= e.call(0x0044_ddc0, &args![list]).u32() {
+    if index >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) {
         return 0;
     }
     e.with_stack(4, |e, position| {
         let mut count = 0u32;
-        let first = e.call(FIRST_WORD, &args![list]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
         e.mem.set_u32(position.addr(), first);
         while e.mem.u32(position.addr()) != 0 {
             let node = e.call(LIST_NEXT, &args![list, position]).u32();
-            let value = e.call(FIRST_WORD, &args![node]).u32();
+            let value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
             let current = count;
             count = count.wrapping_add(1);
             if current == index {
@@ -1069,14 +1079,14 @@ pub fn fn_004d80b0(e: &mut Engine, this: Ptr, parent: u32, object: u32) {
         if compound != 0 && e.call(0x00c8_d0d0, &args![compound]).u32() != 0 {
             let mut node = e.call(0x007d_6bb0, &args![compound]).u32();
             while node != 0 {
-                let entry = e.call(0x0068_15c0, &args![node]).u32();
-                if e.call(FIRST_WORD, &args![entry]).u32() == 0 {
+                let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry)) == 0 {
                     break;
                 }
-                let entry = e.call(0x0068_15c0, &args![node]).u32();
-                let child = e.call(FIRST_WORD, &args![entry]).u32();
+                let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
+                let child = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
                 fn_004d80b0(e, this, created, child);
-                node = e.call(0x0072_6070, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
     } else {
@@ -1183,7 +1193,11 @@ pub fn fn_004d8630(e: &mut Engine, this: Ptr) -> u32 {
 // Translated from 004d8670 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `00726070` on the part at +0x10, and its value.
 pub fn fn_004d8670(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(0x0072_6070, &args![this.addr() + 0x10]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this.addr() + 0x10)
+    )
 }
 
 // Translated from 004d8690 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1361,7 +1375,7 @@ pub fn fn_004d8b90(e: &mut Engine, this: Ptr, parent: u32, sequence: u32) {
         let frames = e.global::<f64>(0x0101_db88);
         if blend != 0 {
             let seconds = x87_div(f64::from(blend), frames);
-            let count = e.call(0x0084_e3a0, &args![sequence]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sequence));
             let named = e.call(0x0041_3f40, &args![sequence]).u32();
             let name = e.mem.u32(named);
             e.call(
@@ -1371,7 +1385,7 @@ pub fn fn_004d8b90(e: &mut Engine, this: Ptr, parent: u32, sequence: u32) {
         } else if blend_in != 0 || blend_out != 0 {
             let out_seconds = x87_div(f64::from(blend_out), frames);
             let in_seconds = x87_div(f64::from(blend_in), frames);
-            let count = e.call(0x0084_e3a0, &args![sequence]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sequence));
             let named = e.call(0x0041_3f40, &args![sequence]).u32();
             let name = e.mem.u32(named);
             e.call(
@@ -1388,7 +1402,7 @@ pub fn fn_004d8b90(e: &mut Engine, this: Ptr, parent: u32, sequence: u32) {
                 ],
             );
         } else {
-            let count = e.call(0x0084_e3a0, &args![sequence]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sequence));
             let named = e.call(0x0041_3f40, &args![sequence]).u32();
             let name = e.mem.u32(named);
             e.call(

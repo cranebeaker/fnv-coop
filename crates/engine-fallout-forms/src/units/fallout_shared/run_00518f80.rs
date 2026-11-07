@@ -150,6 +150,7 @@ pub fn fn_00519040(e: &mut Engine, this: Ptr, reference: u32) -> u32 {
 /// `thiscall` on the reference: its base form) and `00401170` (`thiscall`:
 /// the form's type).
 const FIND_REFERENCE_FOR_3D: u32 = 0x0056_f930;
+#[cfg(test)]
 const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 const FORM_TYPE: u32 = 0x0040_1170;
 /// The player pointer (`011dea3c`), `008d8520` (`thiscall` on it, no stack
@@ -158,6 +159,7 @@ const FORM_TYPE: u32 = 0x0040_1170;
 /// type descriptors `.?AVBaseProcess@@` (`0118a6b8`) and
 /// `.?AVHighProcess@@` (`0118a6d4`) for `__RTDynamicCast` (`00ec43fb`).
 const PLAYER: u32 = 0x011d_ea3c;
+#[cfg(test)]
 const PLAYER_008D8520: u32 = 0x008d_8520;
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const TYPE_BASE_PROCESS: u32 = 0x0118_a6b8;
@@ -175,7 +177,7 @@ pub fn fn_00518f80(e: &mut Engine, object: u32) {
     if reference == 0 {
         return;
     }
-    let base = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if e.call(FORM_TYPE, &args![base]).u32() != 0x1c {
         return;
     }
@@ -183,7 +185,7 @@ pub fn fn_00518f80(e: &mut Engine, object: u32) {
         return;
     }
     let player = e.global::<u32>(PLAYER);
-    let process = e.call(PLAYER_008D8520, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     let high = e
         .call(
             RT_DYNAMIC_CAST,

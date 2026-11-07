@@ -151,6 +151,7 @@ const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// The RTTI type descriptor `.?AVTESForm@@`, every cast's source type.
 const TYPE_TES_FORM: u32 = 0x0118_3028;
 /// `TESForm`'s form id getter (`0084e3a0`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The warning printer (`005b5e40`, cdecl, variable arguments).
 const WARNING: u32 = 0x005b_5e40;
@@ -214,7 +215,7 @@ pub fn tes_object_acti_init_item(e: &mut Engine, this: Ptr) {
                 e.mem.u32(base + offset) == 0
             };
             if missing {
-                let form_id = e.call(FORM_ID, &args![this]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 let name = e.vcall(base, 0x130, &args![]).u32();
                 let id = e.mem.u32(id_at.addr());
                 e.call(WARNING, &args![message, id, name, form_id]);
@@ -264,6 +265,7 @@ const ADD_CHUNK_ARRAY: u32 = 0x0048_56f0;
 /// and its destructor (`004037d0`).
 const STRING_LENGTH: u32 = 0x0040_48e0;
 const COPY_ACTIVATION_PROMPT: u32 = 0x0051_10e0;
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 const STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// The forms `Save` writes by id, with their tags: +0x74 `SNAM`, +0x78
@@ -299,7 +301,7 @@ pub fn tes_object_acti_save(e: &mut Engine, this: Ptr) {
     for (offset, tag) in SAVED_FORMS {
         let form = e.mem.u32(base + offset);
         if form != 0 {
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(ADD_CHUNK_WORD, &args![tag, id]);
         }
     }
@@ -310,7 +312,7 @@ pub fn tes_object_acti_save(e: &mut Engine, this: Ptr) {
             let copy = e.call(COPY_ACTIVATION_PROMPT, &args![this, first]).u32();
             let size = e.call(STRING_LENGTH, &args![copy]).u32().wrapping_add(1);
             let copy = e.call(COPY_ACTIVATION_PROMPT, &args![this, second]).u32();
-            let text = e.call(STRING_TEXT, &args![copy]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, copy));
             e.call(ADD_CHUNK_ARRAY, &args![XATO, text, size]);
             e.call(STRING_DESTRUCT, &args![second]);
             e.call(STRING_DESTRUCT, &args![first]);

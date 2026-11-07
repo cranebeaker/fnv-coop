@@ -58,6 +58,7 @@ const HOLDER_ASSIGN: u32 = 0x0042_f4c0;
 const HOLDER_COPY: u32 = 0x0042_fa20;
 /// `NiPointer::operator->` on the slot in `ECX`: the word it holds. The
 /// engine map names `00458b50` the same way; its body calls `00559450`.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const HOLDER_GET: u32 = 0x0045_8b50;
 /// The pointer member of an operation: constructor from a pointer word
@@ -69,6 +70,7 @@ const POINTER_RELEASE: u32 = 0x0045_cec0;
 /// `BSSimpleArray::GetSize` (the word at `+8`), `operator[]` on the 16-byte
 /// operations (`this`, index; element address) and `operator[]` on the
 /// 12-byte portal swap array at `+0x44`.
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 const OPERATION_AT: u32 = 0x0055_8dd0;
 const PORTAL_SWAP_AT: u32 = 0x006a_1440;
@@ -78,6 +80,7 @@ const SAME_OBSTACLE: u32 = 0x004b_0460;
 /// `Error` (`cdecl`, format string and arguments; a five-byte stub in the PC
 /// build) and the message of the removed add: `"Removing previous operation
 /// ADD for Task on Navmesh 0x%08x (srcptr = 0x%08x)"`.
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 const REMOVING_ADD_MESSAGE: u32 = 0x0106_c828;
 /// `BSSimpleArray` helpers shared with the other element types: whether the
@@ -134,6 +137,7 @@ const NAV_MESH_OPERATION_40: u32 = 0x0069_9a30;
 /// `006995c0(mesh, element)`: the sort key of an element in the navmesh.
 const NAV_MESH_SORT_KEY: u32 = 0x0069_95c0;
 /// The finishing step's functions (see `fn_006c85e0`).
+#[cfg(test)]
 const SOURCE_MESH_INFO: u32 = 0x0084_e3a0;
 const SOURCE_MESH_OWNER: u32 = 0x0059_bb30;
 const OWNER_STATE: u32 = 0x0070_ec90;
@@ -156,7 +160,7 @@ fn operation_group(kind: u32) -> u32 {
 }
 
 fn array_size(e: &mut Engine, array: u32) -> u32 {
-    e.call(ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 fn operation_at(e: &mut Engine, array: u32, index: u32) -> u32 {
@@ -164,7 +168,7 @@ fn operation_at(e: &mut Engine, array: u32, index: u32) -> u32 {
 }
 
 fn pointer_get(e: &mut Engine, slot: u32) -> u32 {
-    e.call(POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 fn set_result(e: &mut Engine, array: u32, index: u32, applied: bool) {
@@ -298,7 +302,7 @@ pub fn obstacle_task_data_add_operation(
                         let info = e.mem.u32(task + ObstacleTaskData::pInfo.off);
                         let info_id = e.mem.u32(info);
                         let source = e.mem.u32(task + ObstacleTaskData::spSrcMesh.off);
-                        e.call(ERROR, &args![REMOVING_ADD_MESSAGE, info_id, source]);
+                        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words REMOVING_ADD_MESSAGE, info_id, source);
                         fn_006c8860(e, Ptr::new(operations), index, true);
                         index = index.wrapping_sub(1);
                     } else {
@@ -618,7 +622,7 @@ pub fn fn_006c85e0(e: &mut Engine, this: Ptr<ObstacleTaskData>) -> bool {
         return false;
     }
     let source = pointer_get(e, source_mesh);
-    let source_info = e.call(SOURCE_MESH_INFO, &args![source]).u32();
+    let source_info = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, source));
     let source = pointer_get(e, source_mesh);
     let owner = e.call(SOURCE_MESH_OWNER, &args![source]).u32();
     if owner != 0 {

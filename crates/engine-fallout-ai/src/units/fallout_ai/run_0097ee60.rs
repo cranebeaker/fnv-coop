@@ -24,6 +24,7 @@ const TIMER_VALUE: u32 = 0x0043_5e00;
 const CLOCK_VALUE: u32 = 0x0043_5dd0;
 /// `008d8520` (`thiscall` on a reference): its process (the engine map's name
 /// `MiddleHighProcess::GetSavedAcquireObject` is folded code).
+#[cfg(test)]
 const REFERENCE_PROCESS: u32 = 0x008d_8520;
 
 // Translated from 0097ee60 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -108,7 +109,7 @@ pub fn fn_0097efe0(e: &mut Engine, this: Ptr, target: u32, state: u32) {
         let object = e.mem.u32(at + 0x9c);
         let held = e.call(0x0066_2a80, &args![object]).u8() != 0;
         let actor = e.mem.u32(at + 0xbc);
-        let process = e.call(REFERENCE_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, 0x450, &args![u32::from(!held)]);
         if held {
             let clock = e.call(CLOCK_VALUE, &[]).f64();
@@ -120,12 +121,12 @@ pub fn fn_0097efe0(e: &mut Engine, this: Ptr, target: u32, state: u32) {
             let object = e.mem.u32(at + 0x9c);
             let weapon = e.call(0x0099_a2d0, &args![object]).u32();
             let actor = e.mem.u32(at + 0xbc);
-            let process = e.call(REFERENCE_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             let entry = e.vcall(process, 0x148, &[]).u32();
             let current = if entry == 0 {
                 0
             } else {
-                e.call(0x0044_ddc0, &args![entry]).u32()
+                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry))
             };
             if weapon != 0 && weapon != current {
                 let count = if e.call(0x004c_0bf0, &args![weapon]).bool() {
@@ -140,7 +141,7 @@ pub fn fn_0097efe0(e: &mut Engine, this: Ptr, target: u32, state: u32) {
                     &args![actor, weapon, count, 0u32, 1u32, 0u32, 1u32],
                 );
             } else if weapon == 0 && current != 0 {
-                let extra = e.call(0x0072_6070, &args![entry]).u32();
+                let extra = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                 let actor = e.mem.u32(at + 0xbc);
                 e.call(
                     0x0088_d7d0,
@@ -149,7 +150,7 @@ pub fn fn_0097efe0(e: &mut Engine, this: Ptr, target: u32, state: u32) {
             }
         } else {
             let actor = e.mem.u32(at + 0xbc);
-            let process = e.call(REFERENCE_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             let actor = e.mem.u32(at + 0xbc);
             e.vcall(process, 0x458, &args![actor, u32::from(!held)]);
         }
@@ -197,7 +198,7 @@ pub fn fn_0097f270(e: &mut Engine, this: Ptr, form: u32) {
     e.call(0x0040_1460, &args![at + 0x14c, at + 0x158, 0x30u32]);
     let value = e.vcall(form, 0x34, &[]).u32();
     e.mem.set_u32(at + 0x17c, value);
-    let id = e.call(0x0084_e3a0, &args![form]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     e.mem.set_u32(at + 0x180, id);
     let clock = e.call(CLOCK_VALUE, &[]).f64();
     e.mem.set_u32(at + 0x184, x87_store32(clock));

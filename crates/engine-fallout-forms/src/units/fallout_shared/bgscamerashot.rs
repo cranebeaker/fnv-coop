@@ -62,6 +62,7 @@ const DEFAULT_GLOBAL_TIME_MULT: u32 = 0x0101_e2bc;
 /// `NiPointer` assignment (`0066b0d0`, `RET 4`) and its raw read
 /// (`00559450`).
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer` destructor (`0045cec0`).
 const NI_POINTER_DESTROY: u32 = 0x0045_cec0;
@@ -256,7 +257,12 @@ pub fn bgs_camera_shot_free_camera(e: &mut Engine, this: Ptr<BgsCameraShot>) {
     e.set(this, BgsCameraShot::pTargetRef, 0);
     e.call(NI_POINTER_ASSIGN, &args![base + IMAGESPACE_TARGET, 0u32]);
     e.set(this, BgsCameraShot::bCameraTooClose, 0);
-    if e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base + CAMERA_NODE)
+    ) != 0
+    {
         e.call(NI_POINTER_ASSIGN, &args![base + CAMERA_NODE, 0u32]);
         let value = e.vcall(base + MODEL, 0x14, &args![]).u32();
         let target = e.global::<u32>(0x011c_3b3c);
@@ -293,7 +299,11 @@ pub fn bgs_camera_shot_is_initialized(e: &mut Engine, this: Ptr<BgsCameraShot>) 
     if e.call(MODEL_NAME_LENGTH, &args![base + MODEL]).u32() == 0 {
         return true;
     }
-    e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32() != 0
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base + CAMERA_NODE)
+    ) != 0
 }
 
 /// `__RTDynamicCast` (`00ec43fb`, cdecl, five words) and the type
@@ -536,10 +546,19 @@ pub fn bgs_camera_shot_init_camera(
             .u32();
         e.call(NI_POINTER_ASSIGN, &args![base + CAMERA_NODE, node]);
     }
-    let camera = if e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32() == 0 {
+    let camera = if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base + CAMERA_NODE)
+    ) == 0
+    {
         0
     } else {
-        let node = e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32();
+        let node = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + CAMERA_NODE)
+        );
         let child = e.call(CHILD_AS_CAMERA, &args![node, 0u32]).u32();
         e.call(RTTI_CAST, &args![CAMERA_RTTI, child]).u32()
     };
@@ -551,7 +570,12 @@ pub fn bgs_camera_shot_init_camera(
         let loader = e.global::<u32>(MODEL_LOADER);
         e.call(0x0045_a5e0, &args![loader, name]);
     }
-    if e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base + CAMERA_NODE)
+    ) != 0
+    {
         let time = e.global::<u32>(0x011f_21d4);
         e.with_stack(0xc, |e, update| {
             e.call(
@@ -561,14 +585,26 @@ pub fn bgs_camera_shot_init_camera(
             if fn_0058cac0(e, this) {
                 // FLD; FCHS; FSTP: the time negated.
                 let negated = x87_quiet_bits(time) ^ 0x8000_0000;
-                let node = e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32();
+                let node = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, base + CAMERA_NODE)
+                );
                 e.call(0x004b_70f0, &args![node, negated]);
             }
-            let node = e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32();
+            let node = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base + CAMERA_NODE)
+            );
             e.call(NODE_UPDATE, &args![node, update]);
         });
         if e.mem.u8(base + 0x74) as i8 == -1 && e.mem.u8(base + 0x76) == 0 {
-            let node = e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32();
+            let node = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base + CAMERA_NODE)
+            );
             let controller = e.call(0x00a5_c570, &args![node, 0x011f_3714u32]).u32();
             if controller != 0 {
                 let interpolator = e.vcall(controller, 0xc4, &args![0u32]).u32();
@@ -598,7 +634,11 @@ pub fn bgs_camera_shot_init_camera(
                 }
             }
         }
-        let node = e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32();
+        let node = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + CAMERA_NODE)
+        );
         let position = e.call(NODE_TRANSLATE, &args![node]).u32();
         if e.call(POINT_EQUALS, &args![position, ZERO_POINT]).bool() {
             let name = e.vcall(base + MODEL, 0x14, &args![]).u32();
@@ -699,7 +739,12 @@ pub fn fn_0058cae0(e: &mut Engine, this: Ptr) -> u32 {
 /// `011ca7d0` from the shot's point (`0058d510`).
 pub fn fn_0058cf60(e: &mut Engine, this: Ptr<BgsCameraShot>, time: u32) {
     let base = this.addr();
-    if e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base + CAMERA_NODE)
+    ) == 0
+    {
         return;
     }
     e.with_stack(0xc, |e, update| {
@@ -707,10 +752,18 @@ pub fn fn_0058cf60(e: &mut Engine, this: Ptr<BgsCameraShot>, time: u32) {
             UPDATE_DATA,
             &args![update, x87_quiet_bits(time), 1u32, 0u32],
         );
-        let node = e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32();
+        let node = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + CAMERA_NODE)
+        );
         e.call(NODE_UPDATE, &args![node, update]);
     });
-    let node = e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32();
+    let node = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base + CAMERA_NODE)
+    );
     let translate = e.call(NODE_TRANSLATE, &args![node]).u32();
     copy_point(e, CAMERA_POSITION, translate);
     e.with_stack(0xc, |e, point| {
@@ -764,8 +817,17 @@ fn camera_update_world(e: &mut Engine, this: Ptr<BgsCameraShot>, point: u32, tim
                     &args![rotation, ZERO_POINT, 1u32, copy, point],
                 );
             });
-        } else if e.call(NI_POINTER_GET, &args![base + LOCATION_NODE]).u32() != 0 {
-            let node = e.call(NI_POINTER_GET, &args![base + LOCATION_NODE]).u32();
+        } else if typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + LOCATION_NODE)
+        ) != 0
+        {
+            let node = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base + LOCATION_NODE)
+            );
             let rotation = e.call(WORLD_ROTATE, &args![node]).u32();
             e.call(
                 TRANSFORM_VERTICES,
@@ -773,7 +835,12 @@ fn camera_update_world(e: &mut Engine, this: Ptr<BgsCameraShot>, point: u32, tim
             );
         }
     });
-    if e.call(NI_POINTER_GET, &args![base + LOCATION_NODE]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base + LOCATION_NODE)
+    ) == 0
+    {
         return;
     }
     let mut first_frame = false;
@@ -783,7 +850,11 @@ fn camera_update_world(e: &mut Engine, this: Ptr<BgsCameraShot>, point: u32, tim
     }
     e.with_stack(0xc, |e, location| {
         let location = location.addr();
-        let node = e.call(NI_POINTER_GET, &args![base + LOCATION_NODE]).u32();
+        let node = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + LOCATION_NODE)
+        );
         let translate = e.call(WORLD_TRANSLATE, &args![node]).u32();
         copy_point(e, location, translate);
         e.call(0x0063_c8a0, &args![point, location]);
@@ -794,7 +865,11 @@ fn camera_update_world(e: &mut Engine, this: Ptr<BgsCameraShot>, point: u32, tim
     if e.global::<u8>(BLEND_ACTIVE) != 0 {
         camera_blend(e, this, first_frame, time);
     }
-    let node = e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32();
+    let node = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base + CAMERA_NODE)
+    );
     let camera = e.call(CHILD_AS_CAMERA, &args![node, 0u32]).u32();
     if camera == 0 {
         return;
@@ -916,15 +991,32 @@ pub fn fn_0058d510(e: &mut Engine, this: Ptr<BgsCameraShot>, out: Ptr) -> Ptr {
             read(e, at)
         });
         point = at;
-    } else if e.call(NI_POINTER_GET, &args![base + TARGET_NODE]).u32() != 0 {
-        let node = e.call(NI_POINTER_GET, &args![base + TARGET_NODE]).u32();
+    } else if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base + TARGET_NODE)
+    ) != 0
+    {
+        let node = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + TARGET_NODE)
+        );
         let at = e.call(WORLD_TRANSLATE, &args![node]).u32();
         point = read(e, at);
     }
-    let angles =
-        e.mem.u8(base + 0x74) == 1 && e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32() != 0;
+    let angles = e.mem.u8(base + 0x74) == 1
+        && typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + CAMERA_NODE)
+        ) != 0;
     if angles {
-        let node = e.call(NI_POINTER_GET, &args![base + CAMERA_NODE]).u32();
+        let node = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + CAMERA_NODE)
+        );
         let rotation = e.call(WORLD_ROTATE, &args![node]).u32();
         e.call(
             TO_EULER_ANGLES,

@@ -36,6 +36,7 @@ const TES_POINTER: u32 = 0x011d_ea10;
 /// Returns the word at +0xc of its object (a form's id, `TESForm::iFormID`
 /// +0x0C; on the save/load game, the object `00846d20`/`00846c90` run on;
 /// on a save or load buffer, its position).
+#[cfg(test)]
 const WORD_AT_0C: u32 = 0x0084_e3a0;
 /// `(this = object at +0xc of the save/load game, index)`: the form id of a
 /// world-space index (or the index itself when the data handler accepts it).
@@ -70,6 +71,7 @@ const BUFFER_READ: u32 = 0x0086_4980;
 /// `memcpy(destination, source, size)` (cdecl).
 const MEMCPY: u32 = 0x0040_1460;
 /// The `NiPoint3` default constructor (returns `this`, writes nothing).
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
 
 /// `TESObjectCELL::GetWorldSpace`, `GetDataX`, `GetDataY`, `GetDetachTime`
@@ -91,6 +93,7 @@ const REFERENCE_LOCATION: u32 = 0x0043_6aa0;
 const REFERENCE_ANGLE: u32 = 0x0043_0830;
 /// `BGSSaveFormBuffer::GetForm` (map name; on a reference the body returns
 /// the reference's base object).
+#[cfg(test)]
 const REFERENCE_BASE_OBJECT: u32 = 0x007a_f430;
 /// `(this = reference)`: its extra data list.
 const REFERENCE_EXTRA_LIST: u32 = 0x005d_43c0;
@@ -106,6 +109,7 @@ const SAVE_GAME_WARNING: u32 = 0x0084_5cc0;
 /// Builds a change-flags word from a value (`BGSChangeFlags`, 4 bytes).
 const CHANGE_FLAGS_CONSTRUCT: u32 = 0x008c_71b0;
 /// `(this = &change flags)`: a word tested for zero.
+#[cfg(test)]
 const CHANGE_FLAGS_VALUE: u32 = 0x0055_9450;
 /// `BGSLoadGameSubBuffer::SaveGame(this, buffer)` (Xbox PDB).
 const SUB_BUFFER_SAVE_GAME: u32 = 0x0086_5510;
@@ -240,7 +244,7 @@ fn cell_coordinate(e: &mut Engine, address: u32) -> i32 {
 }
 
 fn word_at_0c(e: &mut Engine, object: u32) -> u32 {
-    e.call(WORD_AT_0C, &args![object]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object))
 }
 
 fn flags_test(e: &mut Engine, flags: u32, mask: u32) -> bool {
@@ -593,11 +597,16 @@ pub fn bgs_save_load_initial_data_load_initial_data_struct_ov3(
 /// +0xf). Returns `this`.
 pub fn fn_0084eac0(e: &mut Engine, this: Ptr) -> Ptr {
     construct_compact_id(e, this);
-    e.call(
-        POINT_CONSTRUCT,
-        &args![this.byte_add(LOCATION_DATA_LOCATION)],
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(LOCATION_DATA_LOCATION))
     );
-    e.call(POINT_CONSTRUCT, &args![this.byte_add(LOCATION_DATA_ANGLE)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(LOCATION_DATA_ANGLE))
+    );
     this
 }
 
@@ -771,7 +780,7 @@ pub fn bgs_save_load_initial_data_save_initial_data(
             e.with_stack(4, |e, havok_flags| {
                 e.call(CHANGE_FLAGS_CONSTRUCT, &args![havok_flags, havok_data]);
                 if e.vcall(form, 0x1d0, &args![]).u32() == 0
-                    && e.call(CHANGE_FLAGS_VALUE, &args![havok_flags]).u32() != 0
+                    && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, havok_flags)) != 0
                 {
                     e.call(SUB_BUFFER_SAVE_GAME, &args![havok_flags, buffer]);
                 } else {
@@ -803,7 +812,7 @@ fn save_created_reference(e: &mut Engine, buffer: u32, reference: u32, flags: u3
     copy_point(e, location, record + LOCATION_DATA_LOCATION);
     let angle = e.call(REFERENCE_ANGLE, &args![reference]).u32();
     copy_point(e, angle, record + LOCATION_DATA_ANGLE);
-    let mut base = e.call(REFERENCE_BASE_OBJECT, &args![reference]).u32();
+    let mut base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if e.vcall(reference, 0x100, &args![]).bool() && flags_test(e, flags, 0x40000) {
         let list = e.call(REFERENCE_EXTRA_LIST, &args![reference]).u32();
         let original = e.call(EXTRA_GET_LEV_CREA_ORIGINAL_BASE, &args![list]).u32();
@@ -841,8 +850,12 @@ fn save_moved_reference(e: &mut Engine, buffer: u32, reference: u32, frame: u32)
     save_reference_location(e, reference, world, location, angle);
     fn_0084eb50(e, Ptr::new(record));
     save_location_record(e, record, world, location, angle);
-    e.call(POINT_CONSTRUCT, &args![editor_location]);
-    e.call(POINT_CONSTRUCT, &args![editor_angle]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, editor_location)
+    );
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, editor_angle));
     e.mem.set_u32(editor_world, 0);
     if e.vcall(
         reference,
@@ -861,8 +874,8 @@ fn save_moved_reference(e: &mut Engine, buffer: u32, reference: u32, frame: u32)
     } else {
         e.mem.set_u16(record + 0x1e, 0);
         e.mem.set_u16(record + 0x20, 0);
-        let base = e.call(REFERENCE_BASE_OBJECT, &args![reference]).u32();
-        let base_again = e.call(REFERENCE_BASE_OBJECT, &args![reference]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
+        let base_again = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let base_id = word_at_0c(e, base_again);
         let base_name = e.vcall(base, 0x130, &args![]).u32();
         let reference_id = word_at_0c(e, reference);
@@ -1269,7 +1282,7 @@ pub fn bgs_save_load_initial_data_create_reference(
         let clear = if !e.vcall(reference, 0xf0, &args![]).bool() {
             true
         } else {
-            let base = e.call(REFERENCE_BASE_OBJECT, &args![reference]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             if base == bound {
                 false
             } else if e.vcall(reference, 0x100, &args![]).bool() {

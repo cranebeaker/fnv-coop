@@ -68,6 +68,7 @@ const NODE_FOR_KEY_006A7E00: u32 = 0x006a_7e00;
 /// `0076b610` (unnamed in the engine map): a flag of the solution (AL).
 const SOLUTION_FLAG_0076B610: u32 = 0x0076_b610;
 /// `0045cd60` (unnamed in the engine map): a search node's parent.
+#[cfg(test)]
 const NODE_PARENT_0045CD60: u32 = 0x0045_cd60;
 /// `NavMesh::GetMatchingEdge_ov3` (`0068f460`, engine map; `RET 0x14`).
 const GET_MATCHING_EDGE_0068F460: u32 = 0x0068_f460;
@@ -92,8 +93,6 @@ const DOOR_LOCK_DTOR_00501E50: u32 = 0x0050_1e50;
 const CAN_UNLOCK_00502450: u32 = 0x0050_2450;
 /// `006c9900` (unnamed in the engine map): the request's actor.
 const REQUEST_ACTOR_006C9900: u32 = 0x006c_9900;
-/// `007af430` (unnamed in the engine map): the lock's door form.
-const LOCK_FORM_007AF430: u32 = 0x007a_f430;
 /// `TESObjectDOOR::IsMinimalUse` (`00518000`, engine map).
 const IS_MINIMAL_USE_00518000: u32 = 0x0051_8000;
 /// The cost factor (float, `01016410`) of a minimal-use door.
@@ -109,6 +108,7 @@ const THREAT_RANGE: u32 = 0x0102_8338;
 /// `00404010` (unnamed in the engine map; cdecl, two floats; ST0).
 const MAX_00404010: u32 = 0x0040_4010;
 /// `NiPoint3::Dot` (`004b6190`, engine map; `RET 4`; ST0).
+#[cfg(test)]
 const DOT_004B6190: u32 = 0x004b_6190;
 /// `BSSimpleArray<BGSBodyPart*,1024>::AddUninitialized` (`007cb2e0`, engine
 /// map name of the folded body; `RET 4`): appends the word at the address
@@ -126,6 +126,7 @@ const REQUEST_DISTANCE_00885BD0: u32 = 0x0088_5bd0;
 /// vertex indices (16-bit) to three addresses.
 const TRIANGLE_VERTICES_006A5B30: u32 = 0x006a_5b30;
 /// `006815c0` (unnamed in the engine map): returns its `this`.
+#[cfg(test)]
 const IDENTITY_006815C0: u32 = 0x0068_15c0;
 /// `0068f0a0` (unnamed in the engine map; `RET 4`): the address of a
 /// navmesh vertex's position.
@@ -373,7 +374,7 @@ fn hide_connection(e: &mut Engine, this: u32, ebp: u32, node: u32, connections: 
                 e.call(DOOR_LOCK_DTOR_00501E50, &args![temp_lock]);
                 return;
             }
-            let form = e.call(LOCK_FORM_007AF430, &args![lock]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, lock));
             if e.call(IS_MINIMAL_USE_00518000, &args![form]).u8() != 0 {
                 let factor = x87_quiet_bits(e.global::<u32>(DOOR_COST));
                 e.mem.set_u32(ebp - 0x70, factor);
@@ -445,7 +446,9 @@ fn hide_connection(e: &mut Engine, this: u32, ebp: u32, node: u32, connections: 
         POINT3_MINUS_00439EF0,
         &args![this + THREAT_LOCATION, away, ebp - 0x18],
     );
-    let dot = e.call(DOT_004B6190, &args![away, step]).f64();
+    let dot = typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, away, step))
+        .into_ret()
+        .f64();
     e.mem.set_u32(ebp - 0x3c, x87_store32(dot));
     let away_length = e.call(POINT3_LENGTH_00457990, &args![away]).f64();
     e.mem.set_u32(ebp - 0x50, x87_store32(away_length));
@@ -536,7 +539,7 @@ pub fn navmesh_search_hide_get_node_connections(
     let node = node.addr();
     e.with_stack(0xd8, |e, locals| {
         let ebp = locals.addr() + 0xd8;
-        let position = if e.call(NODE_PARENT_0045CD60, &args![node]).u32() != 0 {
+        let position = if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, node)) != 0 {
             e.call(NODE_CENTER_006A6EB0, &args![node + 8, ebp - 0xac])
                 .u32()
         } else {
@@ -594,7 +597,7 @@ pub fn navmesh_search_hide_is_goal_node(e: &mut Engine, this: Ptr, node: Ptr) ->
             &args![triangle, ebp - 0x3c, ebp - 0xc, ebp - 0x20],
         );
         let result = ebp - 0x38;
-        e.call(IDENTITY_006815C0, &args![result]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, result));
         let third = e
             .call(
                 VERTEX_POSITION_0068F0A0,

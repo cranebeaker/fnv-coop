@@ -27,10 +27,13 @@ layout! {
 }
 
 /// `006815c0` (`thiscall`): the address of a list node's item.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`thiscall`): a list node's next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `008256d0` (`thiscall`): whether a list is empty (`AL`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `0063f7b0` (`thiscall`): removes a list's first item.
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -43,7 +46,9 @@ const LIST_ADD: u32 = 0x0090_5820;
 /// The response-list iterator constructor `0044dee0`, its current node `00559450`, a
 /// node's next node `0045cd60` and the iterator destructor `0061f440` (all `thiscall`).
 const ITERATOR_CONSTRUCTOR: u32 = 0x0044_dee0;
+#[cfg(test)]
 const ITERATOR_NODE: u32 = 0x0055_9450;
+#[cfg(test)]
 const NEXT_NODE_0045CD60: u32 = 0x0045_cd60;
 const ITERATOR_DESTRUCTOR: u32 = 0x0061_f440;
 /// `TESTopicInfo::CloneResponseList` (engine map, `0061e760`, `thiscall`, one word: the
@@ -76,7 +81,7 @@ const SAVE_FORM_ID: u32 = 0x0086_5df0;
 
 /// The item of a list node (`*006815c0(node)`).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -113,7 +118,7 @@ pub fn dialogue_item_constructor(
         let item = iterator + 4;
         e.call(ITERATOR_CONSTRUCTOR, &args![iterator]);
         e.call(CLONE_RESPONSE_LIST, &args![info, iterator]);
-        let mut node = e.call(ITERATOR_NODE, &args![iterator]).u32();
+        let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, iterator));
         while node != 0 {
             let block = e.call(ALLOCATE, &args![0x2cu32]).u32();
             let response = if block != 0 {
@@ -127,7 +132,7 @@ pub fn dialogue_item_constructor(
             };
             e.mem.set_u32(item, response);
             e.call(LIST_ADD, &args![this, item]);
-            node = e.call(NEXT_NODE_0045CD60, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, node));
         }
         e.call(ITERATOR_DESTRUCTOR, &args![iterator]);
     });
@@ -143,7 +148,12 @@ pub fn dialogue_item_constructor(
 // Translation incomplete: 0083c670 - the FS:[0] exception frame (unwinding on a throw) is not translated
 pub fn dialogue_item_destructor(e: &mut Engine, this: Ptr<DialogueItem>) {
     let list = this.addr();
-    while list != 0 && e.call(LIST_IS_EMPTY, &args![list]).u8() == 0 {
+    while list != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list))
+            .into_ret()
+            .u8()
+            == 0
+    {
         let response = node_item(e, list);
         if response != 0 {
             fn_0083c720(e, Ptr::new(response), 1);
@@ -191,7 +201,7 @@ pub fn dialogue_item_first_response(e: &mut Engine, this: Ptr<DialogueItem>) -> 
 pub fn dialogue_item_next_response(e: &mut Engine, this: Ptr<DialogueItem>) -> bool {
     let current = e.get(this, DialogueItem::pCurrentResponse);
     if current != 0 {
-        let next = e.call(NODE_NEXT, &args![current]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, current));
         e.set(this, DialogueItem::pCurrentResponse, next);
     }
     e.get(this, DialogueItem::pCurrentResponse) != 0
@@ -236,12 +246,17 @@ pub fn dialogue_item_get_dialogue_response_index(
 ) -> u16 {
     let mut index = 0u16;
     let mut node = this.addr();
-    while node != 0 && e.call(LIST_IS_EMPTY, &args![node]).u8() == 0 {
+    while node != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            == 0
+    {
         if node_item(e, node) == response {
             return index;
         }
         index = index.wrapping_add(1);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(REPORT_005B5E40, &args![MISSING_RESPONSE_MESSAGE]);
     0
@@ -262,7 +277,7 @@ pub fn dialogue_item_save_game(e: &mut Engine, this: Ptr<DialogueItem>, buffer: 
             e.call(RESPONSE_SAVE_GAME, &args![response, buffer]);
             count = count.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SAVE_VARIABLE_SIZED_VALUE, &args![buffer, count, mark]);
     let current = e.get(this, DialogueItem::pCurrentResponse);
@@ -309,6 +324,7 @@ const SAVE_NUMERIC_ID_00857A10: u32 = 0x0085_7a10;
 const LOAD_READ_008579E0: u32 = 0x0085_79e0;
 const LOAD_NUMERIC_ID_00857AA0: u32 = 0x0085_7aa0;
 /// A form's save id (`0084e3a0`, `thiscall`).
+#[cfg(test)]
 const FORM_SAVE_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// `BGSLoadGameBuffer` readers (`thiscall` on the buffer): `LoadVariableSizedValue`
 /// (`00864a60`), the raw read `00864980` (address, size), `LoadFormID` (`008648a0`) and
@@ -362,12 +378,17 @@ pub fn dialogue_item_default_constructor(
 /// an empty node is reached; unchanged when not found.
 pub fn dialogue_item_set_current_response(e: &mut Engine, this: Ptr<DialogueItem>, response: u32) {
     let mut node = this.addr();
-    while node != 0 && e.call(LIST_IS_EMPTY, &args![node]).u8() == 0 {
+    while node != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            == 0
+    {
         if node_item(e, node) == response {
             e.set(this, DialogueItem::pCurrentResponse, node);
             return;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -384,12 +405,17 @@ pub fn dialogue_item_get_dialogue_response_by_index(
     let wanted = index as u16 as i16;
     let mut count = 0i16;
     let mut node = this.addr();
-    while node != 0 && e.call(LIST_IS_EMPTY, &args![node]).u8() == 0 {
+    while node != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            == 0
+    {
         if count == wanted {
             return node_item(e, node);
         }
         count = count.wrapping_add(1);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(REPORT_005B5E40, &args![INDEX_TOO_LARGE_MESSAGE]);
     0
@@ -402,11 +428,16 @@ pub fn dialogue_item_get_dialogue_response_by_index(
 pub fn fn_0083c9e0(e: &mut Engine, this: Ptr<DialogueItem>) -> u16 {
     let mut size = 1u16;
     let mut node = this.addr();
-    while node != 0 && e.call(LIST_IS_EMPTY, &args![node]).u8() == 0 {
+    while node != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            == 0
+    {
         let response = node_item(e, node);
         let part = e.call(RESPONSE_SAVE_SIZE, &args![response]).u16();
         size = size.wrapping_add(part);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     size.wrapping_add(1)
         .wrapping_add(4)
@@ -435,12 +466,17 @@ pub fn dialogue_item_save_game_ov1(e: &mut Engine, this: Ptr<DialogueItem>) {
         let saver = e.global::<u32>(SAVE_LOAD_GAME_011DE45C);
         e.call(SAVE_WRITE_008579B0, &args![saver, count_at, 1u32]);
         let mut node = this.addr();
-        while node != 0 && e.call(LIST_IS_EMPTY, &args![node]).u8() == 0 {
+        while node != 0
+            && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+                .into_ret()
+                .u8()
+                == 0
+        {
             let response = node_item(e, node);
             e.call(RESPONSE_SAVE_GAME_OLD, &args![response]);
             let count = e.mem.u8(count_at).wrapping_add(1);
             e.mem.set_u8(count_at, count);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let count = e.mem.u8(count_at);
         e.mem.set_u8(place, count);
@@ -462,7 +498,7 @@ pub fn dialogue_item_save_game_ov1(e: &mut Engine, this: Ptr<DialogueItem>) {
             e.mem.set_u32(id_at, 0);
             let form = e.get(this, field);
             if form != 0 {
-                let id = e.call(FORM_SAVE_ID_0084E3A0, &args![form]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 e.mem.set_u32(id_at, id);
             }
             let saver = e.global::<u32>(SAVE_LOAD_GAME_011DE45C);

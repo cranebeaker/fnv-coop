@@ -311,7 +311,7 @@ pub fn fn_004a4ac0(e: &mut Engine, this: Ptr) -> Ptr {
     e.mem.set_u32(t, BGS_PRIMITIVE_VTABLE);
     let zero = x87_store32(0.0);
     e.call(COLOR_SET, &args![t + 8, zero, zero, zero, zero]);
-    e.call(MEMBER_18_SET_UP, &args![t + 0x18]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, t + 0x18));
     for at in [0x24u32, 0x28, 0x2c] {
         e.call(NI_POINTER_FROM_RAW, &args![t + at, 0u32]);
     }
@@ -357,6 +357,7 @@ pub fn fn_004a6370(e: &mut Engine, this: Ptr) -> Ptr {
 /// `thiscall`), the fixed-string constructor `00438170` (`thiscall`, `RET 4`:
 /// the text) and destructor `004381b0`, `00a5b950` (`thiscall` on the node,
 /// `RET 4`: the name) and `NiAVObject::UpdateProperties` (`00a5a040`).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 const NI_ALLOCATE: u32 = 0x00aa_13e0;
 const FADE_NODE_CONSTRUCT: u32 = 0x00b4_e150;
@@ -383,11 +384,11 @@ fn build_node(e: &mut Engine, this: Ptr, name: u32) {
     e.call(NI_POINTER_SET, &args![t + 0x2c, node]);
     e.with_stack(4, |e, text| {
         let made = e.call(FIXED_STRING_CONSTRUCT, &args![text, name]).u32();
-        let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
         e.call(NODE_SET_NAME, &args![node, made]);
         e.call(FIXED_STRING_DESTRUCT, &args![text]);
     });
-    let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
     e.call(UPDATE_PROPERTIES, &args![node]);
 }
 
@@ -405,7 +406,12 @@ pub fn bgs_primitive_plane_build(e: &mut Engine, this: Ptr) {
 /// only without a node at `+0x2c`, a new `BSFadeNode` named with `0101e8dc`,
 /// its properties updated.
 pub fn fn_004a63f0(e: &mut Engine, this: Ptr) {
-    if e.call(NI_POINTER_GET, &args![this.addr() + 0x2c]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x2c)
+    ) == 0
+    {
         build_node(e, this, BOX_NAME);
     }
 }
@@ -416,6 +422,7 @@ pub fn fn_004a63f0(e: &mut Engine, this: Ptr) {
 /// `004a8ae0`, here the data's 16-bit vertex count) and `00450f90`
 /// (`thiscall`, `RET 4`: a byte; the alpha switch).
 const GEOMETRY_DATA: u32 = 0x0054_95f0;
+#[cfg(test)]
 const DATA_COLORS: u32 = 0x0045_cd60;
 const MARK_AS_CHANGED: u32 = 0x00a6_7090;
 const VERTEX_COUNT: u32 = 0x004a_8ae0;
@@ -434,7 +441,11 @@ fn copy_color(e: &mut Engine, to: u32, from: u32) {
 fn set_alpha(e: &mut Engine, this: Ptr, color: u32) {
     let alpha = x87_m32(e.mem.u32(color + 0xc));
     let clear = alpha < x87_load64(e.mem.u64(DOUBLE_THOUSANDTH));
-    let object = e.call(NI_POINTER_GET, &args![this.addr() + 0x28]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x28)
+    );
     e.call(SET_ALPHA_00450F90, &args![object, u32::from(clear)]);
 }
 
@@ -447,17 +458,17 @@ fn set_alpha(e: &mut Engine, this: Ptr, color: u32) {
 pub fn bgs_primitive_plane_set_color(e: &mut Engine, this: Ptr, color: Ptr) {
     let t = this.addr();
     copy_color(e, t + 8, color.addr());
-    if e.call(NI_POINTER_GET, &args![t + 0x24]).u32() != 0 {
-        let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24)) != 0 {
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
         let data = e.call(GEOMETRY_DATA, &args![geometry]).u32();
-        let colors = e.call(DATA_COLORS, &args![data]).u32();
+        let colors = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, data));
         copy_color(e, colors + 0x70, t + 8);
         for to in (0..7u32).rev() {
             copy_color(e, colors + 0x10 * to, colors + 0x10 * (to + 1));
         }
         e.call(MARK_AS_CHANGED, &args![data, 4u32]);
     }
-    if e.call(NI_POINTER_GET, &args![t + 0x28]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x28)) != 0 {
         set_alpha(e, this, color.addr());
     }
 }
@@ -465,9 +476,9 @@ pub fn bgs_primitive_plane_set_color(e: &mut Engine, this: Ptr, color: Ptr) {
 /// Sets every vertex colour of the geometry in the pointer at `slot` from the
 /// colour at `this + 8` and marks the data changed (4).
 fn paint_geometry(e: &mut Engine, this: Ptr, slot: u32) {
-    let geometry = e.call(NI_POINTER_GET, &args![slot]).u32();
+    let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     let data = e.call(GEOMETRY_DATA, &args![geometry]).u32();
-    let colors = e.call(DATA_COLORS, &args![data]).u32();
+    let colors = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, data));
     let mut index: i32 = 0;
     while index < i32::from(e.call(VERTEX_COUNT, &args![data]).u16()) {
         copy_color(e, colors.wrapping_add((index as u32) << 4), this.addr() + 8);
@@ -485,7 +496,7 @@ fn paint_geometry(e: &mut Engine, this: Ptr, slot: u32) {
 pub fn fn_004a64e0(e: &mut Engine, this: Ptr, color: Ptr) {
     let t = this.addr();
     copy_color(e, t + 8, color.addr());
-    if e.call(NI_POINTER_GET, &args![t + 0x24]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24)) != 0 {
         paint_geometry(e, this, t + 0x24);
         paint_geometry(e, this, t + 0x28);
         set_alpha(e, this, color.addr());
@@ -499,7 +510,9 @@ pub fn fn_004a64e0(e: &mut Engine, this: Ptr, color: Ptr) {
 /// (`thiscall`, no stack words: a bound's constructor), `004a5200` and
 /// `00a59c60` (`thiscall`, `RET 4`: a bound's or a point's address).
 const MAGNITUDE_00408840: u32 = 0x0040_8840;
+#[cfg(test)]
 const POINT3_SET: u32 = 0x0041_6870;
+#[cfg(test)]
 const DATA_VERTICES: u32 = 0x007a_f430;
 const POINT3_ZERO_0043D410: u32 = 0x0043_d410;
 const BOUND_CONSTRUCT_006240D0: u32 = 0x0062_40d0;
@@ -568,10 +581,10 @@ pub fn fn_004a6640(e: &mut Engine, this: Ptr, size: Ptr) {
         e.mem.set_u32(t + 0x18 + 4 * word, v);
     }
     let kept = Ptr::new(t + 0x18);
-    if e.call(NI_POINTER_GET, &args![t + 0x24]).u32() != 0 {
-        let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24)) != 0 {
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
         let data = e.call(GEOMETRY_DATA, &args![geometry]).u32();
-        let vertices = e.call(DATA_VERTICES, &args![data]).u32();
+        let vertices = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data));
         for (corner, signs) in CORNERS.iter().enumerate() {
             let z_at = fn_004a51b0(e, kept, 2);
             let z = pushed(e.mem.u32(z_at), signs[2]);
@@ -580,7 +593,11 @@ pub fn fn_004a6640(e: &mut Engine, this: Ptr, size: Ptr) {
             let x_at = fn_004a51b0(e, kept, 0);
             let x = pushed(e.mem.u32(x_at), signs[0]);
             e.with_stack(0xc, |e, point| {
-                let made = e.call(POINT3_SET, &args![point, x, y, z]).u32();
+                let made = typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, point, x, y, z)
+                );
                 for word in 0..3u32 {
                     let v = e.mem.u32(made + 4 * word);
                     e.mem.set_u32(vertices + 0xc * corner as u32 + 4 * word, v);
@@ -589,10 +606,10 @@ pub fn fn_004a6640(e: &mut Engine, this: Ptr, size: Ptr) {
         }
         e.call(MARK_AS_CHANGED, &args![data, 1u32]);
     }
-    if e.call(NI_POINTER_GET, &args![t + 0x28]).u32() != 0 {
-        let geometry = e.call(NI_POINTER_GET, &args![t + 0x28]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x28)) != 0 {
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x28));
         let data = e.call(GEOMETRY_DATA, &args![geometry]).u32();
-        let vertices = e.call(DATA_VERTICES, &args![data]).u32();
+        let vertices = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data));
         let mut scale = [0u32; 3];
         for (i, word) in scale.iter_mut().enumerate() {
             *word = e.mem.u32(s + 4 * i as u32);
@@ -633,7 +650,7 @@ pub fn fn_004a6640(e: &mut Engine, this: Ptr, size: Ptr) {
         let bound = point + 0x10;
         let zero = x87_store32(0.0);
         e.call(POINT3_ZERO_0043D410, &args![point, zero, 0u32, 0u32]);
-        if e.call(NI_POINTER_GET, &args![t + 0x2c]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c)) == 0 {
             return;
         }
         let first = e.mem.u32(s);
@@ -655,13 +672,13 @@ pub fn fn_004a6640(e: &mut Engine, this: Ptr, size: Ptr) {
             Ptr::new(ORIGIN_011F426C),
             f32::from_bits(x87_quiet_bits(radius)),
         );
-        let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
         e.call(GEOMETRY_SET_BOUND_004A5200, &args![geometry, bound]);
-        let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
         e.call(NODE_SET_00A59C60, &args![node, point]);
-        let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
         e.call(UPDATE_PROPERTIES, &args![geometry]);
-        let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
         e.vcall(node, 0xbc, &args![]);
     });
 }
@@ -743,6 +760,7 @@ const GET_COLOR_413F90: u32 = 0x0041_3f90;
 /// value in `ST0`).
 const GET_RADIUS_4A7BD0: u32 = 0x004a_7bd0;
 /// The primitive's type getter (`00726070`, the word at +4).
+#[cfg(test)]
 const GET_TYPE: u32 = 0x0072_6070;
 
 /// `FLD dword` then `FSTP dword` of a float word (a signalling NaN comes out
@@ -774,7 +792,7 @@ pub fn fn_004a4d40(e: &mut Engine, primitive: Ptr) -> u32 {
         let at = |k: u32| frame.addr() + 0xa0 - k;
         let mut made = 0u32;
         let two = reloaded(e.mem.u32(FLOAT_TWO));
-        if e.call(GET_TYPE, &args![primitive]).u32() == 3 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, primitive)) == 3 {
             let size = e.call(GET_SIZE_413FC0, &args![primitive, at(0x70)]).u32();
             e.call(POINT3_SCALED, &args![size, at(0x30), two]);
             e.call(GET_COLOR_413F90, &args![primitive, at(0x24)]);
@@ -788,13 +806,13 @@ pub fn fn_004a4d40(e: &mut Engine, primitive: Ptr) -> u32 {
             e.call(GET_COLOR_413F90, &args![primitive, at(0x14)]);
             made = fn_004a4f80(e, Ptr::new(at(0x38)), at(0x14));
         }
-        if e.call(GET_TYPE, &args![primitive]).u32() == 1 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, primitive)) == 1 {
             let size = e.call(GET_SIZE_413FC0, &args![primitive, at(0x94)]).u32();
             e.call(POINT3_SCALED, &args![size, at(0x54), two]);
             e.call(GET_COLOR_413F90, &args![primitive, at(0x48)]);
             made = fn_004a5040(e, Ptr::new(at(0x54)), at(0x48));
         }
-        if e.call(GET_TYPE, &args![primitive]).u32() == 2 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, primitive)) == 2 {
             e.call(GET_COLOR_413F90, &args![primitive, at(0x64)]);
             let radius = e.call(GET_RADIUS_4A7BD0, &args![primitive]).f64();
             made = fn_004a5100(e, f32::from_bits(x87_store32(radius)), at(0x64));
@@ -830,7 +848,11 @@ pub fn fn_004a5100(e: &mut Engine, radius: f32, word: u32) -> u32 {
 /// Gives the geometry's bound (`RET 4`): `fn_004a5230` on the object in the
 /// pointer at +0xB8, its answer passed on.
 pub fn fn_004a5200(e: &mut Engine, this: Ptr, bound: Ptr) -> Ptr {
-    let object = e.call(NI_POINTER_GET, &args![this.addr() + 0xb8]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xb8)
+    );
     fn_004a5230(e, Ptr::new(object), bound)
 }
 
@@ -852,7 +874,11 @@ fn corner(e: &mut Engine, kept: Ptr, signs: [bool; 3]) -> [u32; 3] {
     let x_at = fn_004a51b0(e, kept, 0);
     let x = pushed(e.mem.u32(x_at), signs[0]);
     e.with_stack(0xc, |e, point| {
-        let made = e.call(POINT3_SET, &args![point, x, y, z]).u32();
+        let made = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, x, y, z)
+        );
         [e.mem.u32(made), e.mem.u32(made + 4), e.mem.u32(made + 8)]
     })
 }
@@ -907,20 +933,20 @@ pub fn bgs_primitive_plane_set_radii(e: &mut Engine, this: Ptr, size: Ptr) {
         e.mem.set_u32(t + 0x18 + 4 * word, v);
     }
     let kept = Ptr::new(t + 0x18);
-    if e.call(NI_POINTER_GET, &args![t + 0x24]).u32() != 0 {
-        let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24)) != 0 {
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
         let data = e.call(GEOMETRY_DATA, &args![geometry]).u32();
-        let vertices = e.call(DATA_VERTICES, &args![data]).u32();
+        let vertices = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data));
         for (index, signs) in CORNERS.iter().enumerate() {
             let point = corner(e, kept, *signs);
             put_vertex(e, vertices, index as u32, point);
         }
         e.call(MARK_AS_CHANGED, &args![data, 1u32]);
     }
-    if e.call(NI_POINTER_GET, &args![t + 0x28]).u32() != 0 {
-        let geometry = e.call(NI_POINTER_GET, &args![t + 0x28]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x28)) != 0 {
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x28));
         let data = e.call(GEOMETRY_DATA, &args![geometry]).u32();
-        let vertices = e.call(DATA_VERTICES, &args![data]).u32();
+        let vertices = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data));
         for index in 0..4u32 {
             let point = corner(e, kept, CORNERS[index as usize]);
             put_vertex(e, vertices, index, point);
@@ -949,7 +975,7 @@ pub fn bgs_primitive_plane_set_radii(e: &mut Engine, this: Ptr, size: Ptr) {
         let bound = point + 0x10;
         let zero = x87_store32(0.0);
         e.call(POINT3_ZERO_0043D410, &args![point, zero, 0u32, 0u32]);
-        if e.call(NI_POINTER_GET, &args![t + 0x2c]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c)) == 0 {
             return;
         }
         let mut radius = reloaded(e.mem.u32(s));
@@ -970,15 +996,15 @@ pub fn bgs_primitive_plane_set_radii(e: &mut Engine, this: Ptr, size: Ptr) {
             Ptr::new(ORIGIN_011F426C),
             f32::from_bits(reloaded(radius)),
         );
-        let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
         fn_004a5200(e, Ptr::new(geometry), Ptr::new(bound));
-        let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
         e.call(NODE_SET_00A59C60, &args![node, point]);
-        let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
         e.vcall(node, 0xb8, &args![point]);
-        let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
         e.call(UPDATE_PROPERTIES, &args![geometry]);
-        let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
         e.vcall(node, 0xbc, &[]);
     });
 }
@@ -1050,7 +1076,7 @@ pub fn fn_004a5ff0(e: &mut Engine, this: Ptr, center: Ptr, size: Ptr, rotation: 
         VECTOR_CONSTRUCTOR,
         &args![t + 0xa8, 0xcu32, 4u32, MEMBER_18_SET_UP],
     );
-    e.call(MEMBER_18_SET_UP, &args![t + 0xd8]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, t + 0xd8));
     e.mem.set_u8(t + 0xe4, 1);
     e.mem.set_u8(t + 0xe5, 1);
     e.mem.set_u32(t + 0x40, 0);
@@ -1188,7 +1214,7 @@ pub fn fn_004a6e30(e: &mut Engine, this: Ptr, angles: Ptr) -> u32 {
             .addr()
         };
         e.with_stack(0x24, |e, matrix| {
-            e.call(MEMBER_18_SET_UP, &args![matrix]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
             let x = reloaded(e.mem.u32(a));
             let y = reloaded(e.mem.u32(a + 4));
             let z = reloaded(e.mem.u32(a + 8));
@@ -1341,7 +1367,7 @@ pub fn bgs_primitive_sphere_is_inside(e: &mut Engine, this: Ptr, point: Ptr) -> 
 /// zero point (`0043d410`) goes to the node (`00a59c60`).
 pub fn bgs_primitive_sphere_build(e: &mut Engine, this: Ptr) {
     let t = this.addr();
-    if e.call(NI_POINTER_GET, &args![t + 0x24]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24)) == 0 {
         let colors_block = e.call(ALLOCATE_00401000, &args![0x700u32]).u32();
         let colors = if colors_block == 0 {
             0
@@ -1425,15 +1451,15 @@ pub fn bgs_primitive_sphere_build(e: &mut Engine, this: Ptr) {
             let name = e
                 .call(FIXED_STRING_CONSTRUCT, &args![text, ALPHA_NAME])
                 .u32();
-            let object = e.call(NI_POINTER_GET, &args![pointer]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             e.call(NODE_SET_NAME, &args![object, name]);
             e.call(FIXED_STRING_DESTRUCT, &args![text]);
-            let object = e.call(NI_POINTER_GET, &args![pointer]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             e.call(ALPHA_PROPERTY_SET_49ED90, &args![object, 1u32]);
-            let object = e.call(NI_POINTER_GET, &args![pointer]).u32();
-            let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
+            let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
             e.call(ATTACH_PROPERTY, &args![geometry, object]);
-            let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+            let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
             let shader = e.call(GET_PROPERTY, &args![geometry, 3u32]).u32();
             e.call(SHADER_PROPERTY_SET_FLAG, &args![shader, 0x20u32, 0u32]);
             let node_block = e.call(NI_ALLOCATE, &args![0xe4u32]).u32();
@@ -1443,19 +1469,19 @@ pub fn bgs_primitive_sphere_build(e: &mut Engine, this: Ptr) {
                 e.call(FADE_NODE_CONSTRUCT, &args![node_block]).u32()
             };
             e.call(NI_POINTER_SET, &args![t + 0x2c, node]);
-            let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
-            let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
+            let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
             e.vcall(node, 0xdc, &args![geometry, 1u32]);
             let text = pointer + 8;
             let name = e
                 .call(FIXED_STRING_CONSTRUCT, &args![text, SPHERE_NAME])
                 .u32();
-            let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
             e.call(NODE_SET_NAME, &args![node, name]);
             e.call(FIXED_STRING_DESTRUCT, &args![text]);
-            let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
             e.call(UPDATE_PROPERTIES, &args![node]);
-            let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+            let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
             e.call(UPDATE_PROPERTIES, &args![geometry]);
             e.call(NI_POINTER_RELEASE, &args![pointer]);
         });
@@ -1468,7 +1494,7 @@ pub fn bgs_primitive_sphere_build(e: &mut Engine, this: Ptr) {
     e.with_stack(0xc, |e, point| {
         let zero = x87_store32(0.0);
         e.call(POINT3_ZERO_0043D410, &args![point, zero, 0u32, 0u32]);
-        let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
         e.call(NODE_SET_00A59C60, &args![node, point]);
     });
 }
@@ -1480,12 +1506,12 @@ pub fn bgs_primitive_sphere_build(e: &mut Engine, this: Ptr) {
 pub fn bgs_primitive_sphere_set_color(e: &mut Engine, this: Ptr, color: Ptr) {
     let t = this.addr();
     copy_color(e, t + 8, color.addr());
-    if e.call(NI_POINTER_GET, &args![t + 0x24]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24)) == 0 {
         return;
     }
-    let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+    let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
     let data = e.call(GEOMETRY_DATA, &args![geometry]).u32();
-    let colors = e.call(DATA_COLORS, &args![data]).u32();
+    let colors = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, data));
     for index in 0..SPHERE_VERTICES {
         copy_color(e, colors.wrapping_add(index << 4), t + 8);
     }
@@ -1508,10 +1534,10 @@ pub fn bgs_primitive_sphere_set_radius(e: &mut Engine, this: Ptr, radius: f32) {
         .call(MAGNITUDE_00408840, &args![reloaded(radius.to_bits())])
         .f64();
     let radius = x87_store32(magnitude);
-    if e.call(NI_POINTER_GET, &args![t + 0x24]).u32() != 0 {
-        let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24)) != 0 {
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
         let data = e.call(GEOMETRY_DATA, &args![geometry]).u32();
-        let vertices = e.call(DATA_VERTICES, &args![data]).u32();
+        let vertices = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data));
         for index in 0..SPHERE_VERTICES {
             let vertex = vertices.wrapping_add(index * 0xc);
             for c in 0..3u32 {
@@ -1534,24 +1560,28 @@ pub fn bgs_primitive_sphere_set_radius(e: &mut Engine, this: Ptr, radius: f32) {
         let center = point + 0x20;
         let zero = x87_store32(0.0);
         e.call(POINT3_ZERO_0043D410, &args![point, zero, 0u32, 0u32]);
-        if e.call(NI_POINTER_GET, &args![t + 0x2c]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c)) == 0 {
             return;
         }
         e.call(BOUND_CONSTRUCT_006240D0, &args![bound]);
-        let made = e.call(POINT3_SET, &args![center, zero, zero, zero]).u32();
+        let made = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, center, zero, zero, zero)
+        );
         fn_004a51d0(
             e,
             Ptr::new(bound),
             Ptr::new(made),
             f32::from_bits(reloaded(radius)),
         );
-        let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
         fn_004a5200(e, Ptr::new(geometry), Ptr::new(bound));
-        let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
         e.call(NODE_SET_00A59C60, &args![node, point]);
-        let geometry = e.call(NI_POINTER_GET, &args![t + 0x24]).u32();
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x24));
         e.call(UPDATE_PROPERTIES, &args![geometry]);
-        let node = e.call(NI_POINTER_GET, &args![t + 0x2c]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2c));
         e.vcall(node, 0xbc, &[]);
     });
 }
@@ -1574,7 +1604,11 @@ pub fn bgs_primitive_sphere_make_multi_bound_shape(
     let radius = reloaded(e.mem.u32(this.addr() + 0x18));
     e.with_stack(0xc, |e, center| {
         let zero = x87_store32(0.0);
-        let made = e.call(POINT3_SET, &args![center, zero, zero, zero]).u32();
+        let made = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, center, zero, zero, zero)
+        );
         bs_multi_bound_sphere_bs_multi_bound_sphere(
             e,
             Ptr::new(block),

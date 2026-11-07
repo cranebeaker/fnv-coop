@@ -158,6 +158,7 @@ const NI_REF_RELEASE: u32 = 0x0040_1970;
 /// Increments the count at +4 of the object in `ECX`.
 const NI_REF_ACQUIRE: u32 = 0x0040_f6e0;
 /// Returns the pointer held by the `NiPointer` whose address is `ECX`.
+#[cfg(test)]
 const GET_NI_POINTER: u32 = 0x0055_9450;
 /// `NiPointer::operator=(T*)`: stores the argument in the `NiPointer` at
 /// `ECX`, releasing the old object and acquiring the new one.
@@ -281,6 +282,7 @@ const PATH_MANAGER_INSTANCE: u32 = 0x0047_d0b0;
 const BUILD_PATH: u32 = 0x006e_b9d0;
 
 /// `Actor` (`MobileObject`) `+0x68` process pointer.
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 /// The parent cell of the reference (`+0x40`).
 const GET_PARENT_CELL: u32 = 0x008d_6f30;
@@ -297,6 +299,7 @@ const GET_PROCESS_TYPE: u32 = 0x0093_1850;
 /// `MobileObject::GetDesiredProcessLevel`.
 const GET_DESIRED_PROCESS_LEVEL: u32 = 0x0093_34b0;
 /// The process's dword at +0x28.
+#[cfg(test)]
 const PROCESS_LEVEL: u32 = 0x0045_cd60;
 /// The parent cell's test of the value 6 (`00450fd0 == 6`).
 const CELL_IS_SIX: u32 = 0x0045_0ff0;
@@ -339,6 +342,7 @@ const ANIMATION_SHOULD_BE_MOVING: u32 = 0x0049_5be0;
 /// The dword at +0x44 of the table entry (`008041a0`).
 const ENTRY_VALUE: u32 = 0x0080_41a0;
 /// The dword at +0x0C of a process (`0084e3a0`).
+#[cfg(test)]
 const PROCESS_DOOR_ID: u32 = 0x0084_e3a0;
 /// The byte at +0x73 (`bFaceTargetPoint`).
 const FACE_TARGET_POINT: u32 = 0x008b_3d10;
@@ -357,6 +361,7 @@ const FLOAT_ROUND: u32 = 0x004e_4450;
 /// `GetZAngleFromVector` (cdecl, pointer to the vector, float in ST0).
 const Z_ANGLE_FROM_VECTOR: u32 = 0x004b_13c0;
 /// `NiPoint3::NiPoint3(x, y, z)` (`00416870`).
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0041_6870;
 
 /// Constructor of the detailed handler (`009dff40`: actor, mover).
@@ -445,6 +450,7 @@ const REQUEST_SET_BYTE_A: u32 = 0x008a_d8f0;
 /// A request method taking a byte (`008df1c0`).
 const REQUEST_SET_BYTE_B: u32 = 0x008d_f1c0;
 /// `NiPoint3::NiPoint3()` (`006815c0`).
+#[cfg(test)]
 const POINT_CONSTRUCT_DEFAULT: u32 = 0x0068_15c0;
 /// `PathingSolution::PathingSolution()` (`006e7650`).
 const PATH_CONSTRUCT: u32 = 0x006e_7650;
@@ -568,7 +574,7 @@ fn copy_point(e: &mut Engine, from: u32, to: u32) {
 
 /// The pointer held by the `NiPointer` at `address`.
 fn ni_pointer_value(e: &mut Engine, address: u32) -> u32 {
-    e.call(GET_NI_POINTER, &args![address]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, address))
 }
 
 /// `spCurrentRequest.get()`.
@@ -1276,14 +1282,14 @@ pub fn actor_mover_update(e: &mut Engine, this: Ptr<ActorMover>, delta_time: f32
 /// delta. A `return` stands for the code's jump to the move delta.
 fn update_movement(e: &mut Engine, this: Ptr<ActorMover>, actor: u32, delta_time: f32) {
     let base = this.addr();
-    let process = e.call(GET_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     if process == 0 {
         return;
     }
     if e.vcall(process, 0x610, &[]).u32() == 4 {
         return;
     }
-    let level = e.call(PROCESS_LEVEL, &args![process]).u32();
+    let level = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process));
     if level != e.call(GET_DESIRED_PROCESS_LEVEL, &args![actor]).u32() {
         return;
     }
@@ -1534,15 +1540,15 @@ pub fn fn_009dc780(e: &mut Engine, this: Ptr<ActorMover>) {
 /// unfinished path, stops the actor's movement.
 pub fn fn_009dc7f0(e: &mut Engine, this: Ptr<ActorMover>) {
     let actor = e.get(this, ActorMover::pActor).addr();
-    let process = e.call(GET_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     if e.vcall(process, 0x4bc, &[]).u32() == 4 {
         return;
     }
-    let process = e.call(GET_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     if e.vcall(process, 0x4bc, &[]).u32() == 9 {
         return;
     }
-    let process = e.call(GET_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     if e.vcall(process, 0x4bc, &[]).u32() != 0 {
         e.call(ACTOR_LEAVE_FURNITURE, &args![actor]);
         return;
@@ -1611,7 +1617,7 @@ pub fn fn_009dc980(e: &mut Engine, this: Ptr<ActorMover>) -> u32 {
         if e.call(NODE_FLAGS_ARE_3, &args![element]).bool() {
             let actor = e.get(this, ActorMover::pActor);
             if !e.call(NODE_TEST_ACTOR, &args![element, actor]).bool() {
-                let process = e.call(GET_PROCESS, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 if e.vcall(process, 0x610, &[]).u32() == 0 {
                     e.set(this, ActorMover::eState, STATE_FAILED);
                     e.call(SET_PATHING_FAILED, &args![this, true]);
@@ -2283,9 +2289,11 @@ pub fn fn_009ddc00(e: &mut Engine, this: Ptr<ActorMover>) {
                     .f64();
                 let step = (frame_time * speed) as f32;
                 let built = frame + 0x14;
-                let step_point = e
-                    .call(POINT_CONSTRUCT, &args![built, 0.0f32, step, 0.0f32])
-                    .u32();
+                let step_point = typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, built, 0.0f32, step, 0.0f32)
+                );
                 copy_point(e, step_point, delta);
             }
             moving = true;
@@ -2554,7 +2562,7 @@ pub fn fn_009de3a0(e: &mut Engine, this: Ptr<ActorMover>, process: Ptr) {
     let id = if process.is_null() {
         0
     } else {
-        e.call(PROCESS_DOOR_ID, &args![process]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, process))
     };
     e.set(this, ActorMover::DetectionDoorID, id);
 }
@@ -2892,7 +2900,7 @@ fn unstick_in_frame(e: &mut Engine, this: Ptr<ActorMover>, frame: u32) {
     e.call(REQUEST_SET_BYTE_B, &args![request, 1u32]);
 
     let target = frame + 0x1c0;
-    e.call(POINT_CONSTRUCT_DEFAULT, &args![target]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, target));
     // The parent cell of the player is read and kept in a local the code
     // never uses again.
     e.call(GET_PARENT_CELL, &args![player]);
@@ -3168,9 +3176,10 @@ pub fn actor_mover_load_game(e: &mut Engine, this: Ptr<ActorMover>, buffer: Ptr)
             let request = current_request(e, this);
             e.vcall(request, 0x1c, &args![buffer]);
             if actor != 0 {
-                let process = e.call(GET_PROCESS, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 if process != 0 {
-                    let process = e.call(GET_PROCESS, &args![actor]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     if !e.call(PROCESS_PART_TEST, &args![process + 4, 0u32]).bool() {
                         let request = current_request(e, this);
                         e.call(REQUEST_SET_ACTOR, &args![request, actor]);
@@ -3203,7 +3212,7 @@ pub fn actor_mover_load_game(e: &mut Engine, this: Ptr<ActorMover>, buffer: Ptr)
                     let node = e.call(PATH_NODE_AT, &args![path, index]).u32();
                     let location = e.call(NODE_LOCATION, &args![node]).u32();
                     if e.call(LOCATION_NAV_MESH_TEST, &args![location]).u32() == 0 {
-                        let id = e.call(PROCESS_DOOR_ID, &args![actor]).u32();
+                        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
                         let name = e.vcall(actor, 0x130, &[]).u32();
                         e.call(PRINT_LINE, &args![STALE_PATH_FORMAT, name, id]);
                         stale = true;

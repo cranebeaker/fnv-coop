@@ -68,6 +68,7 @@ const NI_POINTER_ASSIGN: u32 = 0x006e_5cc0;
 const POINT_ARRAY_CONSTRUCTOR: u32 = 0x0049_f1c0;
 const POINT_ARRAY_DESTRUCTOR: u32 = 0x0049_f1f0;
 /// `006815c0(point)`: the constructor run on `SearchCenter`.
+#[cfg(test)]
 const POINT_CONSTRUCTOR: u32 = 0x0068_15c0;
 /// `BSSimpleArray<CombatSearchDoor,1024>::SetSize` (`0069cfe0`, Xbox PDB
 /// name of the folded body; thiscall `(source, dest)`): copies a 12-byte
@@ -84,6 +85,7 @@ const SEARCH_CENTER: u32 = 0x006a_b150;
 /// manager.
 const DEALLOCATE: u32 = 0x00aa_1460;
 /// `0044ddc0(array)`: an array's `iSize`.
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `006a7af0(array, index)`: the address of a 12-byte element.
 const POINT_ELEMENT: u32 = 0x006a_7af0;
@@ -119,7 +121,11 @@ pub fn pathing_request_los_pathing_request_los(
     e.mem.set_u32(t, VTABLE);
     e.call(NI_POINTER_FROM_RAW, &args![t + LOS_GRID_MAP, 0u32]);
     e.call(POINT_ARRAY_CONSTRUCTOR, &args![t + IGNORE_LOCATIONS]);
-    e.call(POINT_CONSTRUCTOR, &args![t + SEARCH_CENTER_OFFSET]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, t + SEARCH_CENTER_OFFSET)
+    );
     let radius = x87_quiet(e.global::<f32>(DEFAULT_IGNORE_RADIUS));
     e.set(this, PathingRequestLOS::fIgnoreLocationRadius, radius);
     e.set(this, PathingRequestLOS::fSearchCenterRadius, 0.0);
@@ -176,7 +182,11 @@ pub fn fn_006e5940(
     e.call(POINT_ARRAY_CONSTRUCTOR, &args![t + IGNORE_LOCATIONS]);
     let radius = x87_quiet(e.get(source, PathingRequestLOS::fIgnoreLocationRadius));
     e.set(this, PathingRequestLOS::fIgnoreLocationRadius, radius);
-    e.call(POINT_CONSTRUCTOR, &args![t + SEARCH_CENTER_OFFSET]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, t + SEARCH_CENTER_OFFSET)
+    );
     e.call(
         POINT_ARRAY_COPY_TO,
         &args![s + IGNORE_LOCATIONS, t + IGNORE_LOCATIONS],
@@ -258,7 +268,7 @@ pub fn pathing_request_los_save_game(e: &mut Engine, this: Ptr<PathingRequestLOS
     let count = if array == 0 {
         0
     } else {
-        e.call(ARRAY_SIZE, &args![array]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
     };
     e.call(SAVE_VARIABLE_SIZED_VALUE, &args![buffer, count]);
     let mut index = 0u32;

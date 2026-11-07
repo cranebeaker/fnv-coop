@@ -18,6 +18,7 @@ const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// virtual slot `0x130`, or 0.
 const FORM_NAME_LENGTH: u32 = 0x0047_4cb0;
 /// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `005b5e40` (`cdecl` format, ...): the log print.
 const PRINT: u32 = 0x005b_5e40;
@@ -98,7 +99,7 @@ fn init_sound(
             let name = e.vcall(owner.addr(), NAME_SLOT, &[]).u32();
             e.call(PRINT, &args![messages.owner_name, adjusted, name]);
         } else {
-            let owner_id = e.call(FORM_ID, &args![owner]).u32();
+            let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             e.call(PRINT, &args![messages.owner_id, adjusted, owner_id]);
         }
     }
@@ -153,8 +154,10 @@ pub fn bgs_pickup_putdown_sounds_initialize_data_component(
 }
 
 /// The pickup-sound getter (`00726070`, the word at +4).
+#[cfg(test)]
 const GET_PICKUP_SOUND: u32 = 0x0072_6070;
 /// The putdown-sound getter (`0044ddc0`, the word at +8).
+#[cfg(test)]
 const GET_PUTDOWN_SOUND: u32 = 0x0044_ddc0;
 /// The pickup-sound setter (`006ecd40`, the word at +4; the engine map's
 /// name `CombatProcedureAttackMelee::Initialize` is a folded body).
@@ -193,14 +196,14 @@ fn cast_component(e: &mut Engine, other: Ptr) -> u32 {
 /// of its form id (`00485910`): the pickup sound as `YNAM`, the putdown sound
 /// as `ZNAM`.
 pub fn bgs_pickup_putdown_sounds_save(e: &mut Engine, this: Ptr<BGSPickupPutdownSounds>) {
-    if e.call(GET_PICKUP_SOUND, &args![this]).u32() != 0 {
-        let sound = e.call(GET_PICKUP_SOUND, &args![this]).u32();
-        let id = e.call(FORM_ID, &args![sound]).u32();
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this)) != 0 {
+        let sound = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         e.call(ADD_CHUNK_WORD, &args![SIG_YNAM, id]);
     }
-    if e.call(GET_PUTDOWN_SOUND, &args![this]).u32() != 0 {
-        let sound = e.call(GET_PUTDOWN_SOUND, &args![this]).u32();
-        let id = e.call(FORM_ID, &args![sound]).u32();
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) != 0 {
+        let sound = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         e.call(ADD_CHUNK_WORD, &args![SIG_ZNAM, id]);
     }
 }
@@ -218,9 +221,9 @@ pub fn bgs_pickup_putdown_sounds_copy_component(
     if source == 0 {
         return;
     }
-    let pickup = e.call(GET_PICKUP_SOUND, &args![source]).u32();
+    let pickup = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source));
     e.call(SET_PICKUP_SOUND, &args![this, pickup]);
-    let putdown = e.call(GET_PUTDOWN_SOUND, &args![source]).u32();
+    let putdown = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, source));
     e.call(SET_PUTDOWN_SOUND, &args![this, putdown]);
 }
 
@@ -237,12 +240,12 @@ pub fn bgs_pickup_putdown_sounds_compare_component(
     if source == 0 {
         return true;
     }
-    let mine = e.call(GET_PICKUP_SOUND, &args![this]).u32();
-    if mine != e.call(GET_PICKUP_SOUND, &args![source]).u32() {
+    let mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
+    if mine != typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source)) {
         return true;
     }
-    let mine = e.call(GET_PUTDOWN_SOUND, &args![this]).u32();
-    mine != e.call(GET_PUTDOWN_SOUND, &args![source]).u32()
+    let mine = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
+    mine != typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, source))
 }
 
 /// This unit's translated functions, by exe address.

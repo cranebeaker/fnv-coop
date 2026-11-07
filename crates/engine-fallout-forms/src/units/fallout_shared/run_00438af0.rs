@@ -90,6 +90,7 @@ const NAME_LENGTH: u32 = 0x0048_cee0;
 /// body `MapMarkerData::GetLocationName`): the name's characters.
 const NAME_TEXT: u32 = 0x0040_8da0;
 /// `0084e3a0` (`thiscall`, no stack word): a form's id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 
 // Translated from 00438c10 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -110,7 +111,7 @@ pub fn fn_00438c10(e: &mut Engine, this: Ptr) {
     e.call(ADD_CHUNK_U16, &args![0x4d41_4e54u32, u32::from(kind)]);
     let form = e.mem.u32(this.addr() + 0x10);
     if form != 0 {
-        let id = e.call(FORM_ID, &args![form]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.call(ADD_CHUNK_WORD, &args![0x3149_4d57u32, id]);
     }
 }

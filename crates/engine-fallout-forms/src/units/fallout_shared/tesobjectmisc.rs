@@ -167,7 +167,7 @@ pub fn tes_object_misc_init_item(e: &mut Engine, this: Ptr) {
             .u32();
         e.mem.set_u32(base + 0xa8, sound);
         if e.mem.u32(base + 0xa8) == 0 {
-            let form_id = e.call(0x0084_e3a0, &args![this]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(base, 0x130, &args![]).u32();
             e.call(0x005b_5e40, &args![0x0102_b038u32, id, name, form_id]);
         }
@@ -196,6 +196,7 @@ const PICKUP_PUTDOWN_SAVE: u32 = 0x0047_b560;
 /// `00485910` (cdecl(chunk, word)): adds a one-word chunk; the form-id
 /// getter (`0084e3a0`, `thiscall`: the word at +0xc).
 const ADD_CHUNK_WORD: u32 = 0x0048_5910;
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 
 // Translated from 0051ae80 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -221,7 +222,7 @@ pub fn tes_object_misc_save(e: &mut Engine, this: Ptr) {
     e.call(FORM_SAVE_DATA, &args![this]);
     let sound = e.mem.u32(base + 0xa8);
     if sound != 0 {
-        let id = e.call(FORM_ID, &args![sound]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         e.call(ADD_CHUNK_WORD, &args![RNAM, id]);
     }
     e.call(CLOSE_FORM, &args![this]);

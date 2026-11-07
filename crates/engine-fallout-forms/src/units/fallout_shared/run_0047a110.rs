@@ -22,6 +22,7 @@ pub fn fn_0047a130(e: &mut Engine, this: Ptr) -> Ptr {
 
 /// `00877a30`: the address of the value slot for a key (`thiscall`, one
 /// word).
+#[cfg(test)]
 const VALUE_SLOT_00877A30: u32 = 0x0087_7a30;
 /// `BGSMessageIcon::ClearDataComponent` (engine map), `thiscall`.
 const MESSAGE_ICON_CLEAR: u32 = 0x0047_a220;
@@ -32,7 +33,7 @@ const MEMBER_DESTRUCTOR_00402C40: u32 = 0x0040_2c40;
 /// No map name: stores the word at `value` into the slot `00877a30` gives
 /// for `key` (a map's set-at).
 pub fn fn_0047a110(e: &mut Engine, this: Ptr, key: u32, value: Ptr) {
-    let slot = e.call(VALUE_SLOT_00877A30, &args![this, key]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, this, key));
     let word = e.mem.u32(value.addr());
     e.mem.set_u32(slot, word);
 }

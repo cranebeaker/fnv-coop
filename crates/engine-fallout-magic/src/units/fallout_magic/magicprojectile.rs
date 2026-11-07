@@ -62,6 +62,7 @@ const REFERENCE_CELL_008D6F30: u32 = 0x008d_6f30;
 /// `RemoveReference`), `0048cee0` (`thiscall`: a model's path length) and
 /// `ModelLoader::ReleaseModel` (engine map, `00445300`, three words) on the
 /// model loader (`011c3b3c`).
+#[cfg(test)]
 const PROCESS_KEY_0045CD60: u32 = 0x0045_cd60;
 const PATH_LENGTH_0048CEE0: u32 = 0x0048_cee0;
 const RELEASE_MODEL: u32 = 0x0044_5300;
@@ -135,9 +136,12 @@ const UPDATE_PROPERTIES: u32 = 0x00a5_a040;
 /// `00448a20` (bytes), `TESObjectREFR::AddAddonNodes` (`00577e20`,
 /// `cdecl`), `0056c7d0` (one word), `TESObjectREFR::InitAnimation`
 /// (`005659f0`) and `TESObjectREFR::GetScale` (`00567400`, `ST0`).
+#[cfg(test)]
 const TEST_00440D80: u32 = 0x0044_0d80;
+#[cfg(test)]
 const TEST_00440DA0: u32 = 0x0044_0da0;
 const EFFECT_SETTING_004FD400: u32 = 0x004f_d400;
+#[cfg(test)]
 const BASE_FORM_007AF430: u32 = 0x007a_f430;
 const FORM_TEST_0050D4A0: u32 = 0x0050_d4a0;
 const SET_00693EF0: u32 = 0x0069_3ef0;
@@ -228,6 +232,7 @@ const RAY_SET_COLLECTOR: u32 = 0x004a_3fb0;
 const ALL_HIT_COLLECTOR_CONSTRUCT: u32 = 0x004a_3a70;
 const ALL_HIT_COLLECTOR_DESTRUCT: u32 = 0x004a_3bc0;
 const COLLECTOR_HITS_00460140: u32 = 0x0046_0140;
+#[cfg(test)]
 const HIT_COUNT_00726070: u32 = 0x0072_6070;
 const HIT_AT_004A46B0: u32 = 0x004a_46b0;
 const COPY_HIT_00696C30: u32 = 0x0069_6c30;
@@ -237,6 +242,7 @@ const CONTACT_OBJECT_004B59F0: u32 = 0x004b_59f0;
 const CONTACT_OBJECT_004B5A80: u32 = 0x004b_5a80;
 const FIND_REFERENCE_FOR_3D: u32 = 0x0056_f930;
 /// `006815c0` (`thiscall`: answers `this`).
+#[cfg(test)]
 const SELF_006815C0: u32 = 0x0068_15c0;
 
 /// Copies three words.
@@ -333,7 +339,7 @@ pub fn magic_projectile_destructor(e: &mut Engine, this: Ptr<MagicProjectile>) {
         .set_u32(base.wrapping_add(0x18), MAGIC_PROJECTILE_VTABLE_18);
     if e.get(this, MagicProjectile::pCurrentProcess) != 0 {
         let process = e.get(this, MagicProjectile::pCurrentProcess);
-        let word = e.call(PROCESS_KEY_0045CD60, &args![process]).u32();
+        let word = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process));
         e.call(REMOVE_REFERENCE, &args![PROCESS_LISTS, base, word]);
     }
     if e.get(this, MagicProjectile::pAVEffect) != 0 {
@@ -555,7 +561,9 @@ pub fn magic_projectile_clone3_d_ov2(e: &mut Engine, path: u32) -> u32 {
 /// set. Returns the clone.
 pub fn fn_0081e570(e: &mut Engine, this: Ptr<MagicProjectile>, _unused_0: u32) -> u32 {
     let base = this.addr();
-    if e.call(TEST_00440D80, &args![base]).bool() || e.call(TEST_00440DA0, &args![base]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, base))
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, base))
+    {
         return 0;
     }
     if e.vcall(base, 0x1d0, &[]).u32() != 0 {
@@ -566,7 +574,7 @@ pub fn fn_0081e570(e: &mut Engine, this: Ptr<MagicProjectile>, _unused_0: u32) -
     if clone == 0 {
         return 0;
     }
-    let form = e.call(BASE_FORM_007AF430, &args![base]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, base));
     if e.call(FORM_TEST_0050D4A0, &args![form]).bool() {
         e.call(SET_00693EF0, &args![base, 1u32]);
     }
@@ -832,9 +840,9 @@ pub fn magic_projectile_check_shot_behind_wall(e: &mut Engine, this: Ptr<MagicPr
         let start = local(0xe8);
         let ray = local(0xf4);
         e.call(RAY_QUERY_CONSTRUCT, &args![query]);
-        e.call(SELF_006815C0, &args![eye]);
-        e.call(SELF_006815C0, &args![start]);
-        e.call(SELF_006815C0, &args![ray]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, eye));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, start));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, ray));
         let position = e.vcall(base, 0x1f4, &[]).u32();
         copy_point(e, start, position);
         let player = e.mem.u32(PLAYER);
@@ -885,7 +893,9 @@ pub fn magic_projectile_check_shot_behind_wall(e: &mut Engine, this: Ptr<MagicPr
                 let mut index: i32 = 0;
                 while searching {
                     let hits = e.call(COLLECTOR_HITS_00460140, &args![collector]).u32();
-                    let count = e.call(HIT_COUNT_00726070, &args![hits]).i32();
+                    let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, hits))
+                        .into_ret()
+                        .i32();
                     if index >= count || e.mem.u8(local(0x451)) != 0 {
                         break;
                     }

@@ -32,7 +32,13 @@ pub fn fn_005a72a0(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 // Translated from 005a7110 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Whether the list at +0x2C is empty (`008256d0`; its `EAX` passed on).
 pub fn fn_005a7110(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(0x0082_56d0, &args![this.addr() + 0x2c]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.addr() + 0x2c)
+    )
+    .into_ret()
+    .u32()
 }
 
 // Translated from 005a7130 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -152,11 +158,9 @@ mod load_screen_type_tests {
     #[test]
     fn fn_005a7110_passes_on_the_list_answer() {
         let mut e = Engine::new();
-        e.register(0x0082_56d0, |_, a| Ret {
-            eax: a[0] + 0x100,
-            ..Ret::default()
-        });
-        assert_eq!(e.call(0x005a_7110, &args![0x4000u32]).u32(), 0x412c);
+        // It answers in AL, so the answer has to be a flag.
+        e.register(0x0082_56d0, |_, a| (a[0] == 0x402c).into_ret());
+        assert_eq!(e.call(0x005a_7110, &args![0x4000u32]).u32(), 1);
     }
 
     #[test]

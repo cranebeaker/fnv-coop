@@ -5,12 +5,17 @@
 use crate::prelude::*;
 
 /// The function `fn_00695370` calls on the member (`0044ddc0`).
+#[cfg(test)]
 const CALLEE_0044DDC0: u32 = 0x0044_ddc0;
 
 // Translated from 00695370 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Thin wrapper: calls `0044ddc0` with `ECX` = `this + 0x48` and passes on its result.
 pub fn fn_00695370(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(CALLEE_0044DDC0, &args![this.byte_add(0x48)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.byte_add(0x48))
+    )
 }
 
 /// `00403d30` (cdecl: three words): passes them on to `_memset` (`00ec61c0`)

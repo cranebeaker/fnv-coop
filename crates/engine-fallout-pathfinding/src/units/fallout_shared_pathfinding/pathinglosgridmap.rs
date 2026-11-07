@@ -107,14 +107,17 @@ const LOAD_VARIABLE_SIZED_VALUE: u32 = 0x0086_4a60;
 /// the form id into an out word.
 const LOAD_FORM_ID: u32 = 0x0086_48e0;
 /// `0044ddc0` (`thiscall`): the word at `this + 8` (a `BSSimpleArray`'s size).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `00877a30` (`thiscall`, `RET 4`): the address of element `i` of a
 /// `BSSimpleArray` of words (`pBuffer + 4 * i`).
+#[cfg(test)]
 const WORD_ELEMENT: u32 = 0x0087_7a30;
 /// `006a7ad0` (`thiscall`, `RET 4`): the address of an array element.
 const ARRAY_ELEMENT: u32 = 0x006a_7ad0;
 /// `00559450` (`thiscall`): the word at `this` (a pointer's target, a
 /// navmesh info's first word).
+#[cfg(test)]
 const WORD_AT: u32 = 0x0055_9450;
 /// The `NiPointer` constructors (`0042fb00`: null; `0042fa20`, `RET 4`: from a
 /// pointer argument) and destructor (`0042fa40`).
@@ -203,6 +206,7 @@ const MAP_GET_AT: u32 = 0x0085_3130;
 /// `thiscall`, `RET 8`: (key, value).
 const MAP_SET_AT: u32 = 0x0084_4700;
 /// `0084e3a0` (`thiscall`): a navmesh's key in the map.
+#[cfg(test)]
 const NAV_MESH_KEY: u32 = 0x0084_e3a0;
 /// `0068efb0` (`thiscall`): a navmesh's navmesh info.
 const NAV_MESH_INFO_OF: u32 = 0x0068_efb0;
@@ -249,7 +253,7 @@ pub fn pathing_los_grid_cell_save_game(e: &mut Engine, this: Ptr<PathingLOSGridC
         let list = this.byte_add(4);
         // The exe tests the list's address (`this + 4`) for null.
         let count = if list.addr() != 0 {
-            e.call(ARRAY_SIZE, &args![list]).u32()
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list))
         } else {
             0
         };
@@ -305,8 +309,8 @@ pub fn fn_006dfb00(e: &mut Engine, this: Ptr<PathingLOSGrid>, nav_mesh_info: Ptr
 /// Runs `pass(cell, argument)` on every cell of the grid; returns true.
 fn each_cell(e: &mut Engine, this: Ptr<PathingLOSGrid>, argument: u32, pass: u32) -> bool {
     let mut i = 0u32;
-    while i < e.call(ARRAY_SIZE, &args![this]).u32() {
-        let slot = e.call(WORD_ELEMENT, &args![this, i]).u32();
+    while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, this, i));
         let cell = e.mem.u32(slot);
         e.call(pass, &args![cell, argument]);
         i = i.wrapping_add(1);
@@ -342,11 +346,15 @@ pub fn fn_006dfdc0(e: &mut Engine, this: Ptr<PathingLOSGrid>, location: Ptr) -> 
         {
             let index = e.with_stack(0xc, |e, point| {
                 let point = e.call(LOCATION_POINT, &args![location, point]).u32();
-                let mesh = e.call(WORD_AT, &args![nav_mesh]).u32();
+                let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nav_mesh));
                 e.call(NAV_MESH_CELL_INDEX, &args![mesh, point]).u32()
             });
-            if index < e.call(ARRAY_SIZE, &args![this]).u32() {
-                let slot = e.call(WORD_ELEMENT, &args![this, index]).u32();
+            if index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) {
+                let slot = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, this, index)
+                );
                 let cell = e.mem.u32(slot);
                 let result = e.call(CELL_TEST_LOCATION, &args![cell, location]).u8();
                 e.call(NI_POINTER_DESTRUCT, &args![nav_mesh]);
@@ -378,18 +386,22 @@ pub fn fn_006dfe90(e: &mut Engine, this: Ptr<PathingLOSGrid>, location: Ptr, fla
         let any = e.with_stack(0x10, |e, cells| {
             e.call(INDEX_ARRAY_CONSTRUCT, &args![cells]);
             let triangle = e.call(LOCATION_TRIANGLE, &args![location]).u16();
-            let mesh = e.call(WORD_AT, &args![nav_mesh]).u32();
+            let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nav_mesh));
             e.call(
                 NAV_MESH_TRIANGLE_CELLS,
                 &args![mesh, u32::from(triangle), cells],
             );
             let mut any = false;
             let mut i = 0u32;
-            while i < e.call(ARRAY_SIZE, &args![cells]).u32() {
+            while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, cells)) {
                 let slot = e.call(ARRAY_ELEMENT, &args![cells, i]).u32();
                 let index = e.mem.u32(slot);
-                if index < e.call(ARRAY_SIZE, &args![this]).u32() {
-                    let slot = e.call(WORD_ELEMENT, &args![this, index]).u32();
+                if index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) {
+                    let slot = typed_call!(
+                        leaf::FAMILY,
+                        0x0087_7a30,
+                        leaf::array_element(e, this, index)
+                    );
                     let cell = e.mem.u32(slot);
                     if e.call(
                         CELL_UPDATE_LOCATION,
@@ -418,13 +430,13 @@ pub fn fn_006dfe90(e: &mut Engine, this: Ptr<PathingLOSGrid>, location: Ptr, fla
 pub fn pathing_los_grid_save_game(e: &mut Engine, this: Ptr<PathingLOSGrid>, buffer: Ptr) {
     let info = e.get(this, PathingLOSGrid::pNavMeshInfo);
     let form_id = if !info.is_null() {
-        e.call(WORD_AT, &args![info]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info))
     } else {
         0
     };
     e.call(SAVE_FORM_ID, &args![buffer, form_id, 0u32]);
     let count = if !this.is_null() {
-        e.call(ARRAY_SIZE, &args![this]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this))
     } else {
         0
     };
@@ -621,8 +633,8 @@ pub fn fn_006e0480(e: &mut Engine, this: Ptr<PathingLOSGrid>, flags: u32) -> Ptr
 /// ([`fn_006e0560`] with 1), then destroys the cell array ([`fn_006e1050`]).
 pub fn fn_006e04b0(e: &mut Engine, this: Ptr<PathingLOSGrid>) {
     let mut i = 0u32;
-    while i < e.call(ARRAY_SIZE, &args![this]).u32() {
-        let slot = e.call(WORD_ELEMENT, &args![this, i]).u32();
+    while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, this, i));
         let cell = Ptr::new(e.mem.u32(slot));
         if !cell.is_null() {
             fn_006e0560(e, cell, 1);
@@ -677,14 +689,18 @@ pub fn fn_006e05f0(e: &mut Engine, this: Ptr<PathingLOSGridMap>, nav_meshes: Ptr
     e.call(LOCK_FOR_WRITE, &args![this.byte_add(GRID_MAP_LOCK)]);
     let table = this.byte_add(8);
     let mut i = 0u32;
-    while i < e.call(ARRAY_SIZE, &args![nav_meshes]).u32() {
-        let element = e.call(WORD_ELEMENT, &args![nav_meshes, i]).u32();
+    while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, nav_meshes)) {
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, nav_meshes, i)
+        );
         e.with_stack(8, |e, locals| {
             let (nav_mesh, grid_slot) = (locals, locals.byte_add(4));
             e.call(NI_POINTER_CONSTRUCT_FROM, &args![nav_mesh, element]);
             e.mem.set_u32(grid_slot.addr(), 0);
-            let mesh = e.call(WORD_AT, &args![nav_mesh]).u32();
-            let key = e.call(NAV_MESH_KEY, &args![mesh]).u32();
+            let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nav_mesh));
+            let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, mesh));
             if !e.call(MAP_GET_AT, &args![table, key, grid_slot]).bool() {
                 let block = e.call(ALLOCATE, &args![0x14u32]).ptr();
                 let grid = if !block.is_null() {
@@ -694,8 +710,8 @@ pub fn fn_006e05f0(e: &mut Engine, this: Ptr<PathingLOSGridMap>, nav_meshes: Ptr
                 };
                 e.mem.set_u32(grid_slot.addr(), grid.addr());
                 let grid = e.mem.u32(grid_slot.addr());
-                let mesh = e.call(WORD_AT, &args![nav_mesh]).u32();
-                let key = e.call(NAV_MESH_KEY, &args![mesh]).u32();
+                let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nav_mesh));
+                let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, mesh));
                 e.call(MAP_SET_AT, &args![table, key, grid]);
             } else {
                 let grid = e.mem.u32(grid_slot.addr());
@@ -746,7 +762,7 @@ pub fn fn_006e07a0(e: &mut Engine, this: Ptr<PathingLOSGridMap>, los_map: Ptr) -
                 e.call(NI_POINTER_DESTRUCT, &args![nav_mesh]);
             });
         });
-        let map = e.call(WORD_AT, &args![los_map]).u32();
+        let map = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, los_map));
         e.call(LOS_MAP_SET_UP, &args![map, list]);
         for_each_item(e, table, |e, _, grid| {
             e.with_stack(4, |e, nav_mesh| {
@@ -790,22 +806,22 @@ pub fn fn_006e0920(e: &mut Engine, this: Ptr<PathingLOSGridMap>, los_map: Ptr) -
     let table = this.byte_add(8);
     let mut i = 0u32;
     loop {
-        let map = e.call(WORD_AT, &args![los_map]).u32();
+        let map = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, los_map));
         if i >= e.call(LOS_MAP_NAV_MESH_COUNT, &args![map]).u32() {
             break;
         }
-        let map = e.call(WORD_AT, &args![los_map]).u32();
+        let map = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, los_map));
         let element = e.call(LOS_MAP_NAV_MESH, &args![map, i]).u32();
         e.with_stack(8, |e, locals| {
             let (nav_mesh, grid_slot) = (locals, locals.byte_add(4));
             e.call(NI_POINTER_CONSTRUCT_FROM, &args![nav_mesh, element]);
             e.mem.set_u32(grid_slot.addr(), 0);
-            let mesh = e.call(WORD_AT, &args![nav_mesh]).u32();
-            let key = e.call(NAV_MESH_KEY, &args![mesh]).u32();
+            let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nav_mesh));
+            let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, mesh));
             if !e.call(MAP_GET_AT, &args![table, key, grid_slot]).bool() {
                 let block = e.call(ALLOCATE, &args![0x14u32]).ptr();
                 let grid = if !block.is_null() {
-                    let mesh = e.call(WORD_AT, &args![nav_mesh]).u32();
+                    let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nav_mesh));
                     let info = e.call(NAV_MESH_INFO_OF, &args![mesh]).ptr();
                     fn_006e0a90(e, block, info)
                 } else {
@@ -813,8 +829,8 @@ pub fn fn_006e0920(e: &mut Engine, this: Ptr<PathingLOSGridMap>, los_map: Ptr) -
                 };
                 e.mem.set_u32(grid_slot.addr(), grid.addr());
                 let grid = e.mem.u32(grid_slot.addr());
-                let mesh = e.call(WORD_AT, &args![nav_mesh]).u32();
-                let key = e.call(NAV_MESH_KEY, &args![mesh]).u32();
+                let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nav_mesh));
+                let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, mesh));
                 e.call(MAP_SET_AT, &args![table, key, grid]);
             }
             let grid = Ptr::new(e.mem.u32(grid_slot.addr()));
@@ -823,7 +839,9 @@ pub fn fn_006e0920(e: &mut Engine, this: Ptr<PathingLOSGridMap>, los_map: Ptr) -
         });
         i = i.wrapping_add(1);
     }
-    let map = e.call(WORD_AT, &args![los_map]).ptr();
+    let map = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, los_map))
+        .into_ret()
+        .ptr();
     let seen = fn_006e0b00(e, map);
     e.set(this, PathingLOSGridMap::fPercentSeen, seen);
     e.call(UNLOCK_WRITE, &args![this.byte_add(GRID_MAP_LOCK)]);
@@ -873,7 +891,7 @@ pub fn fn_006e0b50(e: &mut Engine, this: Ptr<PathingLOSGridMap>, location: Ptr) 
         return 0;
     }
     let grid = e.with_stack(4, |e, grid_slot| {
-        let key = e.call(WORD_AT, &args![info]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
         let table = this.byte_add(8);
         if e.call(MAP_GET_AT, &args![table, key, grid_slot]).bool() {
             Some(Ptr::new(e.mem.u32(grid_slot.addr())))
@@ -896,7 +914,7 @@ pub fn fn_006e0bc0(e: &mut Engine, this: Ptr<PathingLOSGridMap>, location: Ptr, 
         return false;
     }
     let grid = e.with_stack(4, |e, grid_slot| {
-        let key = e.call(WORD_AT, &args![info]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
         let table = this.byte_add(8);
         if e.call(MAP_GET_AT, &args![table, key, grid_slot]).bool() {
             Some(Ptr::new(e.mem.u32(grid_slot.addr())))

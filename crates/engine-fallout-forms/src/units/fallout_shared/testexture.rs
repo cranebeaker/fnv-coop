@@ -86,7 +86,7 @@ pub fn tes_texture_get_as_normal_file(e: &mut Engine, result: Ptr, path: u32) ->
         e.mem.set_u8(dot, 0);
         e.call(0x0040_6d00, &args![normal, 0x104u32, NORMAL_FORMAT, copy]);
         e.call(0x0040_37f0, &args![result, normal, 0u32]);
-        e.call(0x0055_9450, &args![result]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, result))
     })
 }
 

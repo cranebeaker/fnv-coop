@@ -14,8 +14,10 @@ use crate::prelude::*;
 use crate::units::fallout_interface::startmenu::ListBox;
 
 /// The node accessor `006815c0` (`ECX` = node): the address of its item.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// The node accessor `00726070` (`ECX` = node): the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `Tile::GetMenu` (`ECX` = tile).
 const TILE_GET_MENU: u32 = 0x00a0_3c90;
@@ -73,6 +75,7 @@ const LIST_BOX_INIT_TILE_POSITION: u32 = 0x0072_69d0;
 /// The list box's item count (`00726c40`, `this` only).
 const LIST_BOX_COUNT: u32 = 0x0072_6c40;
 /// The empty test of a `BSSimpleList` (`008256d0`, `ECX` = list).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// The node's next setter (`006ecd40`, `ECX` = node; next).
 const NODE_SET_NEXT: u32 = 0x006e_cd40;
@@ -82,6 +85,7 @@ const NODE_DELETE: u32 = 0x0047_02f0;
 /// (`004459e0`).
 const OBJECT_RELEASE: u32 = 0x0044_59e0;
 /// The group of an item's object (`0044ddc0`, `ECX` = object).
+#[cfg(test)]
 const OBJECT_GROUP: u32 = 0x0044_ddc0;
 /// The local list's constructor, append-by-address, remove-all and
 /// destructor (`0096a2d0`, `005ae3d0`, `00470470`, `0046ffb0`).
@@ -142,11 +146,11 @@ const ACTION_COPY: u32 = 2000;
 const ACTION_ADD: u32 = 0x7d3;
 
 fn item_slot(e: &mut Engine, node: u32) -> u32 {
-    e.call(NODE_ITEM, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
 }
 
 fn next_node(e: &mut Engine, node: u32) -> u32 {
-    e.call(NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// The list's first node: `this + 4`, or null for a null `this`.
@@ -179,7 +183,7 @@ pub fn list_box_remove_item_group(e: &mut Engine, this: Ptr<ListBox>, group: u32
                 let slot = item_slot(e, node);
                 let item = e.mem.u32(slot);
                 let object = e.mem.u32(item.wrapping_add(4));
-                if e.call(OBJECT_GROUP, &args![object]).u32() == group {
+                if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object)) == group {
                     let slot = item_slot(e, node);
                     e.call(LOCAL_LIST_APPEND, &args![local, slot]);
                 }
@@ -333,7 +337,7 @@ pub fn list_box_remove_item(e: &mut Engine, this: Ptr<ListBox>, tile: Ptr) -> bo
         return false;
     }
     let list = this.addr().wrapping_add(4);
-    if e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         return false;
     }
     let mut node = first_node(this);

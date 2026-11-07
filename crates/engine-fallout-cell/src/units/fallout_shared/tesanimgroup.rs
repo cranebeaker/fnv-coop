@@ -100,7 +100,11 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
 pub fn fn_005f21c0(e: &mut Engine, this: Ptr, group: u16) -> Ptr {
     e.call(0x0049_68b0, &args![this]);
     e.mem.set_u32(this.addr(), 0x0104_84e8);
-    e.call(0x0068_15c0, &args![this.addr().wrapping_add(0x1c)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr().wrapping_add(0x1c))
+    );
     e.mem.set_u32(this.addr().wrapping_add(0x18), 0);
     for offset in [0x28, 0x29, 0x2a, 0x2b, 0x2c] {
         e.mem.set_u8(this.addr().wrapping_add(offset), 0);
@@ -827,7 +831,7 @@ fn anim_sound_or_enum(
         if sound == 0 {
             bad = true;
         } else {
-            let audio_value = e.call(0x0084_e3a0, &args![sound]).u32();
+            let audio_value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
             let audio = e.call(0x0045_3a70, &args![]).u32();
             e.call(0x00ad_8050, &args![audio, audio_value, 0u32]);
             let index = e.call(0x005f_36f0, &args![group]).u32();
@@ -1068,7 +1072,7 @@ pub fn fn_005f3a20(e: &mut Engine, sequence: Ptr, filename: Ptr) -> Ptr {
         let object_name = frame.addr() + 0x80;
         let mut index = 0u32;
         loop {
-            let count = e.call(0x0084_e3a0, &args![sequence]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sequence));
             if index >= count {
                 break;
             }

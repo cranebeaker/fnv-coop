@@ -12,7 +12,9 @@ const PLAYER: u32 = 0x011d_ea3c;
 const ACTOR_TEST_00566950: u32 = 0x0056_6950;
 /// A list node's item address (`006815c0`, the node itself) and next node
 /// (`00726070`, the word at +4).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The entry point table: 16 bytes per entry point, its name (+0), the
 /// filter argument count (byte +4) and the function type (byte +0xC).
@@ -98,7 +100,7 @@ pub fn bgs_entry_point_handle_entry_point(
     if list == 0 {
         return;
     }
-    let first = e.call(NODE_ITEM, &args![list]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     if e.mem.u32(first) == 0 {
         return;
     }
@@ -143,7 +145,7 @@ pub fn bgs_entry_point_handle_entry_point(
         }
         if filters_set && arguments_set {
             while list != 0 {
-                let item = e.call(NODE_ITEM, &args![list]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                 let perk_entry = e.mem.u32(item);
                 if perk_entry != 0 && e.vcall(perk_entry, 0, &args![filter_count, filters]).bool() {
                     let value = e.vcall(perk_entry, 8, &args![]).u32();
@@ -158,7 +160,7 @@ pub fn bgs_entry_point_handle_entry_point(
                         value,
                     );
                 }
-                list = e.call(NODE_NEXT, &args![list]).u32();
+                list = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list));
             }
             return;
         }

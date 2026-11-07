@@ -173,8 +173,10 @@ const DECAL_VSLOT_INITIALIZE: u32 = 0x8c;
 
 /// The first dword of the object at `this` (`NiPointer::operator*`, the
 /// head of a list, ...: the linker folded the identical bodies).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// The dword at `this + 8`: the item count of an `NiTPointerList`.
+#[cfg(test)]
 const LIST_COUNT: u32 = 0x0044_ddc0;
 /// Advances an `NiTPointerList` iterator (`this` = the list, then the
 /// address of the node pointer) and returns the address of the item slot
@@ -221,6 +223,7 @@ const LOG: u32 = 0x005b_5e40;
 /// `sprintf_s`-style formatter (cdecl: buffer, size, format, arguments).
 const FORMAT: u32 = 0x0040_6d00;
 /// Error report (cdecl: text, 0).
+#[cfg(test)]
 const REPORT: u32 = 0x0040_fbe0;
 /// `strncmp` (cdecl).
 const STRNCMP: u32 = 0x00ec_8a19;
@@ -230,8 +233,10 @@ const QUERY_PERFORMANCE_FREQUENCY: u32 = 0x00fd_f0a4;
 const QUERY_PERFORMANCE_COUNTER: u32 = 0x00fd_f0a0;
 /// A function returning `this`: the compiler's empty `NiPoint3` and
 /// `NiMatrix3` default constructors, folded into one body.
+#[cfg(test)]
 const EMPTY_CONSTRUCTOR: u32 = 0x0068_15c0;
 /// `NiPoint3::NiPoint3(x, y, z)` (`this`, three floats).
+#[cfg(test)]
 const POINT3_CONSTRUCTOR: u32 = 0x0041_6870;
 /// `NiPoint3::NiPoint3(x, y, z)` as the compiler emitted it a second
 /// time, used for the zero point.
@@ -331,6 +336,7 @@ const END_OFFSCREEN: u32 = 0x00b6_b790;
 /// The accumulator's mode (cdecl, one argument).
 const ACCUMULATOR_MODE: u32 = 0x0045_0b80;
 /// The `NiBound` of an object, or a default one (`this` = the object).
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 /// The radius of a `NiBound` (`this` = bound), in `ST0`.
 const BOUND_RADIUS: u32 = 0x0084_d030;
@@ -372,6 +378,7 @@ const EMITTER_FINISHED: u32 = 0x004f_1540;
 /// Whether an entry of a bound list is the end marker.
 const BOUND_IS_END: u32 = 0x004a_4460;
 /// The next entry of a bound list.
+#[cfg(test)]
 const BOUND_NEXT: u32 = 0x0072_6070;
 /// Whether the node is a model node (cdecl: the filter object, the node).
 const IS_MODEL_NODE: u32 = 0x0043_b300;
@@ -386,8 +393,10 @@ const NODE_GEOMETRY_LIST: u32 = 0x0096_11e0;
 /// Whether the geometry is accepted (cdecl: the filter, the geometry).
 const GEOMETRY_ACCEPTED: u32 = 0x0045_bad0;
 /// A flag test on an object (`this`, mask): `(flags & mask) != 0`.
+#[cfg(test)]
 const FLAG_TEST: u32 = 0x0045_6630;
 /// The base form of a reference (`this` = the reference): `+0x20`.
+#[cfg(test)]
 const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 /// The form type of a form (`this` = the form): the byte at `+4`.
 const FORM_TYPE: u32 = 0x0040_1170;
@@ -401,6 +410,7 @@ const SINGLETON_RELEASE: u32 = 0x004e_d8c0;
 /// Lock helpers of the object `0043c4b0` returns.
 const LOCK_ENTER: u32 = 0x0082_f1b0;
 const LOCK_LEAVE: u32 = 0x0082_f1f0;
+#[cfg(test)]
 const LOCK_STATE: u32 = 0x00ac_bb70;
 const LOCK_EXTRA: u32 = 0x0048_3710;
 /// `BSCullingProcess` base constructor (`this`, one argument) and base
@@ -487,6 +497,7 @@ const MENU_CONSOLE_ACTIVE: u32 = 0x004a_4020;
 /// Whether the game state forbids new decals (no parameters).
 const DECALS_BLOCKED: u32 = 0x004a_4040;
 /// The dword at `+0xc` (`this` = the object).
+#[cfg(test)]
 const EFFECT_PARENT: u32 = 0x0084_e3a0;
 /// The first word of the `NiPointer` at `+0x18` (`this` = the object).
 const EFFECT_NODE: u32 = 0x0049_0e40;
@@ -526,6 +537,7 @@ const COMMAND_COLLECTOR: u32 = 0x008c_dd90;
 /// The hit array of a collector (`this` = the collector): `+0x10`.
 const COLLECTOR_HITS: u32 = 0x0046_0140;
 /// The number of entries of the hit array (`this` = the array): `+4`.
+#[cfg(test)]
 const HITS_COUNT: u32 = 0x0072_6070;
 /// Entry `index` of the hit array (`this` = the array, then the index):
 /// `[this] + index * 0x60`.
@@ -777,7 +789,7 @@ fn load_camera_position(e: &mut Engine, to: u32) {
 /// `iDecalDebugFlags` ask for.
 pub fn bgs_decal_manager_update_simple_decals(e: &mut Engine, this: Ptr<BGSDecalManager>) {
     let pending = this.at(BGSDecalManager::PendingSimpleDecalList);
-    if e.call(LIST_COUNT, &args![pending]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, pending)) == 0 {
         return;
     }
     let object = e.call(GET_GLOBAL_OBJECT, &args![]).ptr::<()>();
@@ -789,13 +801,13 @@ pub fn bgs_decal_manager_update_simple_decals(e: &mut Engine, this: Ptr<BGSDecal
         let node = iterator + 4;
         let removed = iterator + 8;
         let colour = iterator + 0x10;
-        let first = e.call(FIRST_WORD, &args![pending]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pending));
         e.mem.set_u32(iterator, first);
         while e.mem.u32(iterator) != 0 {
             let current = e.mem.u32(iterator);
             e.mem.set_u32(node, current);
             let slot = e.call(LIST_ADVANCE, &args![pending, iterator]).u32();
-            let decal = e.call(FIRST_WORD, &args![slot]).u32();
+            let decal = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
             if decal == 0 {
                 continue;
             }
@@ -870,8 +882,11 @@ fn debug_box(e: &mut Engine, decal: u32, slot: u32, rgba: [f32; 4], solid: bool)
 /// The decal's target node: the pointer held by the `NiPointer` at
 /// `+0x10c` (`spTargetNode`, Xbox PDB), read through `FIRST_WORD`.
 pub fn fn_004a0330(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(FIRST_WORD, &args![this.byte_add(DECAL_TARGET_NODE)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(DECAL_TARGET_NODE))
+    )
 }
 
 // Translated from 004a0350 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -894,7 +909,11 @@ pub fn fn_004a0370(e: &mut Engine, this: Ptr) {
 /// The state of the lock at `+0x80` (`00acbb70`, which returns zero in
 /// this build).
 pub fn fn_004a03a0(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(LOCK_STATE, &args![this.byte_add(0x80)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x00ac_bb70,
+        leaf::zero_of_this(e, this.byte_add(0x80))
+    )
 }
 
 // Translated from 004a03c0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -915,7 +934,7 @@ pub fn fn_004a03f0(e: &mut Engine, this: Ptr<BGSDecalManager>) {
     e.with_stack(8, |e, frame| {
         let iterator = frame.addr();
         let node = iterator + 4;
-        let first = e.call(FIRST_WORD, &args![emitters]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, emitters));
         e.mem.set_u32(iterator, first);
         while e.mem.u32(iterator) != 0 {
             let current = e.mem.u32(iterator);
@@ -1012,7 +1031,7 @@ pub fn bgs_decal_manager_issue_decal_occlusion_query(
         e.call(ROTATION_Z_TO_VECTOR, &args![rotation, nx, ny, nz]);
 
         let spin = f + SPIN;
-        e.call(EMPTY_CONSTRUCTOR, &args![spin]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, spin));
         let angle = e.call(DECAL_ROTATION, &args![decal]).f32();
         fn_004a0c90(e, Ptr::new(spin), angle);
         let product = e
@@ -1022,20 +1041,24 @@ pub fn bgs_decal_manager_issue_decal_occlusion_query(
 
         let column_a = f + COLUMN_A;
         let column_b = f + COLUMN_B;
-        e.call(EMPTY_CONSTRUCTOR, &args![column_a]);
-        e.call(EMPTY_CONSTRUCTOR, &args![column_b]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, column_a));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, column_b));
         e.call(MATRIX_GET_COLUMN, &args![rotation, 0u32, column_a]);
         e.call(MATRIX_GET_COLUMN, &args![rotation, 1u32, column_b]);
         e.call(MATRIX_GET_COLUMN, &args![rotation, 2u32, direction]);
         let camera_rotation = f + CAMERA_ROTATION;
-        e.call(EMPTY_CONSTRUCTOR, &args![camera_rotation]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, camera_rotation)
+        );
         e.call(MATRIX_SET_COLUMN, &args![camera_rotation, 0u32, direction]);
         e.call(MATRIX_SET_COLUMN, &args![camera_rotation, 1u32, column_a]);
         e.call(MATRIX_SET_COLUMN, &args![camera_rotation, 2u32, column_b]);
         let line_start = f + LINE_START;
         let line_end = f + LINE_END;
-        e.call(EMPTY_CONSTRUCTOR, &args![line_start]);
-        e.call(EMPTY_CONSTRUCTOR, &args![line_end]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, line_start));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, line_end));
 
         // Frustum: half width and half height scaled by the target's scale.
         let two = e.global::<f64>(TWO);
@@ -1062,23 +1085,23 @@ pub fn bgs_decal_manager_issue_decal_occlusion_query(
         e.mem.set_f32(frustum + 0xc, -top);
         e.mem.set_f32(frustum + 0x14, far);
 
-        let camera = e.call(FIRST_WORD, &args![camera_slot]).u32();
+        let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, camera_slot));
         e.call(SET_TRANSLATE, &args![camera, position]);
-        let camera = e.call(FIRST_WORD, &args![camera_slot]).u32();
+        let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, camera_slot));
         e.call(SET_ROTATE, &args![camera, camera_rotation]);
-        let camera = e.call(FIRST_WORD, &args![camera_slot]).u32();
+        let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, camera_slot));
         e.call(SET_VIEW_FRUSTUM, &args![camera, frustum]);
         let zero_point = f + ZERO_POINT;
         e.call(
             POINT3_CONSTRUCTOR_ZERO,
             &args![zero_point, 0.0f32, 0u32, 0u32],
         );
-        let camera = e.call(FIRST_WORD, &args![camera_slot]).u32();
+        let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, camera_slot));
         e.call(UPDATE_WITH_ZERO, &args![camera, zero_point]);
 
         if e.global::<u32>(DECAL_DEBUG_FLAGS) & 4 != 0 {
             copy_words(e, line_start, position, 3);
-            let camera = e.call(FIRST_WORD, &args![camera_slot]).u32();
+            let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, camera_slot));
             let view = e.call(CAMERA_DIRECTION, &args![camera, f + AIM]).u32();
             let scaled = e
                 .call(POINT3_MULTIPLY, &args![view, f + AIM_SCALED, far])
@@ -1112,7 +1135,7 @@ pub fn bgs_decal_manager_issue_decal_occlusion_query(
 
         if setting_flag(e, SETTING_DEBUG_LOG) {
             let view_direction = f + VIEW_DIRECTION;
-            let camera = e.call(FIRST_WORD, &args![camera_slot]).u32();
+            let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, camera_slot));
             e.call(CAMERA_DIRECTION, &args![camera, view_direction]);
             let name = target_name(e, decal);
             e.call(LOG, &args![TEXT_ISSUING, name]);
@@ -1131,7 +1154,7 @@ pub fn bgs_decal_manager_issue_decal_occlusion_query(
             log_floats(e, TEXT_FRUSTUM, &[far, -right, right, top, -top]);
         }
 
-        if e.call(FIRST_WORD, &args![this]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) == 0 {
             let format = fn_004a0e90(e);
             let manager = fn_004a0ea0(e);
             let texture = e
@@ -1142,7 +1165,7 @@ pub fn bgs_decal_manager_issue_decal_occlusion_query(
                 .u32();
             e.call(NI_POINTER_ASSIGN, &args![this, texture]);
         }
-        let texture = e.call(FIRST_WORD, &args![this]).u32();
+        let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         let stopped = e.call(STOP_OFFSCREEN, &args![texture]).u32();
         let target = if e.mem.u8(decal_addr + DECAL_CLEAR_QUERY_TEXTURE) != 0 {
             7u32
@@ -1159,25 +1182,25 @@ pub fn bgs_decal_manager_issue_decal_occlusion_query(
         };
         e.mem.set_u32(decal_addr + DECAL_QUERY, query);
         e.call(QUERY_BEGIN, &args![query]);
-        let camera = e.call(FIRST_WORD, &args![camera_slot]).u32();
+        let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, camera_slot));
         let camera_frustum = fn_004a0d10(e, Ptr::new(camera));
         let global_object = e.call(GET_GLOBAL_OBJECT, &args![]).ptr::<()>();
         fn_004a0dd0(e, global_object, camera_frustum.addr());
 
         let culling = f + CULLING;
         fn_004a0eb0(e, Ptr::new(culling), 0);
-        let accumulator = e.call(FIRST_WORD, &args![accum_slot]).u32();
+        let accumulator = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, accum_slot));
         fn_004a0fd0(e, Ptr::new(culling), accumulator);
         let mode = e.call(ACCUMULATOR_MODE, &args![0u32]).u32();
-        let accumulator = e.call(FIRST_WORD, &args![accum_slot]).u32();
+        let accumulator = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, accum_slot));
         fn_004a1020(e, Ptr::new(accumulator), mode);
-        let accumulator = e.call(FIRST_WORD, &args![accum_slot]).u32();
+        let accumulator = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, accum_slot));
         fn_004a1040(e, Ptr::new(accumulator), 0xf);
         let node = fn_004a0330(e, decal);
-        let camera = e.call(FIRST_WORD, &args![camera_slot]).u32();
+        let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, camera_slot));
         e.call(ACCUMULATE_SCENE, &args![camera, node, culling]);
-        let accumulator = e.call(FIRST_WORD, &args![accum_slot]).u32();
-        let camera = e.call(FIRST_WORD, &args![camera_slot]).u32();
+        let accumulator = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, accum_slot));
+        let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, camera_slot));
         e.call(RENDER_ACCUMULATED, &args![camera, accumulator, 0u32]);
         fn_004a0fd0(e, Ptr::new(culling), 0);
         let query = e.mem.u32(decal_addr + DECAL_QUERY);
@@ -1194,7 +1217,11 @@ pub fn fn_004a0bd0(e: &mut Engine, this: Ptr, result: Ptr) -> Ptr {
     let x = -e.mem.f32(this.addr());
     let y = -e.mem.f32(this.addr() + 4);
     let z = -e.mem.f32(this.addr() + 8);
-    e.call(POINT3_CONSTRUCTOR, &args![result, x, y, z]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, result, x, y, z)
+    );
     result
 }
 
@@ -1302,7 +1329,11 @@ pub fn fn_004a0e50(e: &mut Engine, this: Ptr) -> bool {
 /// The first word of the global at `0x011f9508` (the query texture's
 /// format argument).
 pub fn fn_004a0e90(e: &mut Engine) -> u32 {
-    e.call(FIRST_WORD, &args![QUERY_TEXTURE_FORMAT]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, QUERY_TEXTURE_FORMAT)
+    )
 }
 
 // Translated from 004a0ea0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1380,7 +1411,7 @@ pub fn fn_004a1040(e: &mut Engine, this: Ptr, value: u32) {
 /// form's type byte (`+4`) is `0x23`, `0x2a`, `0x2b` or `0x33`, true
 /// otherwise. The second parameter is not read.
 pub fn fn_004a1060(e: &mut Engine, reference: Ptr, _unused_1: u32) -> bool {
-    let form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let form_type = e.call(FORM_TYPE, &args![form]).u32();
     !matches!(form_type, 0x23 | 0x2a | 0x2b | 0x33)
 }
@@ -1488,7 +1519,7 @@ fn add_decal_type_1(
             let mut words = vec![buffer, 0xff, TEXT_TICKS, ticks as u32, (ticks >> 32) as u32];
             microseconds.put(&mut words);
             e.call(FORMAT, &words);
-            e.call(REPORT, &args![buffer, 0u32]);
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words buffer, 0u32);
             e.mem.free(buffer);
         }
     });
@@ -1525,7 +1556,7 @@ fn log_skin_limit(e: &mut Engine) {
 fn distance_to_bound(e: &mut Engine, f: u32, bound_source: u32) -> f32 {
     let (camera, bound, offset) = (f, f + 0x0c, f + 0x1c);
     copy_words(e, bound, bound_source, 4);
-    let centre = e.call(EMPTY_CONSTRUCTOR, &args![bound]).u32();
+    let centre = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
     let difference = e
         .call(POINT3_SUBTRACT, &args![centre, offset, camera])
         .u32();
@@ -1547,7 +1578,7 @@ fn add_decal_type_2(
         e.with_stack(0x30, |e, frame| {
             let f = frame.addr();
             load_camera_position(e, f);
-            let bound_source = e.call(GET_WORLD_BOUND, &args![target]).u32();
+            let bound_source = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, target));
             let distance = distance_to_bound(e, f, bound_source);
             if projected_decal_allowed(e, distance, force) {
                 bgs_decal_manager_add_projected_decal_recurse(e, this, placement);
@@ -1563,7 +1594,7 @@ fn add_decal_type_2(
             let f = frame.addr();
             load_camera_position(e, f);
             let node = e.vcall(source_object, 0x1d0, &args![]).u32();
-            let bound_source = e.call(GET_WORLD_BOUND, &args![node]).u32();
+            let bound_source = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
             let distance = distance_to_bound(e, f, bound_source);
             let node = e.vcall(source_object, 0x1d0, &args![]).u32();
             let projected = if node != 0 {
@@ -1642,8 +1673,8 @@ fn add_decal_type_2(
         }
         e.call(LIST_CONSTRUCTOR, &args![list]);
         for index in 0..hits {
-            e.call(EMPTY_CONSTRUCTOR, &args![position]);
-            e.call(EMPTY_CONSTRUCTOR, &args![normal]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, normal));
             let caster = e.global::<u32>(DECAL_CASTER);
             let object = e.call(DECAL_CASTER_HIT_OBJECT, &args![caster, index]).u32();
             if object == 0 {
@@ -1679,7 +1710,11 @@ fn add_decal_type_2(
 // Translated from 004a19d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Whether the object has flag bit `0x400` set (`00456630` with the mask).
 pub fn fn_004a19d0(e: &mut Engine, this: Ptr) -> bool {
-    e.call(FLAG_TEST, &args![this, FLAG_HIDDEN]).bool()
+    typed_call!(
+        leaf::FAMILY,
+        0x0045_6630,
+        leaf::flags_at_30_any(e, this, FLAG_HIDDEN)
+    )
 }
 
 // Translated from 004a19f0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1818,9 +1853,9 @@ pub fn bgs_decal_manager_add_geometry_decal_recurse(
     if picked != 0 && value_5c as f64 > e.global::<f64>(ZERO) {
         let mut bound = e.mem.u32(picked + 0xac);
         while bound != 0 && !e.call(BOUND_IS_END, &args![bound]).bool() {
-            let entry_holder = e.call(EMPTY_CONSTRUCTOR, &args![bound]).u32();
-            let entry = e.call(FIRST_WORD, &args![entry_holder]).u32();
-            bound = e.call(BOUND_NEXT, &args![bound]).u32();
+            let entry_holder = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
+            let entry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry_holder));
+            bound = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, bound));
             let refused = e.with_stack(0x30, |e, frame| {
                 let f = frame.addr();
                 let (entry_origin, offset, squared) = (f, f + 0x0c, f + 0x18);
@@ -1893,7 +1928,11 @@ pub fn fn_004a1f90(e: &mut Engine, result: Ptr, a: Ptr, b: Ptr) -> Ptr {
     let z = e.mem.f32(a.addr() + 8) * e.mem.f32(b.addr() + 8);
     let y = e.mem.f32(a.addr() + 4) * e.mem.f32(b.addr() + 4);
     let x = e.mem.f32(a.addr()) * e.mem.f32(b.addr());
-    e.call(POINT3_CONSTRUCTOR, &args![result, x, y, z]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, result, x, y, z)
+    );
     result
 }
 
@@ -1979,7 +2018,7 @@ fn projected_with_found_slot(
         e.call(NI_POINTER_INIT, &args![scratch_slot, 0u32]);
         // The sub-object at `+0x30` of the owner has its own vtable.
         e.vcall(owner + 0x30, 0x90, &args![0u32, scratch_slot]);
-        let candidate = e.call(FIRST_WORD, &args![scratch_slot]).u32();
+        let candidate = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, scratch_slot));
         if e.call(IS_MODEL_NODE, &args![OWNER_NODE_FILTER, candidate])
             .bool()
         {
@@ -1987,7 +2026,7 @@ fn projected_with_found_slot(
         }
         e.call(NI_POINTER_RELEASE, &args![scratch_slot]);
     }
-    if e.call(FIRST_WORD, &args![found_slot]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, found_slot)) == 0 {
         return false;
     }
     let target = e.mem.u32(p + 0x28);
@@ -2131,9 +2170,9 @@ fn projected_decals(e: &mut Engine, p: u32, target: u32, second: u32) -> Option<
         let ended = e.with_stack(4, |e, slot| {
             let effect_slot = slot.addr();
             e.call(NI_POINTER_INIT, &args![effect_slot, effect]);
-            let held = e.call(FIRST_WORD, &args![effect_slot]).u32();
+            let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
             e.vcall(held, 0x8c, &args![]);
-            let held = e.call(FIRST_WORD, &args![effect_slot]).u32();
+            let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
             if e.call(TEMP_EFFECT_COUNT, &args![held]).i32() <= 0 {
                 e.call(NI_POINTER_RELEASE, &args![effect_slot]);
                 return true;
@@ -2156,16 +2195,16 @@ fn projected_decals(e: &mut Engine, p: u32, target: u32, second: u32) -> Option<
                     e.call(LOG, &args![TEXT_PLACING_SKIN_DECAL, placed]);
                 }
             }
-            let held = e.call(FIRST_WORD, &args![effect_slot]).u32();
+            let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
             // 004a2636-004a2663: the 1 pushed first is AttachChild's second word (slot 0xdc,
             // `00a5ed10`, `RET 8`); the effect's slot 0x98 (its decal geometry) takes none.
             let geometry = e.vcall(held, 0x98, &args![]).u32();
             let skin_node = e.mem.u32(p + 0x50);
             e.vcall(skin_node, 0xdc, &args![geometry, 1u32]);
             let skin_node = e.mem.u32(p + 0x50);
-            let held = e.call(FIRST_WORD, &args![effect_slot]).u32();
+            let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
             fn_004a2c00(e, Ptr::new(held), skin_node);
-            let held = e.call(FIRST_WORD, &args![effect_slot]).u32();
+            let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
             e.with_stack(4, |e, temporary| {
                 let temporary = temporary.addr();
                 e.call(NI_POINTER_INIT, &args![temporary, held]);
@@ -2178,9 +2217,9 @@ fn projected_decals(e: &mut Engine, p: u32, target: u32, second: u32) -> Option<
                 e.call(POINT3_CONSTRUCTOR_ZERO, &args![zero, 0u32, 0u32, 0u32]);
                 e.call(UPDATE_WITH_ZERO, &args![decal_node, zero]);
             });
-            let held = e.call(FIRST_WORD, &args![effect_slot]).u32();
+            let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
             e.call(ADD_TEMP_EFFECT, &args![PROCESS_LISTS, held]);
-            let held = e.call(FIRST_WORD, &args![effect_slot]).u32();
+            let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
             e.call(NI_POINTER_ASSIGN, &args![second, held]);
             e.call(NI_POINTER_RELEASE, &args![effect_slot]);
             false
@@ -2257,8 +2296,9 @@ fn projected_decals(e: &mut Engine, p: u32, target: u32, second: u32) -> Option<
                             e.call(NI_POINTER_ASSIGN, &args![slot, effect]);
                             e.vcall(effect, 0x8c, &args![]);
                         }
-                        if e.call(FIRST_WORD, &args![slot]).u32() != 0 {
-                            let held = e.call(FIRST_WORD, &args![slot]).u32();
+                        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) != 0 {
+                            let held =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
                             e.call(ADD_TEMP_EFFECT, &args![PROCESS_LISTS, held]);
                         }
                         e.call(NI_POINTER_RELEASE, &args![slot]);
@@ -2357,10 +2397,10 @@ pub fn fn_004a2d50(e: &mut Engine, this: Ptr<BGSDecalEmitter>) {
         return;
     }
     let effect_slot = t + 0x0c;
-    let effect = e.call(FIRST_WORD, &args![effect_slot]).u32();
-    let mut ready = e.call(EFFECT_PARENT, &args![effect]).u32() != 0;
+    let effect = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
+    let mut ready = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect)) != 0;
     if ready {
-        let effect = e.call(FIRST_WORD, &args![effect_slot]).u32();
+        let effect = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
         ready = e.call(EFFECT_NODE, &args![effect]).u32() != 0;
     }
     if !ready {
@@ -2372,9 +2412,9 @@ pub fn fn_004a2d50(e: &mut Engine, this: Ptr<BGSDecalEmitter>) {
         e.set(this, BGSDecalEmitter::bFinished, true);
         return;
     }
-    let effect = e.call(FIRST_WORD, &args![effect_slot]).u32();
+    let effect = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
     let end_time = e.call(EFFECT_END_TIME, &args![effect]).f64();
-    let effect = e.call(FIRST_WORD, &args![effect_slot]).u32();
+    let effect = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
     let time = e.call(EFFECT_TIME, &args![effect]).f64();
     // Finished when the time is below the end time (or unordered).
     if time < end_time || time.is_nan() || end_time.is_nan() {
@@ -2391,13 +2431,13 @@ pub fn fn_004a2d50(e: &mut Engine, this: Ptr<BGSDecalEmitter>) {
         let command = ebp - 0x100;
         let collector = ebp - 0x480;
 
-        e.call(EMPTY_CONSTRUCTOR, &args![forward]);
-        let effect = e.call(FIRST_WORD, &args![effect_slot]).u32();
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, forward));
+        let effect = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
         let node = e.call(EFFECT_NODE, &args![effect]).u32();
         let rotation = e.call(NODE_ROTATION, &args![node]).u32();
         e.call(MATRIX_GET_COLUMN, &args![rotation, 2u32, forward]);
         fn_004a0c10(e, Ptr::new(forward));
-        let effect = e.call(FIRST_WORD, &args![effect_slot]).u32();
+        let effect = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
         let node = e.call(EFFECT_NODE, &args![effect]).u32();
         let translation = e.call(NODE_WORLD_TRANSLATION, &args![node]).u32();
         copy_words(e, position, translation, 3);
@@ -2411,8 +2451,8 @@ pub fn fn_004a2d50(e: &mut Engine, this: Ptr<BGSDecalEmitter>) {
         e.call(DECAL_CASTER_SET_FLAG, &args![caster, 0u32]);
         fn_004a1a10(e, Ptr::new(caster), 8, 0);
         fn_004a1a10(e, Ptr::new(caster), 0x1d, 0);
-        let effect = e.call(FIRST_WORD, &args![effect_slot]).u32();
-        let parent = e.call(EFFECT_PARENT, &args![effect]).u32();
+        let effect = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
+        let parent = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
         let world = if parent != 0 {
             e.call(OBJECT_TEXTURE_SET, &args![parent]).u32()
         } else {
@@ -2446,9 +2486,9 @@ pub fn fn_004a2d50(e: &mut Engine, this: Ptr<BGSDecalEmitter>) {
             .call(SETTING_FLOAT_POINTER, &args![SETTING_RAY_DROP])
             .u32();
         let drop = -(e.mem.f32(pointer) as f64);
-        let effect = e.call(FIRST_WORD, &args![effect_slot]).u32();
+        let effect = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
         let end_time = e.call(EFFECT_END_TIME, &args![effect]).f64();
-        let effect = e.call(FIRST_WORD, &args![effect_slot]).u32();
+        let effect = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, effect_slot));
         let time = e.call(EFFECT_TIME, &args![effect]).f64();
         let lowered = ((end_time / time) * drop) as f32;
         let z = e.mem.f32(ray_end + 8);
@@ -2494,7 +2534,9 @@ pub fn fn_004a2d50(e: &mut Engine, this: Ptr<BGSDecalEmitter>) {
 
         let collector_now = e.call(COMMAND_COLLECTOR, &args![command]).u32();
         let hits = e.call(COLLECTOR_HITS, &args![collector_now]).u32();
-        let count = e.call(HITS_COUNT, &args![hits]).i32();
+        let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, hits))
+            .into_ret()
+            .i32();
         let mut placed = false;
         let mut index = 0i32;
         while !placed && index < count {
@@ -2512,7 +2554,7 @@ pub fn fn_004a2d50(e: &mut Engine, this: Ptr<BGSDecalEmitter>) {
                     let hit = ray_hit(e, command, index_word);
                     layer = e.mem.u32(hit + 0x20 + key * 4);
                 }
-                let owner = e.call(FIRST_WORD, &args![collidable]).u32();
+                let owner = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, collidable));
                 let owner_count = fn_004a3a40(e, owner);
                 if owner_count != 0 {
                     let _layer_object = e.call(LAYER_LOOKUP, &args![owner_count, layer]).u32();
@@ -2573,7 +2615,7 @@ fn emit_decal(
     let fraction = e.mem.f32(entry + 0x10);
     let scaled_ptr = fn_004a3760(e, Ptr::new(scaled), fraction, Ptr::new(span)).addr();
     e.call(POINT3_ADD, &args![position, hit_point, scaled_ptr]);
-    e.call(EMPTY_CONSTRUCTOR, &args![normal]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, normal));
     let entry = ray_hit(e, command, index);
     fn_004a3970(e, Ptr::new(normal), Ptr::new(entry));
     let items = e.call(OWNER_LIST_COUNT, &args![collidable]).u32();
@@ -2640,7 +2682,11 @@ fn emit_decal(
     let packed = e.call(IMPACT_COLOUR, &args![impact]).u32();
     let blue = (((packed & 0xff) as f64) / colour_scale) as f32;
     let point = ebp - 0x594;
-    e.call(POINT3_CONSTRUCTOR, &args![point, blue, green, red]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, point, blue, green, red)
+    );
     copy_words(e, placement + 0x60, point, 3);
     e.call(ADD_PLACEMENT, &args![cell, placement, 1u32, 0u32]);
     true
@@ -2654,7 +2700,11 @@ pub fn fn_004a3760(e: &mut Engine, result: Ptr, scalar: f32, vector: Ptr) -> Ptr
     let z = (scalar as f64 * e.mem.f32(v + 8) as f64) as f32;
     let y = (scalar as f64 * e.mem.f32(v + 4) as f64) as f32;
     let x = (scalar as f64 * e.mem.f32(v) as f64) as f32;
-    e.call(POINT3_CONSTRUCTOR, &args![result, x, y, z]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, result, x, y, z)
+    );
     result
 }
 
@@ -2665,10 +2715,14 @@ pub fn fn_004a3760(e: &mut Engine, result: Ptr, scalar: f32, vector: Ptr) -> Ptr
 /// Returns `this`.
 pub fn fn_004a37b0(e: &mut Engine, this: Ptr<DecalPlacement>) -> Ptr<DecalPlacement> {
     let t = this.addr();
-    e.call(EMPTY_CONSTRUCTOR, &args![t]);
-    e.call(EMPTY_CONSTRUCTOR, &args![t + 0x0c]);
-    e.call(EMPTY_CONSTRUCTOR, &args![t + 0x18]);
-    e.call(POINT3_CONSTRUCTOR, &args![t + 0x60, 0.0f32, 0.0f32, 0.0f32]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, t));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, t + 0x0c));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, t + 0x18));
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, t + 0x60, 0.0f32, 0.0f32, 0.0f32)
+    );
     for offset in [0u32, 0x0c, 0x18] {
         copy_words(e, t + offset, DEFAULT_POINT, 3);
     }
@@ -2694,12 +2748,11 @@ pub fn fn_004a37b0(e: &mut Engine, this: Ptr<DecalPlacement>) -> Ptr<DecalPlacem
     copy_words(e, t + 0x5c, PLACEMENT_DEFAULT_5C, 1);
     e.with_stack(0x0c, |e, temporary| {
         let temporary = temporary.addr();
-        let ones = e
-            .call(
-                POINT3_CONSTRUCTOR,
-                &args![temporary, 1.0f32, 1.0f32, 1.0f32],
-            )
-            .u32();
+        let ones = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, temporary, 1.0f32, 1.0f32, 1.0f32)
+        );
         copy_words(e, t + 0x60, ones, 3);
     });
     e.mem.set_u8(t + 0x77, 0);
@@ -2747,7 +2800,7 @@ pub fn fn_004a3a40(e: &mut Engine, list: u32) -> u32 {
     if list == 0 {
         0
     } else {
-        e.call(LIST_COUNT, &args![list]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list))
     }
 }
 

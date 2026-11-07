@@ -62,6 +62,7 @@ const SKY_OBJECT_UPDATE: u32 = 0x008d_0600;
 const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const NI_POINTER_DESTRUCT: u32 = 0x0045_cec0;
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// The `BSStringT<char>` constructor (`004037b0`) and destructor
 /// (`004037d0`), the formatted write (`00406f60`, cdecl), and the
@@ -209,7 +210,7 @@ const PHASE_INDEX: u32 = 0x011c_ca80;
 
 /// The word an `NiPointer` at `slot` holds (through `00559450`).
 fn pointer(e: &mut Engine, slot: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 // Translated from 00634a70 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -581,7 +582,7 @@ pub fn moon_initialize(e: &mut Engine, this: Ptr<Moon>, root: Ptr, _unused_2: u3
             e.vcall(parent, ATTACH_CHILD_SLOT, &args![child, 1u32]);
         }
         e.with_stack(0x24, |e, rotation| {
-            e.call(POINT_ELEMENT_CONSTRUCTOR, &args![rotation]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
             let angle = x87_quiet_bits(e.global::<u32>(INITIAL_ROTATION));
             e.call(MAKE_X_ROTATION, &args![rotation, angle]);
             for slot in [0x10u32, 0x14] {
@@ -743,8 +744,8 @@ pub fn moon_update(e: &mut Engine, this: Ptr<Moon>, sky: Ptr, time: f32) {
                 e.call(SCOPE_CLOSE, &args![scope]);
                 return;
             }
-            e.call(POINT_ELEMENT_CONSTRUCTOR, &args![rotation]);
-            e.call(POINT_ELEMENT_CONSTRUCTOR, &args![second]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
             let position = e.get(this, Moon::fPos);
             let angle = x87_store32(x87_mul(
                 -x87_load32(position),

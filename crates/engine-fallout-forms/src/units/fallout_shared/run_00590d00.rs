@@ -94,10 +94,13 @@ pub fn fn_00591bf0(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 /// (`008256d0`), the head item's slot (`006815c0`, a pointer to the item
 /// word), removing the head (`0063f7b0`), the item count (`005ae380`), the
 /// next node (`00726070`) and adding an item by address (`005ae3d0`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_HEAD_ITEM: u32 = 0x0068_15c0;
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
 const LIST_COUNT: u32 = 0x005a_e380;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 const LIST_ADD: u32 = 0x005a_e3d0;
 /// Frees a block (`00401030`, cdecl, one word).
@@ -180,8 +183,8 @@ pub fn fn_00590ed0(e: &mut Engine, this: Ptr) -> bool {
 /// (`00591140` with flag 1) when it is not null.
 pub fn fn_005910d0(e: &mut Engine, this: Ptr) {
     let list = this.addr() + 0x30;
-    while !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-        let slot = e.call(LIST_HEAD_ITEM, &args![list]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let item = e.mem.u32(slot);
         e.call(LIST_REMOVE_HEAD, &args![list]);
         if item != 0 {
@@ -239,8 +242,8 @@ pub fn fn_00591320(e: &mut Engine, this: Ptr) {
 /// (`00401030`) as it is taken off.
 pub fn fn_005913b0(e: &mut Engine, this: Ptr) {
     let list = this.addr() + 0x28;
-    while !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-        let slot = e.call(LIST_HEAD_ITEM, &args![list]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let item = e.mem.u32(slot);
         e.call(LIST_REMOVE_HEAD, &args![list]);
         e.call(FREE, &args![item]);
@@ -279,7 +282,7 @@ pub fn fn_00591410(e: &mut Engine, this: Ptr) {
         }
     }
     let list = base + 0x28;
-    let index = if e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    let index = if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         0
     } else {
         let count = e.call(LIST_COUNT, &args![list]).u32();
@@ -421,11 +424,11 @@ pub fn fn_00591a40(e: &mut Engine, this: Ptr) -> u32 {
     let base = this.addr();
     let list = base + 0x28;
     let count = e.call(LIST_COUNT, &args![list]).u32();
-    if e.call(LIST_IS_EMPTY, &args![list]).bool() && count == 0 {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) && count == 0 {
         return e.call(STRING_TEXT, &args![base + 0x18]).u32();
     }
     if count == 1 {
-        let slot = e.call(LIST_HEAD_ITEM, &args![list]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         return e.mem.u32(slot);
     }
     let mut node = list;
@@ -447,12 +450,12 @@ pub fn fn_00591a40(e: &mut Engine, this: Ptr) -> u32 {
         if before == 0 {
             break;
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if node != 0 {
-        let slot = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) != 0 {
-            let slot = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             return e.mem.u32(slot);
         }
     }
@@ -697,6 +700,7 @@ const CDECL_004046F0: u32 = 0x0040_46f0;
 /// whether the data is byte-swapped around the save) and `00462230`
 /// (`thiscall` on the data: the swap).
 const RECORD_FORM: u32 = 0x0044_1110;
+#[cfg(test)]
 const FORM_SAVE_VALUE: u32 = 0x0084_e3a0;
 const SET_RECORD_FORM: u32 = 0x0050_f9a0;
 const SWAPS_DATA: u32 = 0x0040_1500;
@@ -732,10 +736,10 @@ pub fn fn_00590d20(e: &mut Engine, this: Ptr, source: u32) {
     let value = e.call(MESSAGE_GET_00639B40, &args![source]).u32();
     e.call(MESSAGE_SET_00409480, &args![this, value]);
     let mut node = e.call(MESSAGE_FIRST_NODE, &args![source]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         let block = e.call(ALLOCATE, &args![0x10u32]).u32();
         let copy = if block == 0 {
             0
@@ -813,13 +817,13 @@ pub fn fn_00590f40(e: &mut Engine, this: Ptr, form: u32) -> bool {
         return true;
     }
     while theirs != 0
-        && !e.call(LIST_IS_EMPTY, &args![theirs]).bool()
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, theirs))
         && mine != 0
-        && !e.call(LIST_IS_EMPTY, &args![mine]).bool()
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, mine))
     {
-        let slot = e.call(LIST_HEAD_ITEM, &args![theirs]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         let their_item = e.mem.u32(slot);
-        let slot = e.call(LIST_HEAD_ITEM, &args![mine]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
         let my_item = e.mem.u32(slot);
         if e.call(ITEM_TEXT_DIFFERS, &args![my_item, their_item])
             .bool()
@@ -835,8 +839,8 @@ pub fn fn_00590f40(e: &mut Engine, this: Ptr, form: u32) -> bool {
         if differs {
             return true;
         }
-        theirs = e.call(LIST_NEXT, &args![theirs]).u32();
-        mine = e.call(LIST_NEXT, &args![mine]).u32();
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
     }
     e.call(COMPARE_ALL_COMPONENTS, &args![this, form]).bool()
 }
@@ -945,7 +949,7 @@ pub fn fn_00591e10(e: &mut Engine, this: Ptr) {
     let saved = e.call(RECORD_FORM, &args![this]).u32();
     let value = if e.call(RECORD_FORM, &args![this]).u32() != 0 {
         let form = e.call(RECORD_FORM, &args![this]).u32();
-        e.call(FORM_SAVE_VALUE, &args![form]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
     } else {
         0
     };

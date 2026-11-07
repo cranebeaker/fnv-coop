@@ -33,6 +33,7 @@ use crate::types::{BSSimpleArray, BSStringT, NiTPointerMap};
 /// `dynamic_cast` in its `Compare` and `Copy`.
 const EXTRA_SPECIAL_RENDER_FLAGS_TYPE: u32 = 0x0118_4078;
 /// The accessor of the word at +0xc (`m_flags`); `this` is the object.
+#[cfg(test)]
 const GET_FLAGS: u32 = 0x0084_e3a0;
 /// The setter of the word at +0xc (`m_flags`; `this`, the new value). The
 /// engine map names the folded body `NonActorMagicCaster::SetCurrentSpell`.
@@ -49,6 +50,7 @@ const STRING_SET_CAPACITY: u32 = 0x0040_3a00;
 /// Stores `sLen` (`this`, the value; clamped to `0xffff`).
 const STRING_SET_LENGTH: u32 = 0x0040_39c0;
 /// The `pString` word of the `BSStringT` that is `this`.
+#[cfg(test)]
 const STRING_C_STR: u32 = 0x0055_9450;
 /// `memcpy(destination, source, size)` (a cdecl wrapper).
 const MEM_COPY: u32 = 0x0040_1460;
@@ -131,8 +133,8 @@ pub fn extra_special_render_flags_compare(
     if e.call(BS_EXTRA_DATA_COMPARE, &args![this, other]).bool() {
         return true;
     }
-    let ours = e.call(GET_FLAGS, &args![this]).u32();
-    let theirs = e.call(GET_FLAGS, &args![cast]).u32();
+    let ours = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
+    let theirs = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cast));
     if ours != theirs {
         return true;
     }
@@ -154,7 +156,7 @@ pub fn extra_special_render_flags_copy(
     if cast.is_null() {
         return;
     }
-    let flags = e.call(GET_FLAGS, &args![cast]).u32();
+    let flags = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cast));
     e.call(SET_FLAGS, &args![this, flags]);
     let distance = e.get(cast, ExtraSpecialRenderFlags::m_fNodeMaxFadeDistance);
     e.set(
@@ -225,7 +227,7 @@ pub fn bs_string_t_set(e: &mut Engine, this: Ptr<BSStringT>, other: Ptr) -> bool
         let old = e.get(this, BSStringT::pString);
         let buffer = e.call(OPERATOR_NEW, &args![length + 1]).u32();
         e.set(this, BSStringT::pString, buffer);
-        let text = e.call(STRING_C_STR, &args![other]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
         e.call(MEM_COPY, &args![buffer, text, length + 1]);
         if old != 0 {
             e.call(OPERATOR_DELETE, &args![old]);
@@ -240,7 +242,7 @@ pub fn bs_string_t_set(e: &mut Engine, this: Ptr<BSStringT>, other: Ptr) -> bool
         length = 0;
         e.call(STRING_SET_CAPACITY, &args![this, 0u32]);
     } else {
-        let text = e.call(STRING_C_STR, &args![other]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
         let buffer = e.get(this, BSStringT::pString);
         e.call(MEM_COPY, &args![buffer, text, length + 1]);
     }
@@ -364,8 +366,8 @@ pub fn bs_simple_array_compare_buffer(
     this: Ptr<BSSimpleArray>,
     other: Ptr<BSSimpleArray>,
 ) -> bool {
-    let other_size = e.call(SIMPLE_ARRAY_SIZE, &args![other]).u32();
-    let our_size = e.call(SIMPLE_ARRAY_SIZE, &args![this]).u32();
+    let other_size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other));
+    let our_size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     if other_size != our_size {
         return false;
     }

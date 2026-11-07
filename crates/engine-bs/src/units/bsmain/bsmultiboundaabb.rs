@@ -76,6 +76,7 @@ const POINT_LENGTH: u32 = 0x0045_7990;
 const UNIT_AXES: [u32; 3] = [0x011a_946c, 0x011a_9478, 0x011a_9484];
 /// Plane test (`0049da80`, `this` the plane, then a point): returns 2 when
 /// the point is on the positive side by the plane's test.
+#[cfg(test)]
 const PLANE_SIDE_OF_POINT: u32 = 0x0049_da80;
 /// `BSMultiBoundOBB::GetVertices(this, out)` (map name).
 const OBB_GET_VERTICES: u32 = 0x00c3_7a00;
@@ -449,12 +450,15 @@ pub fn bs_multi_bound_aabb_within_frustum(
                 if flat && vertex & 1 == 0 {
                     continue;
                 }
-                let side = e
-                    .call(
-                        PLANE_SIDE_OF_POINT,
-                        &args![frustum.byte_add(plane << 4), vertices.byte_add(12 * vertex)],
+                let side = typed_call!(
+                    leaf::FAMILY,
+                    0x0049_da80,
+                    leaf::plane_side(
+                        e,
+                        frustum.byte_add(plane << 4),
+                        vertices.byte_add(12 * vertex)
                     )
-                    .u32();
+                );
                 if side != 2 {
                     all_outside = false;
                 }
@@ -483,12 +487,15 @@ pub fn bs_multi_bound_aabb_completely_within_frustum(
                 continue;
             }
             for vertex in 0..8u32 {
-                let side = e
-                    .call(
-                        PLANE_SIDE_OF_POINT,
-                        &args![frustum.byte_add(plane << 4), vertices.byte_add(12 * vertex)],
+                let side = typed_call!(
+                    leaf::FAMILY,
+                    0x0049_da80,
+                    leaf::plane_side(
+                        e,
+                        frustum.byte_add(plane << 4),
+                        vertices.byte_add(12 * vertex)
                     )
-                    .u32();
+                );
                 if side == 2 {
                     return false;
                 }

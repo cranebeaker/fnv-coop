@@ -29,6 +29,7 @@ use crate::prelude::*;
 /// `operator delete` (`00401030`).
 const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// The word a pointer holds (`00559450`, thiscall).
+#[cfg(test)]
 const READ_WORD: u32 = 0x0055_9450;
 /// A word with its low bit cleared / tested (`0044dec0`, `0044df00` and
 /// `0044dff0`, thiscall on the address of the word).
@@ -42,6 +43,7 @@ const COMPARE_AND_SWAP: u32 = 0x0044_91c0;
 /// Address of the bucket of `key` in the map (`0044ee20`).
 const BUCKET_OF: u32 = 0x0044_ee20;
 /// The empty function called after each published word (`0040fbe0`).
+#[cfg(test)]
 const AFTER_PUBLISH: u32 = 0x0040_fbe0;
 /// Count of retired nodes after which the list is flushed (`0044edb0`
 /// reads it from the map: the word at `+0x10`) and the flush (`0044f220`).
@@ -61,7 +63,7 @@ const SLOT_ON_MATCH: u32 = 0x38;
 
 /// The word `address` holds, read through `00559450`.
 fn read_word(e: &mut Engine, address: u32) -> u32 {
-    e.call(READ_WORD, &args![address]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, address))
 }
 
 /// `0044dec0(address)`: the word at `address` with its low bit cleared.
@@ -74,7 +76,7 @@ fn unmarked(e: &mut Engine, address: u32) -> u32 {
 fn publish(e: &mut Engine, this: u32, slot_field: u32, value: u32) {
     let slot = e.mem.u32(this + slot_field);
     e.mem.set_u32(slot, value);
-    e.call(AFTER_PUBLISH, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
 }
 
 // Translated from 006662a0 (decompiled, FalloutNV.exe 1.4.0.525)

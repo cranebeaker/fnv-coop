@@ -226,8 +226,10 @@ const LIGHT_BUTTON: u32 = 0x007f_e950;
 /// thiscall on a list: (address of a cursor): pointer to the item, advances the cursor.
 const LIST_ADVANCE: u32 = 0x0057_cbe0;
 /// returns the word at `+0xC` of an option list (the list `Back` goes to).
+#[cfg(test)]
 const LIST_BACK_TARGET: u32 = 0x0084_e3a0;
 /// whether a list is empty.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// returns the word at `+0x10` of an option list.
 const LIST_PARENT_TARGET: u32 = 0x0044_edb0;
@@ -296,6 +298,7 @@ const OPTION_LIST_BASE_DESTRUCT: u32 = 0x004a_1a30;
 /// empties an option list.
 const OPTION_LIST_CLEAR: u32 = 0x007b_45b0;
 /// returns the word at `+0x20` of its object (the current option of a list, the player's base form of the player).
+#[cfg(test)]
 const OPTION_LIST_CURRENT: u32 = 0x007a_f430;
 /// `MenuOptionList::DoGamepad` (engine map): (button).
 const OPTION_LIST_DO_GAMEPAD: u32 = 0x007b_4260;
@@ -400,6 +403,7 @@ const ROUND_TO_STEP: u32 = 0x004b_d510;
 /// `__RTDynamicCast`.
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map).
+#[cfg(test)]
 const SAVED_OBJECT: u32 = 0x008d_8520;
 /// cdecl (index): a scene node.
 const SCENE_NODE_GETTER: u32 = 0x0045_0b80;
@@ -470,6 +474,7 @@ const SOUND_HANDLE_STOP: u32 = 0x00ad_88f0;
 /// constructs an 8-byte `BSStringT<char>`.
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 /// the word at the start of its object (the C string of a `BSStringT`).
+#[cfg(test)]
 const STRING_C_STR: u32 = 0x0055_9450;
 /// destroys a `BSStringT<char>`.
 const STRING_DESTROY: u32 = 0x0040_37d0;
@@ -526,20 +531,24 @@ const VECTOR_CONSTRUCTOR_ITERATOR: u32 = 0x0040_1050;
 /// thiscall on the interface: the truncated wheel movement.
 const WHEEL_DELTA: u32 = 0x0070_ec70;
 /// returns the word at `+0x28` of its object.
+#[cfg(test)]
 const WORD_AT_0X28: u32 = 0x0045_cd60;
 /// returns the word at `+8` of its object.
+#[cfg(test)]
 const WORD_AT_EIGHT: u32 = 0x0044_ddc0;
 /// a getter on the animation object.
 const ANIMATION_OBJECT: u32 = 0x0049_6940;
 /// scalar deleting destructor (flag 1) of a worn item record.
 const WORN_ITEM_DELETE: u32 = 0x0044_59e0;
 /// returns the word at `+4` of its object.
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 /// `RaceSexMenu::ChooseDefaultPreset` (engine map).
 const CHOOSE_DEFAULT_PRESET: u32 = 0x007b_5180;
 /// `RaceSexMenu::Randomize` (engine map).
 const RANDOMIZE: u32 = 0x007b_51f0;
 /// Same address as `OPTION_LIST_CURRENT`: for the player it returns the base form (the word at `+0x20`).
+#[cfg(test)]
 const PLAYER_BASE_FORM: u32 = 0x007a_f430;
 /// `RaceSexMenu::pMe` (Xbox PDB static): the menu singleton.
 const RACE_SEX_MENU_ME: u32 = 0x011d_a634;
@@ -806,6 +815,7 @@ const FACE_COORD_CHECK_652900: u32 = 0x0065_2900;
 const COPY_FACE_GEN_COORD: u32 = 0x0065_29a0;
 /// The address of entry `index` of an array whose data pointer is at
 /// `+4` (`00877a30`).
+#[cfg(test)]
 const ARRAY_ENTRY: u32 = 0x0087_7a30;
 /// A `TESNPC` method (`tesnpc.cpp`) taking a preset entry (`00603790`).
 const NPC_METHOD_603790: u32 = 0x0060_3790;
@@ -965,7 +975,7 @@ fn fistp_truncate(value: f64) -> i32 {
 /// The word at `+4` of `object` (`00726070`: the id of an option, the next
 /// node of a list node).
 fn word_at_four(e: &mut Engine, object: u32) -> u32 {
-    e.call(WORD_AT_FOUR, &args![object]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, object))
 }
 
 /// `pOptionListsA[index]` of the menu at `base` (the index comes from the
@@ -1203,7 +1213,7 @@ pub fn race_sex_menu_create(e: &mut Engine, mode: u32) -> u32 {
     let menu = e.call(TILE_GET_MENU, &args![root]).u32();
     e.set_global(RACE_SEX_MENU_ME, menu);
     e.call(MENU_SET_MENU_TILE, &args![menu, root, 0u32]);
-    if e.call(STRING_C_STR, &args![CAPTION_A]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, CAPTION_A)) == 0 {
         for (caption, setting) in [
             (CAPTION_A, SETTING_FOR_CAPTION_A),
             (CAPTION_B, SETTING_FOR_CAPTION_B),
@@ -1228,7 +1238,7 @@ pub fn race_sex_menu_create(e: &mut Engine, mode: u32) -> u32 {
             let worn = e.call(GET_WORN_ITEM, &args![changes, slot, 0u32]).u32();
             e.mem.set_u32(SAVED_WORN_ITEMS + 4 * slot, worn);
             if worn != 0 {
-                let item = e.call(WORD_AT_EIGHT, &args![worn]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, worn));
                 e.call(
                     UNEQUIP_OBJECT,
                     &args![player, item, 1u32, 0u32, 0u32, 0u32, 1u32],
@@ -1304,7 +1314,7 @@ pub fn fn_007ac9f0(e: &mut Engine, this: Ptr<FORenderedMenuRaceSex>) -> Ptr<FORe
         e.call(NI_POINTER_CONSTRUCT, &args![base + slot, 0u32]);
     }
     for member in [0x110u32, 0x11c, 0x140] {
-        e.call(EMPTY_MEMBER_RETURNS_THIS, &args![base + member]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + member));
     }
     this
 }
@@ -1353,7 +1363,7 @@ pub fn race_sex_menu_create_contents(e: &mut Engine, this: Ptr<RaceSexMenu>, mod
         e.call(SET_STRING_TRAIT, &args![tile, trait_id, glyph, 1u32]);
     }
     let player: u32 = e.global(PLAYER);
-    let form = e.call(PLAYER_BASE_FORM, &args![player]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
     let player_base = e
         .call(
             RT_DYNAMIC_CAST,
@@ -1361,7 +1371,7 @@ pub fn race_sex_menu_create_contents(e: &mut Engine, this: Ptr<RaceSexMenu>, mod
         )
         .u32();
     e.mem.set_u32(base + 0xd8, player_base);
-    let back = e.call(STRING_C_STR, &args![CAPTION_C]).u32();
+    let back = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, CAPTION_C));
     let title_tile = e.mem.u32(base + 0x88);
     e.call(
         SET_STRING_TRAIT,
@@ -1396,9 +1406,11 @@ pub fn race_sex_menu_create_contents(e: &mut Engine, this: Ptr<RaceSexMenu>, mod
         // values of 16 settings.
         let mut captions = [0u32; 0x14];
         for (index, caption) in captions.iter_mut().take(4).enumerate() {
-            *caption = e
-                .call(STRING_C_STR, &args![numbered + 8 * index as u32])
-                .u32();
+            *caption = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, numbered + 8 * index as u32)
+            );
         }
         for (index, setting) in LIST_CAPTION_SETTINGS.iter().enumerate() {
             captions[4 + index] = e.call(SETTING_VALUE, &args![*setting]).u32();
@@ -1440,16 +1452,16 @@ pub fn race_sex_menu_create_contents(e: &mut Engine, this: Ptr<RaceSexMenu>, mod
         let owner: u32 = e.global(MARKER_OWNER);
         let mut node = e.call(MARKER_LIST_HEAD, &args![owner]).u32();
         while node != 0 {
-            let item_slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+            let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item_slot) == 0 {
                 break;
             }
-            let item_slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+            let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_slot);
             if e.call(MARKER_CHECK, &args![item]).u8() != 0 {
-                let item_slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+                let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(item_slot);
-                let item_slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+                let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let named = e.mem.u32(item_slot);
                 let name = e.call(MARKER_NAME, &args![named + 0x18]).u32();
                 let list = e.mem.u32(base + 0x2c);
@@ -1527,16 +1539,16 @@ pub fn race_sex_menu_create_contents(e: &mut Engine, this: Ptr<RaceSexMenu>, mod
         let owner: u32 = e.global(MARKER_OWNER);
         let mut node = e.call(MARKER_LIST_HEAD_2, &args![owner]).u32();
         while node != 0 {
-            let item_slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+            let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item_slot) == 0 {
                 break;
             }
-            let item_slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+            let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_slot);
             if e.call(MARKER_CHECK_2, &args![item]).u8() != 0 {
-                let item_slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+                let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(item_slot);
-                let item_slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+                let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let named = e.mem.u32(item_slot);
                 let name = e.call(MARKER_NAME, &args![named + 0x18]).u32();
                 let list = e.mem.u32(base + 0x44);
@@ -1631,7 +1643,7 @@ pub fn race_sex_menu_create_contents(e: &mut Engine, this: Ptr<RaceSexMenu>, mod
         if e.call(GET_CURRENT_TEX_LANGUAGE, &args![]).i32() != 1 {
             e.call(STRING_UPPER_CASE, &args![projector]);
         }
-        let name = e.call(STRING_C_STR, &args![projector]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, projector));
         let label = e.call(SETTING_VALUE, &args![SETTING_4108]).u32();
         e.call(
             STRING_FORMAT,
@@ -1666,12 +1678,12 @@ pub fn race_sex_menu_create_contents(e: &mut Engine, this: Ptr<RaceSexMenu>, mod
 /// base form present, true when `getter` of the base form equals the
 /// option's object.
 fn option_matches_base_value(e: &mut Engine, option: u32, getter: u32) -> bool {
-    if option != 0 && e.call(WORD_AT_EIGHT, &args![option]).u32() != 0 {
+    if option != 0 && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, option)) != 0 {
         let me: u32 = e.global(RACE_SEX_MENU_ME);
         if me != 0 && e.mem.u32(me + 0xd8) != 0 {
             let player_base = e.mem.u32(me + 0xd8);
             let current = e.call(getter, &args![player_base]).u32();
-            let object = e.call(WORD_AT_EIGHT, &args![option]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, option));
             return current == object;
         }
     }
@@ -1737,14 +1749,18 @@ pub fn fn_007ad9c0(e: &mut Engine, option: u32) -> bool {
     }
     let player_base = e.mem.u32(me + 0xd8);
     let parts = e.call(HEAD_PART_LIST, &args![player_base]).u32();
-    if e.call(LIST_IS_EMPTY, &args![parts]).u8() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, parts))
+        .into_ret()
+        .u8()
+        != 0
+    {
         return false;
     }
     let me: u32 = e.global(RACE_SEX_MENU_ME);
     let player_base = e.mem.u32(me + 0xd8);
     let parts = e.call(HEAD_PART_LIST, &args![player_base]).u32();
-    let first = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![parts]).u32();
-    let object = e.call(WORD_AT_EIGHT, &args![option]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, parts));
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, option));
     e.mem.u32(first) == object
 }
 
@@ -1807,7 +1823,7 @@ pub fn race_sex_menu_close(e: &mut Engine) {
         for slot in 0..0x14u32 {
             let worn = e.mem.u32(SAVED_WORN_ITEMS + 4 * slot);
             if worn != 0 {
-                let item = e.call(WORD_AT_EIGHT, &args![worn]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, worn));
                 e.call(
                     EQUIP_OBJECT,
                     &args![player, item, 1u32, 0u32, 1u32, 0u32, 1u32],
@@ -1864,7 +1880,9 @@ fn show_confirmation(e: &mut Engine, text: PopupText, callback: u32, flag: u32) 
     let second = e.call(SETTING_VALUE, &args![SETTING_POPUP_B]).u32();
     let text = match text {
         PopupText::Setting(setting) => e.call(SETTING_VALUE, &args![setting]).u32(),
-        PopupText::String(string) => e.call(STRING_C_STR, &args![string]).u32(),
+        PopupText::String(string) => {
+            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string))
+        }
     };
     e.call(
         SHOW_MESSAGE_BOX,
@@ -1920,7 +1938,7 @@ pub fn race_sex_menu_do_click(e: &mut Engine, this: Ptr<RaceSexMenu>, button: i3
                     e.call(PLAYER_RACE_CHANGED, &args![player]);
                     e.call(PLAYER_RECALCULATE, &args![player + 0x94, 0u32]);
                     e.call(PLAYER_UPDATE, &args![player]);
-                    let object = e.call(WORD_AT_EIGHT, &args![option]).u32();
+                    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, option));
                     let player_base = e.mem.u32(base + 0xd8);
                     e.call(SET_RACE, &args![player_base, object, 0u32]);
                 } else {
@@ -1960,7 +1978,8 @@ pub fn race_sex_menu_do_click(e: &mut Engine, this: Ptr<RaceSexMenu>, button: i3
                 }
                 0x1b => {
                     if !menu_option_is_selected(e, Ptr::new(option)) {
-                        let object = e.call(WORD_AT_EIGHT, &args![option]).u32();
+                        let object =
+                            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, option));
                         let player_base = e.mem.u32(base + 0xd8);
                         e.call(SET_HAIR, &args![player_base, object]);
                         fn_007b2b50(e, this, true);
@@ -1972,7 +1991,8 @@ pub fn race_sex_menu_do_click(e: &mut Engine, this: Ptr<RaceSexMenu>, button: i3
                     let parts = e.call(HEAD_PART_LIST, &args![player_base]).u32();
                     e.call(HEAD_PART_LIST_CLEAR, &args![parts]);
                     if !menu_option_is_selected(e, Ptr::new(option)) {
-                        let object = e.call(WORD_AT_EIGHT, &args![option]).u32();
+                        let object =
+                            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, option));
                         e.with_stack(4, |e, slot| {
                             e.mem.set_u32(slot.addr(), object);
                             let player_base = e.mem.u32(base + 0xd8);
@@ -1985,7 +2005,8 @@ pub fn race_sex_menu_do_click(e: &mut Engine, this: Ptr<RaceSexMenu>, button: i3
                 }
                 0x21 => {
                     if !menu_option_is_selected(e, Ptr::new(option)) {
-                        let object = e.call(WORD_AT_EIGHT, &args![option]).u32();
+                        let object =
+                            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, option));
                         let player_base = e.mem.u32(base + 0xd8);
                         e.call(SET_HEAD, &args![player_base, object]);
                         fn_007b27c0(e, this);
@@ -2010,7 +2031,7 @@ pub fn race_sex_menu_do_click(e: &mut Engine, this: Ptr<RaceSexMenu>, button: i3
     }
     if button == 4 {
         let list = option_list(e, base, list_index);
-        let target = e.call(LIST_BACK_TARGET, &args![list]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, list));
         race_sex_menu_set_active_list(e, this, target as i32);
     } else if button == 5 {
         if list_index == e.mem.u32(base + 0x120) {
@@ -2021,7 +2042,7 @@ pub fn race_sex_menu_do_click(e: &mut Engine, this: Ptr<RaceSexMenu>, button: i3
             race_sex_menu_set_active_list(e, this, target as i32);
         }
     } else {
-        let tile_word = e.call(WORD_AT_0X28, &args![tile]).u32();
+        let tile_word = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
         let list = option_list(e, base, list_index);
         option = e.call(OPTION_AT_TILE, &args![list, tile_word]).u32();
         if option != 0 {
@@ -2066,7 +2087,7 @@ pub fn race_sex_menu_do_down_click(e: &mut Engine, this: Ptr<RaceSexMenu>, butto
             return;
         }
         e.mem.set_u32(base + 0xc0, tile);
-        let tile_word = e.call(WORD_AT_0X28, &args![tile]).u32();
+        let tile_word = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
         let list_index = e.call(CURRENT_LIST_INDEX, &args![this]).u32();
         let list = option_list(e, base, list_index);
         let option = e.call(OPTION_AT_TILE, &args![list, tile_word]).u32();
@@ -2100,7 +2121,7 @@ pub fn race_sex_menu_do_still_down(e: &mut Engine, this: Ptr<RaceSexMenu>, butto
     }
     if button == 0x69 && tile != 0 {
         let list_index = e.call(CURRENT_LIST_INDEX, &args![this]).u32();
-        let tile_word = e.call(WORD_AT_0X28, &args![tile]).u32();
+        let tile_word = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
         let list = option_list(e, base, list_index);
         let option = e.call(OPTION_AT_TILE, &args![list, tile_word]).u32();
         if option != 0 {
@@ -2108,7 +2129,7 @@ pub fn race_sex_menu_do_still_down(e: &mut Engine, this: Ptr<RaceSexMenu>, butto
                 fn_007b3840(e, Ptr::new(option), range.addr(), range.addr() + 4);
                 (e.mem.i32(range.addr()), e.mem.i32(range.addr() + 4))
             });
-            let tile_word = e.call(WORD_AT_0X28, &args![tile]).u32();
+            let tile_word = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             let child = e
                 .call(TILE_GET_CHILD_BY_ID, &args![tile_word, 0x65u32])
                 .u32();
@@ -2189,7 +2210,11 @@ pub fn race_sex_menu_do_idle(e: &mut Engine, this: Ptr<RaceSexMenu>) {
     if e.call(IS_TOP_MENU_ID, &args![class]).u8() == 0 {
         for index in 0..4u32 {
             let handle = base + 0xf0 + index * 0xc;
-            if e.call(WORD_AT_EIGHT, &args![handle]).i32() == 1 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, handle))
+                .into_ret()
+                .i32()
+                == 1
+            {
                 e.call(SOUND_HANDLE_PAUSE, &args![handle]);
             }
         }
@@ -2197,7 +2222,11 @@ pub fn race_sex_menu_do_idle(e: &mut Engine, this: Ptr<RaceSexMenu>) {
     }
     for index in 0..4u32 {
         let handle = base + 0xf0 + index * 0xc;
-        if e.call(WORD_AT_EIGHT, &args![handle]).i32() == 3 {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, handle))
+            .into_ret()
+            .i32()
+            == 3
+        {
             e.call(SOUND_HANDLE_PLAY, &args![handle, 0u32]);
         }
     }
@@ -2446,10 +2475,12 @@ pub fn race_sex_menu_do_gamepad(
                 let interface = e.call(INTERFACE_SINGLETON, &args![]).u32();
                 focus = e.mem.u32(interface + 0xcc);
                 while focus != 0 {
-                    if e.call(WORD_AT_0X28, &args![focus]).u32() == e.mem.u32(base + 0x78) {
+                    if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, focus))
+                        == e.mem.u32(base + 0x78)
+                    {
                         break;
                     }
-                    focus = e.call(WORD_AT_0X28, &args![focus]).u32();
+                    focus = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, focus));
                 }
             }
             if focus == e.mem.u32(base + 0x88) && button == 3 {
@@ -2487,7 +2518,7 @@ pub fn race_sex_menu_do_gamepad(
         3 => {
             let index = e.call(CURRENT_LIST_INDEX, &args![this]).u32();
             let list = option_list(e, base, index);
-            let target = e.call(LIST_BACK_TARGET, &args![list]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, list));
             if race_sex_menu_set_active_list(e, this, target as i32) != 0 {
                 play_ui_sound(e, SOUND_MENU_OK);
             }
@@ -2497,11 +2528,13 @@ pub fn race_sex_menu_do_gamepad(
             let mut index = e.call(CURRENT_LIST_INDEX, &args![this]).i32();
             while index >= 4 {
                 let list = option_list(e, base, index as u32);
-                index = e.call(LIST_BACK_TARGET, &args![list]).i32();
+                index = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, list))
+                    .into_ret()
+                    .i32();
             }
             let list = option_list(e, base, index as u32);
             let handled = if button == 0xd {
-                let target = e.call(LIST_BACK_TARGET, &args![list]).u32();
+                let target = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, list));
                 race_sex_menu_set_active_list(e, this, target as i32)
             } else {
                 let target = e.call(LIST_PARENT_TARGET, &args![list]).u32();
@@ -2557,7 +2590,9 @@ pub fn race_sex_menu_set_active_list(e: &mut Engine, this: Ptr<RaceSexMenu>, lis
         e.call(LIGHT_BUTTON, &args![rendered, list]);
     }
     let current = option_list(e, base, list as u32);
-    let back = e.call(LIST_BACK_TARGET, &args![current]).i32();
+    let back = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, current))
+        .into_ret()
+        .i32();
     let tile = e.mem.u32(base + 0x88);
     e.call(
         SET_TRAIT_FROM_INT,
@@ -2576,7 +2611,7 @@ pub fn race_sex_menu_set_active_list(e: &mut Engine, this: Ptr<RaceSexMenu>, lis
     } else {
         CAPTION_B
     };
-    let text = e.call(STRING_C_STR, &args![caption]).u32();
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, caption));
     let tile = e.mem.u32(base + 0x8c);
     e.call(SET_STRING_TRAIT, &args![tile, TRAIT_STRING, text, 1u32]);
     1
@@ -2598,25 +2633,25 @@ pub fn fn_007af300(e: &mut Engine, this: Ptr<RaceSexMenu>) {
     let owner: u32 = e.global(MARKER_OWNER);
     let mut node = e.call(HAIR_LIST_HEAD, &args![owner]).u32();
     while node != 0 {
-        let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         if e.call(HAIR_CHECK_A, &args![item]).u8() != 0 {
             let player_base = e.mem.u32(base + 0xd8);
-            let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(slot);
             if e.call(HAIR_CHECK_B, &args![item, player_base]).u8() != 0 {
-                let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(slot);
                 let name = e.call(MARKER_NAME, &args![item + 0x18]).u32();
                 let list = e.mem.u32(base + 0x3c);
                 let option = e
                     .call(OPTION_LIST_ADD_OPTION, &args![list, name, 0x1bu32])
                     .u32();
-                let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(slot);
                 e.call(OPTION_SET_DATA, &args![option, item]);
                 if selected == 0 && fn_007ad860(e, option) {
@@ -2632,7 +2667,7 @@ pub fn fn_007af300(e: &mut Engine, this: Ptr<RaceSexMenu>) {
             break;
         }
         let list = e.mem.u32(base + 0x3c);
-        if selected == e.call(OPTION_LIST_CURRENT, &args![list]).u32() {
+        if selected == typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, list)) {
             break;
         }
         let list = e.mem.u32(base + 0x3c);
@@ -2657,20 +2692,20 @@ pub fn fn_007af450(e: &mut Engine, this: Ptr<RaceSexMenu>) {
     let owner: u32 = e.global(MARKER_OWNER);
     let mut node = e.call(EYE_LIST_HEAD, &args![owner]).u32();
     while node != 0 {
-        let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         if e.call(EYE_CHECK_A, &args![item]).u8() != 0 {
             let player_base = e.mem.u32(base + 0xd8);
-            let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(slot);
             if e.call(EYE_CHECK_B, &args![item, player_base]).u8() != 0 {
-                let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(slot);
-                let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let named = e.mem.u32(slot);
                 let name = e.call(MARKER_NAME, &args![named + 0x18]).u32();
                 let list = e.mem.u32(base + 0x48);
@@ -2713,7 +2748,7 @@ pub fn race_sex_menu_validate_hair_option_list(e: &mut Engine, this: Ptr<RaceSex
                 STRING_FORMAT,
                 &args![text, CAPTION_FORMAT, caption, 0x3eu32],
             );
-            let name = e.call(STRING_C_STR, &args![text]).u32();
+            let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let list = e.mem.u32(base + 0x34);
             e.call(
                 OPTION_LIST_INSERT_OPTION,
@@ -2748,7 +2783,7 @@ pub fn race_sex_menu_make_preset_head_list(e: &mut Engine, this: Ptr<RaceSexMenu
         menu_option_set_enabled(e, Ptr::new(option), 0);
     } else {
         menu_option_set_enabled(e, Ptr::new(option), 1);
-        let count = e.call(WORD_AT_EIGHT, &args![base + 0xdc]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + 0xdc));
         menu_option_set_range(e, Ptr::new(option), 1, count as i32);
     }
 }
@@ -2762,7 +2797,7 @@ pub fn race_sex_menu_update_scroll_arrows(e: &mut Engine, this: Ptr<RaceSexMenu>
     let base = this.addr();
     let index = e.call(CURRENT_LIST_INDEX, &args![this]).u32();
     let list = option_list(e, base, index);
-    let head = e.call(STRING_C_STR, &args![list]).u32();
+    let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     let mut above = false;
     let mut below = false;
     e.call(TILE_UPDATE_ALL, &args![0u32]);
@@ -2820,7 +2855,7 @@ pub fn race_sex_menu_on_face_slider_change(e: &mut Engine, this: Ptr<RaceSexMenu
         e.call(GET_FACE_COORD, &args![player_base, coords]);
         let value = menu_option_get_value(e, Ptr::new(option));
         let scaled = (value as f64 / e.global::<f64>(TENTH_DIVISOR)) as f32;
-        let word = e.call(WORD_AT_EIGHT, &args![option]).u32();
+        let word = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, option));
         let id = word_at_four(e, option);
         e.call(
             APPLY_FACE_SLIDER,
@@ -2879,12 +2914,12 @@ pub fn race_sex_menu_on_hair_color_slider_change(
                 e.call(STRING_CONSTRUCT, &args![text]);
                 let value = menu_option_get_value(e, Ptr::new(option));
                 e.call(STRING_FORMAT, &args![text, FORMAT_HAIR_COLOR_INT, value]);
-                let name = e.call(STRING_C_STR, &args![text]).u32();
+                let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                 let settings = e.call(SETTINGS_COLLECTION, &args![]).u32();
                 e.call(SETTINGS_FIND, &args![settings, name, found.addr() + 4]);
                 let value = menu_option_get_value(e, Ptr::new(option));
                 e.call(STRING_FORMAT, &args![text, FORMAT_HAIR_COLOR_NAME, value]);
-                let name = e.call(STRING_C_STR, &args![text]).u32();
+                let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                 let settings = e.call(SETTINGS_COLLECTION, &args![]).u32();
                 e.call(SETTINGS_FIND, &args![settings, name, found.addr()]);
                 (e.mem.u32(found.addr() + 4), e.mem.u32(found.addr()))
@@ -2911,7 +2946,7 @@ pub fn race_sex_menu_on_hair_color_slider_change(
 /// blue byte of `color`.
 pub fn race_sex_menu_set_hair_color_sliders(e: &mut Engine, this: Ptr<RaceSexMenu>, color: u32) {
     let list = e.mem.u32(this.addr() + 0x40);
-    let head = e.call(STRING_C_STR, &args![list]).u32();
+    let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     e.with_stack(4, |e, cursor| {
         e.mem.set_u32(cursor.addr(), head);
         while e.mem.u32(cursor.addr()) != 0 {
@@ -3450,7 +3485,7 @@ pub fn fn_007b16d0(
         let mut list_index = from;
         while list_index < to {
             let list = option_list(e, base, list_index as u32);
-            let mut cursor = e.call(STRING_C_STR, &args![list]).u32();
+            let mut cursor = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
             while cursor != 0 {
                 let option = {
                     let slot = frame.addr() + 0x98;
@@ -3484,7 +3519,7 @@ pub fn fn_007b16d0(
                 let race_word = word_at_four(e, player_base + 0x10c);
                 let race = e.call(FACE_VALUE_5D9FB0, &args![race_word, sex]).u32();
                 e.call(FACE_FILL_COORDS, &args![race, first, coords, 0u32, 0.0f32]);
-                let shape = e.call(WORD_AT_EIGHT, &args![option]).u32();
+                let shape = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, option));
                 let value = e
                     .call(FACE_SHAPE_VALUE, &args![coords, selector, 0u32, shape])
                     .f32();
@@ -3555,7 +3590,7 @@ pub fn race_sex_menu_rotate_player(
     force: u32,
 ) -> u8 {
     let base = this.addr();
-    let node = e.call(STRING_C_STR, &args![base + 0xd4]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0xd4));
     let rotation = e.call(GET_ROTATE, &args![node]).u32();
     // The exe's frame (`SUB ESP,0x80` under `EBP`, then `ESI` and `EDI`): the matrix at
     // `EBP-0x24` (+0x64), the scale at `EBP-0x58` (+0x30), the product at `EBP-0x7c` (+0xc) and
@@ -3597,7 +3632,7 @@ pub fn race_sex_menu_rotate_player(
                 .call(MATRIX_MULTIPLY, &args![matrix, product, scale])
                 .u32();
             copy_words(e, multiplied, matrix, 9);
-            let node = e.call(STRING_C_STR, &args![base + 0xd4]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0xd4));
             e.call(SET_ROTATE, &args![node, matrix]);
             fn_007b1ae0(e, this);
             1
@@ -3668,7 +3703,7 @@ pub fn race_sex_menu_zoom_player(
     let z = x87_mul(f64::from(height), place(e, 0xb4, 0xa8)) as f32;
     let y = place(e, 0xb0, 0xa4) as f32;
     let x = place(e, 0xac, 0xa0) as f32;
-    let node = e.call(STRING_C_STR, &args![base + 0xd4]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0xd4));
     e.call(SET_TRANSLATE, &args![node, x, y, z]);
     fn_007b1ae0(e, this);
     1
@@ -3698,30 +3733,30 @@ pub fn fn_007b1ca0(e: &mut Engine, this: Ptr<RaceSexMenu>) {
             .u32();
         let mut node = e.call(RACE_HAIR_LIST_HEAD, &args![race]).u32();
         while candidate == 0 && node != 0 {
-            let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 {
                 break;
             }
-            let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(slot);
             if e.call(HAIR_CHECK_A, &args![item]).u8() != 0 {
                 let player_base = e.mem.u32(base + 0xd8);
                 let mut take = false;
                 if e.call(GET_SEX, &args![player_base]).u32() == 0 {
-                    let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let item = e.mem.u32(slot);
                     take = e.call(HAIR_CHECK_MALE, &args![item]).u8() != 0;
                 }
                 if !take {
                     let player_base = e.mem.u32(base + 0xd8);
                     if e.call(GET_SEX, &args![player_base]).u32() == 1 {
-                        let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+                        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                         let item = e.mem.u32(slot);
                         take = e.call(HAIR_CHECK_FEMALE, &args![item]).u8() != 0;
                     }
                 }
                 if take {
-                    let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![node]).u32();
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     candidate = e.mem.u32(slot);
                 }
             }
@@ -3750,7 +3785,7 @@ pub fn fn_007b1ca0(e: &mut Engine, this: Ptr<RaceSexMenu>) {
 /// Returns the first word of the object at `+0xA8` of its `this` (through
 /// `006815c0`, which returns its own `this`).
 pub fn fn_007b1e50(e: &mut Engine, this: u32) -> u32 {
-    let slot = e.call(EMPTY_MEMBER_RETURNS_THIS, &args![this + 0xa8]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this + 0xa8));
     e.mem.u32(slot)
 }
 
@@ -3819,7 +3854,7 @@ pub fn fn_007b1e70(
                 let third = e.vcall(player, 0x1b0, &args![0u32]).u32();
                 if third != 0 && e.call(OBJECT_9611E0, &args![third]).u32() != 0 {
                     e.call(REMOVE_FROM_PALETTE, &args![third, palette]);
-                    let saved = e.call(SAVED_OBJECT, &args![player]).u32();
+                    let saved = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
                     e.vcall(saved, 0x79c, &args![0u32]);
                     let owner = e.call(OBJECT_9611E0, &args![third]).u32();
                     e.vcall(owner, 0xe8, &args![third]);
@@ -3827,16 +3862,16 @@ pub fn fn_007b1e70(
                 let first = e.vcall(player, 0x1ac, &args![0u32]).u32();
                 if first != 0 && e.call(OBJECT_9611E0, &args![first]).u32() != 0 {
                     e.call(REMOVE_FROM_PALETTE, &args![first, palette]);
-                    let saved = e.call(SAVED_OBJECT, &args![player]).u32();
+                    let saved = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
                     e.vcall(saved, 0x794, &args![0u32]);
-                    let saved = e.call(SAVED_OBJECT, &args![player]).u32();
+                    let saved = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
                     e.vcall(saved, 0x7a4, &args![0u32]);
                     let owner = e.call(OBJECT_9611E0, &args![first]).u32();
                     e.vcall(owner, 0xe8, &args![first]);
                 }
             }
-            if e.call(SAVED_OBJECT, &args![player]).u32() != 0 {
-                let saved = e.call(SAVED_OBJECT, &args![player]).u32();
+            if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player)) != 0 {
+                let saved = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
                 e.vcall(saved, 0x58, &args![]);
             }
             let player_base = e.mem.u32(base + 0xd8);
@@ -3932,7 +3967,8 @@ pub fn fn_007b1e70(
                         }
                         let language = e.call(APPLY_TEXTURING_ARG, &args![]).u32();
                         e.call(APPLY_TEXTURING, &args![head, coords, texture, language]);
-                        let image = e.call(STRING_C_STR, &args![texture]).u32();
+                        let image =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
                         e.vcall(property, 0xfc, &args![1u32, image]);
                         e.call(NI_POINTER_DESTRUCT, &args![texture]);
                     }
@@ -3981,14 +4017,14 @@ pub fn fn_007b2570(e: &mut Engine, this: u32) -> u8 {
 pub fn fn_007b25a0(e: &mut Engine, this: Ptr<RaceSexMenu>) {
     let base = this.addr();
     let player: u32 = e.global(PLAYER);
-    let form = e.call(PLAYER_BASE_FORM, &args![player]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
     e.call(CLEAR_BODY_TEXTURES, &args![form]);
     e.mem.set_u8(FACE_REBUILD_FLAG, 1);
-    let saved = e.call(SAVED_OBJECT, &args![player]).u32();
+    let saved = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     e.vcall(saved, 0x58, &args![]);
-    let saved = e.call(SAVED_OBJECT, &args![player]).u32();
+    let saved = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     e.vcall(saved, 0x468, &args![3u32]);
-    let saved = e.call(SAVED_OBJECT, &args![player]).u32();
+    let saved = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     e.vcall(saved, 0x464, &args![player]);
     if e.vcall(player, 0x1b0, &args![0u32]).u32() == 0
         && e.vcall(player, 0x1ac, &args![0u32]).u32() == 0
@@ -4101,8 +4137,8 @@ pub fn fn_007b27c0(e: &mut Engine, this: Ptr<RaceSexMenu>) -> bool {
                     }
                 }
             }
-            if e.call(STRING_C_STR, &args![left]).u32() != 0
-                && e.call(STRING_C_STR, &args![right]).u32() != 0
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, left)) != 0
+                && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, right)) != 0
             {
                 let path = frame.addr() + 0x24;
                 e.call(STRING_CONSTRUCT, &args![path]);
@@ -4118,18 +4154,20 @@ pub fn fn_007b27c0(e: &mut Engine, this: Ptr<RaceSexMenu>) -> bool {
                 }
                 let texture = frame.addr() + 0x2c;
                 e.call(NI_POINTER_CONSTRUCT, &args![texture, 0u32]);
-                let text = e.call(STRING_C_STR, &args![path]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, path));
                 let renderer: u32 = e.global(TEXTURE_LOADER);
                 e.call(
                     CREATE_TEXTURE_IMAGE,
                     &args![renderer, text, texture, 0u32, 0u32],
                 );
-                if e.call(STRING_C_STR, &args![texture]).u32() != 0 {
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture)) != 0 {
                     for slot in [left, right] {
-                        let object = e.call(STRING_C_STR, &args![slot]).u32();
+                        let object =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
                         let property = property_in_world_range(e, object, 8, 12);
                         if property != 0 {
-                            let image = e.call(STRING_C_STR, &args![texture]).u32();
+                            let image =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
                             e.vcall(property, 0xf0, &args![0u32, 0u32, image]);
                         }
                     }
@@ -4218,7 +4256,7 @@ pub fn fn_007b2b50(e: &mut Engine, this: Ptr<RaceSexMenu>, rebuild: bool) -> boo
                 let face_data = local(0x128);
                 e.call(FACE_DATA_CONSTRUCT, &args![face_data]);
                 let value = e.call(PLAYER_VALUE_87F4C0, &args![player]).u32();
-                let form = e.call(PLAYER_BASE_FORM, &args![player]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
                 let race = e.vcall(player, 0x37c, &args![]).u32();
                 e.call(
                     GET_FACE_GEN_DATA,
@@ -4246,7 +4284,7 @@ pub fn fn_007b2b50(e: &mut Engine, this: Ptr<RaceSexMenu>, rebuild: bool) -> boo
                         e.call(PALETTE_ENTRY_RELEASE, &args![entry]);
                     }
                 }
-                let form = e.call(PLAYER_BASE_FORM, &args![player]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
                 e.call(FORM_UPDATE_6062E0, &args![form, player, 0u32]);
                 for index in 0..2u32 {
                     let found = named_child(e, local(0x224), local(0xd4), first, index);
@@ -4294,16 +4332,22 @@ pub fn fn_007b2b50(e: &mut Engine, this: Ptr<RaceSexMenu>, rebuild: bool) -> boo
                     }
                     let object = e.vcall(child, 0x1c, &args![]).u32();
                     e.call(NI_POINTER_ASSIGN, &args![held_pointer, object]);
-                    if e.call(STRING_C_STR, &args![held_pointer]).u32() == 0 {
+                    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_pointer)) == 0
+                    {
                         continue;
                     }
                     if hair {
                         let player_base = e.mem.u32(base + 0xd8);
                         let value = e.call(HAIR_VALUE_602130, &args![player_base]).f32();
-                        let held = e.call(STRING_C_STR, &args![held_pointer]).u32();
+                        let held = typed_call!(
+                            leaf::FAMILY,
+                            0x0055_9450,
+                            leaf::word_at_0(e, held_pointer)
+                        );
                         e.call(APPLY_HAIR_VALUE, &args![held, value]);
                     }
-                    let held = e.call(STRING_C_STR, &args![held_pointer]).u32();
+                    let held =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_pointer));
                     let property = e.call(GET_PROPERTY, &args![held, 3u32]).u32();
                     let eight =
                         if property != 0 && e.call(PROPERTY_KIND, &args![property]).i32() == 8 {
@@ -4358,7 +4402,7 @@ pub fn fn_007b3660(e: &mut Engine, this: Ptr<RaceSexMenu>) {
     let mut green = u32::MAX;
     let mut blue = u32::MAX;
     let list = e.mem.u32(base + 0x40);
-    let head = e.call(STRING_C_STR, &args![list]).u32();
+    let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     e.with_stack(4, |e, cursor| {
         e.mem.set_u32(cursor.addr(), head);
         while e.mem.u32(cursor.addr()) != 0 {
@@ -4424,7 +4468,7 @@ pub fn menu_option_set_value(e: &mut Engine, this: Ptr<MenuOption>, value: i32) 
     e.call(SET_TRAIT_FROM_INT, &args![tile, 0x1005u32, value]);
     let tile = e.mem.u32(this.addr());
     let tile_value = e.call(TILE_GET_VALUE, &args![tile, 0x1009u32]).u32();
-    if e.call(LIST_BACK_TARGET, &args![tile_value]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, tile_value)) == 0 {
         e.call(TILE_VALUE_SET_FLOAT, &args![tile_value, value as f32, 1u32]);
     }
     true
@@ -4621,7 +4665,7 @@ fn place_options_from(e: &mut Engine, list: u32, cursor: u32) {
                 .call(ADD_USER_TRAIT, &args![TOP_BOUND_TRAIT_NAME, u32::MAX])
                 .u32();
             let tile = e.mem.u32(option);
-            let parent = e.call(WORD_AT_0X28, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             e.call(GET_FLOAT_TRAIT, &args![parent, trait_id]).f32() as f64
         };
         let tile = e.mem.u32(option);
@@ -4676,7 +4720,7 @@ pub fn fn_007b3bb0(
         let tile = e.get(sub_list, MenuOptionList::pTemplateTile);
         let number = e.call(GET_FLOAT_TRAIT, &args![tile, 0x1004u32]).f32();
         let id = fistp_truncate(number as f64) as u32;
-        let name = e.call(STRING_C_STR, &args![text]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         let option = menu_option_list_add_menu_option(e, this, name, LIST_ITEM_TEMPLATE, id, 0);
         e.call(STRING_DESTROY, &args![text]);
         option
@@ -4742,7 +4786,7 @@ pub fn menu_option_list_insert_menu_option(
     {
         return Ptr::new(0);
     }
-    let mut node = e.call(STRING_C_STR, &args![this]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     let mut index = index;
     while node != 0 && index != 0 {
         node = e.call(LIST_NODE_NEXT, &args![this, node]).u32();
@@ -4762,7 +4806,7 @@ pub fn menu_option_list_remove_menu_option(e: &mut Engine, this: Ptr<MenuOptionL
     e.with_stack(8, |e, locals| {
         let cursor = locals.addr();
         let removed = cursor + 4;
-        let head = e.call(STRING_C_STR, &args![this]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         e.mem.set_u32(cursor, head);
         let mut found = false;
         while e.mem.u32(cursor) != 0 {
@@ -4873,7 +4917,7 @@ pub fn menu_option_list_update_current_selection(e: &mut Engine, this: Ptr<MenuO
         return;
     }
     e.with_stack(4, |e, cursor| {
-        let head = e.call(STRING_C_STR, &args![this]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         e.mem.set_u32(cursor.addr(), head);
         while e.mem.u32(cursor.addr()) != 0 {
             let slot = e.call(LIST_ADVANCE, &args![this, cursor]).u32();
@@ -4923,7 +4967,7 @@ pub fn fn_007b4180(e: &mut Engine, this: Ptr<MenuOption>) {
 /// The first option of the list whose tile is `tile`, or 0.
 pub fn fn_007b41c0(e: &mut Engine, this: Ptr<MenuOptionList>, tile: u32) -> u32 {
     e.with_stack(4, |e, cursor| {
-        let head = e.call(STRING_C_STR, &args![this]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         e.mem.set_u32(cursor.addr(), head);
         while e.mem.u32(cursor.addr()) != 0 {
             let slot = e.call(LIST_ADVANCE, &args![this, cursor]).u32();
@@ -4940,7 +4984,7 @@ pub fn fn_007b41c0(e: &mut Engine, this: Ptr<MenuOptionList>, tile: u32) -> u32 
 /// The first option of the list whose id (`+4`) is `id`, or 0.
 pub fn fn_007b4210(e: &mut Engine, this: Ptr<MenuOptionList>, id: u32) -> u32 {
     e.with_stack(4, |e, cursor| {
-        let head = e.call(STRING_C_STR, &args![this]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         e.mem.set_u32(cursor.addr(), head);
         while e.mem.u32(cursor.addr()) != 0 {
             let slot = e.call(LIST_ADVANCE, &args![this, cursor]).u32();
@@ -4979,7 +5023,7 @@ pub fn menu_option_list_do_gamepad(e: &mut Engine, this: Ptr<MenuOptionList>, bu
             } else if up {
                 word_at_four(e, this.addr())
             } else {
-                e.call(STRING_C_STR, &args![this]).u32()
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this))
             };
             if target != 0 {
                 let slot = e.call(LIST_NODE_DATA, &args![this, target]).u32();
@@ -5061,7 +5105,7 @@ pub fn fn_007b4410(e: &mut Engine, this: Ptr<MenuOptionList>) {
         let highlighted = e.get(this, MenuOptionList::pHighlighted);
         let tile = e.mem.u32(highlighted);
         e.call(SET_FOCUS_TARGET_CDECL, &args![tile]);
-        let name = e.call(STRING_C_STR, &args![text]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         let highlighted = e.get(this, MenuOptionList::pHighlighted);
         let tile = e.mem.u32(highlighted);
         e.call(SET_STRING_TRAIT, &args![tile, 0xfe8u32, name, 1u32]);
@@ -5088,7 +5132,7 @@ pub fn menu_option_list_scroll_by(e: &mut Engine, this: Ptr<MenuOptionList>, del
         return;
     }
     e.with_stack(4, |e, cursor| {
-        let head = e.call(STRING_C_STR, &args![this]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         e.mem.set_u32(cursor.addr(), head);
         while e.mem.u32(cursor.addr()) != 0 {
             let slot = e.call(LIST_ADVANCE, &args![this, cursor]).u32();
@@ -5108,7 +5152,7 @@ pub fn menu_option_list_scroll_by(e: &mut Engine, this: Ptr<MenuOptionList>, del
 /// clears the highlighted option.
 pub fn fn_007b45b0(e: &mut Engine, this: Ptr<MenuOptionList>) {
     e.with_stack(4, |e, cursor| {
-        let head = e.call(STRING_C_STR, &args![this]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         e.mem.set_u32(cursor.addr(), head);
         while e.mem.u32(cursor.addr()) != 0 {
             let slot = e.call(LIST_ADVANCE, &args![this, cursor]).u32();
@@ -5254,7 +5298,7 @@ pub fn fn_007b4930(e: &mut Engine, this: Ptr<RaceSexMenu>) {
     if word_at_four(e, option) == 0x1d && (button == 100 || button == 0x68) {
         let text = e.call(SETTING_VALUE, &args![SETTING_3528]).u32();
         let tile = e.mem.u32(base + 0xc0);
-        let parent = e.call(WORD_AT_0X28, &args![tile]).u32();
+        let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
         let shown = e.call(TILE_GET_STRING, &args![parent, 0x1009u32]).u32();
         if e.call(STRING_COMPARE, &args![shown, text]).u32() == 0 {
             changed = true;
@@ -5279,7 +5323,7 @@ pub fn fn_007b4930(e: &mut Engine, this: Ptr<RaceSexMenu>) {
                 let option = e.mem.u32(base + 0xc4);
                 let value = menu_option_get_value(e, Ptr::new(option));
                 let tile = e.mem.u32(base + 0xc0);
-                let parent = e.call(WORD_AT_0X28, &args![tile]).u32();
+                let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
                 let raw = e.call(GET_FLOAT_TRAIT, &args![parent, 0x1008u32]).f32();
                 let step = e.call(FTOL, &args![raw as f64]).i32();
                 let value = if button == 0x66 {
@@ -5447,9 +5491,11 @@ pub fn race_sex_menu_slider_release(e: &mut Engine, this: Ptr<RaceSexMenu>) {
         }
     } else if word_at_four(e, option) == 0x18 {
         let value = menu_option_get_value(e, Ptr::new(option));
-        let entry = e
-            .call(ARRAY_ENTRY, &args![base + 0xdc, value.wrapping_sub(1)])
-            .u32();
+        let entry = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, base + 0xdc, value.wrapping_sub(1))
+        );
         let preset = e.mem.u32(entry);
         let player_base = e.mem.u32(base + 0xd8);
         e.call(NPC_METHOD_603790, &args![player_base, preset]);

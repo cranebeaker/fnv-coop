@@ -105,6 +105,7 @@ const REQUEST_SET_HEADING: u32 = 0x006e_2bb0;
 /// `CombatTimer::SaveGame` / `LoadGame` (Xbox PDB).
 const POINT_DIFFERENCE: u32 = 0x0043_9ef0;
 const POINT_LENGTH_SQUARED: u32 = 0x004a_7290;
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
 const TIMER_CONSTRUCT: u32 = 0x0090_6f60;
 const TIMER_START: u32 = 0x008d_7f40;
@@ -181,8 +182,16 @@ pub fn construct(
     e.set(this, CombatProcedureHideFromTarget::eState, 0);
     e.mem.set_u32(t + 0x14, x87_quiet_bits(seconds.to_bits()));
     e.call(TIMER_CONSTRUCT, &args![t + HIDING_TIMER]);
-    e.call(POINT_CONSTRUCT, &args![t + HIDE_POSITION]);
-    e.call(POINT_CONSTRUCT, &args![t + LOOK_AT_POSITION]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, t + HIDE_POSITION)
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, t + LOOK_AT_POSITION)
+    );
     e.mem.set_u32(t + 0x38, cover_location);
     // 009d60ae, 009d60b7: the argument bytes as they are.
     e.mem.set_u8(

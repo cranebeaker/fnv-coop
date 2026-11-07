@@ -88,15 +88,18 @@ const TIMER_OBJECT: u32 = 0x011f_6394;
 
 /// Field getters called by address (`this` only): the word at `+4`,
 /// `+0x18`, `+0x1c`, `+0x24`, `+0x28`, `+0x14`, `+0x88` and `+0`.
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 const WORD_AT_18: u32 = 0x0096_11e0;
 const WORD_AT_1C: u32 = 0x0044_1110;
 const WORD_AT_24: u32 = 0x0059_bb30;
+#[cfg(test)]
 const WORD_AT_28: u32 = 0x0045_cd60;
 const WORD_AT_14: u32 = 0x0082_5c00;
 /// `TES::GetWorldSpace` (Xbox PDB map): the word at `+0x88`.
 const TES_GET_WORLD_SPACE: u32 = 0x004f_d3e0;
 /// `*this` (a smart pointer's object, or the first word).
+#[cfg(test)]
 const WORD_AT_0: u32 = 0x0055_9450;
 /// The byte at `+0x28`, `+0x29`, `+0x5c`, `+0x23`, `+0x20`, `+0x24`.
 const BYTE_AT_28: u32 = 0x0097_4d90;
@@ -120,8 +123,10 @@ const POINT2_SET: u32 = 0x0045_2dc0;
 /// returns `out`.
 const POINT2_SUBTRACT: u32 = 0x004e_8880;
 /// `00416870(this, x, y, z)`: stores the three floats, returns `this`.
+#[cfg(test)]
 const POINT3_SET: u32 = 0x0041_6870;
 /// `006815c0(this)`: returns `this` (the `NiPoint3` member's constructor).
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0068_15c0;
 /// `00439ef0(this, out, other)`: `out = this - other` (three floats),
 /// returns `out`.
@@ -307,8 +312,8 @@ fn setting_unsigned(e: &mut Engine, setting: u32) -> u32 {
 /// The world space of the node's manager (`*this` is the manager, whose
 /// first word is the world).
 fn manager_world(e: &mut Engine, this: Ptr<BGSTerrainNode>) -> u32 {
-    let manager = e.call(WORD_AT_0, &args![this]).u32();
-    e.call(WORD_AT_0, &args![manager]).u32()
+    let manager = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, manager))
 }
 
 /// The node's square in units: `iLevel * 4096` as a `float`.
@@ -385,7 +390,7 @@ pub fn bgs_terrain_node_constructor(
     persistent: bool,
 ) -> Ptr<BGSTerrainNode> {
     let center = this.at(BGSTerrainNode::Center);
-    e.call(POINT3_CONSTRUCT, &args![center]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, center));
     with_scope_guard(e, 0x22, 0x4c, |e| {
         e.set(this, BGSTerrainNode::bSplitNode, true);
         e.set(this, BGSTerrainNode::pChunk, Ptr::NULL);
@@ -415,10 +420,16 @@ pub fn bgs_terrain_node_constructor(
             let base = locals.addr();
             let built = base + 0x0c;
             let difference = base + 0x18;
-            e.call(POINT3_SET, &args![base, base_x, base_y, 0.0f32]);
-            let point = e
-                .call(POINT3_SET, &args![built, center_x, center_y, 0.0f32])
-                .u32();
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, base, base_x, base_y, 0.0f32)
+            );
+            let point = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, built, center_x, center_y, 0.0f32)
+            );
             for offset in [0, 4, 8] {
                 let word = e.mem.u32(point + offset);
                 e.mem.set_u32(center.addr() + offset, word);
@@ -625,7 +636,7 @@ pub fn fn_006fd980(e: &mut Engine, this: Ptr<BGSTerrainNode>, flags: u32) {
     e.set(this, BGSTerrainNode::bChildrenLoaded, false);
     if flags & 4 != 0 {
         let manager = e.get(this, BGSTerrainNode::pManager);
-        let root = e.call(WORD_AT_4, &args![manager]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, manager));
         if this.addr() == root {
             e.call(TREES_CALL_006F83F0, &args![]);
         }
@@ -786,7 +797,7 @@ fn refresh_chunk(e: &mut Engine, this: Ptr<BGSTerrainNode>) {
     let value = (scale as f64 * level_quarter) as f32;
     let geometry = e.call(POINTER_AT_2C, &args![chunk]).u32();
     e.call(GEOMETRY_SET_SCALE, &args![geometry, x87_quiet(value)]);
-    let manager = e.call(WORD_AT_0, &args![this]).u32();
+    let manager = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     let root = e.call(POINTER_AT_8, &args![manager]).u32();
     e.call(SCENE_NODE_FLAG, &args![root, 0u32]);
     e.vcall(root, 0xbc, &args![]);
@@ -809,7 +820,7 @@ pub fn fn_006fdfc0(
     update_blocks: bool,
 ) {
     with_scope_guard(e, 0x24, 0x1ae, |e| {
-        let level = e.call(WORD_AT_4, &args![this]).u32();
+        let level = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         let manager = e.get(this, BGSTerrainNode::pManager);
         let block_level = e.call(WORD_AT_24, &args![manager]).u32();
         if level == block_level {
@@ -865,7 +876,7 @@ pub fn fn_006fdfc0(
                 }
             }
         } else {
-            let level = e.call(WORD_AT_4, &args![this]).u32();
+            let level = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
             let block_level = e.call(WORD_AT_24, &args![manager]).u32();
             if level > block_level {
                 for index in 0..4 {
@@ -888,12 +899,16 @@ pub fn fn_006fe280(e: &mut Engine, this: Ptr, use_empty: bool) -> u32 {
     if use_empty {
         e.with_stack(4, |e, local| {
             let pointer = e.call(POINTER_CONSTRUCT, &args![local, 0u32]).u32();
-            let object = e.call(WORD_AT_0, &args![pointer]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             e.call(POINTER_DESTRUCT, &args![local]);
             object
         })
     } else {
-        e.call(WORD_AT_0, &args![this.addr() + 4]).u32()
+        typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.addr() + 4)
+        )
     }
 }
 
@@ -910,7 +925,7 @@ pub fn bgs_terrain_node_update_trees(
     position: Ptr<NiPoint3>,
 ) {
     with_scope_guard(e, 0x25, 0x1ed, |e| {
-        let level = e.call(WORD_AT_4, &args![this]).u32();
+        let level = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         if level == fn_006fe510(e) {
             if fn_006fe540(e) == 0 {
                 let world = manager_world(e, this);
@@ -942,7 +957,7 @@ pub fn bgs_terrain_node_update_trees(
                 }
             }
         } else {
-            let level = e.call(WORD_AT_4, &args![this]).u32();
+            let level = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
             if level > fn_006fe510(e) {
                 for index in 0..4 {
                     let node = child(e, this, index);
@@ -1231,11 +1246,11 @@ pub fn fn_006fec90(e: &mut Engine, this: Ptr<BGSTerrainNode>, position: Ptr<NiPo
 pub fn fn_006fed30(e: &mut Engine, this: Ptr<BGSTerrainNode>, position: Ptr<NiPoint3>) -> Ptr {
     let mut found = Ptr::NULL;
     if fn_006fec00(e, this, position) {
-        let level = e.call(WORD_AT_4, &args![this]).u32();
+        let level = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         if level == fn_006fe510(e) && !e.get(this, BGSTerrainNode::pTrees).is_null() {
             found = e.get(this, BGSTerrainNode::pTrees);
         } else {
-            let level = e.call(WORD_AT_4, &args![this]).u32();
+            let level = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
             if level > fn_006fe510(e) && !child(e, this, 0).is_null() {
                 for index in 0..4 {
                     let node = child(e, this, index);
@@ -1264,7 +1279,7 @@ pub fn bgs_terrain_node_check_intersects_loaded_range(
     let grids = setting_unsigned(e, GRIDS_TO_LOAD);
     let start_x = cell_x.wrapping_sub(grids >> 1) as i32;
     let tes = e.global::<u32>(TES_POINTER);
-    let cell_y = e.call(WORD_AT_28, &args![tes]).u32();
+    let cell_y = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tes));
     let grids = setting_unsigned(e, GRIDS_TO_LOAD);
     let start_y = cell_y.wrapping_sub(grids >> 1) as i32;
     let level = e.get(this, BGSTerrainNode::iLevel) as i32;

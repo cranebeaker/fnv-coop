@@ -21,8 +21,6 @@ const CURRENT_THREAD_ID: u32 = 0x0040_fc90;
 /// `00543c30`: the byte at `+0x24` of its `this` (here a queue's
 /// `bProcessing`).
 const QUEUE_IS_PROCESSING: u32 = 0x0054_3c30;
-/// `00559450`: the first word of its `this` (here the semaphore's count).
-const SEMAPHORE_COUNT: u32 = 0x0055_9450;
 /// `0069b080`: whether the word at `+0xc` of its `this` is zero.
 const WORD_AT_0XC_IS_ZERO: u32 = 0x0069_b080;
 /// The vtable slot of `BSTMessageQueue::TryPop` (`+0x10`): pops one task
@@ -115,7 +113,16 @@ pub fn fn_0087a7d0(e: &mut Engine, this: Ptr<BSPackedTaskQueue>) -> u8 {
     e.set(this, BSPackedTaskQueue::bProcessing, true);
     let mut popped = 1;
     e.with_stack(PACKED_TASK_SIZE, |e, task| {
-        while popped != 0 || e.call(SEMAPHORE_COUNT, &args![input_sources(this)]).i32() > 0 {
+        while popped != 0
+            || typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, input_sources(this))
+            )
+            .into_ret()
+            .i32()
+                > 0
+        {
             popped = e.vcall(this.addr(), TRY_POP_SLOT, &args![task]).u8();
             if popped != 0 {
                 let unpack = e.get(this, BSPackedTaskQueue::pUnpackFunc);

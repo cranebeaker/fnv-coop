@@ -47,10 +47,13 @@ const VELOCITY_DAMPEN: u32 = 0x40;
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 /// `*this` (`00559450`: the pointer an `NiPointer` holds), and the
 /// identity function `this` (`006815c0`).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
+#[cfg(test)]
 const IDENTITY: u32 = 0x0068_15c0;
 /// Number of elements of an `hkArray`, `BSSimpleArray` or list: the word at
 /// `+4` (`00726070`).
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// Is the cell an interior cell (`00425fd0`).
 const IS_INTERIOR_CELL: u32 = 0x0042_5fd0;
@@ -75,7 +78,9 @@ const MAP_REMOVE: u32 = 0x0040_5430;
 const SIMPLE_ARRAY_CONSTRUCT: u32 = 0x0062_9fd0;
 const SIMPLE_ARRAY_DESTRUCT: u32 = 0x0062_a000;
 const SIMPLE_ARRAY_ADD: u32 = 0x007c_b2e0;
+#[cfg(test)]
 const SIMPLE_ARRAY_COUNT: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const SIMPLE_ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// `LoadedAreaBound::WarpActor` (`006295e0`).
 const WARP_ACTOR: u32 = 0x0062_95e0;
@@ -185,17 +190,21 @@ pub fn fn_006271b0(e: &mut Engine, this: Ptr<LoadedAreaBound>, cell: Ptr, grid: 
             let current = e.get(this, LoadedAreaBound::pCurrentCell);
             let interior = e.call(IS_INTERIOR_CELL, &args![current]).bool();
             let warp_actors = interior || wall == 0;
-            let phantom = e
-                .call(NI_POINTER_GET, &args![base + PHANTOMS + wall * 4])
-                .u32();
+            let phantom = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base + PHANTOMS + wall * 4)
+            );
             let listener = e.call(0x0062_0b80, &args![phantom]).u32();
             let overlaps = e.call(0x0045_c650, &args![listener]).u32();
             let query = e.call(0x0062_e120, &args![overlaps, flag_byte]).u32();
             if !e.call(0x0056_09f0, &args![query]).bool() {
-                let count = e.call(WORD_AT_4, &args![overlaps]).i32();
+                let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, overlaps))
+                    .into_ret()
+                    .i32();
                 e.call(ARRAY_CONSTRUCT, &args![plain]);
                 e.call(ARRAY_CONSTRUCT, &args![referenced]);
-                let size = e.call(WORD_AT_4, &args![overlaps]).u32();
+                let size = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, overlaps));
                 e.call(ARRAY_RESERVE, &args![referenced, size]);
                 for index in 0..count {
                     let element = e.call(ARRAY_ELEMENT, &args![overlaps, index]).u32();
@@ -216,7 +225,11 @@ pub fn fn_006271b0(e: &mut Engine, this: Ptr<LoadedAreaBound>, cell: Ptr, grid: 
                 }
 
                 let mut index = 0;
-                while index < e.call(WORD_AT_4, &args![plain]).i32() {
+                while index
+                    < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, plain))
+                        .into_ret()
+                        .i32()
+                {
                     if warp_actors {
                         let element = e.call(ARRAY_ELEMENT, &args![plain, index]).u32();
                         let reference = e.mem.u32(element);
@@ -238,7 +251,11 @@ pub fn fn_006271b0(e: &mut Engine, this: Ptr<LoadedAreaBound>, cell: Ptr, grid: 
 
                 e.call(ARRAY_CONSTRUCT, &args![handled]);
                 let mut index = 0;
-                while index < e.call(WORD_AT_4, &args![referenced]).i32() {
+                while index
+                    < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, referenced))
+                        .into_ret()
+                        .i32()
+                {
                     let element = e.call(ARRAY_ELEMENT, &args![referenced, index]).u32();
                     let reference = e.mem.u32(element);
                     e.mem.set_u32(body_cell, reference);
@@ -271,7 +288,15 @@ pub fn fn_006271b0(e: &mut Engine, this: Ptr<LoadedAreaBound>, cell: Ptr, grid: 
                                 e.call(ARRAY_CONSTRUCT, &args![found]);
                                 e.call(0x0062_8f90, &args![this, body, found]);
                                 let mut found_index = 0;
-                                while found_index < e.call(WORD_AT_4, &args![found]).i32() {
+                                while found_index
+                                    < typed_call!(
+                                        leaf::FAMILY,
+                                        0x0072_6070,
+                                        leaf::word_at_4(e, found)
+                                    )
+                                    .into_ret()
+                                    .i32()
+                                {
                                     let item =
                                         e.call(ARRAY_ELEMENT, &args![found, found_index]).u32();
                                     e.call(ARRAY_PUSH_BACK, &args![handled, item]);
@@ -313,8 +338,12 @@ pub fn fn_006271b0(e: &mut Engine, this: Ptr<LoadedAreaBound>, cell: Ptr, grid: 
             }
         }
         let mut index = 0u32;
-        while index < e.call(SIMPLE_ARRAY_COUNT, &args![removed]).u32() {
-            let element = e.call(SIMPLE_ARRAY_ELEMENT, &args![removed, index]).u32();
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, removed)) {
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, removed, index)
+            );
             let key = e.mem.u32(element);
             e.call(MAP_REMOVE, &args![base + HIT_MAP, key]);
             index += 1;
@@ -403,8 +432,8 @@ pub fn fn_00627980(e: &mut Engine, this: Ptr<LoadedAreaBound>, cell: Ptr, bounds
             e.call(NI_POINTER_ASSIGN, &args![base + PHANTOMS + wall * 4, 0u32]);
             e.call(0x0056_e4e0, &args![info]);
             e.call(AABB_CONSTRUCT, &args![aabb]);
-            e.call(IDENTITY, &args![corner_a]);
-            e.call(IDENTITY, &args![corner_b]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, corner_a));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, corner_b));
             let interior = e.call(IS_INTERIOR_CELL, &args![cell]).bool();
             // 00627a36 / 00627a40: the height local (`FLDZ`, or `FLD [this + 0x3c]`)
             // stored with `FSTP` and copied once more (00627a4c) before the walls read it.
@@ -506,7 +535,7 @@ pub fn fn_00627980(e: &mut Engine, this: Ptr<LoadedAreaBound>, cell: Ptr, bounds
             e.call(0x0062_81a0, &args![info + 0x20, aabb]);
             let seed = e.call(0x005d_be10, &args![]).u32();
             e.call(0x0062_2290, &args![filter, 0u32, seed, 0u32]);
-            let first = e.call(NI_POINTER_GET, &args![filter]).u32();
+            let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, filter));
             e.mem.set_u32(info, first);
             let memory = e.call(0x00aa_13e0, &args![0x18u32]).u32();
             let phantom = if memory == 0 {
@@ -518,9 +547,11 @@ pub fn fn_00627980(e: &mut Engine, this: Ptr<LoadedAreaBound>, cell: Ptr, bounds
                 NI_POINTER_ASSIGN,
                 &args![base + PHANTOMS + wall * 4, phantom],
             );
-            let stored = e
-                .call(NI_POINTER_GET, &args![base + PHANTOMS + wall * 4])
-                .u32();
+            let stored = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base + PHANTOMS + wall * 4)
+            );
             e.call(0x0056_d2c0, &args![world, stored]);
             e.call(0x0056_d730, &args![info]);
         }
@@ -574,8 +605,8 @@ pub fn fn_006281d0(
         let max_total = f + 0x30;
         let transform = f + 0x40;
         e.call(AABB_CONSTRUCT, &args![aabb]);
-        e.call(IDENTITY, &args![min_total]);
-        e.call(IDENTITY, &args![max_total]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, min_total));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, max_total));
         let max_start = e.global::<f32>(MAX_START);
         e.call(VECTOR_SET_ALL, &args![max_total, max_start]);
         let min_start = e.global::<f32>(MIN_START);
@@ -592,14 +623,18 @@ pub fn fn_006281d0(
         };
 
         if e.call(IS_INTERIOR_CELL, &args![cell]).bool() {
-            let owner = e.call(0x007a_f430, &args![root]).u32();
+            let owner = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, root));
             let references = e.call(0x0062_4700, &args![owner]).u32();
             let mut index = 0;
-            while index < e.call(WORD_AT_4, &args![references]).i32() {
+            while index
+                < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, references))
+                    .into_ret()
+                    .i32()
+            {
                 let element = e.call(ARRAY_ELEMENT, &args![references, index]).u32();
                 let handle = e.mem.u32(element);
                 let object = e.call(0x0046_0140, &args![handle]).u32();
-                if e.call(NI_POINTER_GET, &args![object]).u32() != 0 {
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object)) != 0 {
                     let sink = e.call(0x0062_86d0, &args![root]).u32();
                     // 006282e1: `007d6bb0` takes no stack word (plain RET); the pushed
                     // box address is the second word of the sink's virtual +0x3c.
@@ -610,7 +645,7 @@ pub fn fn_006281d0(
                 index += 1;
             }
         } else if !grid.is_null() {
-            let size = e.call(0x0084_e3a0, &args![grid]).u32();
+            let size = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, grid));
             for row in 0..size {
                 for column in 0..size {
                     let slot = e.call(0x004b_a490, &args![grid, row, column]).u32();
@@ -622,13 +657,22 @@ pub fn fn_006281d0(
                     let objects = e.call(0x0041_3f40, &args![owner]).u32();
                     let mut index = 0u32;
                     while index < e.call(0x0065_8930, &args![objects]).u32() {
-                        let element = e.call(SIMPLE_ARRAY_ELEMENT, &args![objects, index]).u32();
-                        let pointer = e.call(NI_POINTER_GET, &args![element]).u32();
+                        let element = typed_call!(
+                            leaf::FAMILY,
+                            0x0087_7a30,
+                            leaf::array_element(e, objects, index)
+                        );
+                        let pointer =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element));
                         let object = e.call(0x0043_b560, &args![pointer]).u32();
-                        if e.call(NI_POINTER_GET, &args![object]).u32() != 0 {
-                            let element =
-                                e.call(SIMPLE_ARRAY_ELEMENT, &args![objects, index]).u32();
-                            let node = e.call(NI_POINTER_GET, &args![element]).u32();
+                        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object)) != 0 {
+                            let element = typed_call!(
+                                leaf::FAMILY,
+                                0x0087_7a30,
+                                leaf::array_element(e, objects, index)
+                            );
+                            let node =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element));
                             if e.vcall(node, 0x94, &args![]).u32() != 0 {
                                 let sink = e.call(0x0062_86d0, &args![root]).u32();
                                 // 00628471: as above, the box address is the second
@@ -637,13 +681,27 @@ pub fn fn_006281d0(
                                 e.vcall(sink, 0x3c, &args![bounds, aabb]);
                             } else {
                                 e.call(0x0056_ded0, &args![transform]);
-                                let element =
-                                    e.call(SIMPLE_ARRAY_ELEMENT, &args![objects, index]).u32();
-                                let node = e.call(NI_POINTER_GET, &args![element]).u32();
+                                let element = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0087_7a30,
+                                    leaf::array_element(e, objects, index)
+                                );
+                                let node = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0055_9450,
+                                    leaf::word_at_0(e, element)
+                                );
                                 e.vcall(node, 0xf4, &args![transform]);
-                                let element =
-                                    e.call(SIMPLE_ARRAY_ELEMENT, &args![objects, index]).u32();
-                                let node = e.call(NI_POINTER_GET, &args![element]).u32();
+                                let element = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0087_7a30,
+                                    leaf::array_element(e, objects, index)
+                                );
+                                let node = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0055_9450,
+                                    leaf::word_at_0(e, element)
+                                );
                                 let shape_owner = e.call(0x004a_e6a0, &args![node]).u32();
                                 let shape = e.call(0x0062_0b80, &args![shape_owner]).u32();
                                 let tolerance = e.global::<f32>(SHAPE_TOLERANCE);
@@ -676,9 +734,9 @@ pub fn fn_006281d0(
 /// (`MINPS`: `first` where it is smaller, otherwise `second`). Each address
 /// goes through the identity function `006815c0` first.
 pub fn fn_006285e0(e: &mut Engine, this: Ptr, first: Ptr, second: Ptr) {
-    let second_at = e.call(IDENTITY, &args![second]).u32();
+    let second_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
     let second_value = load_vector(e, second_at);
-    let first_at = e.call(IDENTITY, &args![first]).u32();
+    let first_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first));
     let first_value = load_vector(e, first_at);
     let mut result = [0.0f32; 4];
     for lane in 0..4 {
@@ -696,9 +754,9 @@ pub fn fn_006285e0(e: &mut Engine, this: Ptr, first: Ptr, second: Ptr) {
 /// Per lane maximum of the vectors at `first` and `second` into `this`
 /// (`MAXPS`: `first` where it is larger, otherwise `second`).
 pub fn fn_00628640(e: &mut Engine, this: Ptr, first: Ptr, second: Ptr) {
-    let second_at = e.call(IDENTITY, &args![second]).u32();
+    let second_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
     let second_value = load_vector(e, second_at);
-    let first_at = e.call(IDENTITY, &args![first]).u32();
+    let first_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first));
     let first_value = load_vector(e, first_at);
     let mut result = [0.0f32; 4];
     for lane in 0..4 {

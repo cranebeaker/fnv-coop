@@ -177,7 +177,7 @@ pub fn fn_0065f960(e: &mut Engine, first: u32, last: u32, allocator: u32) {
         last,
         allocator,
         &|e, first, last, allocator, tag| {
-            e.call(0x0040_fbe0, &args![first, last, allocator, tag]);
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words first, last, allocator, tag);
         },
     );
 }
@@ -605,6 +605,7 @@ const MEMMOVE_S: u32 = 0x00ec_7ce3;
 /// Placement `operator new` (`006e6da0`, cdecl: size, place).
 const PLACEMENT_NEW_006E6DA0: u32 = 0x006e_6da0;
 /// The word at +4 of an object (`00726070`, thiscall).
+#[cfg(test)]
 const WORD_AT_FOUR_00726070: u32 = 0x0072_6070;
 
 /// A copy's next step (cdecl, six words: first, last, destination and three tags).
@@ -1127,7 +1128,7 @@ pub fn fn_00660320(e: &mut Engine, _this: Ptr, place: u32, value: u32) {
 /// Unnamed: the word an iterator points at (`cdecl`, two words; it reads only the first):
 /// `00726070` (the word at +4) on the iterator's address.
 pub fn fn_00660400(e: &mut Engine, iterator: u32, _unused_1: u32) -> u32 {
-    e.call(WORD_AT_FOUR_00726070, &args![iterator]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, iterator))
 }
 
 // Translated from 00660410 (decompiled, FalloutNV.exe 1.4.0.525)

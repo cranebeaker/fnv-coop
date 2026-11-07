@@ -414,6 +414,7 @@ const FORM_ARRAY_DESTRUCT: u32 = 0x0058_b450;
 const FORM_ARRAY_CALL_864280: u32 = 0x0086_4280;
 const FORM_ARRAY_CALL_600AB0: u32 = 0x0060_0ab0;
 /// The array's count (`0084e3a0`) and `NiFormArray::GetFormAt` (engine map).
+#[cfg(test)]
 const FORM_ARRAY_COUNT: u32 = 0x0084_e3a0;
 const FORM_ARRAY_GET_FORM_AT: u32 = 0x004d_6170;
 /// `BSStringT` constructor, set (thiscall(text, 0)) and destructor.
@@ -438,7 +439,9 @@ const LIST_CONSTRUCT: u32 = 0x0096_a2d0;
 /// The list's add (`005ae3d0`, thiscall(item address)), end test
 /// (`008256d0`), item address (`006815c0`) and head removal (`0063f7b0`).
 const LIST_ADD: u32 = 0x005a_e3d0;
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_ITEM: u32 = 0x0068_15c0;
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
 /// The list's scalar deleting destructor (`004702f0`, `unplaced/run_00470040`).
@@ -471,6 +474,7 @@ const MAP_NEXT: u32 = 0x006b_7f20;
 /// `0096ae90` (thiscall(index, value address)), `00600bc0`, `005e03d0`,
 /// `0096a610` (thiscall(item address)).
 const IDLE_ARRAY_SIZE: u32 = 0x0065_8930;
+#[cfg(test)]
 const IDLE_ARRAY_ELEMENT: u32 = 0x0087_7a30;
 const IDLE_ARRAY_SET_AT: u32 = 0x0096_ae90;
 const IDLE_ARRAY_CALL_600BC0: u32 = 0x0060_0bc0;
@@ -543,8 +547,8 @@ pub fn idle_anim_root_add_root_filename_list(e: &mut Engine, this: Ptr, list: Pt
         e.with_stack(4, |e, out| {
             e.with_stack(4, |e, kind| {
                 e.with_stack(4, |e, flag| {
-                    while !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-                        let item = e.call(LIST_ITEM, &args![list]).u32();
+                    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+                        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                         let file = e.mem.u32(item);
                         e.mem.set_u32(name.addr(), file);
                         e.call(PARSE_ANIM_GROUP_FILENAME, &args![file, out, kind, flag]);
@@ -648,7 +652,11 @@ pub fn fn_005ffc20(e: &mut Engine, this: Ptr) {
     };
     let mut index = 0u32;
     while index < count {
-        let slot = e.call(IDLE_ARRAY_ELEMENT, &args![array, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
         let idle = e.mem.u32(slot);
         if idle == 0 || e.call(FORM_TEST_4013E0, &args![idle]).bool() {
             clear(e, index);
@@ -659,7 +667,11 @@ pub fn fn_005ffc20(e: &mut Engine, this: Ptr) {
     }
     let mut index = 0u32;
     while index < count {
-        let slot = e.call(IDLE_ARRAY_ELEMENT, &args![array, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
         let idle = e.mem.u32(slot);
         if idle != 0 && e.call(IDLE_FORM_INIT_PARENTS, &args![idle]).bool() {
             clear(e, index);
@@ -673,7 +685,7 @@ pub fn fn_005ffc20(e: &mut Engine, this: Ptr) {
 /// Each form of a form array (count read once) is deleted through its
 /// virtual `+0x10` with 1 when not null.
 fn delete_forms(e: &mut Engine, array: u32) {
-    let count = e.call(FORM_ARRAY_COUNT, &args![array]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array));
     let mut index = 0u32;
     while index < count {
         let form = e.call(FORM_ARRAY_GET_FORM_AT, &args![array, index]).u32();
@@ -696,10 +708,10 @@ fn release_file_lists(e: &mut Engine, root: u32, clear: bool) {
         if e.mem.u32(slot) != 0 {
             loop {
                 let list = e.mem.u32(slot);
-                if e.call(LIST_IS_EMPTY, &args![list]).bool() {
+                if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
                     break;
                 }
-                let item = e.call(LIST_ITEM, &args![list]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                 let name = e.mem.u32(item);
                 e.call(OPERATOR_DELETE, &args![name]);
                 let list = e.mem.u32(slot);
@@ -758,7 +770,11 @@ pub fn fn_005ffd20(e: &mut Engine, this: Ptr) {
     let count = e.call(IDLE_ARRAY_SIZE, &args![array]).u32();
     let mut index = 0u32;
     while index < count {
-        let slot = e.call(IDLE_ARRAY_ELEMENT, &args![array, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
         let idle = e.mem.u32(slot);
         if idle != 0 {
             e.vcall(idle, 0x10, &args![1u32]);
@@ -947,7 +963,7 @@ pub fn tes_idle_manager_get_idle_to_play(e: &mut Engine, this: Ptr, actor: Ptr, 
             let process = e.vcall(actor.addr(), 0x1e4, &args![]).u32();
             let root = tes_idle_manager_get_root_idle_array(e, this, name);
             if root != 0 {
-                let count = e.call(FORM_ARRAY_COUNT, &args![root]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, root));
                 let mut index = 0u32;
                 while index < count {
                     let idle = e.call(FORM_ARRAY_GET_FORM_AT, &args![root, index]).u32();

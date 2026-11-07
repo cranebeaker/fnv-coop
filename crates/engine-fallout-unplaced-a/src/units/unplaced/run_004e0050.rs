@@ -82,12 +82,12 @@ pub fn fn_004e0110(e: &mut Engine) {
     if e.global::<u8>(UPDATE_ENABLED) == 0 {
         return;
     }
-    let owner = e.call(0x0055_9450, &args![NODE_OWNER]).u32();
+    let owner = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, NODE_OWNER));
     let count = e.call(0x0043_b480, &args![owner]).u32();
     let seconds = x87_store32(e.call(0x0084_d030, &args![FRAME_TIMER]).st0);
     let mut index = 0u32;
     while index < count {
-        let owner = e.call(0x0055_9450, &args![NODE_OWNER]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, NODE_OWNER));
         let node = e.call(0x0043_b4a0, &args![owner, index]).u32();
         if node != 0 {
             let key = e.call(0x004e_0320, &[]).u32();
@@ -101,7 +101,7 @@ pub fn fn_004e0110(e: &mut Engine) {
                 let word = e.mem.u32(timer + 0xc);
                 let total: u32 = e.global(RUNNING_TOTAL);
                 e.set_global(RUNNING_TOTAL, total.wrapping_sub(word));
-                let owner = e.call(0x0055_9450, &args![NODE_OWNER]).u32();
+                let owner = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, NODE_OWNER));
                 e.vcall(owner, 0xf0, &args![index]);
             } else {
                 let ratio = x87_div(x87_load32(e.mem.u32(timer)), x87_m32(e.mem.u32(timer + 4)));
@@ -190,6 +190,7 @@ const STRING_DESTRUCT: u32 = 0x0043_81b0;
 /// `00a5b950` (`ECX` = the node, one stack word: the name).
 const SET_NAME_00A5B950: u32 = 0x00a5_b950;
 /// `00559450` (`ECX` = a pointer holder): its object.
+#[cfg(test)]
 const HOLDER_OBJECT: u32 = 0x0055_9450;
 /// `007d6bb0` (`ECX` = the extra data) and `00b81420` (`cdecl`, two words).
 const DATA_WORD_007D6BB0: u32 = 0x007d_6bb0;
@@ -273,12 +274,12 @@ pub fn fn_004e0330(e: &mut Engine, request: u32, duration: u32) {
         let text = e.call(STRING_CONSTRUCT, &args![name, ROOT_NAME]).u32();
         e.call(SET_NAME_00A5B950, &args![node, text]);
         e.call(STRING_DESTRUCT, &args![name]);
-        let root = e.call(HOLDER_OBJECT, &args![NODE_OWNER]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, NODE_OWNER));
         e.vcall(root, 0xdc, &args![node, 1u32]);
         let word = e.call(DATA_WORD_007D6BB0, &args![data]).u32();
         e.call(ATTACH_00B81420, &args![node, word]);
         e.call(UPDATE_DATA_0043D410, &args![update, FLOAT_ZERO, 0u32, 0u32]);
-        let root = e.call(HOLDER_OBJECT, &args![NODE_OWNER]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, NODE_OWNER));
         e.call(UPDATE_00A59C60, &args![root, update]);
     });
 }

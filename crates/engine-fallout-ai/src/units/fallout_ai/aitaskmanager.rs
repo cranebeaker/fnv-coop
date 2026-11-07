@@ -80,6 +80,7 @@ const GET_CURRENT_PROCESS_TYPE: u32 = 0x0093_1850;
 /// `MiddleHighProcess::GetSavedAcquireObject`'s body (`008d8520`): the map
 /// names it so by identical-code folding; it returns the word at +0x68 of
 /// the object (the actor's process).
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 
 layout! {
@@ -728,7 +729,7 @@ pub fn detection_task_data_handle_mob_message(
 /// detection level against the player and reports it to the player.
 fn detect_against_player(e: &mut Engine, actor: Ptr, player: Ptr, distance: f32, delay: f32) {
     e.vcall(actor.addr(), 0x2b0, &args![delay]);
-    let process = e.call(GET_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     if !e.vcall(process, 0x70, &args![actor]).bool() {
         return;
     }
@@ -1050,10 +1051,10 @@ pub fn package_update_task_data_handle_mob_message(
     mob: Ptr,
 ) {
     if mob.is_null()
-        || e.call(0x0057_6d30, &args![mob]).bool()
-        || e.call(0x0044_0d80, &args![mob]).bool()
-        || e.call(0x0044_0da0, &args![mob]).bool()
-        || e.call(GET_PROCESS, &args![mob]).u32() == 0
+        || typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, mob))
+        || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, mob))
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, mob))
+        || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, mob)) == 0
         || e.call(GET_CURRENT_PROCESS_TYPE, &args![mob]).u32() != 0
     {
         return;
@@ -1067,7 +1068,7 @@ pub fn package_update_task_data_handle_mob_message(
         return;
     }
     if !actor.is_null() && e.call(0x008b_0520, &args![actor]).bool() {
-        let process = e.call(GET_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, 0x24, &args![actor, 0u32]);
         not_handed_over = false;
         let n = e.get(this, PackageUpdateTaskData::iActorsProcessed);
@@ -1076,7 +1077,7 @@ pub fn package_update_task_data_handle_mob_message(
             PackageUpdateTaskData::iActorsProcessed,
             n.wrapping_add(1),
         );
-        let process = e.call(GET_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         fn_008c8fd0(e, Ptr::new(process), 1);
     } else {
         e.vcall(mob.addr(), 0x25c, &args![0.0f32]);
@@ -1128,24 +1129,24 @@ fn reconcile_followers(e: &mut Engine, mob: Ptr, actor: Ptr, player: Ptr) {
     // Copy the owner's list into `second_list`.
     let mut node = e.mem.u32(owner + 0xc);
     while node != 0 {
-        let item_slot = e.call(0x0068_15c0, &args![node]).u32();
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_slot) == 0 {
             break;
         }
-        let item_slot = e.call(0x0068_15c0, &args![node]).u32();
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.call(0x0090_5820, &args![second_list, item_slot]);
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 
     // Collect into `first_list` the entries that are not the player and
     // cannot follow `actor`.
     let mut node = second_list;
     while node != 0 {
-        let item_slot = e.call(0x0068_15c0, &args![node]).u32();
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_slot) == 0 {
             break;
         }
-        let item_slot = e.call(0x0068_15c0, &args![node]).u32();
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_slot);
         if item != 0 && item != player.addr() && !e.call(0x008b_c860, &args![item, actor]).bool() {
             e.with_stack(4, |e, slot| {
@@ -1153,21 +1154,21 @@ fn reconcile_followers(e: &mut Engine, mob: Ptr, actor: Ptr, player: Ptr) {
                 e.call(0x005a_e3d0, &args![first_list, slot]);
             });
         }
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 
     // Remove each collected entry from the owner.
     let mut node = first_list;
     while node != 0 {
-        let item_slot = e.call(0x0068_15c0, &args![node]).u32();
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_slot) == 0 {
             break;
         }
-        let item_slot = e.call(0x0068_15c0, &args![node]).u32();
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_slot);
         let extra = e.call(0x005d_43c0, &args![mob]).u32();
         e.call(0x0042_2690, &args![extra, item]);
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 
     for list in [first_list, second_list] {
@@ -1177,7 +1178,11 @@ fn reconcile_followers(e: &mut Engine, mob: Ptr, actor: Ptr, player: Ptr) {
         }
     }
     let owner_list = e.mem.u32(owner + 0xc);
-    if e.call(0x0082_56d0, &args![owner_list]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, owner_list)
+    ) {
         let extra = e.call(0x005d_43c0, &args![mob]).u32();
         e.call(0x0042_2720, &args![extra]);
     }
@@ -1723,7 +1728,7 @@ pub fn ai_task_thread_on_startup(e: &mut Engine, this: Ptr) {
     let allocator = e.call(ROUTER_WORD, &args![router]).u32();
     let block = e.vcall(allocator, 0x04, &args![THREAD_SCRATCH_SIZE]).u32();
     e.mem.set_u32(this.addr() + THREAD_SCRATCH, block);
-    let router_again = e.call(RETURN_THIS, &args![router]).u32();
+    let router_again = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, router));
     e.call(
         ROUTER_SET_BLOCK,
         &args![router_again, block, THREAD_SCRATCH_SIZE],
@@ -1746,7 +1751,7 @@ pub fn ai_task_thread_on_shutdown(e: &mut Engine, this: Ptr) {
     e.call(HK_QUIT_THREAD, &[]);
     let memory_system = e.call(MEMORY_SYSTEM_GET_INSTANCE, &[]).u32();
     e.vcall(memory_system, 0x10, &args![router, 1u32]);
-    let router_again = e.call(RETURN_THIS, &args![router]).u32();
+    let router_again = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, router));
     e.call(ROUTER_SET_BLOCK, &args![router_again, 0u32, 0u32]);
 }
 
@@ -2108,8 +2113,10 @@ pub fn common_ll_message_queue_try_push(e: &mut Engine, this: Ptr, value: Ptr) -
 /// game calls around the locked region. `00483710` is an empty destructor
 /// and `006815c0` returns its `this`.
 const POOL_COMPARE_EXCHANGE: u32 = 0x0043_b460;
+#[cfg(test)]
 const POOL_DEBUG_CHECK: u32 = 0x0040_fbe0;
 const EMPTY_DESTRUCTOR: u32 = 0x0048_3710;
+#[cfg(test)]
 const RETURN_THIS: u32 = 0x0068_15c0;
 /// `_eh_vector_constructor_iterator_` (stdcall: array, element size, count,
 /// constructor, destructor) and the element constructor `008caae0`, which
@@ -2140,12 +2147,12 @@ fn pool_lock(e: &mut Engine, pool: Ptr) {
         .u32()
         != 0
     {}
-    e.call(POOL_DEBUG_CHECK, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
 }
 
 /// Releases the pool's lock word (compare-exchange 1 -> 0).
 fn pool_unlock(e: &mut Engine, pool: Ptr) {
-    e.call(POOL_DEBUG_CHECK, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     e.call(POOL_COMPARE_EXCHANGE, &args![pool.addr() + 4, 1u32, 0u32]);
 }
 
@@ -2159,7 +2166,7 @@ pub fn mobile_message_queue_do_try_pop(e: &mut Engine, this: Ptr, out: Ptr) -> b
     if node == 0 {
         return false;
     }
-    let source = e.call(RETURN_THIS, &args![node]).u32();
+    let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.call(MESSAGE_COPY, &args![out, source]);
     let next = e.mem.u32(node + 0x0c);
     e.mem.set_u32(this.addr() + 0x0c, next);

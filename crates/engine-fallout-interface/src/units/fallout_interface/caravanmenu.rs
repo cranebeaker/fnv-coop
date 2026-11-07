@@ -84,6 +84,7 @@ const SIMPLE_ARRAY_INITIALIZE: u32 = 0x006b_3eb0;
 /// count; does nothing per element): `0072ba80`.
 const ARRAY_DESTROY_ELEMENTS: u32 = 0x0072_ba80;
 /// The word at +8 of an object (a `BSSimpleArray`'s size): `0044ddc0`.
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// The address of element `index` of a `BSSimpleArray` (`this`, index):
 /// `006a7ad0` (through `00877a30`, buffer + 4 * index).
@@ -113,6 +114,7 @@ const LIST_NODE_DATA: u32 = 0x0063_17a0;
 /// `007b52d0` (`this`, node): the next node (`*node`, 0 for no node).
 const LIST_NEXT_NODE: u32 = 0x007b_52d0;
 /// The first word of an object (`00559450`, `this` only).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// The word at +0xb4 of a card (`008d80e0`, `this` only).
 const CARD_WORD_B4: u32 = 0x008d_80e0;
@@ -217,7 +219,7 @@ fn tile(e: &Engine, menu: Ptr<CaravanMenu>, index: u32) -> u32 {
 
 /// The size of a `BSSimpleArray` (`0044ddc0`).
 fn array_size(e: &mut Engine, array: u32) -> u32 {
-    e.call(ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 /// The address of element `index` of a `BSSimpleArray` (`006a7ad0`).
@@ -574,7 +576,7 @@ pub fn caravan_menu_do_key(e: &mut Engine, this: Ptr<CaravanMenu>, key: i32) -> 
 /// head's data are set). `this` is not read.
 pub fn fn_0074a000(e: &mut Engine, _this: Ptr<CaravanMenu>, index: u32, value: u32) {
     let list = tile(e, me(e), index).wrapping_add(4);
-    let mut node = e.call(FIRST_WORD, &args![list]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     loop {
         if node == 0 || list == 0 {
             break;
@@ -814,6 +816,7 @@ pub fn fn_007531e0(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 /// `005ae380` (`this` only): the number of entries of a card list.
 const CARD_LIST_COUNT: u32 = 0x005a_e380;
 /// Returns `this` (`006815c0`): a list node's data is its first word.
+#[cfg(test)]
 const IDENTITY: u32 = 0x0068_15c0;
 /// Stores a byte at +0x98 of a card (`this`, byte): `006e2b50`.
 const CARD_SET_BYTE_98: u32 = 0x006e_2b50;
@@ -821,6 +824,7 @@ const CARD_SET_BYTE_98: u32 = 0x006e_2b50;
 /// element): `007cb2e0`.
 const ARRAY_APPEND: u32 = 0x007c_b2e0;
 /// The word at +4 of an object (`00726070`): a list node's next node.
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 /// Sorts a `BSSimpleArray` with `qsort` (`this`, compare function):
 /// `00729970`.
@@ -970,18 +974,18 @@ pub fn caravan_menu_prepare_caravan_data(e: &mut Engine, this: Ptr<CaravanMenu>)
     for (list, in_second_list) in [(first, 0u32), (second, 1)] {
         let mut node = list;
         while node != 0 {
-            let data = e.call(IDENTITY, &args![node]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(data) == 0 {
                 break;
             }
-            let data = e.call(IDENTITY, &args![node]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let card = e.mem.u32(data);
             e.with_stack(4, |e, slot| {
                 e.mem.set_u32(slot.addr(), card);
                 e.call(CARD_SET_BYTE_98, &args![card, in_second_list]);
                 e.call(ARRAY_APPEND, &args![this.addr() + DECK_ARRAY, slot]);
             });
-            node = e.call(WORD_AT_FOUR, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     e.call(ARRAY_SORT, &args![this.addr() + DECK_ARRAY, DECK_COMPARE]);
@@ -1003,20 +1007,24 @@ fn add_money(e: &mut Engine, this: Ptr<CaravanMenu>, actor: u32, total: u32) {
     e.mem.set_u32(this.addr() + total, gold);
     let mut node = e.mem.u32(changes);
     while node != 0 {
-        let data = e.call(IDENTITY, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(data) == 0 {
             break;
         }
-        let data = e.call(IDENTITY, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(data);
-        let form = e.call(ARRAY_SIZE, &args![entry]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         if form != 0 && e.call(FORM_TYPE, &args![form]).u32() == 0x74 {
-            let data = e.call(IDENTITY, &args![node]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let entry = e.mem.u32(data);
-            if e.call(WORD_AT_FOUR, &args![entry]).i32() > 0 {
-                let data = e.call(IDENTITY, &args![node]).u32();
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                .into_ret()
+                .i32()
+                > 0
+            {
+                let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(data);
-                let count = e.call(WORD_AT_FOUR, &args![entry]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                 let value = e.call(GET_FORM_VALUE, &args![form]).u32();
                 let sum = value
                     .wrapping_mul(count)
@@ -1024,7 +1032,7 @@ fn add_money(e: &mut Engine, this: Ptr<CaravanMenu>, actor: u32, total: u32) {
                 e.mem.set_u32(this.addr() + total, sum);
             }
         }
-        node = e.call(WORD_AT_FOUR, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -1125,7 +1133,7 @@ fn load_new_money(
             &args![animation_list, sequence_slot],
         );
     });
-    let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
     e.vcall(root, 0xdc, &args![clone, 1u32]);
 }
 
@@ -1694,6 +1702,7 @@ const MAKE_CAMERA: u32 = 0x007c_2180;
 /// The scene node array entry `n` (cdecl: `011f91c8[n]`): `00450b80`.
 const SCENE_NODE: u32 = 0x0045_0b80;
 /// `NiAVObject::GetWorldBound` (`this` only).
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 /// The radius of a bound (`this`; ST0): `0084d030`.
 const BOUND_RADIUS: u32 = 0x0084_d030;
@@ -2003,8 +2012,8 @@ fn load_property_texture(e: &mut Engine, property: u32, name: u32, path: u32, te
     e.call(SWAP_TEXTURE_PATH, &args![name, path, 0x104u32]);
     let tes = e.global::<u32>(TES);
     e.call(CREATE_TEXTURE_IMAGE, &args![tes, path, texture, 0u32, 0u32]);
-    if e.call(FIRST_WORD, &args![texture]).u32() != 0 {
-        let image = e.call(FIRST_WORD, &args![texture]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture)) != 0 {
+        let image = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
         e.vcall(property, 0xf0, &args![0u32, 0u32, image]);
     }
 }
@@ -2132,12 +2141,12 @@ pub fn caravan_menu_prepare_shared_3d_elements(e: &mut Engine, this: Ptr<Caravan
         0
     };
     e.call(POINTER_ASSIGN, &args![MONEY_ROOT, node]);
-    let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
     let table = word_at(e, menu, TABLE_GEOMETRY);
     e.vcall(root, 0xdc, &args![table, 1u32]);
     e.with_stack(0xc, |e, block| {
         e.call(UPDATE_DATA_INIT, &args![block, 0u32, 0u32, 0u32]);
-        let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
         e.call(OBJECT_UPDATE, &args![root, block]);
     });
     let table = word_at(e, menu, TABLE_GEOMETRY);
@@ -2165,18 +2174,23 @@ pub fn caravan_menu_prepare_shared_3d_elements(e: &mut Engine, this: Ptr<Caravan
         .call(OBJECT_BY_NAME, &args![table, CAMERA_OBJECT_NAME])
         .u32();
     e.call(POINTER_ASSIGN, &args![CAMERA_POINTER, camera]);
-    if e.call(FIRST_WORD, &args![CAMERA_POINTER]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_POINTER)
+    ) == 0
+    {
         let camera = e.call(MAKE_CAMERA, &args![menu]).u32();
         e.call(POINTER_ASSIGN, &args![CAMERA_POINTER, camera]);
     }
     let scene = e.call(SCENE_NODE, &args![1u32]).u32();
-    let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
     e.vcall(scene, 0xdc, &args![root, 1u32]);
-    let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
-    let bound = e.call(GET_WORLD_BOUND, &args![root]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, root));
     let radius = e.call(BOUND_RADIUS, &args![bound]).f64();
     let radius = x87_store32(x87_mul(radius, e.global::<f64>(LIGHT_RADIUS_SCALE)));
-    let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
     let scene = e.call(SCENE_NODE, &args![1u32]).u32();
     e.call(ADD_ALL_LIGHTS, &args![scene, root, x87_quiet_bits(radius)]);
 }
@@ -2595,7 +2609,7 @@ pub fn caravan_menu_create(
             return root;
         }
     }
-    if me(e).addr() != 0 && e.call(WORD_AT_FOUR, &args![me(e)]).u32() != 0 {
+    if me(e).addr() != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e))) != 0 {
         let menu = me(e).addr();
         e.vcall(menu, 0, &args![1u32]);
     }
@@ -2771,8 +2785,8 @@ pub fn caravan_menu_select_track_card(
         let rotation = frame.addr() + 0x10;
         let turn = frame.addr() + 0x38;
         let product = frame.addr() + 0x5c;
-        e.call(IDENTITY, &args![translate]);
-        e.call(IDENTITY, &args![rotation]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, translate));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
         let deck_card = e.get(this, CaravanMenu::iSelectedDeckCard);
         let valid = caravan_menu_is_valid_card_placement(e, this, track, row, deck_card, 0);
         let mut count = array_size(e, card_track(menu, track as u32, row as u32)) as i32;
@@ -2817,7 +2831,7 @@ pub fn caravan_menu_select_track_card(
         set_translate(e, other, height);
         let other = word_at(e, menu, away);
         update_object(e, other);
-        e.call(IDENTITY, &args![turn]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, turn));
         let angle = x87_quiet_bits(e.global::<u32>(QUARTER_TURN));
         e.call(MATRIX_Z_ROTATION, &args![turn, angle]);
         let source = e.call(LOCAL_ROTATE, &args![slot]).u32();
@@ -2832,8 +2846,8 @@ pub fn caravan_menu_select_track_card(
             let value = e.mem.u32(result + 4 * index);
             e.mem.set_u32(rotation + 4 * index, value);
         }
-        let bound = e.call(GET_WORLD_BOUND, &args![slot]).u32();
-        let centre = e.call(IDENTITY, &args![bound]).u32();
+        let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, slot));
+        let centre = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
         for index in 0..3 {
             let value = e.mem.u32(centre + 4 * index);
             e.mem.set_u32(translate + 4 * index, value);
@@ -3035,12 +3049,12 @@ fn delete_animation_list(e: &mut Engine, menu: u32, offset: u32) {
         if list == 0 {
             break;
         }
-        let data = e.call(IDENTITY, &args![list]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         if e.mem.u32(data) == 0 {
             break;
         }
         let list = word_at(e, menu, offset);
-        let data = e.call(IDENTITY, &args![list]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         e.mem.u32(data);
         let list = word_at(e, menu, offset);
         e.call(LIST_REMOVE_HEAD, &args![list]);
@@ -3090,14 +3104,14 @@ pub fn caravan_menu_destructor(e: &mut Engine, this: Ptr<CaravanMenu>) {
     e.call(POINTER_ASSIGN, &args![CAMERA_POINTER, 0u32]);
     release_model(e, TABLE_MODEL_PATH);
     let scene = e.call(SCENE_NODE, &args![1u32]).u32();
-    let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
     e.vcall(scene, 0xe8, &args![root]);
     let scene = e.call(SCENE_NODE, &args![1u32]).u32();
     e.call(SCENE_REFRESH, &args![scene]);
-    if e.call(FIRST_WORD, &args![MONEY_ROOT]).u32() != 0 {
-        let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT)) != 0 {
+        let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
         if e.call(CHILD_COUNT, &args![root]).u32() != 0 {
-            let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+            let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
             e.call(ROOT_RELEASE_00572160, &args![root]);
         }
     }
@@ -3271,6 +3285,7 @@ const ITEM_CHANGE_DESTRUCT: u32 = 0x004b_c5f0;
 /// entry, count, the word +0x20 of the actor): `0046f640`.
 const REMOVE_BARTER_ITEM: u32 = 0x0046_f640;
 /// The word at +0x20 of an actor (`007af430`).
+#[cfg(test)]
 const WORD_AT_0X20: u32 = 0x007a_f430;
 /// `Actor::GetGoldAmount` (`this` only).
 const ACTOR_GOLD: u32 = 0x0089_1d70;
@@ -3287,21 +3302,27 @@ fn pay_from_entries(
 ) {
     let mut node = e.mem.u32(changes);
     while node != 0 {
-        let data = e.call(IDENTITY, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(data) == 0 {
             break;
         }
-        let data = e.call(IDENTITY, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(data);
-        let form = e.call(ARRAY_SIZE, &args![entry]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         if form != 0 && e.call(FORM_TYPE, &args![form]).u32() == 0x74 {
-            let data = e.call(IDENTITY, &args![node]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let entry = e.mem.u32(data);
-            if e.call(WORD_AT_FOUR, &args![entry]).i32() > 0 {
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                .into_ret()
+                .i32()
+                > 0
+            {
                 let value = e.call(GET_FORM_VALUE, &args![form]).i32();
-                let data = e.call(IDENTITY, &args![node]).u32();
+                let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(data);
-                let mut count = e.call(WORD_AT_FOUR, &args![entry]).i32();
+                let mut count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                    .into_ret()
+                    .i32();
                 if value.wrapping_mul(count) > *remaining {
                     // IDIV: a zero value (or i32::MIN / -1) faults as in the exe.
                     count = *remaining / value;
@@ -3312,7 +3333,7 @@ fn pay_from_entries(
                 }
             }
         }
-        node = e.call(WORD_AT_FOUR, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -3353,8 +3374,8 @@ pub fn fn_0074cc70(e: &mut Engine, this: Ptr<CaravanMenu>, won: u8) {
                 let player = e.global::<u32>(PLAYER);
                 e.call(ENTRY_SET_ACTOR, &args![entry, player, 0u32]);
                 let challenger = word_at(e, menu, CHALLENGER);
-                let owner = e.call(WORD_AT_0X20, &args![challenger]).u32();
-                let data = e.call(IDENTITY, &args![node]).u32();
+                let owner = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, challenger));
+                let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(data);
                 let handler = e.global::<u32>(DATA_HANDLER);
                 e.call(REMOVE_BARTER_ITEM, &args![handler, item, count, owner]);
@@ -3375,7 +3396,8 @@ pub fn fn_0074cc70(e: &mut Engine, this: Ptr<CaravanMenu>, won: u8) {
                 let gold = e.call(GET_GOLD_AMOUNT, &args![changes]).i32();
                 if gold > remaining {
                     let challenger = word_at(e, menu, CHALLENGER);
-                    let owner = e.call(WORD_AT_0X20, &args![challenger]).u32();
+                    let owner =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, challenger));
                     let handler = e.global::<u32>(DATA_HANDLER);
                     e.call(
                         REMOVE_BARTER_ITEM,
@@ -3383,7 +3405,8 @@ pub fn fn_0074cc70(e: &mut Engine, this: Ptr<CaravanMenu>, won: u8) {
                     );
                 } else {
                     let challenger = word_at(e, menu, CHALLENGER);
-                    let owner = e.call(WORD_AT_0X20, &args![challenger]).u32();
+                    let owner =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, challenger));
                     let gold = e.call(GET_GOLD_AMOUNT, &args![changes]).u32();
                     let handler = e.global::<u32>(DATA_HANDLER);
                     e.call(REMOVE_BARTER_ITEM, &args![handler, change, gold, owner]);
@@ -3556,8 +3579,8 @@ fn deck_face_texture(
         e.call(SWAP_TEXTURE_PATH, &args![name, path, 0x104u32]);
         let tes = e.global::<u32>(TES);
         e.call(CREATE_TEXTURE_IMAGE, &args![tes, path, texture, 0u32, 0u32]);
-        if e.call(FIRST_WORD, &args![texture]).u32() != 0 {
-            let image = e.call(FIRST_WORD, &args![texture]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture)) != 0 {
+            let image = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
             let shader = word_at(e, menu, group.wrapping_add(slot.wrapping_mul(4)));
             e.vcall(shader, 0xf0, &args![0u32, 0u32, image]);
         }
@@ -3839,7 +3862,7 @@ fn place_money(
             let centre = frame.addr();
             let rotation = frame.addr() + 0xc;
             let update = frame.addr() + 0x30;
-            let bound = e.call(GET_WORLD_BOUND, &args![node]).u32();
+            let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
             for word in 0..3 {
                 let value = e.mem.u32(bound + 4 * word);
                 e.mem.set_u32(centre + 4 * word, value);
@@ -3986,14 +4009,14 @@ pub fn caravan_menu_update_betting_ui(
     }
     e.with_stack(0xc, |e, block| {
         e.call(UPDATE_DATA_INIT, &args![block, 0u32, 0u32, 0u32]);
-        let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
         e.call(OBJECT_UPDATE, &args![root, block]);
     });
-    let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
-    let bound = e.call(GET_WORLD_BOUND, &args![root]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, root));
     let radius = e.call(BOUND_RADIUS, &args![bound]).f64();
     let radius = x87_store32(x87_mul(radius, e.global::<f64>(LIGHT_RADIUS_SCALE)));
-    let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
     let scene = e.call(SCENE_NODE, &args![1u32]).u32();
     e.call(ADD_ALL_LIGHTS, &args![scene, root, x87_quiet_bits(radius)]);
 }
@@ -4095,7 +4118,7 @@ pub fn caravan_menu_prepare_deck_menu(e: &mut Engine, this: Ptr<CaravanMenu>) {
         e.mem.set_u32(menu + target, model);
     }
     for model in [INACTIVE_DECK_GEOMETRY, ACTIVE_DECK_GEOMETRY] {
-        let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
         let child = word_at(e, menu, model);
         e.vcall(root, 0xdc, &args![child, 1u32]);
     }
@@ -4105,7 +4128,7 @@ pub fn caravan_menu_prepare_deck_menu(e: &mut Engine, this: Ptr<CaravanMenu>) {
         let data = e
             .call(UPDATE_DATA_INIT, &args![block, 0u32, 0u32, 0u32])
             .u32();
-        let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
         e.call(OBJECT_UPDATE, &args![root, data]);
     });
     let player_ante = e.get(this, CaravanMenu::iPlayerAnte);
@@ -4434,8 +4457,10 @@ pub fn caravan_menu_swap_deck_building_textures(
                     for group in [0x9acu32, 0x8ec] {
                         let tes = e.global::<u32>(TES);
                         e.call(CREATE_TEXTURE_IMAGE, &args![tes, path, texture, 0u32, 0u32]);
-                        if e.call(FIRST_WORD, &args![texture]).u32() != 0 {
-                            let image = e.call(FIRST_WORD, &args![texture]).u32();
+                        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture)) != 0
+                        {
+                            let image =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
                             let shader = word_at(e, menu, group + 4 * slot);
                             e.vcall(shader, 0xf0, &args![0u32, 0u32, image]);
                         }
@@ -4988,7 +5013,7 @@ fn load_formatted_model(e: &mut Engine, words: &[u32]) -> u32 {
 
 /// Attaches the object at `offset` to the money root (slot +0xdc, flag 1).
 fn attach_to_root(e: &mut Engine, menu: u32, offset: u32) {
-    let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
     let child = word_at(e, menu, offset);
     e.vcall(root, 0xdc, &args![child, 1u32]);
 }
@@ -4996,8 +5021,8 @@ fn attach_to_root(e: &mut Engine, menu: u32, offset: u32) {
 /// Detaches the money root's last child (slot +0xf0 with the child count
 /// less one).
 fn detach_last_child(e: &mut Engine) {
-    let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
-    let root_again = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
+    let root_again = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
     let count = e.call(CHILD_COUNT, &args![root_again]).u32();
     e.vcall(root, 0xf0, &args![count.wrapping_sub(1)]);
 }
@@ -5049,15 +5074,15 @@ pub fn caravan_menu_prepare_game_menu(e: &mut Engine, this: Ptr<CaravanMenu>) {
         if node == 0 {
             break;
         }
-        let data = e.call(IDENTITY, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(data) == 0 {
             break;
         }
         let node = word_at(e, menu, DECK_PARAM);
-        let data = e.call(IDENTITY, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.call(ARRAY_APPEND, &args![menu + NPC_DECK, data]);
         let node = word_at(e, menu, DECK_PARAM);
-        let next = e.call(WORD_AT_FOUR, &args![node]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         e.mem.set_u32(menu + DECK_PARAM, next);
     }
     for _ in 0..8 {
@@ -5212,7 +5237,7 @@ pub fn caravan_menu_prepare_game_menu(e: &mut Engine, this: Ptr<CaravanMenu>) {
         let data = e
             .call(UPDATE_DATA_INIT, &args![block, 0u32, 0u32, 0u32])
             .u32();
-        let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
         e.call(OBJECT_UPDATE, &args![root, data]);
     });
     for track in 0..6u32 {
@@ -5305,9 +5330,6 @@ const MEMSET: u32 = 0x00ec_61c0;
 const ABS: u32 = 0x00ec_7d40;
 /// Whether a `BSSimpleArray` is empty (`0076b610`, `this` only).
 const ARRAY_IS_EMPTY: u32 = 0x0076_b610;
-/// The address of element `index` of a `BSSimpleArray` (`00877a30`, the
-/// body behind `006a7ad0`).
-const ARRAY_SLOT_DIRECT: u32 = 0x0087_7a30;
 
 /// `CaravanAIPackage::ActionType` (Xbox PDB enum).
 const BUILDTRACK: u32 = 0;
@@ -6068,12 +6090,11 @@ fn queen_move(
         return;
     }
     let first_of = |e: &mut Engine, row: u32| {
-        let slot = e
-            .call(
-                ARRAY_SLOT_DIRECT,
-                &args![card_track(menu, track, row), 0u32],
-            )
-            .u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, card_track(menu, track, row), 0u32)
+        );
         let card = e.mem.u32(slot);
         e.call(CARD_WORD_B4, &args![card]).i32()
     };
@@ -6214,14 +6235,18 @@ pub fn caravan_menu_render_scene(e: &mut Engine) {
     let holder = e.call(MAIN_CAMERA_0045C670, &args![]).u32();
     let scene = e.call(SCENE_008D80E0, &args![holder]).u32();
     e.call(SCENE_BEGIN_00C4F270, &args![scene, 1u32]);
-    let caravan_camera = e.call(FIRST_WORD, &args![CAMERA_POINTER]).u32();
+    let caravan_camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_POINTER)
+    );
     let value = x87_quiet_bits(e.mem.u32(RENDER_VALUE_01030FF4));
     e.call(RENDER_TO_TEXTURE_00709D50, &args![caravan_camera, value]);
     e.with_stack(4, |e, node| {
         let global = e.call(RENDER_GLOBAL_004B7210, &args![]).u32();
         let rendered = e.call(RENDERED_MENU_007FD640, &args![global]).u32();
         e.call(NI_POINTER_CONSTRUCTOR, &args![node, rendered]);
-        let held = e.call(FIRST_WORD, &args![node]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
         e.call(SCENE_SET_NODE_004A0FD0, &args![scene, held]);
         let camera = if caravan_camera == 0 {
             e.call(HOLDER_CAMERA_006629F0, &args![holder]).u32()
@@ -6230,7 +6255,7 @@ pub fn caravan_menu_render_scene(e: &mut Engine) {
         };
         let graph = e.call(SCENE_GRAPH_00450B80, &args![1u32]).u32();
         e.call(ACCUMULATE_SCENE, &args![camera, graph, scene]);
-        let held = e.call(FIRST_WORD, &args![node]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
         e.call(RENDER_00B6C0D0, &args![camera, held, 0u32]);
         e.call(SCENE_SET_NODE_004A0FD0, &args![scene, 0u32]);
         e.call(NI_POINTER_ASSIGN, &args![node, 0u32]);
@@ -6250,6 +6275,7 @@ const IDLE_TICK_SOURCE: u32 = 0x011f_6394;
 /// The word at +0x14 of an object (`00825c00`, `this` only).
 const WORD_AT_0X14: u32 = 0x0082_5c00;
 /// The word at +0xc of an object (`0084e3a0`, `this` only).
+#[cfg(test)]
 const WORD_AT_0XC: u32 = 0x0084_e3a0;
 /// The word at +0x10 of an object (`0044edb0`, `this` only).
 const WORD_AT_0X10: u32 = 0x0044_edb0;
@@ -6259,6 +6285,7 @@ const SET_WORD_AT_0XC: u32 = 0x0041_fd00;
 const SET_WORD_AT_0X10: u32 = 0x0043_7730;
 /// The word at +0x28 of an object (`0045cd60`, `this` only): the tile of
 /// the interface manager whose trait `0xfa9` `DoIdle` sets.
+#[cfg(test)]
 const WORD_AT_0X28: u32 = 0x0045_cd60;
 /// The address +0x8c of an object (`0045bb80`, `this` only).
 const PLUS_0X8C: u32 = 0x0045_bb80;
@@ -6410,7 +6437,7 @@ fn idle_update(e: &mut Engine, object: u32, block: u32) {
 
 /// `00a59c60(0043b4a0(00559450(011d91e4), 0), block)`.
 fn idle_update_model(e: &mut Engine, block: u32) {
-    let root = e.call(FIRST_WORD, &args![MONEY_ROOT]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, MONEY_ROOT));
     let node = e.call(MODEL_NODE_0043B4A0, &args![root, 0u32]).u32();
     e.call(OBJECT_UPDATE, &args![node, block]);
 }
@@ -6462,7 +6489,7 @@ fn idle_tutorial(e: &mut Engine, this: Ptr<CaravanMenu>, index: u32, editor_id: 
 fn idle_reset_interface_tile(e: &mut Engine) {
     let full = x87_quiet_bits(e.global::<u32>(TRACK_ALPHA));
     let interface = e.call(INTERFACE_SINGLETON, &args![]).u32();
-    let target = e.call(WORD_AT_0X28, &args![interface]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interface));
     e.call(SET_FLOAT_TRAIT, &args![target, 0xfa9u32, full, 1u32]);
 }
 
@@ -6844,7 +6871,7 @@ fn idle_closing(e: &mut Engine, this: Ptr<CaravanMenu>) {
         return;
     }
     idle_reset_interface_tile(e);
-    let menu_tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+    let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     e.call(SET_TRAIT_FROM_INT, &args![menu_tile, 0x1772u32, 1u32]);
     e.call(MENU_START_FADE_OUT, &args![this]);
     e.set_global::<u32>(CARAVAN_MENU, 0);
@@ -6970,7 +6997,11 @@ fn idle_game_intro(e: &mut Engine, this: Ptr<CaravanMenu>, ebp: u32) {
         .u32();
     let tolerance = x87_quiet_bits(e.global::<u32>(PROJECTION_TOLERANCE));
     let point = e.call(PLUS_0X8C, &args![node]).u32();
-    let camera = e.call(FIRST_WORD, &args![CAMERA_POINTER]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_POINTER)
+    );
     e.call(
         WORLD_POINT_TO_SCREEN,
         &args![camera, point, x_slot, y_slot, tolerance],
@@ -8382,7 +8413,7 @@ fn idle_next_turn(e: &mut Engine, this: Ptr<CaravanMenu>, ebp: u32) {
         return;
     }
     if array_size(e, package) == 5 {
-        let track = e.call(WORD_AT_0XC, &args![package]).u32();
+        let track = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, package));
         e.mem.set_u32(menu + 0xe30, track);
         let track = e.mem.u32(menu + 0xe30);
         e.mem.set_u32(track_info(menu, track) + 8, 0);
@@ -8459,7 +8490,7 @@ fn idle_draw_next_npc_card(e: &mut Engine, menu: u32) {
 /// column the row's card count, hand card (+0x14) and `pSelectedCard`.
 fn idle_select_package_target(e: &mut Engine, this: Ptr<CaravanMenu>, package: u32) {
     let menu = this.addr();
-    let track = e.call(WORD_AT_0XC, &args![package]).u32();
+    let track = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, package));
     e.mem.set_u32(menu + 0xe30, track);
     let row = e.call(WORD_AT_0X10, &args![package]).u32();
     e.mem.set_u32(menu + 0xe34, row);

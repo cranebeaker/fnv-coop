@@ -125,9 +125,11 @@ const POINT_NOT_EQUAL: u32 = 0x0043_9090;
 const POINT_DIFFERENCE: u32 = 0x0043_9ef0;
 const POINT_LENGTH_SQUARED: u32 = 0x004a_7290;
 const POINT_LENGTH: u32 = 0x0045_7990;
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map name of
 /// `008d8520`) and the slots the code calls on its result.
+#[cfg(test)]
 const GET_SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 const SLOT_TEST_3F8: u32 = 0x3f8;
 const SLOT_FIRE_KIND: u32 = 0x3e4;
@@ -360,7 +362,7 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>) {
         let bursts = automatic != 0 || e.call(WEAPON_TEST_645C80, &args![weapon]).bool();
         let mut too_close = false;
         calculate_targeted_point(e, this, Ptr::new(targeted), 0);
-        let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
         let mut can_fire = e.vcall(object, SLOT_TEST_3F8, &args![]).bool()
             || e.call(ACTOR_IS_ATTACKING, &args![attacker]).bool();
         let controller = controller_of(e, this);
@@ -624,7 +626,7 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>) {
         let mut ready = true;
         if automatic != 0 {
             let mut animation_ok = true;
-            let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
             ready = e.vcall(object, SLOT_TEST_438, &args![attacker]).bool();
             let group = e.call(ANIM_GROUP_OF, &args![animation, 4u32]).u16();
             if e.call(ANIM_GROUP_TEST, &args![u32::from(group)]).bool() {
@@ -637,7 +639,7 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>) {
                 fire = true;
             }
         } else {
-            let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
             let kind = e.vcall(object, SLOT_FIRE_KIND, &args![]).i32();
             if kind == -1
                 || (kind == 4 && e.call(ANIM_STATE_OF, &args![animation, 4u32]).u32() == 3)
@@ -652,7 +654,7 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>) {
         let hit_reference = ebp - 0x3c;
         let fraction = ebp - 0x64;
         let firing = ebp - 0x54;
-        e.call(POINT_CONSTRUCT, &args![hit_point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, hit_point));
         e.mem.set_u32(hit_reference, 0);
         e.mem.set_u32(ebp - 0x38, 0);
         e.mem.set_u32(fraction, 0.0f32.to_bits());
@@ -813,7 +815,7 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>) {
                 }
             }
         };
-        let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
         e.vcall(object, SLOT_SET_43C, &args![u32::from(ready)]);
         if e.call(QUEUE_ATTACK, &args![attacker, attack]).bool() && automatic == 0 {
             let low_scale = e.call(WEAPON_FLOAT_174, &args![weapon]).f64();
@@ -885,9 +887,9 @@ pub fn fn_009d1b90(e: &mut Engine, this: u32) {
 pub fn fn_009d1bc0(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>, automatic: u8) {
     let controller = controller_of(e, this);
     let actor = e.call(CONTROLLER_ACTOR, &args![controller]).u32();
-    let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(object, SLOT_SET_6E0, &args![u32::from(automatic)]);
-    let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(object, SLOT_TEST_434, &args![1u32]);
     e.call(TIMER_CLEAR, &args![this.addr() + FIRING_TIMER]);
 }
@@ -899,9 +901,9 @@ pub fn fn_009d1bc0(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>, autom
 pub fn stop_firing(e: &mut Engine, this: Ptr<CombatProcedureAttackRanged>) {
     let controller = controller_of(e, this);
     let actor = e.call(CONTROLLER_ACTOR, &args![controller]).u32();
-    let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(object, SLOT_SET_6E0, &args![0u32]);
-    let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(object, SLOT_TEST_434, &args![0u32]);
     e.call(TIMER_CLEAR, &args![this.addr() + FIRING_TIMER]);
 }

@@ -188,6 +188,7 @@ pub fn fn_005e2c70(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 /// minimum capacity).
 const STRING_SET_004037F0: u32 = 0x0040_37f0;
 /// `00559450` (`ECX`): the word at +0 (a `BSStringT`'s text pointer).
+#[cfg(test)]
 const STRING_CHARACTERS_00559450: u32 = 0x0055_9450;
 /// The empty C string (`01011584`).
 const EMPTY_TEXT: u32 = 0x0101_1584;
@@ -233,8 +234,8 @@ pub fn fn_005e2c10(e: &mut Engine, this: Ptr, text: Ptr) -> bool {
 /// +0x3c (`00559450`, read a second time when nonzero), or the empty string `01011584`.
 pub fn fn_005e2c30(e: &mut Engine, this: Ptr) -> u32 {
     let string = this.addr() + 0x3c;
-    if e.call(STRING_CHARACTERS_00559450, &args![string]).u32() != 0 {
-        e.call(STRING_CHARACTERS_00559450, &args![string]).u32()
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string)) != 0 {
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string))
     } else {
         EMPTY_TEXT
     }
@@ -350,8 +351,11 @@ const SWAP_U16: u32 = 0x0040_7a90;
 /// `0045c650` (`thiscall` on the data handler at `011c3f2c`): the list of sounds.
 const SOUND_LIST: u32 = 0x0045_c650;
 /// List helpers: `008256d0` (empty), `006815c0` (the item word's address), `00726070` (next).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// `00408da0` (`thiscall` on the file name component): its text.
 const FILE_NAME_TEXT: u32 = 0x0040_8da0;
@@ -499,8 +503,8 @@ pub fn fn_005e3570(e: &mut Engine, name: u32) -> u32 {
     }
     let handler = e.global::<u32>(DATA_HANDLER);
     let mut node = e.call(SOUND_LIST, &args![handler]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let at = e.call(LIST_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let sound = e.mem.u32(at);
         if e.call(FILE_NAME_TEXT, &args![sound.wrapping_add(0x30)])
             .u32()
@@ -513,7 +517,7 @@ pub fn fn_005e3570(e: &mut Engine, name: u32) -> u32 {
                 return sound;
             }
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     0
 }

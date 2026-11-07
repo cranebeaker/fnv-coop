@@ -51,6 +51,7 @@ const SWAP_DATA: u32 = 0x0058_e3a0;
 /// The decal data at +0x54 (`DecalData`, Xbox PDB `DData`): `006815c0`
 /// answers the address its fields are written at.
 const DECAL_DATA: u32 = 0x54;
+#[cfg(test)]
 const DECAL_DATA_FIELDS: u32 = 0x0068_15c0;
 
 const CHUNK_EDID: u32 = 0x4449_4445;
@@ -225,14 +226,14 @@ fn impact_data_load_old(e: &mut Engine, this: Ptr, file: Ptr) {
         (0x14, 0x24),
         (0x18, 0x08),
     ] {
-        let fields = e.call(DECAL_DATA_FIELDS, &args![decal]).u32();
+        let fields = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, decal));
         e.mem.set_f32(fields + field, float(at));
     }
-    let fields = e.call(DECAL_DATA_FIELDS, &args![decal]).u32();
+    let fields = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, decal));
     e.mem.set_u8(fields + 0x1c, record[0x11]);
-    let fields = e.call(DECAL_DATA_FIELDS, &args![decal]).u32();
+    let fields = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, decal));
     e.mem.set_u8(fields + 0x1d, record[0x10]);
-    let fields = e.call(DECAL_DATA_FIELDS, &args![decal]).u32();
+    let fields = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, decal));
     e.mem.set_u32(fields + 0x20, word(0x30));
 }
 

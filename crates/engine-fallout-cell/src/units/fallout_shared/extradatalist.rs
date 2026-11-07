@@ -136,16 +136,20 @@ pub(crate) const BS_EXTRA_DATA_INIT: u32 = 0x0040_ec80;
 /// `tesregiondata.cpp`, identical code folded).
 pub(crate) const GET_TYPE: u32 = 0x004f_1540;
 /// `pNext` getter (`MOV EAX,[ECX+8]`).
+#[cfg(test)]
 pub(crate) const GET_NEXT: u32 = 0x0044_ddc0;
 /// `pNext` setter (`MOV [ECX+8],arg`).
 pub(crate) const SET_NEXT: u32 = 0x0040_3550;
 /// `MOV EAX,[ECX+4]`: `BSSimpleList`'s `m_pkNext`, and the `pHead` of a
 /// `BaseExtraList` where `RemoveExtra_ov2` starts its walk.
+#[cfg(test)]
 pub(crate) const SIMPLE_LIST_NEXT: u32 = 0x0072_6070;
 /// `MOV EAX,ECX`: a `BSSimpleList` node's address, which is the address of its
 /// item slot (the item is read through the returned pointer).
+#[cfg(test)]
 pub(crate) const SIMPLE_LIST_ITEM: u32 = 0x0068_15c0;
 /// `MOV EAX,[ECX]`: reads the word a handle points at.
+#[cfg(test)]
 pub(crate) const READ_WORD: u32 = 0x0055_9450;
 /// `memset(dst, value, size)`.
 pub(crate) const MEMSET: u32 = 0x0040_3d30;
@@ -233,6 +237,7 @@ pub(crate) const SWAP_WORD: u32 = 0x0040_7a90;
 
 // The save writer's callees.
 /// `TESForm::iFormID` getter (`MOV EAX,[ECX+0x0C]`).
+#[cfg(test)]
 pub(crate) const FORM_ID: u32 = 0x0084_e3a0;
 /// `TESForm::AddChunk(tag, word)`: one word, swapped first on a big-endian
 /// target.
@@ -258,6 +263,7 @@ pub(crate) const SWAP_TWO_WORDS: u32 = 0x0046_2230;
 /// Count of the non-null items of a `BSSimpleList` (`005ae380`).
 pub(crate) const LIST_COUNT: u32 = 0x005a_e380;
 /// `BSSimpleList::IsEmpty`: no item and no next (`008256d0`).
+#[cfg(test)]
 pub(crate) const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `RagDollData::Save` (`004d93c0`).
 pub(crate) const RAGDOLL_DATA_SAVE: u32 = 0x004d_93c0;
@@ -410,6 +416,7 @@ pub(crate) const SET_IGNORED_BY_SANDBOX: u32 = 0x0042_f200;
 /// Stores its argument at `this + 0x0C` (`0041fd00`).
 pub(crate) const SET_SPECIAL_RENDER_WORD: u32 = 0x0041_fd00;
 /// `BGSSaveFormBuffer::GetForm` (`007af430`).
+#[cfg(test)]
 pub(crate) const SAVE_BUFFER_GET_FORM: u32 = 0x007a_f430;
 /// `TESForm::GetFormType` (`00401170`, `MOVZX EAX,[ECX+4]`).
 pub(crate) const FORM_TYPE: u32 = 0x0040_1170;
@@ -507,7 +514,9 @@ pub(crate) fn get_type(e: &mut Engine, extra: Ptr<BSExtraData>) -> u8 {
 }
 
 pub(crate) fn get_next(e: &mut Engine, extra: Ptr<BSExtraData>) -> Ptr<BSExtraData> {
-    e.call(GET_NEXT, &args![extra]).ptr()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, extra))
+        .into_ret()
+        .ptr()
 }
 
 pub(crate) fn set_next(e: &mut Engine, extra: Ptr<BSExtraData>, next: Ptr<BSExtraData>) {
@@ -898,7 +907,10 @@ pub fn base_extra_list_remove_extra(
 pub fn base_extra_list_remove_extra_ov2(e: &mut Engine, this: Ptr<BaseExtraList>, extra_type: u8) {
     lock(e, NAME_REMOVE_EXTRA);
     let mut previous: Ptr<BSExtraData> = Ptr::NULL;
-    let mut current: Ptr<BSExtraData> = e.call(SIMPLE_LIST_NEXT, &args![this]).ptr();
+    let mut current: Ptr<BSExtraData> =
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this))
+            .into_ret()
+            .ptr();
     while !current.is_null() && get_type(e, current) != extra_type {
         previous = current;
         current = get_next(e, current);
@@ -1157,7 +1169,11 @@ pub fn extra_data_list_add_extra_copy(
         return;
     }
     if let Some(&(_, setter)) = COPY_READ_WORD.iter().find(|entry| entry.0 == extra_type) {
-        let word = e.call(READ_WORD, &args![extra.addr() + 0x0c]).u32();
+        let word = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, extra.addr() + 0x0c)
+        );
         e.call(setter, &args![list, word]);
         return;
     }
@@ -1184,7 +1200,11 @@ pub fn extra_data_list_add_extra_copy(
             // structure it made through `result`; the two words at +0x14 and
             // +0x18 of the source are then copied into its first two words.
             let word = payload(e, extra, 0x0c);
-            let handle = e.call(READ_WORD, &args![extra.addr() + 0x10]).u32();
+            let handle = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, extra.addr() + 0x10)
+            );
             let result = e.mem.alloc(4);
             e.call(0x0041_c490, &args![list, word, handle, result]);
             let created = e.mem.u32(result);
@@ -1236,26 +1256,26 @@ pub fn extra_data_list_add_extra_copy(
         0x1b => {
             let mut node = payload(e, extra, 0x0c);
             while node != 0 {
-                let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(item);
                 if entry != 0 {
                     let (word, flag) = (e.mem.u32(entry), e.mem.u8(entry + 4));
                     e.call(0x0041_d700, &args![list, word, flag]);
                 }
-                node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
         0x1d => {
             let mut node = payload(e, extra, 0x0c);
             while node != 0 {
-                let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(item) == 0 {
                     break;
                 }
-                let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let follower = e.mem.u32(item);
                 e.call(0x0042_2480, &args![list, follower]);
-                node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
         0x2a => {
@@ -1316,18 +1336,18 @@ pub fn extra_data_list_add_extra_copy(
             let target = e.call(0x0042_e800, &args![list]).u32();
             let mut node = payload(e, extra, 0x0c);
             while node != 0 {
-                let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(item) == 0 {
                     break;
                 }
-                let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(item);
                 if entry != 0 {
                     // The entry is a word and a signed byte.
                     let (word, small) = (e.mem.u32(entry), e.mem.i8(entry + 4) as i32);
                     e.call(0x0043_6f80, &args![target, word, small]);
                 }
-                node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
         0x62 => {
@@ -1363,21 +1383,21 @@ pub fn extra_data_list_add_extra_copy(
         0x72 => {
             let word = payload(e, extra, 0x0c);
             let object = new_object(e, 4, |e, block| fn_00411e00(e, Ptr::new(block)).addr());
-            let read = e.call(READ_WORD, &args![word]).u32();
+            let read = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, word));
             e.call(0x0053_7e90, &args![object, read]);
             e.call(0x0042_0fd0, &args![list, object]);
         }
         0x73 => {
             let mut node = payload(e, extra, 0x0c);
             while node != 0 {
-                let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(item) == 0 {
                     break;
                 }
-                let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(item);
                 e.call(0x0042_ef20, &args![list, entry]);
-                node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
         0x76 => {
@@ -1402,7 +1422,7 @@ pub fn extra_data_list_add_extra_copy(
             } else {
                 extra.addr() + 0x0c
             };
-            let word = e.call(READ_WORD, &args![address]).u32();
+            let word = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, address));
             if extra.is_null() {
                 e.call(0x0045_cec0, &args![temporary]);
             }
@@ -1413,14 +1433,14 @@ pub fn extra_data_list_add_extra_copy(
             let room_data = payload(e, extra, 0x0c);
             let mut node = room_data + 8;
             while node != 0 {
-                let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(item) == 0 {
                     break;
                 }
-                let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(item);
                 e.call(0x0042_0c10, &args![list, entry]);
-                node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             let flag = e.mem.u8(room_data + 0x10) != 0;
             e.call(0x0042_0870, &args![list, flag]);
@@ -1452,12 +1472,12 @@ pub fn extra_data_list_add_extra_copy(
             e.call(0x0047_0470, &args![target + 0x20]);
             let mut node = extra.addr() + 0x20;
             while node != 0 {
-                let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(item) != 0 {
-                    let item = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+                    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     e.call(0x0090_5820, &args![target + 0x20, item]);
                 }
-                node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
         0x8d => {
@@ -2169,7 +2189,7 @@ pub fn fn_004143c0(e: &mut Engine, this: Ptr) -> Ptr {
 /// colour as an `NiColorA` at +0x0c, type at +0x1c): the point's constructor
 /// does nothing, the colour's (`00414430`) stores four zeros. Returns `this`.
 pub fn fn_004143f0(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(SIMPLE_LIST_ITEM, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     fn_00414430(e, this.byte_add(0x0c), 0.0, 0.0, 0.0, 0.0);
     this
 }
@@ -2190,9 +2210,17 @@ pub fn fn_00414430(e: &mut Engine, this: Ptr, a: f32, b: f32, c: f32, d: f32) ->
 /// do-nothing member constructors (`006815c0`) at +0, +8 and +0x14. Returns
 /// `this`.
 pub fn fn_00414470(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(SIMPLE_LIST_ITEM, &args![this]);
-    e.call(SIMPLE_LIST_ITEM, &args![this.addr() + 8]);
-    e.call(SIMPLE_LIST_ITEM, &args![this.addr() + 0x14]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 8)
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0x14)
+    );
     this
 }
 
@@ -2330,7 +2358,7 @@ pub fn fn_00416b80(e: &mut Engine, this: Ptr) -> Ptr {
 /// Reads the form id of the form at `form` (`TESForm::iFormID`, +0x0C, via
 /// the getter `0084e3a0`).
 pub(crate) fn form_id(e: &mut Engine, form: u32) -> u32 {
-    e.call(FORM_ID, &args![form]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
 }
 
 /// Adds a chunk holding one word (`TESForm::AddChunk(tag, value)`,
@@ -2370,13 +2398,13 @@ pub(crate) fn is_big_endian(e: &mut Engine) -> bool {
 /// The item of a `BSSimpleList` node (`006815c0` returns the node's own
 /// address, the item is the word there).
 pub fn list_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 /// The next node of a `BSSimpleList` node (`00726070`).
 pub fn list_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(SIMPLE_LIST_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// Adds the chunk `tag` with the form id of `form`.
@@ -2597,7 +2625,9 @@ pub(crate) fn save_extra_data(
         // reference as a form id.
         0x57 => {
             let mut node = extra.addr() + 0x0c;
-            while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
                 let decal = list_item(e, node);
                 e.with_stack(0x1c, |e, record| {
                     e.call(DECAL_DATA_INIT, &args![record]);
@@ -2644,7 +2674,9 @@ pub(crate) fn save_extra_data(
         // bytes), saved with the reference as a form id.
         0x66 => {
             let mut node = extra.addr() + 0x0c;
-            while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
                 let data = list_item(e, node);
                 e.with_stack(8, |e, record| {
                     e.call(SIMPLE_LIST_INIT, &args![record]);
@@ -2776,7 +2808,9 @@ pub(crate) fn save_extra_data(
         // EXTRA_LIT_WATER_REFS
         0x85 => {
             let mut node = extra.addr() + 0x0c;
-            while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
                 let reference = list_item(e, node);
                 let id = form_id(e, reference);
                 add_chunk_word(e, chunk_tag(b"XLTW"), id);
@@ -2816,7 +2850,7 @@ pub(crate) fn save_activate_ref(e: &mut Engine, list: Ptr<ExtraDataList>, extra:
     let flags = e.mem.u8(extra.addr() + 0x14);
     add_chunk_byte(e, chunk_tag(b"XAPD"), flags);
     let mut node = extra.addr() + 0x0c;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let data = list_item(e, node);
         node = list_next(e, node);
         e.with_stack(8, |e, record| {
@@ -2839,7 +2873,7 @@ pub(crate) fn save_activate_ref(e: &mut Engine, list: Ptr<ExtraDataList>, extra:
                 let length = e.call(STRING_LENGTH, &args![first]).u32();
                 let size = length.wrapping_add(1);
                 let second = e.call(GET_ACTIVATE_TEXT, &args![list, second]).u32();
-                let characters = e.call(READ_WORD, &args![second]).u32();
+                let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, second));
                 e.call(
                     ADD_CHUNK_ARRAY_RAW,
                     &args![chunk_tag(b"XATO"), characters, size],
@@ -2857,7 +2891,11 @@ pub(crate) fn save_activate_ref(e: &mut Engine, list: Ptr<ExtraDataList>, extra:
 pub(crate) fn save_plane(e: &mut Engine, extra: Ptr<BSExtraData>, tag: u32) {
     e.with_stack(0x24, |e, record| {
         fn_00414470(e, record);
-        let plane = e.call(READ_WORD, &args![extra.addr() + 0x0c]).u32();
+        let plane = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, extra.addr() + 0x0c)
+        );
         let half_extents = e.call(PLANE_HALF_EXTENTS, &args![plane]).u32();
         copy_block(e, half_extents, record.addr(), 8);
         let center = fn_00413f40(e, plane);
@@ -3390,7 +3428,7 @@ pub fn extra_data_list_load(e: &mut Engine, this: Ptr<ExtraDataList>, file: Ptr,
             fn_00416a30(e, Ptr::new(plane), record);
             fn_004169f0(e, Ptr::new(plane), record.byte_add(8));
             e.with_stack(0x24, |e, matrix| {
-                e.call(SIMPLE_LIST_ITEM, &args![matrix]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
                 let angle = x87_quiet_bits(e.mem.u32(record.addr() + 0x20));
                 let axis_x = x87_quiet_bits(e.mem.u32(record.addr() + 0x14));
                 let axis_y = x87_quiet_bits(e.mem.u32(record.addr() + 0x18));
@@ -3420,7 +3458,7 @@ pub fn extra_data_list_load(e: &mut Engine, this: Ptr<ExtraDataList>, file: Ptr,
         }),
         // EXTRA_PATROL_REF_DATA, the time at the reference.
         b"XPRD" => e.with_stack(4, |e, local| {
-            e.call(SIMPLE_LIST_ITEM, &args![local]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
             read_chunk_data(e, file, local.addr(), 4);
             if file_needs_swap(e, file) {
                 swap_word_at(e, local);
@@ -3530,11 +3568,11 @@ pub(crate) fn get_or_add_special_render_flags(
 /// `007af430`) exists and has form type `0x23` (`TESForm::GetFormType`,
 /// `00401170`).
 pub(crate) fn form_is_type_0x23(e: &mut Engine, buffer: Ptr) -> bool {
-    let form = e.call(SAVE_BUFFER_GET_FORM, &args![buffer]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, buffer));
     if form == 0 {
         return false;
     }
-    let form = e.call(SAVE_BUFFER_GET_FORM, &args![buffer]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, buffer));
     e.call(FORM_TYPE, &args![form]).u32() == 0x23
 }
 
@@ -3792,7 +3830,11 @@ pub(crate) fn init_item_extra(
         // EXTRA_DECAL_REFS
         0x57 => {
             e.call(DECAL_REFS_INIT_ITEM, &args![extra, reference]);
-            if e.call(LIST_IS_EMPTY, &args![extra.addr() + 0x0c]).bool() {
+            if typed_call!(
+                leaf::FAMILY,
+                0x0082_56d0,
+                leaf::both_words_zero(e, extra.addr() + 0x0c)
+            ) {
                 e.call(LOG_MESSAGE, &args![MESSAGE_EMPTY_DECALS]);
                 remove_and_delete(e, this, extra);
             }
@@ -3818,7 +3860,11 @@ pub(crate) fn init_item_extra(
         // EXTRA_REFLECTOR_REFS
         0x66 => {
             e.call(REFLECTOR_REFS_INIT_ITEM, &args![extra, reference]);
-            if e.call(LIST_IS_EMPTY, &args![extra.addr() + 0x0c]).bool() {
+            if typed_call!(
+                leaf::FAMILY,
+                0x0082_56d0,
+                leaf::both_words_zero(e, extra.addr() + 0x0c)
+            ) {
                 e.call(LOG_MESSAGE, &args![MESSAGE_EMPTY_REFLECTOR_REFS]);
                 remove_and_delete(e, this, extra);
             }
@@ -3963,7 +4009,11 @@ pub(crate) fn init_item_extra(
         // EXTRA_LIT_WATER_REFS
         0x85 => {
             e.call(LIT_WATER_REFS_INIT_ITEM, &args![extra, reference]);
-            if e.call(LIST_IS_EMPTY, &args![extra.addr() + 0x0c]).bool() {
+            if typed_call!(
+                leaf::FAMILY,
+                0x0082_56d0,
+                leaf::both_words_zero(e, extra.addr() + 0x0c)
+            ) {
                 e.call(LOG_MESSAGE, &args![MESSAGE_EMPTY_LIT_WATER]);
                 remove_and_delete(e, this, extra);
             }
@@ -4004,7 +4054,7 @@ pub(crate) fn init_activate_ref(
 ) {
     let mut node = extra.addr() + 0x0c;
     let mut previous = 0u32;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let data = list_item(e, node);
         let stored = e.mem.u32(data);
         let (id, activator) = resolve_form_id(e, file, stored, RTTI_TES_OBJECT_REFR);
@@ -4028,8 +4078,11 @@ pub(crate) fn init_activate_ref(
             node = list_next(e, node);
         }
     }
-    if e.call(LIST_IS_EMPTY, &args![extra.addr() + 0x0c]).bool()
-        && e.mem.u8(extra.addr() + 0x14) == 0
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, extra.addr() + 0x0c)
+    ) && e.mem.u8(extra.addr() + 0x14) == 0
         && e.call(STRING_LENGTH, &args![extra.addr() + 0x18]).u32() == 0
     {
         e.call(LOG_MESSAGE, &args![MESSAGE_EMPTY_ACTIVATE_PARENT]);
@@ -4059,6 +4112,7 @@ pub(crate) const RADIO_DATA_COPY: u32 = 0x0043_7240;
 /// `this` = the new block).
 pub(crate) const EXTRA_ORIGINAL_REFERENCE_INIT: u32 = 0x0043_1950;
 /// `BGSSaveFormBuffer::GetForm` (`007af430`): `MOV EAX,[ECX+0x20]`.
+#[cfg(test)]
 pub(crate) const SAVE_FORM_BUFFER_GET_FORM: u32 = 0x007a_f430;
 
 layout! {
@@ -4187,7 +4241,7 @@ pub fn fn_004181c0(e: &mut Engine, this: Ptr, index: u32, linked_plane: u32) {
 /// The base form of a reference: the code calls `BGSSaveFormBuffer::GetForm`
 /// (`007af430`), which is `MOV EAX,[ECX+0x20]`, and returns its result.
 pub fn fn_004181e0(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(SAVE_FORM_BUFFER_GET_FORM, &args![this]).u32()
+    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this))
 }
 
 // Translated from 00418200 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -5337,8 +5391,8 @@ pub fn extra_data_list_set_creature_awake_sound(
 /// (each read through `00559450`, `other` first); the other fields are not
 /// compared.
 pub fn fn_0041a1f0(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
-    let other_id = e.call(READ_WORD, &args![other]).u32();
-    let this_id = e.call(READ_WORD, &args![this]).u32();
+    let other_id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
+    let this_id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     other_id == this_id
 }
 
@@ -5346,8 +5400,8 @@ pub fn fn_0041a1f0(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
 /// Whether the sound handle `this` and `other` have different `iSoundID`s
 /// (each read through `00559450`, `other` first).
 pub fn fn_0041a220(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
-    let other_id = e.call(READ_WORD, &args![other]).u32();
-    let this_id = e.call(READ_WORD, &args![this]).u32();
+    let other_id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
+    let this_id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     other_id != this_id
 }
 

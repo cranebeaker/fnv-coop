@@ -16,6 +16,7 @@ const COMPARE_EXCHANGE: u32 = 0x0043_b460;
 /// `Sleep` wrapper (`0040fca0`, `cdecl`): one argument, the milliseconds.
 const SLEEP: u32 = 0x0040_fca0;
 /// An empty function (`0040fbe0`) that the lock calls after acquiring.
+#[cfg(test)]
 const AFTER_ACQUIRE: u32 = 0x0040_fbe0;
 
 /// Failed attempts after which the wait sleeps a millisecond instead of
@@ -45,7 +46,7 @@ pub fn fn_0040fbf0(e: &mut Engine, this: Ptr, _unused_1: u32) {
                 e.call(SLEEP, &args![0u32]);
             }
         }
-        e.call(AFTER_ACQUIRE, &args![]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
         e.mem.set_u32(this.addr() + 4, 1);
     }
 }

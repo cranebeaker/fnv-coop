@@ -10,9 +10,11 @@ use crate::prelude::*;
 /// `00717e50` (`ECX` = object): `this + 4` (the array).
 const PLUS_FOUR: u32 = 0x0071_7e50;
 /// `0084e3a0` (`ECX` = array): the word at +0xc (its count).
+#[cfg(test)]
 const WORD_AT_0XC: u32 = 0x0084_e3a0;
 /// `00877a30` (`ECX` = array, one word: the index; `RET 4`): the address of
 /// that element (`m_pBase + index * 4`).
+#[cfg(test)]
 const ELEMENT_ADDRESS: u32 = 0x0087_7a30;
 
 // Translated from 00619f20 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -26,12 +28,16 @@ pub fn fn_00619f20(e: &mut Engine, object: Ptr, index: u32) -> u32 {
         return 0;
     }
     let array = e.call(PLUS_FOUR, &args![object]).u32();
-    let count = e.call(WORD_AT_0XC, &args![array]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array));
     if index >= count {
         return 0;
     }
     let array = e.call(PLUS_FOUR, &args![object]).u32();
-    let element = e.call(ELEMENT_ADDRESS, &args![array, index]).u32();
+    let element = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    );
     e.mem.u32(element)
 }
 
@@ -66,10 +72,14 @@ pub fn fn_00619fe0(e: &mut Engine, array: Ptr) {
     if array.is_null() {
         return;
     }
-    let count = e.call(WORD_AT_0XC, &args![array]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array));
     let mut index = 0u32;
     while index < count {
-        let at = e.call(ELEMENT_ADDRESS, &args![array, index]).u32();
+        let at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
         let element = e.mem.u32(at);
         if element != 0 {
             e.call(0x0061_f340, &args![element, index & 0xffff]);
@@ -151,7 +161,9 @@ pub fn fn_0061a270(e: &mut Engine) {
 /// `005d8a70` (`ECX` = topic): the list of its per-quest entries; `006815c0` (`ECX` =
 /// node): the address of its item word; `00726070` (`ECX` = node): the next node.
 const TOPIC_QUEST_LIST: u32 = 0x005d_8a70;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 
 // Translated from 00619f70 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -162,13 +174,13 @@ const NODE_NEXT: u32 = 0x0072_6070;
 pub fn fn_00619f70(e: &mut Engine, this: Ptr, quest: u32) -> u32 {
     let mut node = e.call(TOPIC_QUEST_LIST, &args![this]).u32();
     while node != 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             break;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(item);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if e.mem.u32(entry) == quest && (quest != 0 || e.mem.u32(entry + 0x2c) == 0) {
             return e.call(PLUS_FOUR, &args![entry]).u32();
         }

@@ -28,6 +28,7 @@ const NI_FORM_ARRAY_VTABLE: u32 = 0x0103_26fc;
 /// The base array constructor (`004701d0`, `thiscall(a, b)`).
 const ARRAY_BASE_CONSTRUCT: u32 = 0x0047_01d0;
 /// Returns the word at +0xC of its `this` (`0084e3a0`).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0084_e3a0;
 /// `NiFormArray::GetFormAt` (`004d6170`, Xbox PDB; `thiscall(index)`).
 const NI_FORM_ARRAY_GET_FORM_AT: u32 = 0x004d_6170;
@@ -55,7 +56,7 @@ pub fn fn_0058b3f0(e: &mut Engine, this: Ptr) -> Ptr {
 pub fn fn_0058b600(e: &mut Engine, this: Ptr) -> u32 {
     let array = e.mem.u32(this.addr() + FORM_ARRAY);
     if array != 0 {
-        return e.call(ARRAY_COUNT, &args![array]).u32();
+        return typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array));
     }
     0
 }
@@ -85,10 +86,12 @@ const PATH_FLAGS: u32 = 0x28;
 /// path's conditions), `TESCondition::IsTrue` (`00680c30`, engine map;
 /// `thiscall`, two words), `00891170` (`thiscall`) and `008256d0`
 /// (`thiscall` on what `00891170` answers, a byte answer).
+#[cfg(test)]
 const PATH_00440D80: u32 = 0x0044_0d80;
 const PATH_CONDITIONS: u32 = 0x0050_0940;
 const CONDITION_IS_TRUE: u32 = 0x0068_0c30;
 const PATH_00891170: u32 = 0x0089_1170;
+#[cfg(test)]
 const CHECK_008256D0: u32 = 0x0082_56d0;
 /// `NiFormArray::GetIndexForForm` (`004d6100`, engine map; `thiscall`,
 /// one word), `00486b80` (`thiscall` on the array, one word: an index) and
@@ -138,7 +141,7 @@ pub fn fn_0058b4f0(e: &mut Engine, this: Ptr) -> bool {
 /// the same way in order, and the first non-null answer replaces it.
 pub fn fn_0058b510(e: &mut Engine, this: Ptr, first: u32, second: u32) -> u32 {
     let mut result = 0;
-    if e.call(PATH_00440D80, &args![this]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
         return result;
     }
     let conditions = e.call(PATH_CONDITIONS, &args![this]).u32();
@@ -151,7 +154,7 @@ pub fn fn_0058b510(e: &mut Engine, this: Ptr, first: u32, second: u32) -> u32 {
     let mut take = fn_0058b470(e, this);
     if !take {
         let object = e.call(PATH_00891170, &args![this]).u32();
-        take = !e.call(CHECK_008256D0, &args![object]).bool();
+        take = !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, object));
     }
     if take {
         result = this.addr();

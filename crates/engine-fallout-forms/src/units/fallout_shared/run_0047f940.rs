@@ -36,12 +36,15 @@ const LIST_CONSTRUCT: u32 = 0x0096_a2d0;
 /// The list destructor (`ECX` = list).
 const LIST_DESTRUCT: u32 = 0x0046_ffb0;
 /// Whether the list is empty (`ECX` = list): no item and no next node.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// Returns `ECX` itself: the address of the node's item slot.
+#[cfg(test)]
 const LIST_ITEM_SLOT: u32 = 0x0068_15c0;
 /// Removes the first item of the list (`ECX` = list).
 const LIST_POP_FRONT: u32 = 0x0063_f7b0;
 /// Returns the next node of `ECX`.
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// Appends the item whose address is passed to the list (`ECX` = list).
 const LIST_PUSH_BACK: u32 = 0x0090_5820;
@@ -159,8 +162,8 @@ pub fn fn_0047f9f0(e: &mut Engine, this: Ptr<TESAnimation>) {
 /// removes every file name from the list and frees it.
 pub fn fn_0047fa50(e: &mut Engine, this: Ptr<TESAnimation>) {
     let list = this.at(TESAnimation::kfFilenames);
-    while !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-        let slot = e.call(LIST_ITEM_SLOT, &args![list]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let name = e.mem.u32(slot);
         e.call(LIST_POP_FRONT, &args![list]);
         e.call(OPERATOR_DELETE, &args![name]);
@@ -209,12 +212,12 @@ pub fn fn_0047fb50(e: &mut Engine, this: Ptr<TESAnimation>, source: Ptr) {
     e.vcall(this.addr(), SLOT_CLEAR_DATA_COMPONENT, &args![]);
     let mut node = other.at(TESAnimation::kfFilenames).addr();
     while node != 0 {
-        let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let name = e.mem.u32(slot);
         if name != 0 {
             fn_0047fd20(e, this, Ptr::new(name));
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -236,9 +239,9 @@ pub fn fn_0047fbd0(e: &mut Engine, this: Ptr<TESAnimation>, other: Ptr) -> bool 
     let mut mine = this.at(TESAnimation::kfFilenames).addr();
     let mut theirs = other.at(TESAnimation::kfFilenames).addr();
     while mine != 0 && theirs != 0 {
-        let slot = e.call(LIST_ITEM_SLOT, &args![mine]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
         let name = e.mem.u32(slot);
-        let slot = e.call(LIST_ITEM_SLOT, &args![theirs]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         let other_name = e.mem.u32(slot);
         if (name == 0 && other_name != 0) || (name != 0 && other_name == 0) {
             return true;
@@ -251,8 +254,8 @@ pub fn fn_0047fbd0(e: &mut Engine, this: Ptr<TESAnimation>, other: Ptr) -> bool 
         {
             return true;
         }
-        mine = e.call(LIST_NEXT, &args![mine]).u32();
-        theirs = e.call(LIST_NEXT, &args![theirs]).u32();
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
     }
     mine != 0 || theirs != 0
 }
@@ -262,17 +265,17 @@ pub fn fn_0047fbd0(e: &mut Engine, this: Ptr<TESAnimation>, other: Ptr) -> bool 
 /// for an empty list.
 pub fn fn_0047fcb0(e: &mut Engine, this: Ptr<TESAnimation>, name: Ptr) -> bool {
     let list = this.at(TESAnimation::kfFilenames);
-    if e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         return false;
     }
     let mut node = list.addr();
     while node != 0 {
-        let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         if e.call(STRING_COMPARE_NO_CASE, &args![item, name]).i32() == 0 {
             return true;
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }

@@ -31,6 +31,7 @@ const ADD_DEBRIS_DATA: u32 = 0x004f_a500;
 /// file, the form and the model name.
 const TES_TEXTURE_LIST_LOAD: u32 = 0x0048_9940;
 /// `0084e3a0`: the form's id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `"MODELS: No last debris data when loading texture list for debris '%s' (%08X)"`.
 const NO_LAST_DATA_WARNING: u32 = 0x0102_4988;
@@ -115,7 +116,7 @@ pub fn bgs_debris_load(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
                     let name = e.mem.u32(last + 4);
                     e.call(TES_TEXTURE_LIST_LOAD, &args![last + 8, file, this, name]);
                 } else {
-                    let form_id = e.call(FORM_ID, &args![this]).u32();
+                    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                     let editor_id = e.vcall(base, 0x130, &args![]).u32();
                     e.call(
                         0x005b_5e40,

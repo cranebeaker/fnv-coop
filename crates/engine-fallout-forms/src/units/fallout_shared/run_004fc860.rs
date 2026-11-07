@@ -131,7 +131,7 @@ pub fn fn_004fc9e0(
                 || x87_load32(height) < x87_load32(other_height),
         );
         e.call(0x0060_0920, &args![below]);
-        let acquire = e.call(0x008d_8520, &args![actor]).u32();
+        let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let passed = e
             .vcall(acquire, 0x44, &args![actor, 0u32, 3u32, 1u32, 0u32, 1u32])
             .u8();

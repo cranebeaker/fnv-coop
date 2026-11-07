@@ -92,6 +92,7 @@ const NI_POINTER_CONSTRUCT: u32 = 0x0052_8cb0;
 /// `NiPointer` destructor (`0044cbf0`, thiscall).
 const NI_POINTER_DESTRUCT: u32 = 0x0044_cbf0;
 /// The pointer a `NiPointer` holds (`00559450`, thiscall).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `BSTaskManager<__int64>::CancelTask` (engine map, thiscall(task, 0)).
 const TASK_MANAGER_CANCEL_TASK: u32 = 0x0044_ac40;
@@ -245,7 +246,7 @@ pub fn fn_0044b8d0(
             }
             let index = e.mem.u32(iter.wrapping_add(4)).wrapping_add(1);
             e.mem.set_u32(iter.wrapping_add(4), index);
-            let count = e.call(0x0044_ddc0, &args![this]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
             if e.mem.u32(iter.wrapping_add(4)) >= count {
                 e.call(0x0044_de80, &args![iter, 1u32]);
                 break;
@@ -316,7 +317,7 @@ pub fn fn_00905e50(e: &mut Engine, this: Ptr) {
                     if found {
                         let mobile = e.mem.u32(key.addr());
                         e.call(MAP_REMOVE_ENTRY, &args![this, mobile]);
-                        let raw = e.call(NI_POINTER_GET, &args![task]).u32();
+                        let raw = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, task));
                         let manager = e.global::<u32>(TASK_MANAGER_POINTER);
                         e.call(TASK_MANAGER_CANCEL_TASK, &args![manager, raw, 0u32]);
                     }
@@ -341,7 +342,7 @@ pub fn lip_sync_background_manager_cancel_lip_file(e: &mut Engine, this: Ptr, mo
         e.call(NI_POINTER_CONSTRUCT, &args![task, 0u32]);
         if e.vcall(this.addr(), 8, &args![mobile, task]).bool() {
             e.call(MAP_REMOVE_ENTRY, &args![this, mobile]);
-            let raw = e.call(NI_POINTER_GET, &args![task]).u32();
+            let raw = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, task));
             let manager = e.global::<u32>(TASK_MANAGER_POINTER);
             e.call(TASK_MANAGER_CANCEL_TASK, &args![manager, raw, 0u32]);
         }
@@ -370,6 +371,7 @@ pub fn fn_00906690(e: &mut Engine, this: Ptr) -> Ptr {
 /// `MiddleHighProcess::GetSavedAcquireObject` name sits on that body). Lip
 /// tasks call it on their mobile object and use the result's virtual
 /// +0x370, +0x374 and +0x380.
+#[cfg(test)]
 const OBJECT_WORD_68: u32 = 0x008d_8520;
 /// The `LipTask` vtable `00905ba0` stores.
 const LIP_TASK_VTABLE: u32 = 0x0108_85b8;
@@ -425,10 +427,10 @@ pub fn lip_task_run(e: &mut Engine, this: Ptr) {
         let file = e.call(0x00c3_cff0, &args![this, 4u32, 0x10u32]).u32();
         if file == 0 {
             let mobile = e.mem.u32(base + 0x30);
-            let object = e.call(OBJECT_WORD_68, &args![mobile]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, mobile));
             e.vcall(object, 0x370, &args![0u32]);
             let mobile = e.mem.u32(base + 0x30);
-            let object = e.call(OBJECT_WORD_68, &args![mobile]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, mobile));
             e.vcall(object, 0x374, &args![1u32]);
         }
         let anim = e.call(0x004d_5350, &args![file]).u32();
@@ -446,17 +448,17 @@ pub fn lip_task_run(e: &mut Engine, this: Ptr) {
 pub fn lip_task_finish(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     let mobile = e.mem.u32(base + 0x30);
-    if e.call(OBJECT_WORD_68, &args![mobile]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, mobile)) != 0 {
         let mobile = e.mem.u32(base + 0x30);
-        let object = e.call(OBJECT_WORD_68, &args![mobile]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, mobile));
         let anim = e.mem.u32(base + 0x34);
         e.vcall(object, 0x380, &args![anim]);
         let mobile = e.mem.u32(base + 0x30);
-        let object = e.call(OBJECT_WORD_68, &args![mobile]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, mobile));
         e.vcall(object, 0x370, &args![0u32]);
         if e.mem.u32(base + 0x34) == 0 {
             let mobile = e.mem.u32(base + 0x30);
-            let object = e.call(OBJECT_WORD_68, &args![mobile]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, mobile));
             e.vcall(object, 0x374, &args![1u32]);
         }
     }
@@ -520,7 +522,7 @@ pub fn fn_00905f30(e: &mut Engine, this: Ptr, mobile: u32, third: u32) {
             e.vcall(this.addr(), 0x10, &args![mobile, pointer, 0u32]);
             e.call(NI_POINTER_DESTRUCT, &args![pointer]);
         });
-        let object = e.call(OBJECT_WORD_68, &args![mobile]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, mobile));
         e.vcall(object, 0x374, &args![0u32]);
         let manager = e.global::<u32>(TASK_MANAGER_POINTER);
         e.vcall(manager, 0x48, &args![task]);

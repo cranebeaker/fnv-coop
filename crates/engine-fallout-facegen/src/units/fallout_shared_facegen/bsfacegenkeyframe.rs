@@ -40,6 +40,7 @@ const SET_QUANTITY_0064A4D0: u32 = 0x0064_a4d0;
 const OPERATOR_NEW: u32 = 0x0040_1000;
 const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// `0044ddc0` (thiscall on a list, returns a word; unnamed).
+#[cfg(test)]
 const LIST_0044DDC0: u32 = 0x0044_ddc0;
 /// `007b5370` (thiscall on a list, returns the address of an item; unnamed).
 const LIST_ITEM_007B5370: u32 = 0x007b_5370;
@@ -257,7 +258,7 @@ fn add_to_list(e: &mut Engine, this: Ptr<BSFaceGenKeyframeMultiple>, list: u32) 
     if time < zero {
         return false;
     }
-    if e.call(LIST_0044DDC0, &args![list]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) != 0 {
         let slot = e.call(LIST_ITEM_007B5370, &args![list]).u32();
         let item = e.mem.u32(slot);
         let multiple = as_multiple(e, item);

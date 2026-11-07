@@ -32,7 +32,7 @@ pub fn tes_race_form_copy_component(e: &mut Engine, this: Ptr, source: Ptr) {
     if race_form == 0 {
         return;
     }
-    let race = e.call(0x0072_6070, &args![race_form]).u32();
+    let race = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, race_form));
     e.call(0x006e_cd40, &args![this, race]);
 }
 
@@ -74,7 +74,7 @@ pub fn tes_race_form_init_item(e: &mut Engine, this: Ptr, owner: Ptr) {
         let name = e.vcall(owner.addr(), 0x130, &args![]).u32();
         e.call(0x005b_5e40, &args![MISSING_ON_OWNER_NAME, id, name]);
     } else {
-        let owner_id = e.call(0x0084_e3a0, &args![owner]).u32();
+        let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
         e.call(0x005b_5e40, &args![MISSING_ON_OWNER_ID, id, owner_id]);
     }
 }
@@ -93,8 +93,8 @@ pub fn tes_race_form_compare_component(e: &mut Engine, this: Ptr, other: u32) ->
     if race_form == 0 {
         return true;
     }
-    let mine = e.call(0x0072_6070, &args![this]).u32();
-    let theirs = e.call(0x0072_6070, &args![race_form]).u32();
+    let mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
+    let theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, race_form));
     mine != theirs
 }
 

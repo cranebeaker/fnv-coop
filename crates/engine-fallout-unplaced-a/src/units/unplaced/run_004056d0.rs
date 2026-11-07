@@ -5,16 +5,19 @@
 use crate::prelude::*;
 
 /// `006815c0` (`ECX`): answers the address of an entry's item word.
+#[cfg(test)]
 const ITEM_ADDRESS_006815C0: u32 = 0x0068_15c0;
 /// `00825c00` (`ECX` = effect item): the word it answers is handed to `0084e3a0`.
 const EFFECT_ITEM_WORD_00825C00: u32 = 0x0082_5c00;
 /// `0084e3a0` (`ECX`): a word of the object `00825c00` answers (written after `EFID`).
+#[cfg(test)]
 const RECORD_WORD_0084E3A0: u32 = 0x0084_e3a0;
 /// `00485910` (`cdecl`, two words: chunk code, value): writes one chunk of a form record.
 const WRITE_CHUNK_00485910: u32 = 0x0048_5910;
 /// `EffectItem::Save` (Xbox PDB, `004040b0`, `ECX`).
 const EFFECT_ITEM_SAVE: u32 = 0x0040_40b0;
 /// `00726070` (`ECX`): the next entry's link word.
+#[cfg(test)]
 const NEXT_LINK_00726070: u32 = 0x0072_6070;
 /// The chunk code `EFID` (the four characters, first byte lowest).
 const CHUNK_EFID: u32 = 0x4449_4645;
@@ -29,19 +32,23 @@ const CHUNK_EFID: u32 = 0x4449_4645;
 pub fn fn_004056d0(e: &mut Engine, list: Ptr) {
     let mut entry = list.addr();
     while entry != 0 {
-        let item_address = e
-            .call(ITEM_ADDRESS_006815C0, &args![entry.wrapping_add(4)])
-            .u32();
+        let item_address = typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, entry.wrapping_add(4))
+        );
         let item = e.mem.u32(item_address);
         if item != 0 {
             let owner = e.call(EFFECT_ITEM_WORD_00825C00, &args![item]).u32();
-            let value = e.call(RECORD_WORD_0084E3A0, &args![owner]).u32();
+            let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             e.call(WRITE_CHUNK_00485910, &args![CHUNK_EFID, value]);
             e.call(EFFECT_ITEM_SAVE, &args![item]);
         }
-        let next = e
-            .call(NEXT_LINK_00726070, &args![entry.wrapping_add(4)])
-            .u32();
+        let next = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, entry.wrapping_add(4))
+        );
         entry = if next == 0 { 0 } else { next.wrapping_sub(4) };
     }
 }

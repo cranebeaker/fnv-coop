@@ -49,6 +49,7 @@ const OBJECT_005F65D0: u32 = 0x005f_65d0;
 /// `TESActorBase::GetSex` (Xbox PDB name of `005f0cc0`; `ECX` = actor).
 const GET_SEX: u32 = 0x005f_0cc0;
 /// `00559450` (`ECX` = string): its characters.
+#[cfg(test)]
 const STRING_CHARACTERS: u32 = 0x0055_9450;
 /// The empty string (`01011584`).
 const EMPTY_STRING: u32 = 0x0101_1584;
@@ -163,10 +164,10 @@ pub fn fn_005fdfa0(e: &mut Engine, this: Ptr, actor: Ptr) -> bool {
 /// string (`01011584`) when they are null. The engine map gives it no name.
 pub fn fn_005fe0f0(e: &mut Engine, this: Ptr) -> u32 {
     let string = this.addr() + 0x4c;
-    if e.call(STRING_CHARACTERS, &args![string]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string)) == 0 {
         return EMPTY_STRING;
     }
-    e.call(STRING_CHARACTERS, &args![string]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string))
 }
 
 // Translated from 005fe130 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -493,13 +494,17 @@ pub fn fn_005fe600(e: &mut Engine, this: Ptr, flag: u8, reference: u32) -> u32 {
     if array != 0 {
         e.call(ARRAY_0061BDC0, &args![array]);
         let array = e.mem.u32(base + 0x40);
-        let count = e.call(0x0084_e3a0, &args![array]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array));
         let target = fn_005fe770(e, Ptr::new(copy));
         e.call(0x0086_4280, &args![target, count]);
         let mut index = 0u32;
         while index < count {
             let array = e.mem.u32(base + 0x40);
-            let slot = e.call(0x0087_7a30, &args![array, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
             let element = e.mem.u32(slot);
             let result = e
                 .vcall(element, 0x40, &args![u32::from(flag), reference])

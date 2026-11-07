@@ -72,6 +72,7 @@ const GET_NI_AV_OBJECT: u32 = 0x00c7_fa90;
 const FIND_REFERENCE_FOR_3D: u32 = 0x0056_f930;
 /// `006815c0` (unnamed): `thiscall`, returns `this` (also the no-op constructor of point and
 /// matrix locals).
+#[cfg(test)]
 const SELF_006815C0: u32 = 0x0068_15c0;
 /// `00460140` (unnamed): `thiscall`, returns `this + 0x10`.
 const MEMBER_AT_10: u32 = 0x0046_0140;
@@ -118,6 +119,7 @@ const COLLECTOR_CONSTRUCT: u32 = 0x004a_3a70;
 const COLLECTOR_DESTRUCT: u32 = 0x004a_3bc0;
 const RAY_CAST: u32 = 0x009c_5ba0;
 const RAY_HITS: u32 = 0x008c_dd90;
+#[cfg(test)]
 const HIT_COUNT: u32 = 0x0072_6070;
 const HIT_AT: u32 = 0x004a_46b0;
 const HIT_COPY: u32 = 0x0069_6c30;
@@ -148,10 +150,10 @@ pub fn fn_009c6490(e: &mut Engine, this: Ptr, _unused_1: u32, hit: u32) {
         let at = |offset: u32| base - offset;
         let point = at(0x2c);
         let normal = at(0x38);
-        e.call(SELF_006815C0, &args![point]);
-        let source = e.call(SELF_006815C0, &args![hit]).u32();
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
+        let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, hit));
         e.call(COPY_POINT, &args![point, source]);
-        e.call(SELF_006815C0, &args![normal]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, normal));
         let source = e.call(MEMBER_AT_10, &args![hit]).u32();
         e.call(COPY_POINT_004A3970, &args![normal, source]);
         let mut first = e.mem.u32(hit + 0x48);
@@ -216,16 +218,16 @@ pub fn fn_009c6490(e: &mut Engine, this: Ptr, _unused_1: u32, hit: u32) {
                     let matrix = at(0x178);
                     let looking = at(0x19c);
                     e.call(RAY_CONSTRUCT, &args![ray]);
-                    e.call(SELF_006815C0, &args![start]);
-                    e.call(SELF_006815C0, &args![end]);
-                    e.call(SELF_006815C0, &args![direction]);
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, start));
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, end));
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
                     let position = e.vcall(projectile, 0x1f4, &[]).u32();
                     let words = e.mem.bytes(position, 0xc);
                     e.mem.write(start, &words);
-                    e.call(SELF_006815C0, &args![matrix]);
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
                     let facing = e.vcall(projectile, 0x2bc, &args![0u32]).f64();
                     e.call(MATRIX_ROTATION, &args![matrix, x87_store32(facing)]);
-                    e.call(SELF_006815C0, &args![looking]);
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, looking));
                     let look = e.call(GET_LOOKING, &args![projectile]).f64();
                     e.call(MAKE_X_ROTATION, &args![looking, x87_store32(look)]);
                     let product = e
@@ -251,7 +253,11 @@ pub fn fn_009c6490(e: &mut Engine, this: Ptr, _unused_1: u32, hit: u32) {
                     if hit_something {
                         let holder = e.call(RAY_HITS, &args![ray]).u32();
                         let hits = e.call(MEMBER_AT_10, &args![holder]).u32();
-                        if e.call(HIT_COUNT, &args![hits]).i32() > 0 {
+                        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, hits))
+                            .into_ret()
+                            .i32()
+                            > 0
+                        {
                             skip = false;
                             let holder = e.call(RAY_HITS, &args![ray]).u32();
                             let hits = e.call(MEMBER_AT_10, &args![holder]).u32();

@@ -9,6 +9,7 @@ use crate::prelude::*;
 const ITEM_TEST_00409700: u32 = 0x0040_9700;
 /// `00726070` (unnamed, engine map unit `menumanager.cpp`, `thiscall`, no stack words), here on
 /// the item's word list `+0x74`.
+#[cfg(test)]
 const LIST_FIRST_00726070: u32 = 0x0072_6070;
 /// The actor's vtable slot `+0x17c` (ten stack words).
 const ACTOR_SLOT_17C: u32 = 0x17c;
@@ -35,7 +36,7 @@ pub fn fn_008c1d20(e: &mut Engine, this: Ptr, item: u32, word: u32) {
     if !e.call(ITEM_TEST_00409700, &args![item]).bool() {
         return;
     }
-    if e.call(LIST_FIRST_00726070, &args![item + 0x74]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item + 0x74)) == 0 {
         return;
     }
     e.vcall(
@@ -43,7 +44,7 @@ pub fn fn_008c1d20(e: &mut Engine, this: Ptr, item: u32, word: u32) {
         ACTOR_SLOT_17C,
         &args![item, 0u32, 1u32, 0u32, 0u32, 0u32, 0u32, 0u32, 1u32, 0u32],
     );
-    let first = e.call(LIST_FIRST_00726070, &args![item + 0x74]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item + 0x74));
     let spell = if first != 0 { first + 0x18 } else { 0 };
     e.call(
         MAGIC_CASTER_CAST_SPELL,

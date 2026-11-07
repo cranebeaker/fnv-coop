@@ -17,6 +17,7 @@ const FORM_TYPE: u32 = 0x0040_1170;
 /// virtual slot `0x130`, or 0.
 const FORM_NAME_LENGTH: u32 = 0x0047_4cb0;
 /// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `005b5e40` (`cdecl` format, ...): the log print.
 const PRINT: u32 = 0x005b_5e40;
@@ -79,7 +80,7 @@ pub fn bgs_ammo_form_init_item(e: &mut Engine, this: Ptr<BGSAmmoForm>, owner: Pt
             let name = e.vcall(owner.addr(), NAME_SLOT, &[]).u32();
             e.call(PRINT, &args![MESSAGE_OWNER_NAME, adjusted, name]);
         } else {
-            let owner_id = e.call(FORM_ID, &args![owner]).u32();
+            let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             e.call(PRINT, &args![MESSAGE_OWNER_ID, adjusted, owner_id]);
         }
     }
@@ -91,6 +92,7 @@ const GET_AMMO_FORM: u32 = 0x0047_4a40;
 /// `00500940` (`thiscall`, no stack word; unit `fallout shared/bgsterminal.cpp`).
 const AMMO_ENTRY_LIST: u32 = 0x0050_0940;
 /// `006815c0` (`thiscall`, no stack word): the address of the list's first entry word.
+#[cfg(test)]
 const FIRST_ENTRY: u32 = 0x0068_15c0;
 /// `__RTDynamicCast` (`00ec43fb`, `cdecl`, five words).
 const DYNAMIC_CAST: u32 = 0x00ec_43fb;
@@ -109,7 +111,7 @@ pub fn bgs_ammo_form_is_rock_it_launcher(e: &mut Engine, this: Ptr) -> bool {
     }
     let ammo = e.call(GET_AMMO_FORM, &args![this]).u32();
     let list = e.call(AMMO_ENTRY_LIST, &args![ammo]).u32();
-    let holder = e.call(FIRST_ENTRY, &args![list]).u32();
+    let holder = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     let entry = e.mem.u32(holder);
     if entry == 0 {
         return false;
@@ -155,7 +157,7 @@ pub fn bgs_ammo_form_save(e: &mut Engine, this: Ptr<BGSAmmoForm>) {
     if ammo == 0 {
         return;
     }
-    let id = e.call(FORM_ID, &args![ammo]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, ammo));
     e.call(ADD_CHUNK_WORD, &args![CHUNK_NAM0, id]);
 }
 

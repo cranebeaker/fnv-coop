@@ -125,6 +125,7 @@ const LOAD_CHAR_CONTROLLER: u32 = 0x0086_4c50;
 /// engine map; thiscall, form).
 const LOAD_HAVOK_DATA: u32 = 0x0086_4d80;
 /// `00559450` (thiscall): the word at +0 (the sub-buffer's data).
+#[cfg(test)]
 const SUB_BUFFER_DATA: u32 = 0x0055_9450;
 /// `005d43c0` (thiscall): `this + 0x44` (the reference's extra data list).
 const REFERENCE_EXTRA_LIST: u32 = 0x005d_43c0;
@@ -136,6 +137,7 @@ const SET_SAVED_ANIMATION: u32 = 0x0042_2940;
 const SET_SAVED_HAVOK_DATA: u32 = 0x0042_2ac0;
 /// `0084e3a0` (thiscall): the word at +0xc (a form's id, a save-form
 /// buffer's size).
+#[cfg(test)]
 const WORD_AT_C: u32 = 0x0084_e3a0;
 /// `00845f70` (cdecl): bytes the variable-sized encoding of a value takes.
 const VARIABLE_SIZE_LENGTH: u32 = 0x0084_5f70;
@@ -148,6 +150,7 @@ const BUFFER_GET_VERSION: u32 = 0x008a_81c0;
 /// map; cdecl: destination, value).
 const SAVE_VARIABLE_SIZED_VALUE: u32 = 0x0084_5fc0;
 /// `00726070` (thiscall): the word at +4 (the buffer's data).
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// `00401460` (cdecl: destination, source, byte count): copies bytes.
 const COPY_BYTES: u32 = 0x0040_1460;
@@ -248,7 +251,11 @@ pub fn load_queued_sub_buffers(e: &mut Engine, this: Ptr, kind: i32) {
                         if frees != 0 {
                             e.call(SUB_BUFFER_FREE, &args![sub_buffer]);
                         } else if reference != 0 {
-                            let data = e.call(SUB_BUFFER_DATA, &args![sub_buffer]).u32();
+                            let data = typed_call!(
+                                leaf::FAMILY,
+                                0x0055_9450,
+                                leaf::word_at_0(e, sub_buffer)
+                            );
                             let list = e.call(REFERENCE_EXTRA_LIST, &args![reference]).u32();
                             e.call(SET_SAVED_ANIMATION, &args![list, data]);
                         }
@@ -258,7 +265,11 @@ pub fn load_queued_sub_buffers(e: &mut Engine, this: Ptr, kind: i32) {
                     }
                     2 => {
                         if reference != 0 {
-                            let data = e.call(SUB_BUFFER_DATA, &args![sub_buffer]).u32();
+                            let data = typed_call!(
+                                leaf::FAMILY,
+                                0x0055_9450,
+                                leaf::word_at_0(e, sub_buffer)
+                            );
                             let list = e.call(REFERENCE_EXTRA_LIST, &args![reference]).u32();
                             e.call(SET_SAVED_HAVOK_DATA, &args![list, data]);
                         }
@@ -286,7 +297,7 @@ pub fn fn_00865360(e: &mut Engine, this: Ptr) {
 /// buffer's size in the variable-sized encoding (`00845fc0`), then the
 /// buffer's bytes. Nothing happens for an empty buffer.
 pub fn fn_00865120(e: &mut Engine, this: Ptr, buffer: Ptr) {
-    let size = e.call(WORD_AT_C, &args![buffer]).u32();
+    let size = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, buffer));
     if size == 0 {
         return;
     }
@@ -301,7 +312,7 @@ pub fn fn_00865120(e: &mut Engine, this: Ptr, buffer: Ptr) {
     cursor = cursor.wrapping_add(1);
     e.call(SAVE_VARIABLE_SIZED_VALUE, &args![cursor, size]);
     cursor = cursor.wrapping_add(size_length);
-    let source = e.call(WORD_AT_4, &args![buffer]).u32();
+    let source = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, buffer));
     e.call(COPY_BYTES, &args![cursor, source, size]);
 }
 
@@ -343,7 +354,7 @@ fn save_reference_data(e: &mut Engine, this: Ptr, form: Ptr, save: u32) {
                 e.call(CHANGE_FLAGS_CONSTRUCT, &args![slot, 4u32]);
                 e.mem.u32(slot.addr())
             });
-            let form_id = e.call(WORD_AT_C, &args![form]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(
                 SAVE_FORM_BUFFER_INIT,
                 &args![buffer, form_id, flags, form_type, version],
@@ -354,7 +365,7 @@ fn save_reference_data(e: &mut Engine, this: Ptr, form: Ptr, save: u32) {
             e.call(SAVE_FORM_BUFFER_DESTRUCT, &args![buffer]);
         });
     } else {
-        let form_id = e.call(WORD_AT_C, &args![form]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         let name = e.vcall(form.addr(), 0x130, &[]).u32();
         e.call(
             SAVE_GAME_WARNING,
@@ -413,6 +424,7 @@ pub fn fn_00865220(e: &mut Engine, this: Ptr) {
 const PLAYER: u32 = 0x011d_ea3c;
 /// `007af430` (`thiscall`; engine map `BGSSaveFormBuffer::GetForm`, a
 /// folded body): the word the animation load compares the form with.
+#[cfg(test)]
 const PLAYER_WORD_007AF430: u32 = 0x007a_f430;
 /// `PlayerCharacter::GetAnimation` (`00950a60`, `thiscall`, `RET 4`: a
 /// byte).
@@ -430,6 +442,7 @@ const LOAD_FORM_BUFFER_DELETE: u32 = 0x0081_db60;
 /// GetSavedAcquireObject` (`008d8520`, a folded body: the actor's process)
 /// and `MiddleHighProcess::LoadCharController` (`00928a50`, `RET 4`).
 const GET_CHAR_CONTROLLER: u32 = 0x0093_06d0;
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 const PROCESS_LOAD_CHAR_CONTROLLER: u32 = 0x0092_8a50;
 /// `TESObjectREFR::LoadHavokData` (`00562ed0`, `thiscall`, `RET 4`).
@@ -476,7 +489,7 @@ fn delete_load_form_buffer(e: &mut Engine, buffer: u32) {
 
 /// `SaveGameWarning` with the form's name (vtable `+0x130`) and id.
 fn warn_with_form(e: &mut Engine, format: u32, form: u32) {
-    let id = e.call(WORD_AT_C, &args![form]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     let name = e.vcall(form, 0x130, &args![]).u32();
     e.call(SAVE_GAME_WARNING, &args![format, name, id]);
 }
@@ -493,7 +506,7 @@ pub fn bgs_load_game_sub_buffer_load_animation(e: &mut Engine, this: Ptr, form: 
     let mut form = form;
     let mut is_player = 0u32;
     let player = e.global::<u32>(PLAYER);
-    if form == e.call(PLAYER_WORD_007AF430, &args![player]).u32() {
+    if form == typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player)) {
         is_player = 1;
         form = e.global::<u32>(PLAYER);
     }
@@ -533,7 +546,7 @@ pub fn bgs_load_game_sub_buffer_load_char_controller(e: &mut Engine, this: Ptr, 
     if e.vcall(form, 0xf0, &args![]).bool() {
         if e.vcall(form, 0xfc, &args![]).bool() {
             if e.call(GET_CHAR_CONTROLLER, &args![form]).u32() != 0 {
-                let process = e.call(ACTOR_PROCESS, &args![form]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, form));
                 e.call(PROCESS_LOAD_CHAR_CONTROLLER, &args![process, buffer]);
             } else {
                 warn_with_form(e, WARNING_NO_CHAR_CONTROLLER, form);
@@ -622,7 +635,7 @@ pub fn bgs_save_load_queued_sub_buffer_map_queue_sub_buffer(
     e.with_stack(4, |e, sub_buffer| {
         e.call(SUB_BUFFER_CONSTRUCT, &args![sub_buffer]);
         bgs_load_game_sub_buffer_load_game(e, sub_buffer, buffer);
-        if e.call(SUB_BUFFER_DATA, &args![sub_buffer]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, sub_buffer)) == 0 {
             return;
         }
         let key = if form != 0 {

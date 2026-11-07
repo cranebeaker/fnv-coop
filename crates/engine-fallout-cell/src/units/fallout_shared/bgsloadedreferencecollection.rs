@@ -56,6 +56,7 @@ const GUARD_DESTRUCT: u32 = 0x0040_4ee0;
 /// Hash-map clear (called by every map destructor body).
 const MAP_CLEAR: u32 = 0x0043_8af0;
 /// The key of a reference (the word at `+0xC`).
+#[cfg(test)]
 const REFERENCE_KEY: u32 = 0x0084_e3a0;
 /// `NiTMapBase::Lookup`-style find: (map, key, out value pointer) -> found.
 const MAP_LOOKUP: u32 = 0x0085_3130;
@@ -67,6 +68,7 @@ const MAP_REMOVE_AT: u32 = 0x0040_5430;
 const GET_TIME_STAMP: u32 = 0x0082_5c00;
 /// The word at `+0x20` of a reference, its form (`007af430`, named
 /// `BGSSaveFormBuffer::GetForm` in the engine map).
+#[cfg(test)]
 const GET_BASE_FORM: u32 = 0x007a_f430;
 /// The type byte of a form (`+4`).
 const GET_FORM_TYPE: u32 = 0x0040_1170;
@@ -87,8 +89,10 @@ const ITEM_CHANGE_RELEASE: u32 = 0x004b_c5f0;
 /// Steps an inventory-changes walk: (changes, item change, out value, 1).
 const NEXT_INVENTORY_ITEM: u32 = 0x004d_4830;
 /// The word at `+8` of an inventory entry (compared with the base form).
+#[cfg(test)]
 const ENTRY_WORD_8: u32 = 0x0044_ddc0;
 /// The word at `+4` of an inventory entry (must be non-zero).
+#[cfg(test)]
 const ENTRY_WORD_4: u32 = 0x0072_6070;
 /// `+0x18` of the object it is called on.
 const OFFSET_0X18: u32 = 0x0050_0940;
@@ -97,7 +101,9 @@ const MAP_FIRST_POSITION: u32 = 0x004b_9ba0;
 /// Next map item (map, position pointer, out key, out value).
 const MAP_NEXT_ITEM: u32 = 0x006b_7f20;
 /// Reference flag tests (`+8` bit 0x800, 0x20 and 0x2000000).
+#[cfg(test)]
 const REFERENCE_FLAG_800: u32 = 0x0044_0da0;
+#[cfg(test)]
 const REFERENCE_FLAG_20: u32 = 0x0044_0d80;
 const REFERENCE_FLAG_2000000: u32 = 0x0040_1210;
 /// `TESObjectCONT::CanActivate` (Xbox PDB).
@@ -222,11 +228,11 @@ pub fn fn_00526b70(e: &mut Engine, this: Ptr<LoadedReferenceMap>) {
 pub fn fn_00526bd0(e: &mut Engine, this: Ptr<LoadedReferenceMap>, reference: Ptr) -> bool {
     e.with_stack(4, |e, found| {
         e.mem.set_u32(found.addr(), 0);
-        let key = e.call(REFERENCE_KEY, &args![reference]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         if e.call(MAP_LOOKUP, &args![this, key, found]).bool() {
             return false;
         }
-        let key = e.call(REFERENCE_KEY, &args![reference]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         e.call(MAP_SET_AT, &args![this, key, reference]);
         let count = e.get(this, LoadedReferenceMap::iCount);
         e.set(this, LoadedReferenceMap::iCount, count.wrapping_add(1));
@@ -242,7 +248,7 @@ pub fn fn_00526bd0(e: &mut Engine, this: Ptr<LoadedReferenceMap>, reference: Ptr
 /// count goes down and the time stamp is renewed. Returns whether it was
 /// removed.
 pub fn fn_00526c40(e: &mut Engine, this: Ptr<LoadedReferenceMap>, reference: Ptr) -> bool {
-    let key = e.call(REFERENCE_KEY, &args![reference]).u32();
+    let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
     if !e.call(MAP_REMOVE_AT, &args![this, key]).bool() {
         return false;
     }
@@ -348,7 +354,7 @@ pub fn fn_00526f20(e: &mut Engine, this: Ptr<BGSLoadedReferenceCollection>, refe
             GUARD_CONSTRUCT,
             &args![guard, 0x2cu32, true, SOURCE_FILE_NAME, 0x68u32],
         );
-        let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let form_type = e.call(GET_FORM_TYPE, &args![form]).u32();
         if e.call(CONTAINER_CAN_HOLD_TYPE, &args![form_type & 0xff])
             .bool()
@@ -377,7 +383,7 @@ pub fn fn_00526f20(e: &mut Engine, this: Ptr<BGSLoadedReferenceCollection>, refe
                 reference,
             );
         }
-        let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         if form == e.mem.u32(FORM_FOR_RADIATION_MAP) {
             fn_00526bd0(
                 e,
@@ -422,7 +428,7 @@ pub fn fn_00527080(e: &mut Engine, this: Ptr, extra_type: u8) -> u32 {
 /// reference from the same maps (`00526c40`). Unlike the add, the type `0x51`
 /// case removes from the map at `+0x90` without asking for the extra data.
 pub fn fn_005270b0(e: &mut Engine, this: Ptr<BGSLoadedReferenceCollection>, reference: Ptr) {
-    let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let form_type = e.call(GET_FORM_TYPE, &args![form]).u32();
     if e.call(CONTAINER_CAN_HOLD_TYPE, &args![form_type & 0xff])
         .bool()
@@ -451,7 +457,7 @@ pub fn fn_005270b0(e: &mut Engine, this: Ptr<BGSLoadedReferenceCollection>, refe
             reference,
         );
     }
-    let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if form == e.mem.u32(FORM_FOR_RADIATION_MAP) {
         fn_00526c40(
             e,
@@ -663,12 +669,14 @@ fn next_loaded_reference(
                 let entry = e.mem.u32(entry_slot.addr());
                 let base_form = e.get(iter, It::base_form);
                 let matches = if !base_form.is_null() {
-                    e.call(ENTRY_WORD_8, &args![entry]).u32() == base_form.addr()
+                    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry))
+                        == base_form.addr()
                 } else {
-                    let form = e.call(ENTRY_WORD_8, &args![entry]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                     e.call(GET_FORM_TYPE, &args![form]).u32() == e.get(iter, It::form_type)
                 };
-                if matches && e.call(ENTRY_WORD_4, &args![entry]).u32() != 0 {
+                if matches && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry)) != 0
+                {
                     let container = e.get(iter, It::current_container);
                     e.mem.set_u32(out_reference.addr(), container.addr());
                     e.mem.set_u32(out_item.addr(), entry);
@@ -717,13 +725,13 @@ fn next_loaded_reference(
                 &args![map, iter.byte_add(0x18), key_slot, value_slot],
             );
             let reference = e.mem.u32(value_slot.addr());
-            if e.call(REFERENCE_FLAG_800, &args![reference]).bool()
-                || e.call(REFERENCE_FLAG_20, &args![reference]).bool()
+            if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
+                || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, reference))
                 || e.vcall(reference, REFERENCE_SLOT_160, &[]).bool()
             {
                 continue;
             }
-            let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             if e.vcall(form, FORM_SLOT_94, &[]).bool() {
                 continue;
             }
@@ -733,12 +741,14 @@ fn next_loaded_reference(
             if !past_first_stage {
                 let base_form = e.get(iter, It::base_form);
                 if !base_form.is_null() {
-                    let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+                    let form =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                     if base_form.addr() != form {
                         continue;
                     }
                 } else if !not_items_map {
-                    let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+                    let form =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                     let form_type = e.call(GET_FORM_TYPE, &args![form]).u32();
                     if e.get(iter, It::form_type) != form_type {
                         continue;
@@ -758,10 +768,11 @@ fn next_loaded_reference(
                     }
                 }
             } else {
-                let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                 let form_type = e.call(GET_FORM_TYPE, &args![form]).u32();
                 if form_type == 0x1b {
-                    let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+                    let form =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                     let activate_argument = e.get(iter, It::activate_argument);
                     if !e
                         .call(

@@ -7,6 +7,7 @@ use crate::prelude::*;
 /// `00401170` (`ECX`): the form type byte at +4, zero-extended.
 const FORM_TYPE_00401170: u32 = 0x0040_1170;
 /// `00726070` (`ECX`): the word at +4.
+#[cfg(test)]
 const WORD_4_00726070: u32 = 0x0072_6070;
 /// The guard bits of the menu icon name's static (`011c4ba0`) and the static (`011c4b9c`,
 /// the length of `"MenuIconEquipType"`).
@@ -66,8 +67,11 @@ pub fn bgs_equip_type_get_equip_type(e: &mut Engine, form: Ptr) -> u32 {
         0x17 => 0x9c,
         _ => return u32::MAX,
     };
-    e.call(WORD_4_00726070, &args![form.addr() + component])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, form.addr() + component)
+    )
 }
 
 // Translated from 00479570 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -173,7 +177,7 @@ pub fn bgs_equip_type_copy_component(e: &mut Engine, this: Ptr, other: Ptr) {
     if cast == 0 {
         return;
     }
-    let equip_type = e.call(WORD_4_00726070, &args![cast]).u32();
+    let equip_type = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cast));
     e.call(SET_WORD_4, &args![this, equip_type]);
 }
 
@@ -186,8 +190,8 @@ pub fn bgs_equip_type_compare_component(e: &mut Engine, this: Ptr, other: Ptr) -
     if cast == 0 {
         return true;
     }
-    let ours = e.call(WORD_4_00726070, &args![this]).u32();
-    let theirs = e.call(WORD_4_00726070, &args![cast]).u32();
+    let ours = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
+    let theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cast));
     ours != theirs
 }
 

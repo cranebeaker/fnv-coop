@@ -41,6 +41,7 @@ const SEARCH_RUN_006A6B70: u32 = 0x006a_6b70;
 /// position into `out`; returns `out`.
 const LOCATION_POSITION_005C3420: u32 = 0x005c_3420;
 /// `006815c0` (unnamed in the engine map): returns its `this`.
+#[cfg(test)]
 const IDENTITY_006815C0: u32 = 0x0068_15c0;
 /// `00697440` (unnamed in the engine map; `RET 8`: triangle, out): a point
 /// of a triangle for the search into `out`.
@@ -71,8 +72,6 @@ const TRIANGLE_VERTICES_0068F160: u32 = 0x0068_f160;
 /// `006a6eb0` (navmeshsearch unit; `RET 4`: out): a search node's center
 /// into `out`; returns `out`.
 const NODE_CENTER_006A6EB0: u32 = 0x006a_6eb0;
-/// `NiPoint3::Dot` (`004b6190`, engine map; `RET 4`; ST0).
-const DOT_004B6190: u32 = 0x004b_6190;
 /// `0045bb20` (unnamed in the engine map; `RET 8`: out, scale): the 3D
 /// product `this * scale` into `out`; returns `out`.
 const POINT3_SCALE_0045BB20: u32 = 0x0045_bb20;
@@ -116,6 +115,7 @@ const HOLDER_DTOR_0042FA40: u32 = 0x0042_fa40;
 /// `PathingLocation::GetNavMeshAndTriangle` (`006dd640`, engine map; `RET 8`).
 const GET_NAVMESH_AND_TRIANGLE_006DD640: u32 = 0x006d_d640;
 /// `00559450` (unnamed in the engine map): the word at +0 of its `this`.
+#[cfg(test)]
 const FIRST_OF_00559450: u32 = 0x0055_9450;
 /// `00697730` (unnamed in the engine map; `RET 0x14`: triangle, point,
 /// height out, two floats): the height of a point over a triangle (AL).
@@ -460,7 +460,7 @@ pub fn fn_006ac8b0(e: &mut Engine, this: Ptr, from: Ptr, to: Ptr, navmesh: u32, 
         }
         let tolerance = x87_quiet_bits(e.global::<u32>(HEIGHT_TOLERANCE));
         let tolerance_again = x87_quiet_bits(e.global::<u32>(HEIGHT_TOLERANCE));
-        let triangle_navmesh = e.call(FIRST_OF_00559450, &args![holder]).u32();
+        let triangle_navmesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         let height = ebp - 0x164;
         let over = e
             .call(
@@ -593,7 +593,7 @@ pub fn navmesh_search_sl_point_is_goal_node(e: &mut Engine, this: Ptr, node: Ptr
         let offset = ebp - 0x48;
         copy_words(e, offset, target, 3);
         let near = ebp - 0x3c;
-        e.call(IDENTITY_006815C0, &args![near]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, near));
         e.call(
             TRIANGLE_POINT_00697440,
             &args![e.mem.u32(ebp - 8), u32::from(e.mem.u16(ebp - 4)), near],
@@ -649,7 +649,7 @@ pub fn navmesh_search_sl_point_is_goal_node(e: &mut Engine, this: Ptr, node: Ptr
         let center = ebp - 0x64;
         e.call(NODE_CENTER_006A6EB0, &args![node.addr() + 8, center]);
         let found = ebp - 0x58;
-        e.call(IDENTITY_006815C0, &args![found]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, found));
         if fn_006ac8b0(
             e,
             this,
@@ -679,7 +679,13 @@ pub fn navmesh_search_sl_point_is_goal_node(e: &mut Engine, this: Ptr, node: Ptr
         let relative = ebp - 0x94;
         copy_words(e, relative, e.mem.u32(vertices), 3);
         e.call(POINT3_SUBTRACT_004578C0, &args![relative, target]);
-        let dot = e.call(DOT_004B6190, &args![relative, base + SIDE]).f64();
+        let dot = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, relative, base + SIDE)
+        )
+        .into_ret()
+        .f64();
         e.mem.set_u32(ebp - 0xc4, x87_store32(dot));
         let low = x87_quiet_bits(e.mem.u32(ebp - 0xc4));
         e.mem.set_u32(ebp - 0x78, low);
@@ -688,7 +694,13 @@ pub fn navmesh_search_sl_point_is_goal_node(e: &mut Engine, this: Ptr, node: Ptr
             let vertex = e.mem.u32(vertices.wrapping_add((index as u32) * 4));
             copy_words(e, relative, vertex, 3);
             e.call(POINT3_SUBTRACT_004578C0, &args![relative, target]);
-            let dot = e.call(DOT_004B6190, &args![relative, base + SIDE]).f64();
+            let dot = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, relative, base + SIDE)
+            )
+            .into_ret()
+            .f64();
             e.mem.set_u32(ebp - 0xd4, x87_store32(dot));
             let value = x87_load32(e.mem.u32(ebp - 0xd4));
             if x87_load32(e.mem.u32(ebp - 0xc4)) < value {
@@ -742,7 +754,7 @@ pub fn navmesh_search_sl_point_is_goal_node(e: &mut Engine, this: Ptr, node: Ptr
         let along = x87_mul(x87_load32(e.mem.u32(ebp - 0x7c)), half);
         e.mem.set_u32(ebp - 0x68, x87_store32(along));
         let candidate = ebp - 0xac;
-        e.call(IDENTITY_006815C0, &args![candidate]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, candidate));
         let mut index = 0i32;
         while index < count {
             let along = x87_quiet_bits(e.mem.u32(ebp - 0x68));

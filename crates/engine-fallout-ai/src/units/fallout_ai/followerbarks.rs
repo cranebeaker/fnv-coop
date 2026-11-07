@@ -35,8 +35,10 @@ const HALF: u32 = 0x0101_1588;
 /// The tick count (a wrapper of an imported function).
 const TICK_COUNT: u32 = 0x0045_7fe0;
 /// `(this = node) -> node`.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `(this = node) -> next node or 0`.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `(this = node)`: removes the node from the list.
 const NODE_REMOVE: u32 = 0x0063_f7b0;
@@ -71,6 +73,7 @@ const GET_MATCHING_INFO: u32 = 0x0061_a720;
 /// `(this = speaker) -> pointer at +0x68` (the engine map names it
 /// `MiddleHighProcess::GetSavedAcquireObject`; the body returns the word at
 /// `+0x68`, here the speaker's current process).
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 /// `(this = speaker) -> int`: the process type (-1 without a process; the
 /// engine map calls it `MobileObject::GetCurrentProcessType`).
@@ -82,6 +85,7 @@ const SET_SAY_TO_TOPIC_INFO: u32 = 0x0057_ace0;
 /// `TESTopic::CreateDialogueItem` (Xbox PDB name): `(this = topic, speaker, 0, 0, 0, flag)`.
 const CREATE_DIALOGUE_ITEM: u32 = 0x0061_b320;
 /// `(this = dialogue item) -> word at +0xC` (a form id getter).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// `BSSoundHandle::SetCompletionCallback` (Xbox PDB name): `(this = handle, callback, data)`.
 const SET_COMPLETION_CALLBACK: u32 = 0x00ad_8e60;
@@ -92,6 +96,7 @@ const SOUND_HANDLE_DESTRUCT: u32 = 0x0048_3710;
 /// `PlayerCharacter::IsSleepingorResting` (Xbox PDB name): `(this = player) -> bool`.
 const IS_SLEEPING_OR_RESTING: u32 = 0x0094_df60;
 /// `(this = process) -> word at +0x28`.
+#[cfg(test)]
 const PROCESS_WORD: u32 = 0x0045_cd60;
 /// `Actor::GetEssential` (Xbox PDB name): `(this = actor) -> bool`.
 const GET_ESSENTIAL: u32 = 0x0087_f3d0;
@@ -186,7 +191,7 @@ pub fn follower_barks_get_bark_topic_by_type(e: &mut Engine, kind: u32) -> u32 {
 
 /// The first word of a list node's item pointer: the entry the node holds.
 fn node_entry(e: &mut Engine, node: u32) -> u32 {
-    let item = e.call(NODE_ITEM, &args![node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(item)
 }
 
@@ -233,7 +238,7 @@ pub fn fn_008d5bc0(e: &mut Engine) {
             e.call(FREE, &args![entry]);
             e.call(NODE_REMOVE, &args![node]);
         } else {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
 }
@@ -255,7 +260,7 @@ pub fn follower_barks_trigger_follower_bark(e: &mut Engine, speaker: u32, kind: 
     let mut node = ENTRY_LIST;
     while node != 0 {
         let entry = Ptr::<FollowerBarkEntry>::new(node_entry(e, node));
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if !entry.is_null() && speaker == e.get(entry, FollowerBarkEntry::m_pSpeaker).addr() {
             let existing = e.get(entry, FollowerBarkEntry::m_eBarkType);
             let existing_number = fn_008d5750(e, existing);
@@ -281,7 +286,7 @@ pub fn follower_barks_trigger_follower_bark(e: &mut Engine, speaker: u32, kind: 
             if matches {
                 e.call(NODE_REMOVE, &args![node]);
             } else {
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
         let block = e.call(ALLOCATE, &args![0x10u32]).u32();
@@ -412,7 +417,7 @@ pub fn fn_008d6050(e: &mut Engine, entry: Ptr<FollowerBarkEntry>) {
     if info == 0 || speaker == 0 {
         return;
     }
-    if e.call(GET_PROCESS, &args![speaker]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker)) == 0 {
         return;
     }
     // The three flags are passed on to the sound (the first two) and the process
@@ -425,31 +430,31 @@ pub fn fn_008d6050(e: &mut Engine, entry: Ptr<FollowerBarkEntry>) {
         DYNAMIC_CAST,
         &args![player, 0u32, PLAYER_SOURCE_TYPE, PLAYER_TARGET_TYPE, 0u32],
     );
-    let has_process = e.call(GET_PROCESS, &args![speaker]).u32() != 0;
+    let has_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker)) != 0;
     let in_conversation = has_process && e.vcall(speaker, 0x22c, &args![1u32]).bool();
     if !has_process || in_conversation {
-        if e.call(GET_PROCESS, &args![speaker]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker)) != 0 {
             let address = e.call(ACTION_FLAG_ADDRESS, &args![speaker]).u32();
             e.call(SET_ACTION_FLAG, &args![topic, address, 0x40000u32]);
-            let process = e.call(GET_PROCESS, &args![speaker]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
             e.vcall(process, 0x88, &args![0u32]);
         }
         return;
     }
     let minus_one: f32 = e.global(MINUS_ONE);
     e.mem.set_f32(speaker + 0x78, minus_one);
-    let process = e.call(GET_PROCESS, &args![speaker]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
     e.vcall(process, 0x370, &args![0u32]);
-    let process = e.call(GET_PROCESS, &args![speaker]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
     e.vcall(process, 0xac, &args![]);
     if e.call(GET_PROCESS_TYPE, &args![speaker]).u32() == 0 {
-        let process = e.call(GET_PROCESS, &args![speaker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
         let value = e.vcall(process, 0x674, &args![2u32]).u32();
-        let process = e.call(GET_PROCESS, &args![speaker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
         e.vcall(process, 0x648, &args![0u32]);
-        let process = e.call(GET_PROCESS, &args![speaker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
         e.vcall(process, 0x628, &args![value]);
-        let process = e.call(GET_PROCESS, &args![speaker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
         e.vcall(process, 0x224, &args![]);
     } else {
         // (The exe also tests a flag byte that is always 1 here.)
@@ -461,7 +466,7 @@ pub fn fn_008d6050(e: &mut Engine, entry: Ptr<FollowerBarkEntry>) {
             )
             .u32();
         if item != 0 {
-            let form_id = e.call(GET_FORM_ID, &args![item]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
             e.call(SET_SAY_TO_TOPIC_INFO, &args![speaker, form_id]);
         }
         e.with_stack(12, |e, handle| {
@@ -470,7 +475,7 @@ pub fn fn_008d6050(e: &mut Engine, entry: Ptr<FollowerBarkEntry>) {
                 0x408,
                 &args![handle, topic, speaker, flag_a, flag_b, 0u32, 0u32],
             );
-            let data = e.call(GET_FORM_ID, &args![speaker]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, speaker));
             e.call(
                 SET_COMPLETION_CALLBACK,
                 &args![handle, COMPLETION_CALLBACK, data],
@@ -481,8 +486,8 @@ pub fn fn_008d6050(e: &mut Engine, entry: Ptr<FollowerBarkEntry>) {
     }
     let said_through_dialogue = e.call(IS_SLEEPING_OR_RESTING, &args![player]).bool()
         || {
-            let process = e.call(GET_PROCESS, &args![speaker]).u32();
-            e.call(PROCESS_WORD, &args![process]).u32() != 0
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
+            typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) != 0
         }
         || (e.call(GET_ESSENTIAL, &args![speaker]).bool()
             && e.call(ACTOR_STATE, &args![speaker]).u32() == 6);
@@ -503,7 +508,7 @@ pub fn fn_008d6050(e: &mut Engine, entry: Ptr<FollowerBarkEntry>) {
             e.call(FINISH_DIALOGUE_ITEM, &args![item, 1u32]);
         }
     } else {
-        let process = e.call(GET_PROCESS, &args![speaker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
         e.vcall(
             process,
             0x2a4,

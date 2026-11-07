@@ -13,6 +13,7 @@ const LEVEL_UP_SOUND: u32 = 0x0106_f354;
 
 /// `00559450` (`thiscall`): the word at `this` (here: the address of the
 /// ready-to-level-up byte).
+#[cfg(test)]
 const WORD_AT: u32 = 0x0055_9450;
 /// `0087f9f0` (`thiscall` on the player): the player's level (`AX`).
 const PLAYER_LEVEL: u32 = 0x0087_f9f0;
@@ -39,7 +40,7 @@ const REQUIRED_EXPERIENCE: u32 = 0x0064_8b50;
 /// `CharacterProgression::QReadyToLevelUp` (Xbox PDB): the byte at the
 /// address `00559450` gives for `this`.
 pub fn character_progression_q_ready_to_level_up(e: &mut Engine, this: Ptr) -> u8 {
-    let address = e.call(WORD_AT, &args![this]).u32();
+    let address = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     e.mem.u8(address)
 }
 
@@ -130,7 +131,7 @@ const UPDATE_PLAYER_TITLE: u32 = 0x007d_f5d0;
 /// level zero-extended) to `0047dfe0` on the base object's +0x30 component
 /// and opens the level-up menu (`Interface::CreateLevelUpMenu`).
 pub fn character_progression_begin_level_up(e: &mut Engine, this: Ptr) {
-    let address = e.call(WORD_AT, &args![this]).u32();
+    let address = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     if e.mem.u8(address) == 0 {
         return;
     }
@@ -160,11 +161,11 @@ pub fn fn_008d5270(e: &mut Engine, this: Ptr) {
     let player = e.global::<u32>(PLAYER_POINTER);
     let level = e.call(PLAYER_LEVEL, &args![player]).u16();
     let next = u32::from(level) + 1;
-    let data = e.call(WORD_AT, &args![this]).u32();
+    let data = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     if e.call(DATA_TEST_008D55E0, &args![data, next]).bool() {
         return;
     }
-    let address = e.call(WORD_AT, &args![this]).u32();
+    let address = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     e.mem.set_u8(address, 0);
     let handler = e.global::<u32>(DATA_HANDLER_POINTER);
     e.call(DATA_HANDLER_CALL_004614E0, &args![handler]);
@@ -201,7 +202,7 @@ pub fn character_progression_force_level(e: &mut Engine, this: Ptr, level: u32) 
     }
     let player = e.global::<u32>(PLAYER_POINTER);
     let holder = e.call(PLAYER_PROGRESSION_00464E10, &args![player]).u32();
-    let data = e.call(WORD_AT, &args![holder]).u32();
+    let data = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
     let player = e.global::<u32>(PLAYER_POINTER);
     let experience = e.vcall(player.wrapping_add(0xa4), 8, &args![0x18u32]).u32();
     let required = e

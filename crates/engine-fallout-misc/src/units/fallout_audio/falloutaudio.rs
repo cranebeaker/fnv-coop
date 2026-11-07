@@ -125,6 +125,7 @@ const IMPACT_MIXER_UPDATE: u32 = 0x0083_9d30;
 /// A method of the `TES` object (the word at `011dea10`; unnamed in the map).
 const TES_METHOD_00455690: u32 = 0x0045_5690;
 /// `TES::pSky` getter (`this + 0x68`; the map's name is folded).
+#[cfg(test)]
 const TES_GET_SKY: u32 = 0x008d_8520;
 /// `Sky::fCurrentGameHour` getter (`this + 0xec`, returned in ST0).
 const SKY_GET_GAME_HOUR: u32 = 0x0096_6a20;
@@ -153,9 +154,12 @@ const SPACE_SOUND_1: u32 = 0x009e_32d0;
 const SPACE_SOUND_2: u32 = 0x0063_9b40;
 const SPACE_SOUND_3: u32 = 0x008d_6f30;
 /// Word at `+0xc` of a form (its form id).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `BSSimpleList` node helpers: empty test of a node, and next node.
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// Random number from the game's generator (`0x00476c00` then `0x00476be0`).
 const RANDOM_NUMBER: u32 = 0x0048_7f50;
@@ -757,7 +761,7 @@ pub fn fallout_audio_update_region_sounds(e: &mut Engine) {
         return;
     }
     let tes: u32 = e.global(TES);
-    let sky = e.call(TES_GET_SKY, &args![tes]).u32();
+    let sky = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes));
     let game_hour = if sky != 0 {
         e.call(SKY_GET_GAME_HOUR, &args![sky]).f32()
     } else {
@@ -770,8 +774,11 @@ pub fn fallout_audio_update_region_sounds(e: &mut Engine) {
     let last: u32 = e.global(LAST_REGION_UPDATE);
     let elapsed = e.call(ABSOLUTE_VALUE, &args![now.wrapping_sub(last)]).i32();
     if elapsed <= 1000 {
-        if e.call(LIST_NODE_IS_EMPTY, &args![region_sound_list]).bool()
-            && !e.call(MAP_IS_EMPTY, &args![CURRENT_REGION_SOUNDS]).bool()
+        if typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, region_sound_list)
+        ) && !e.call(MAP_IS_EMPTY, &args![CURRENT_REGION_SOUNDS]).bool()
         {
             drain_region_sound_map(e);
         }
@@ -789,8 +796,11 @@ pub fn fallout_audio_update_region_sounds(e: &mut Engine) {
         fade_in_seconds = setting_value(e, FAS_FADE_IN_TIME);
     }
     update_ambient_loop(e, player, game_hour, fade_in_seconds);
-    if !e.call(LIST_NODE_IS_EMPTY, &args![region_sound_list]).bool()
-        && !e.call(IS_TOP_MENU_ID, &args![0x3f5u32]).bool()
+    if !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, region_sound_list)
+    ) && !e.call(IS_TOP_MENU_ID, &args![0x3f5u32]).bool()
     {
         update_region_loops(e, region_sound_list, sky, game_hour);
     }
@@ -966,11 +976,11 @@ fn update_region_loops(e: &mut Engine, region_sound_list: u32, sky: u32, game_ho
     let audio = audio_instance(e);
     let listener = e.call(WORD_AT_0X10, &args![audio]).u32();
     let mut node = region_sound_list;
-    while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let entry = Ptr::<TESRegionSound>::new(e.mem.u32(node));
         let sound = Ptr::<TESSound>::new(e.mem.u32(entry.addr()));
         if entry.is_null() || sound.is_null() {
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         let time_step: f64 = e.global(TIME_STEP);
@@ -979,7 +989,7 @@ fn update_region_loops(e: &mut Engine, region_sound_list: u32, sky: u32, game_ho
         let sound_flags = sound_data(e, sound.addr(), SoundData::iFlags);
         let looping = e.call(SOUND_FLAG_BITS, &args![sound_flags]).u32() != 0;
         let allowed = region_sound_allowed(e, entry, sky, game_hour, (window_start, window_end));
-        let key = e.call(FORM_ID, &args![sound]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         let found = e.with_stack(4, |e, out| {
             let found = e
                 .call(MAP_LOOKUP, &args![CURRENT_REGION_SOUNDS, key, out])
@@ -996,7 +1006,7 @@ fn update_region_loops(e: &mut Engine, region_sound_list: u32, sky: u32, game_ho
             };
             assign_file_handle(e, handle, sound.addr(), 0x11011);
             e.call(SOUND_HANDLE_SET_FLAG_BYTE, &args![handle, 1u32]);
-            let key = e.call(FORM_ID, &args![sound]).u32();
+            let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
             e.call(MAP_SET_AT, &args![CURRENT_REGION_SOUNDS, key, handle]);
             let seconds = setting_value(e, REGION_LOOP_FADE_IN_TIME);
             let milliseconds = truncated_scaled(e, seconds, MILLISECONDS_PER_SECOND);
@@ -1006,7 +1016,7 @@ fn update_region_loops(e: &mut Engine, region_sound_list: u32, sky: u32, game_ho
                 let seconds = setting_value(e, REGION_LOOP_FADE_OUT_TIME);
                 let milliseconds = truncated_scaled(e, seconds, MILLISECONDS_PER_SECOND);
                 fade_out_and_release(e, tracked_handle, milliseconds);
-                let key = e.call(FORM_ID, &args![sound]).u32();
+                let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
                 e.call(MAP_REMOVE_AT, &args![CURRENT_REGION_SOUNDS, key]);
                 if tracked_handle != 0 {
                     e.call(SOUND_HANDLE_DELETE, &args![tracked_handle, 1u32]);
@@ -1064,7 +1074,7 @@ fn update_region_loops(e: &mut Engine, region_sound_list: u32, sky: u32, game_ho
                 e.call(SOUND_HANDLE_PLAY, &args![local, 0u32]);
             }
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     // Tracked sounds whose form is no longer in the list are faded out and
     // deleted. The "found" flag is set once and never cleared again, and the
@@ -1085,14 +1095,17 @@ fn update_region_loops(e: &mut Engine, region_sound_list: u32, sky: u32, game_ho
                 &args![CURRENT_REGION_SOUNDS, position, key, handle],
             );
             let tracked_key = e.mem.u32(key);
-            while cursor != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![cursor]).bool() {
+            while cursor != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, cursor))
+            {
                 let entry = e.mem.u32(cursor);
                 let sound = e.mem.u32(entry);
-                if tracked_key == e.call(FORM_ID, &args![sound]).u32() {
+                if tracked_key == typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound))
+                {
                     found = true;
                     break;
                 }
-                cursor = e.call(LIST_NODE_NEXT, &args![cursor]).u32();
+                cursor = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cursor));
             }
             if !found {
                 e.call(MAP_REMOVE_AT, &args![CURRENT_REGION_SOUNDS, tracked_key]);

@@ -33,6 +33,7 @@ const TABLE: u32 = 0x0071_3d80;
 /// index below 2, else 0.
 const TABLE_LOOKUP: u32 = 0x008c_7a30;
 /// `0084e3a0`: the word at `+0xc` of the object.
+#[cfg(test)]
 const OBJECT_VALUE: u32 = 0x0084_e3a0;
 
 /// Entry `index` of the static table.
@@ -82,6 +83,7 @@ const WORKER_WAIT: u32 = 0x008c_7490;
 /// semaphore release wrapper `00442550`.
 const WORKER_RELEASE: u32 = 0x008c_9fb0;
 /// `00559450` (`__thiscall`): the first word of the member.
+#[cfg(test)]
 const MEMBER_FIRST_WORD: u32 = 0x0055_9450;
 /// The byte `00713d90` returns (set by `008c78c0`, cleared by `008c7990`).
 const WORKERS_RUNNING: u32 = 0x011d_fa19;
@@ -330,7 +332,7 @@ pub fn fn_008c7a30(e: &mut Engine, this: u32, slot: i32) -> u32 {
     let member = this
         .wrapping_add(0x18)
         .wrapping_add((slot as u32).wrapping_mul(0xc));
-    let first = e.call(MEMBER_FIRST_WORD, &args![member]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member));
     e.mem.u32(indexed(this, slot, 0x0c)).wrapping_add(first)
 }
 
@@ -377,7 +379,7 @@ pub fn fn_008c7aa0(e: &mut Engine) -> bool {
         }
         if !a {
             let object = e.call(CURRENT_OBJECT, &args![]).u32();
-            let value = e.call(OBJECT_VALUE, &args![object]).u32();
+            let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object));
             if value != 0 && thread != value {
                 a = true;
             }

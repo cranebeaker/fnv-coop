@@ -26,7 +26,7 @@ pub fn fn_0051b6e0(e: &mut Engine, this: Ptr) -> Ptr {
     e.mem.set_u32(base + 0x48, 0x0102_bc4c);
     e.mem.set_u32(base + 0x54, 0x0102_bc38);
     e.call(0x0047_4790, &args![base + 0x5c, 0u32, 1u32]);
-    e.call(0x0068_15c0, &args![base + 0x8c]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x8c));
     e.call(0x004f_15a0, &args![this, 0x25u32]);
     for (offset, global) in [
         (0x6c, 0x0101_84f4),
@@ -97,6 +97,7 @@ const DESTRUCTIBLE_INIT_ITEM: u32 = 0x0047_8be0;
 /// `00658930` (`ECX`): the 16-bit count at +0xa, zero-extended (here the seed array's size).
 const ARRAY_COUNT_00658930: u32 = 0x0065_8930;
 /// `00877a30` (`ECX` = an `NiTArray`, one stack word): the address of element `index`.
+#[cfg(test)]
 const ARRAY_ELEMENT_00877A30: u32 = 0x0087_7a30;
 /// `operator delete` (`00401030`, `cdecl`, one word).
 const OPERATOR_DELETE: u32 = 0x0040_1030;
@@ -196,7 +197,11 @@ pub fn fn_0051ba90(e: &mut Engine, this: Ptr, seed: u32) -> u8 {
     let seeds = this.addr() + 0x5c;
     let mut index = 0u32;
     while index < e.call(ARRAY_COUNT_00658930, &args![seeds]).u32() {
-        let element = e.call(ARRAY_ELEMENT_00877A30, &args![seeds, index]).u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, seeds, index)
+        );
         if e.mem.u32(element) == seed {
             return index as u8;
         }
@@ -220,9 +225,11 @@ pub fn fn_0051baf0(e: &mut Engine, this: Ptr, index: u8) -> u32 {
         let count = e.call(ARRAY_COUNT_00658930, &args![seeds]).u32();
         index = (u32::from(index) % count) as u8;
     }
-    let element = e
-        .call(ARRAY_ELEMENT_00877A30, &args![seeds, u32::from(index)])
-        .u32();
+    let element = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, seeds, u32::from(index))
+    );
     e.mem.u32(element)
 }
 

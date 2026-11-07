@@ -32,6 +32,7 @@ pub fn fn_009e9bb0(e: &mut Engine, this: Ptr, first: u32, second: u32) -> Ptr {
 const ACTOR_MOVER_CONSTRUCTOR: u32 = 0x009d_ad00;
 /// `006815c0`: a function returning `this` (the compiler's empty `NiPoint3` and `NiMatrix3`
 /// default constructors, folded into one body).
+#[cfg(test)]
 const EMPTY_CONSTRUCTOR: u32 = 0x0068_15c0;
 /// The vtable this constructor stores.
 const VTABLE_0109297C: u32 = 0x0109_297c;
@@ -52,7 +53,7 @@ pub fn fn_009e9d00(e: &mut Engine, this: Ptr, base_argument: u32) -> Ptr {
     e.call(ACTOR_MOVER_CONSTRUCTOR, &args![this, base_argument]);
     e.mem.set_u32(base, VTABLE_0109297C);
     let member = base.wrapping_add(0x88);
-    e.call(EMPTY_CONSTRUCTOR, &args![member]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, member));
     for word in 0..3u32 {
         let value = e.mem.u32(POINT_SOURCE + 4 * word);
         e.mem.set_u32(member.wrapping_add(4 * word), value);

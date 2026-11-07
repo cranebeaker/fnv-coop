@@ -41,6 +41,7 @@ const MENU_SET_MENU_TILE: u32 = 0x00a1_dc70;
 const PRINT_MESSAGE: u32 = 0x005b_5e40;
 const TILE_GET_MAXIMUM_DEPTH: u32 = 0x00a0_1530;
 const MENU_PREP_FOR_VISIBILITY: u32 = 0x00a1_dc20;
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 const TILE_GET_CHILD_BY_NAME: u32 = 0x00a0_3da0;
 /// Tile values: the float getter (`00a011b0`, `RET 4`, `ST0`), the float setter
@@ -198,7 +199,11 @@ pub fn quantity_menu_create(e: &mut Engine, count: i32, callback: u32, maximum: 
                 let value = e.call(SETTING_VALUE, &args![SETTING_011D3BC8]).u32();
                 let total: f64 = e.global(TWO_FIFTY_FIVE_DOUBLE);
                 let alpha = x87_store32(x87_mul(x87_m32(e.mem.u32(value)), total));
-                let menu_tile = e.call(WORD_AT_FOUR, &args![quantity_me(e)]).u32();
+                let menu_tile = typed_call!(
+                    leaf::FAMILY,
+                    0x0072_6070,
+                    leaf::word_at_4(e, quantity_me(e))
+                );
                 let background = e
                     .call(TILE_GET_CHILD_BY_NAME, &args![menu_tile, BACKGROUND_TEXT])
                     .u32();
@@ -213,7 +218,11 @@ pub fn quantity_menu_create(e: &mut Engine, count: i32, callback: u32, maximum: 
         }
     }
     if quantity_me(e) != 0
-        && e.call(WORD_AT_FOUR, &args![quantity_me(e)]).u32() != 0
+        && typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, quantity_me(e))
+        ) != 0
         && quantity_me(e) != 0
     {
         let menu = quantity_me(e);
@@ -236,7 +245,11 @@ pub fn quantity_menu_close(e: &mut Engine) {
     if quantity_me(e) == 0 {
         return;
     }
-    let tile = e.call(WORD_AT_FOUR, &args![quantity_me(e)]).u32();
+    let tile = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, quantity_me(e))
+    );
     e.call(TILE_SET_INT, &args![tile, 0x1772u32, 1u32]);
     let menu = quantity_me(e);
     if e.call(GET_CURRENT_RENDERED_MENU, &args![]).u32() != 0 {

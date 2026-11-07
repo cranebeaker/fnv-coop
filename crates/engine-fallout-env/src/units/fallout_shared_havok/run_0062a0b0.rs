@@ -6,6 +6,7 @@ use crate::prelude::*;
 
 /// `0040fbe0` (engine map name `Error`, a body shared by folding as far as this unit shows):
 /// `cdecl`, the block, the count and a byte.
+#[cfg(test)]
 const RELEASE_ELEMENTS: u32 = 0x0040_fbe0;
 /// Vtable slot of the allocator's release function.
 const ALLOCATOR_RELEASE_SLOT: u32 = 0x10;
@@ -51,7 +52,7 @@ pub fn fn_0062a100(e: &mut Engine, this: Ptr) -> u32 {
 pub fn fn_0062a120(e: &mut Engine, this: Ptr) {
     let block = e.mem.u32(this.addr());
     let count = e.mem.u32(this.addr().wrapping_add(4));
-    e.call(RELEASE_ELEMENTS, &args![block, count, 0u32]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words block, count, 0u32);
     e.mem.set_u32(this.addr().wrapping_add(4), 0);
 }
 

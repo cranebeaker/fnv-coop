@@ -7,16 +7,20 @@ use crate::prelude::*;
 /// `005a8080` (`ECX` = faction): the address of the rank list (+0x3C).
 const RANK_LIST: u32 = 0x005a_8080;
 /// `006815c0` (`ECX` = node): the address of the node's item.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`ECX` = node): the next node, or 0.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `008256d0` (`ECX` = node): true when the node holds no item and has no
 /// next node (an empty list).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `00905820` (`ECX` = node, the address of an item): adds the item after
 /// the node.
 const LIST_ADD: u32 = 0x0090_5820;
 /// `0084e3a0` (`ECX` = form): the form id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The form's name virtual slot.
 const NAME_SLOT: u32 = 0x130;
@@ -91,10 +95,10 @@ pub fn fn_005fd460(e: &mut Engine, this: Ptr) -> u32 {
     let mut count = 0u32;
     let mut node = e.call(RANK_LIST, &args![this]).u32();
     let mut last = 0u32;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         count = count.wrapping_add(1);
         last = node;
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.with_stack(4, |e, rank_at| {
         e.mem.set_u32(rank_at.addr(), rank);
@@ -147,20 +151,21 @@ pub fn tes_faction_check_faction_reactions(e: &mut Engine) {
     let handler: u32 = e.global(DATA_HANDLER);
     let mut node = e.call(0x0087_1a30, &args![handler]).u32();
     while node != 0 {
-        let at = e.call(NODE_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let faction = e.mem.u32(at);
         if faction != 0 {
             let mut reaction_node = e.call(0x0071_7e50, &args![faction + 0x24]).u32();
             while reaction_node != 0 {
-                let at = e.call(NODE_ITEM, &args![reaction_node]).u32();
+                let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, reaction_node));
                 let reaction = e.mem.u32(at);
                 if reaction != 0 {
                     check_reaction(e, faction, reaction);
                 }
-                reaction_node = e.call(NODE_NEXT, &args![reaction_node]).u32();
+                reaction_node =
+                    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, reaction_node));
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -178,7 +183,9 @@ fn check_reaction(e: &mut Engine, faction: u32, reaction: u32) {
     if back == 2 || back == 3 {
         return;
     }
-    let id = |e: &mut Engine, form: u32| e.call(FORM_ID, &args![form]).u32();
+    let id = |e: &mut Engine, form: u32| {
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
+    };
     let name = |e: &mut Engine, form: u32| e.vcall(form, NAME_SLOT, &[]).u32();
     // The words in push order (last argument first).
     let pushed = [
@@ -229,6 +236,7 @@ const FACTION_005FC860: u32 = 0x005f_c860;
 const ALLOCATE: u32 = 0x0040_1000;
 const RANK_CTOR: u32 = 0x005f_cf10;
 const STRING_LENGTH: u32 = 0x0040_48e0;
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 const STRING_SET: u32 = 0x0040_37f0;
 const STRING_COMPARE: u32 = 0x0040_8a80;
@@ -287,7 +295,7 @@ fn rank_strings_differ(e: &mut Engine, mine: u32, theirs: u32) -> bool {
     if length != e.call(STRING_LENGTH, &args![theirs]).u32() {
         return true;
     }
-    let text = e.call(STRING_TEXT, &args![theirs]).u32();
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, theirs));
     e.call(STRING_COMPARE, &args![mine, text, 0u32]).u32() != 0
 }
 
@@ -321,17 +329,22 @@ pub fn fn_005fd000(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
     }
     let mut mine = e.call(RANK_LIST, &args![this]).u32();
     let mut theirs = e.call(RANK_LIST, &args![source]).u32();
-    while mine != 0 && e.call(LIST_IS_EMPTY, &args![mine]).u8() == 0 {
+    while mine != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, mine))
+            .into_ret()
+            .u8()
+            == 0
+    {
         if theirs == 0 {
             return true;
         }
-        let item = e.call(NODE_ITEM, &args![theirs]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         if e.mem.u32(item) == 0 {
             return true;
         }
-        let item = e.call(NODE_ITEM, &args![mine]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
         let my_rank = e.mem.u32(item);
-        let item = e.call(NODE_ITEM, &args![theirs]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         let their_rank = e.mem.u32(item);
         if rank_strings_differ(e, my_rank, their_rank) {
             return true;
@@ -342,10 +355,14 @@ pub fn fn_005fd000(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
         if e.vcall(my_rank + 0x10, 0xc, &args![their_rank + 0x10]).u8() != 0 {
             return true;
         }
-        mine = e.call(NODE_NEXT, &args![mine]).u32();
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
     }
-    theirs != 0 && e.call(LIST_IS_EMPTY, &args![theirs]).u8() == 0
+    theirs != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, theirs))
+            .into_ret()
+            .u8()
+            == 0
 }
 
 // Translated from 005fd210 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -372,7 +389,12 @@ pub fn fn_005fd210(e: &mut Engine, this: Ptr, other: Ptr) {
     e.call(FACTION_005FC860, &args![this]);
     let mut mine = e.call(RANK_LIST, &args![this]).u32();
     let mut theirs = e.call(RANK_LIST, &args![source]).u32();
-    while theirs != 0 && e.call(LIST_IS_EMPTY, &args![theirs]).u8() == 0 {
+    while theirs != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, theirs))
+            .into_ret()
+            .u8()
+            == 0
+    {
         let block = e.call(ALLOCATE, &args![0x1cu32]).u32();
         let rank = if block != 0 {
             e.call(RANK_CTOR, &args![block]).u32()
@@ -381,23 +403,27 @@ pub fn fn_005fd210(e: &mut Engine, this: Ptr, other: Ptr) {
         };
         e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), rank);
-            let item = e.call(NODE_ITEM, &args![theirs]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
             let their_rank = e.mem.u32(item);
-            let text = e.call(STRING_TEXT, &args![their_rank]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, their_rank));
             e.call(STRING_SET, &args![rank, text, 0u32]);
-            let item = e.call(NODE_ITEM, &args![theirs]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
             let their_rank = e.mem.u32(item);
-            let text = e.call(STRING_TEXT, &args![their_rank + 8]).u32();
+            let text = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, their_rank + 8)
+            );
             e.call(STRING_SET, &args![rank.wrapping_add(8), text, 0u32]);
-            let item = e.call(NODE_ITEM, &args![theirs]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
             let their_rank = e.mem.u32(item);
             e.vcall(rank.wrapping_add(0x10), 8, &args![their_rank + 0x10]);
             e.call(LIST_ADD, &args![mine, slot]);
         });
-        if e.call(NODE_NEXT, &args![mine]).u32() != 0 {
-            mine = e.call(NODE_NEXT, &args![mine]).u32();
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine)) != 0 {
+            mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
         }
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
     }
 }
 

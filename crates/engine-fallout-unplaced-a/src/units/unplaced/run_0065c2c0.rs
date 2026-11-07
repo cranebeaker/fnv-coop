@@ -21,6 +21,7 @@ const EGT_SOURCE_FILE: u32 = 0x0106_5b00;
 /// The string length of a `BSStringT` (`004048e0`).
 const STRING_LENGTH: u32 = 0x0040_48e0;
 /// The first word of an object (`00559450`, here the `BSStringT`'s text).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// Loads EGT data from the named file (`00659780`, cdecl, one word).
 const LOAD_EGT_DATA: u32 = 0x0065_9780;
@@ -89,7 +90,7 @@ pub fn fn_0065c2c0(e: &mut Engine, this: Ptr<FaceGenModel>) -> bool {
             if e.call(STRING_LENGTH, &args![texture]).u32() == 0 {
                 false
             } else {
-                let name = e.call(FIRST_WORD, &args![texture]).u32();
+                let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
                 let data = e.call(LOAD_EGT_DATA, &args![name]).u32();
                 let texture: Ptr<FaceGenModelTextureData> =
                     Ptr::new(e.get(this, FaceGenModel::pTextureData));
@@ -224,7 +225,7 @@ pub fn fn_0065c5f0(e: &mut Engine) {
 fn construct_vector(e: &mut Engine, this: Ptr<StdVector>, init: u32) -> Ptr<StdVector> {
     let allocator = e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), this.addr());
-        e.call(0x0068_15c0, &args![slot]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, slot));
         e.mem.u32(slot.addr())
     });
     e.call(0x0065_d3a0, &args![this, allocator]);

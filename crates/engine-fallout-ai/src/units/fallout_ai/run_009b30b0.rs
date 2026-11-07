@@ -98,8 +98,10 @@ const NODE_EXTENT: u32 = 0x009b_3da0;
 /// The `double` the extent is scaled by (`0x0106b9e8`, the float 0.9 widened).
 const EXTENT_SCALE: u32 = 0x0106_b9e8;
 /// `008256d0` (unnamed): `thiscall`; whether the list at `+0x88` is empty.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (unnamed): `thiscall`, returns `this` (the list's first item slot).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `0063f7b0` (unnamed): `thiscall`; removes the list's first node.
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -231,8 +233,16 @@ pub fn fn_009b3320(e: &mut Engine, this: Ptr) {
 pub fn fn_009b3400(e: &mut Engine, this: Ptr) {
     let p = this.addr();
     e.mem.set_u32(p + 0x150, 0.0f32.to_bits());
-    while e.call(LIST_IS_EMPTY, &args![p + 0x88]).u8() == 0 {
-        let slot = e.call(NODE_ITEM, &args![p + 0x88]).u32();
+    while typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, p + 0x88)
+    )
+    .into_ret()
+    .u8()
+        == 0
+    {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p + 0x88));
         let item = e.mem.u32(slot);
         if item != 0 {
             fn_009b3490(e, Ptr::new(item), 1);

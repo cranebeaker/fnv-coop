@@ -50,6 +50,7 @@ const NO_SCORE: u8 = 0x7f;
 /// (here its LOS map holder).
 const REQUEST_TARGET_00984230: u32 = 0x0098_4230;
 /// `00559450` (unnamed in the engine map): the word at +0 of its `this`.
+#[cfg(test)]
 const FIRST_OF_00559450: u32 = 0x0055_9450;
 /// `00aa13e0` (unnamed in the engine map; cdecl, a size): an allocation.
 const ALLOCATE_00AA13E0: u32 = 0x00aa_13e0;
@@ -100,6 +101,7 @@ const GET_MATCHING_EDGE_0068F460: u32 = 0x0068_f460;
 /// `NavMesh::GetEdgeExtraInfo` (`0068f230`, engine map; `RET 8`).
 const GET_EDGE_EXTRA_INFO_0068F230: u32 = 0x0068_f230;
 /// `0084e3a0` (unnamed in the engine map): a navmesh's key.
+#[cfg(test)]
 const NAVMESH_KEY_0084E3A0: u32 = 0x0084_e3a0;
 /// `006e2050` (unnamed in the engine map; `RET 4`): whether the LOS map
 /// covers a navmesh (AL).
@@ -123,8 +125,6 @@ const DOOR_LOCK_DTOR_00501E50: u32 = 0x0050_1e50;
 const CAN_UNLOCK_00502450: u32 = 0x0050_2450;
 /// `006c9900` (unnamed in the engine map): the request's actor.
 const REQUEST_ACTOR_006C9900: u32 = 0x006c_9900;
-/// `007af430` (unnamed in the engine map): the lock's door form.
-const LOCK_FORM_007AF430: u32 = 0x007a_f430;
 /// `TESObjectDOOR::IsMinimalUse` (`00518000`, engine map).
 const IS_MINIMAL_USE_00518000: u32 = 0x0051_8000;
 /// The cost factor (float, `01016410`) of a minimal-use door.
@@ -144,8 +144,6 @@ const AVOID_NODES_0069E390: u32 = 0x0069_e390;
 const AVOID_COST_006DC990: u32 = 0x006d_c990;
 /// `004a0c10` (unnamed in the engine map): normalizes a 3D vector.
 const NORMALIZE_004A0C10: u32 = 0x004a_0c10;
-/// `NiPoint3::Dot` (`004b6190`, engine map; `RET 4`; ST0).
-const DOT_004B6190: u32 = 0x004b_6190;
 /// `00404010` (unnamed in the engine map; cdecl, two floats; ST0).
 const MAX_00404010: u32 = 0x0040_4010;
 /// `BSSimpleArray<BGSBodyPart*,1024>::AddUninitialized` (`007cb2e0`, engine
@@ -154,6 +152,7 @@ const ARRAY_PUSH_007CB2E0: u32 = 0x007c_b2e0;
 /// `006ab360` (unnamed in the engine map): the request's array of points.
 const REQUEST_POINTS_006AB360: u32 = 0x006a_b360;
 /// `0044ddc0` (unnamed in the engine map): a `BSSimpleArray`'s size.
+#[cfg(test)]
 const ARRAY_SIZE_0044DDC0: u32 = 0x0044_ddc0;
 /// `006a1440` (navmeshpovsearch unit; `RET 4`): the address of a 12-byte
 /// element.
@@ -320,17 +319,17 @@ pub fn navmesh_search_los_build_node_path(
         e.mem.set_u32(base + CURRENT_REQUEST, request);
         copy_words(e, base + START_NODE, start.addr(), 5);
         let target = e.call(REQUEST_TARGET_00984230, &args![request]).u32();
-        if e.call(FIRST_OF_00559450, &args![target]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, target)) == 0 {
             return false;
         }
         let block = e.call(ALLOCATE_00AA13E0, &args![0x50u32]).u32();
         let map = if block != 0 {
             let target = e.call(REQUEST_TARGET_00984230, &args![request]).u32();
-            let object = e.call(FIRST_OF_00559450, &args![target]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, target));
             let float = e.call(TARGET_VALUE_00508050, &args![object]).f64();
             let float = x87_store32(float);
             let target = e.call(REQUEST_TARGET_00984230, &args![request]).u32();
-            let object = e.call(FIRST_OF_00559450, &args![target]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, target));
             let position = fn_006aabd0(e, Ptr::new(object), Ptr::new(ebp - 0x78)).addr();
             let x = e.mem.u32(position);
             let y = e.mem.u32(position + 4);
@@ -342,7 +341,7 @@ pub fn navmesh_search_los_build_node_path(
         };
         e.call(POINTER_SET_0066B0D0, &args![base + LOS_MAP, map]);
         let target = e.call(REQUEST_TARGET_00984230, &args![request]).u32();
-        let object = e.call(FIRST_OF_00559450, &args![target]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, target));
         e.call(LOS_MAP_FILL_006E07A0, &args![object, base + LOS_MAP]);
         e.mem.set_u32(base + FIRST_IGNORED_GOAL, 0);
         let location = e.call(REQUEST_START_0048D150, &args![request]).u32();
@@ -397,7 +396,7 @@ pub fn navmesh_search_los_build_node_path(
                 != 0
         {
             e.mem.set_u8(base + HAS_GOAL_NODE, 1);
-            let navmesh = e.call(FIRST_OF_00559450, &args![holder]).u32();
+            let navmesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
             e.mem.set_u32(base + GOAL_NODE, navmesh);
             let triangle = e.mem.u16(ebp - 0x10);
             e.mem.set_u16(base + GOAL_NODE + 4, triangle);
@@ -405,7 +404,11 @@ pub fn navmesh_search_los_build_node_path(
             let triangle = u32::from(e.mem.u16(base + GOAL_NODE + 4));
             center_into(e, navmesh, triangle, ebp - 0x64, base + GOAL_NODE + 8);
         }
-        let map = e.call(FIRST_OF_00559450, &args![base + LOS_MAP]).u32();
+        let map = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + LOS_MAP)
+        );
         let score = fn_006aabf0(e, Ptr::new(map)) as i8;
         let pick = e
             .call(
@@ -458,10 +461,16 @@ fn los_connection(e: &mut Engine, this: u32, ebp: u32, node: u32, connections: u
         return;
     }
     if e.mem.u32(next_navmesh) != e.mem.u32(node + 8) {
-        let key = e
-            .call(NAVMESH_KEY_0084E3A0, &args![e.mem.u32(next_navmesh)])
-            .u32();
-        let map = e.call(FIRST_OF_00559450, &args![this + LOS_MAP]).u32();
+        let key = typed_call!(
+            leaf::FAMILY,
+            0x0084_e3a0,
+            leaf::word_at_c(e, e.mem.u32(next_navmesh))
+        );
+        let map = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this + LOS_MAP)
+        );
         if e.call(MAP_HAS_006E2050, &args![map, key]).u8() == 0 {
             return;
         }
@@ -507,7 +516,7 @@ fn los_connection(e: &mut Engine, this: u32, ebp: u32, node: u32, connections: u
                 e.call(DOOR_LOCK_DTOR_00501E50, &args![temp_lock]);
                 return;
             }
-            let form = e.call(LOCK_FORM_007AF430, &args![lock]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, lock));
             if e.call(IS_MINIMAL_USE_00518000, &args![form]).u8() != 0 {
                 let factor = x87_quiet_bits(e.global::<u32>(DOOR_COST));
                 e.mem.set_u32(ebp - 0x48, factor);
@@ -593,7 +602,13 @@ fn los_connection(e: &mut Engine, this: u32, ebp: u32, node: u32, connections: u
         e.call(POINT3_MINUS_00439EF0, &args![position, to_next, center]);
         e.call(NORMALIZE_004A0C10, &args![to_goal]);
         e.call(NORMALIZE_004A0C10, &args![to_next]);
-        let dot = e.call(DOT_004B6190, &args![to_goal, to_next]).f64();
+        let dot = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, to_goal, to_next)
+        )
+        .into_ret()
+        .f64();
         let turn = x87_mul(x87_sub(1.0, dot), x87_m32(e.mem.u32(ebp - 0x40)));
         e.mem.set_u32(ebp - 0x40, x87_store32(turn));
         let turn = x87_quiet_bits(e.mem.u32(ebp - 0x40));
@@ -699,15 +714,19 @@ pub fn navmesh_search_los_is_goal_node(e: &mut Engine, this: Ptr, node: Ptr) -> 
         let ebp = locals.addr() + 0x60;
         let navmesh = e.mem.u32(node.addr() + 8);
         let triangle = u32::from(e.mem.u16(node.addr() + 0xc));
-        let key = e.call(NAVMESH_KEY_0084E3A0, &args![navmesh]).u32();
-        let map = e.call(FIRST_OF_00559450, &args![base + LOS_MAP]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, navmesh));
+        let map = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + LOS_MAP)
+        );
         let score = fn_006ab3b0(e, Ptr::new(map), key, triangle);
         e.mem.set_u8(ebp - 1, score);
         if (e.mem.u8(ebp - 1) as i8) < 0 {
             let request = e.mem.u32(base + CURRENT_REQUEST);
             let points = e.call(REQUEST_POINTS_006AB360, &args![request]).u32();
             let mut index = 0u32;
-            while index < e.call(ARRAY_SIZE_0044DDC0, &args![points]).u32() {
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, points)) {
                 let center = ebp - 0x24;
                 e.call(NODE_CENTER_006A6EB0, &args![node.addr() + 8, center]);
                 let point = e.call(ELEMENT_006A1440, &args![points, index]).u32();
@@ -743,7 +762,11 @@ pub fn navmesh_search_los_is_goal_node(e: &mut Engine, this: Ptr, node: Ptr) -> 
         }
         let data = e.call(PLUS_EIGHT_00413F40, &args![node]).u32();
         let center = e.call(NODE_CENTER_006A6EB0, &args![data, ebp - 0x4c]).u32();
-        let map = e.call(FIRST_OF_00559450, &args![base + LOS_MAP]).u32();
+        let map = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + LOS_MAP)
+        );
         let map_center = e.call(MAP_CENTER_006AB380, &args![map, ebp - 0x40]).u32();
         e.call(
             POINT3_MINUS_00439EF0,

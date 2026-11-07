@@ -29,6 +29,7 @@ use crate::prelude::*;
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 /// `NiPointer<T>::operator T *()` (`*this`); also used for other one-member
 /// wrappers.
+#[cfg(test)]
 const POINTER_VALUE: u32 = 0x0055_9450;
 /// `NiPointer` destructor.
 const NI_POINTER_DESTRUCT: u32 = 0x0045_cec0;
@@ -49,10 +50,12 @@ const SET_CULLED: u32 = 0x0045_0f90;
 const SCENE_NODE_GETTER: u32 = 0x0045_0b80;
 /// `NiPoint3` constructor (`this`, x, y, z) and its `NiColor` twin.
 const POINT_CONSTRUCT: u32 = 0x0043_d410;
+#[cfg(test)]
 const COLOR_CONSTRUCT: u32 = 0x0041_6870;
 /// `NiColorA` constructor (`this`, r, g, b, a).
 const COLOR_A_CONSTRUCT: u32 = 0x0041_4430;
 /// `NiMatrix3` default constructor.
+#[cfg(test)]
 const MATRIX_CONSTRUCT: u32 = 0x0068_15c0;
 /// `NiAVObject::SetLocalTranslate(const NiPoint3 &)`-like setter (`this`,
 /// point).
@@ -137,7 +140,7 @@ layout! {
 }
 
 fn pointer_value(e: &mut Engine, slot: u32) -> u32 {
-    e.call(POINTER_VALUE, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 fn assign_pointer(e: &mut Engine, slot: u32, value: u32) {
@@ -297,9 +300,9 @@ pub fn forendered_menu_race_sex_initialize(e: &mut Engine, this: Ptr<FORenderedM
         // Rotation of the geometry: the product of two rotations by the same
         // angle.
         let first = local(0x1c4);
-        e.call(MATRIX_CONSTRUCT, &args![first]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first));
         let second = local(0x130);
-        e.call(MATRIX_CONSTRUCT, &args![second]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
         let angle: f32 = e.global(FRUSTUM_ANGLE);
         e.call(0x0043_f850, &args![first, angle]);
         e.call(0x004a_0c90, &args![second, angle]);
@@ -341,7 +344,7 @@ pub fn forendered_menu_race_sex_initialize(e: &mut Engine, this: Ptr<FORenderedM
         );
         e.call(0x0071_2e60, &args![camera, background]);
         let axes = local(0x180);
-        e.call(MATRIX_CONSTRUCT, &args![axes]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, axes));
         // (The matrix built here is not used afterwards.)
         e.call(0x0071_33b0, &args![axes, 0u32, 0.0f32, 0.0f32, 1.0f32]);
         e.call(0x0071_33b0, &args![axes, 1u32, 1.0f32, 0.0f32, 0.0f32]);
@@ -406,7 +409,7 @@ pub fn forendered_menu_race_sex_initialize(e: &mut Engine, this: Ptr<FORenderedM
         e.call(0x0043_9410, &args![holder, entry]);
         // The scene graph: the geometry's radius decides the node scale, and
         // when the graph has no entry for the scene yet it gets a light.
-        let bound = e.call(0x0043_d450, &args![node]).u32();
+        let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
         let radius = e.call(0x0084_d030, &args![bound]).f32();
         let radius = (radius as f64 * e.global::<f64>(SCALE_DOUBLE)) as f32;
         let graph = e.call(SCENE_NODE_GETTER, &args![1u32]).u32();
@@ -421,19 +424,27 @@ pub fn forendered_menu_race_sex_initialize(e: &mut Engine, this: Ptr<FORenderedM
             e.vcall(node, 0xdc, &args![light, 1u32]);
             let ambient = local(0xb0);
             let green: f32 = e.global(0x0104_f7c4);
-            let color = e
-                .call(COLOR_CONSTRUCT, &args![ambient, 0.0f32, green, 0.0f32])
-                .u32();
+            let color = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, ambient, 0.0f32, green, 0.0f32)
+            );
             e.call(SET_VECTOR, &args![light, color]);
             let k: f32 = e.global(FRUSTUM_SCALE);
             let diffuse = local(0xa4);
-            let color = e.call(COLOR_CONSTRUCT, &args![diffuse, k, k, k]).u32();
+            let color = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, diffuse, k, k, k)
+            );
             e.call(0x004b_c2e0, &args![light, color]);
             let specular = local(0x98);
             let red: f32 = e.global(0x0101_3974);
-            let color = e
-                .call(COLOR_CONSTRUCT, &args![specular, red, 0.0f32, 0.0f32])
-                .u32();
+            let color = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, specular, red, 0.0f32, 0.0f32)
+            );
             e.call(0x0050_dd50, &args![light, color]);
             e.call(0x0050_dd20, &args![light, 1.0f32]);
             let point = zero_point(e, local(0x11c));
@@ -466,7 +477,7 @@ pub fn fn_007fd640(e: &mut Engine, this: Ptr) -> u32 {
 pub fn fn_007fd660(e: &mut Engine, this: Ptr<FORenderedMenuRaceSex>, scale: f32) {
     let me = this.addr();
     let player = pointer_value(e, me + 0xfc);
-    let bound = e.call(0x0043_d450, &args![player]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, player));
     let radius = e.call(0x0084_d030, &args![bound]).f32();
     let value = ((radius as f64 * e.global::<f64>(SCALE_DOUBLE)) * scale as f64) as f32;
     let parent = pointer_value(e, me + 0x100);
@@ -511,7 +522,7 @@ pub fn forendered_menu_race_sex_on_menu_open(e: &mut Engine, this: Ptr<FORendere
         e.call(0x00a2_53d0, &args![controls]);
         // The world / player manager: prepares the player for the menu.
         let manager: u32 = e.global(0x011d_ea3c);
-        let player_manager = e.call(0x008d_8520, &args![manager]).u32();
+        let player_manager = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, manager));
         e.vcall(player_manager, 0x458, &args![manager, 0u32]);
         e.call(0x0088_4f80, &args![manager]);
         e.call(0x008b_3a80, &args![manager, 0x400u32]);
@@ -570,7 +581,7 @@ pub fn forendered_menu_race_sex_on_menu_open(e: &mut Engine, this: Ptr<FORendere
         let lights = pointer_value(e, me + 0x108);
         e.vcall(parent, 0xdc, &args![lights, 1u32]);
         let player = pointer_value(e, me + 0xfc);
-        let bound = e.call(0x0043_d450, &args![player]).u32();
+        let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, player));
         let radius = e.call(0x0084_d030, &args![bound]).f32();
         let radius = (radius as f64 * e.global::<f64>(SCALE_DOUBLE)) as f32;
         let lights = pointer_value(e, me + 0x108);
@@ -609,11 +620,17 @@ pub fn forendered_menu_race_sex_on_menu_open(e: &mut Engine, this: Ptr<FORendere
         let camera = pointer_value(e, me + 0x104);
         e.call(0x0073_3fd0, &args![camera, 1.0f32]);
         let up = local(0xa4);
-        e.call(COLOR_CONSTRUCT, &args![up, 0.0f32, 1.0f32, 0.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, up, 0.0f32, 1.0f32, 0.0f32)
+        );
         let forward = local(0x4c);
-        let forward = e
-            .call(COLOR_CONSTRUCT, &args![forward, 0.0f32, 0.0f32, 1.0f32])
-            .u32();
+        let forward = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, forward, 0.0f32, 0.0f32, 1.0f32)
+        );
         let camera = pointer_value(e, me + 0x104);
         e.call(0x00a7_01b0, &args![camera, up, forward]);
         let frustum = local(0x84);
@@ -925,14 +942,18 @@ pub fn forendered_menu_race_sex_init_light(e: &mut Engine, this: Ptr<FORenderedM
             return;
         }
         let black = local(0x1c);
-        let color = e
-            .call(COLOR_CONSTRUCT, &args![black, 0.0f32, 0.0f32, 0.0f32])
-            .u32();
+        let color = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, black, 0.0f32, 0.0f32, 0.0f32)
+        );
         e.call(0x004b_c2e0, &args![light, color]);
         let black = local(0x10);
-        let color = e
-            .call(COLOR_CONSTRUCT, &args![black, 0.0f32, 0.0f32, 0.0f32])
-            .u32();
+        let color = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, black, 0.0f32, 0.0f32, 0.0f32)
+        );
         e.call(0x004b_c280, &args![light, color]);
         e.call(0x0050_c630, &args![light, 0.0f32]);
         e.call(0x0050_c660, &args![light, 0.0f32]);
@@ -940,14 +961,18 @@ pub fn forendered_menu_race_sex_init_light(e: &mut Engine, this: Ptr<FORenderedM
         e.call(0x0050_dd20, &args![light, 1.0f32]);
         let level: f32 = e.global(0x0101_7b78);
         let specular = local(0x4);
-        let color = e
-            .call(COLOR_CONSTRUCT, &args![specular, level, 0.0f32, 0.0f32])
-            .u32();
+        let color = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, specular, level, 0.0f32, 0.0f32)
+        );
         e.call(0x0050_dd50, &args![light, color]);
         let white = local(0x28);
-        let color = e
-            .call(COLOR_CONSTRUCT, &args![white, 1.0f32, 1.0f32, 1.0f32])
-            .u32();
+        let color = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, white, 1.0f32, 1.0f32, 1.0f32)
+        );
         e.call(0x006b_0570, &args![me, color]);
         e.call(0x0096_5580, &args![me, 1.0f32]);
         e.call(0x007f_99b0, &args![me, 1.0f32]);
@@ -988,9 +1013,9 @@ pub fn fn_007fe6c0(
         if all_present
             && e.with_stack(0x8c, |e, frame| {
                 let origin = frame.addr() + 0x30;
-                e.call(MATRIX_CONSTRUCT, &args![origin]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
                 let direction = frame.addr() + 0x24;
-                e.call(MATRIX_CONSTRUCT, &args![direction]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
                 let ray = frame.addr() + 0x3c;
                 e.call(0x00e9_8f20, &args![ray, 0u32, 8u32]);
                 e.call(0x0045_8b30, &args![ray, 1u32]);

@@ -38,8 +38,10 @@ const LIST_DELETE: u32 = 0x0047_02f0;
 /// node item address (`006815c0`), the next node (`0062d990`) and an
 /// entry first word (`00559450`).
 const FIRST_NODE: u32 = 0x007d_6bb0;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 const NODE_NEXT: u32 = 0x0062_d990;
+#[cfg(test)]
 const ENTRY_FIRST: u32 = 0x0055_9450;
 /// The `CombatAction` destructor body (`00979c80`, `thiscall`).
 const ACTION_DESTRUCT: u32 = 0x0097_9c80;
@@ -117,13 +119,13 @@ pub fn fn_0097a990(e: &mut Engine) {
         }
         let mut node = e.call(FIRST_NODE, &args![action]).u32();
         while node != 0 {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 {
                 break;
             }
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let entry = e.mem.u32(slot);
-            let index = e.call(ENTRY_FIRST, &args![entry]).u32();
+            let index = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
             fn_0097ab30(e, index, action);
             node = e.call(NODE_NEXT, &args![node]).u32();
         }
@@ -204,7 +206,9 @@ const COPY_TEXT: u32 = 0x0040_6d30;
 /// named `BaseProcess::GetActorPackageThatIsRunning` in the engine map).
 const FIRST_LIST: u32 = 0x0071_7e50;
 /// An entry's two words (`00559450` and `00726070`, `thiscall`).
+#[cfg(test)]
 const ENTRY_KEY: u32 = 0x0055_9450;
+#[cfg(test)]
 const ENTRY_VALUE: u32 = 0x0072_6070;
 /// `CombatWorldStateArray::IsTrue` (engine map; `009aadc0`,
 /// `thiscall(key, value)`).
@@ -295,15 +299,19 @@ pub fn combat_action_can_execute(
 ) -> bool {
     let mut node = e.call(FIRST_LIST, &args![this]).u32();
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(slot);
         if entry != 0 {
-            let value = if e.call(ENTRY_VALUE, &args![entry]).i32() == -1 {
+            let value = if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                .into_ret()
+                .i32()
+                == -1
+            {
                 default_value
             } else {
-                e.call(ENTRY_VALUE, &args![entry]).u32()
+                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
             };
-            let key = e.call(ENTRY_KEY, &args![entry]).u32();
+            let key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
             if !e
                 .call(WORLD_STATE_IS_TRUE, &args![world_state, key, value])
                 .bool()

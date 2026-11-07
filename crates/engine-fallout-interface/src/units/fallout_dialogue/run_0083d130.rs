@@ -5,12 +5,16 @@
 use crate::prelude::*;
 
 /// thiscall on a list node: whether it is empty (item and next both 0).
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// thiscall on a list node (or any object): answers it unchanged.
+#[cfg(test)]
 const IDENTITY: u32 = 0x0068_15c0;
 /// thiscall on a list node: the next node (+4).
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// thiscall: the first word of the object (a string's text).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// thiscall: the object's address plus 0x10.
 const MEMBER_AT_10: u32 = 0x0046_0140;
@@ -32,30 +36,30 @@ const PRECACHE_FLAGS: u32 = 0x2010_0001;
 /// confirmed.
 pub fn fn_0083d130(e: &mut Engine, this: Ptr) {
     let mut node = this.addr();
-    while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let item = item_of(e, node);
-        if e.call(FIRST_WORD, &args![item]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) != 0 {
             let item = item_of(e, node);
-            let text = e.call(FIRST_WORD, &args![item]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
             if e.call(STRING_LENGTH, &args![text]).u32() > 1 {
-                let item = e.call(IDENTITY, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(item);
                 let member = e.call(MEMBER_AT_10, &args![item]).u32();
-                let path = e.call(FIRST_WORD, &args![member]).u32();
+                let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member));
                 let audio = e.call(AUDIO_INSTANCE, &args![]).u32();
                 e.call(AUDIO_PRECACHE, &args![audio, path, PRECACHE_FLAGS, 0u32]);
             }
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
 /// The node's item, through `006815c0` on the node and again on the item,
 /// as the code reaches it.
 fn item_of(e: &mut Engine, node: u32) -> u32 {
-    let at = e.call(IDENTITY, &args![node]).u32();
+    let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     let item = e.mem.u32(at);
-    e.call(IDENTITY, &args![item]).u32()
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, item))
 }
 
 /// This unit's translated functions, by exe address.

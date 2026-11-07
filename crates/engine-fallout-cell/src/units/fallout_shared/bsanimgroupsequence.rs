@@ -44,6 +44,7 @@ const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const OWNER_TARGET: u32 = 0x0053_7bd0;
 /// `006815c0` (unnamed in the engine map): `thiscall`, no stack words; on an `IDTag`, returns
 /// the address of its name (an `NiFixedString` the caller passes on).
+#[cfg(test)]
 const ID_TAG_NAME: u32 = 0x0068_15c0;
 /// `0043b1b0` (unnamed in the engine map): `thiscall`, no stack words; on an `NiFixedString`,
 /// returns its characters (null for an empty handle).
@@ -126,7 +127,7 @@ pub fn fn_004eeb60(e: &mut Engine, first: u32, second: u32, result: Ptr) {
         e.call(0x00a3_5700, &args![first, second, temp]);
         let block = e.call(0x00aa_13e0, &args![0x78u32]).u32();
         let sequence = if block != 0 {
-            let object = e.call(0x0055_9450, &args![temp]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, temp));
             e.call(0x004e_e9f0, &args![block, 0u32, object]).u32()
         } else {
             0
@@ -176,9 +177,9 @@ pub fn fn_004eecb0(e: &mut Engine, this: Ptr) {
     while index < e.mem.u32(base + SEQUENCE_ARRAY_SIZE) {
         let tag = id_tag(e, this, index);
         let holder = e.vcall(target, 0x98, &args![]).u32();
-        let name = e.call(ID_TAG_NAME, &args![tag]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, tag));
         if e.vcall(holder, 0x9c, &args![name]).u32() == 0 {
-            let name = e.call(ID_TAG_NAME, &args![tag]).u32();
+            let name = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, tag));
             e.vcall(target, 0x90, &args![name, 0u32]);
             drop_interpolator(e, this, index);
         }
@@ -220,10 +221,10 @@ pub fn fn_004eee00(e: &mut Engine, this: Ptr) {
     let mut index = 0u32;
     while index < e.mem.u32(base + SEQUENCE_ARRAY_SIZE) {
         let tag = id_tag(e, this, index);
-        let name = e.call(ID_TAG_NAME, &args![tag]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, tag));
         let chars = e.call(FIXED_STRING_CHARS, &args![name]).u32();
         let keep = chars != 0 && {
-            let name = e.call(ID_TAG_NAME, &args![tag]).u32();
+            let name = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, tag));
             e.vcall(target, 0x8c, &args![name]).u32() != 0
         };
         if !keep {
@@ -263,7 +264,7 @@ pub fn bs_anim_group_sequence_get_priority(
     let mut index = 0u32;
     while index < e.mem.u32(base + SEQUENCE_ARRAY_SIZE) {
         let tag = id_tag(e, this, index);
-        let tag_name = e.call(ID_TAG_NAME, &args![tag]).u32();
+        let tag_name = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, tag));
         let chars = e.call(FIXED_STRING_CHARS, &args![tag_name]).u32();
         if chars == 0 {
             let own_name = e.call(0x0041_3f40, &args![this]).u32();
@@ -326,9 +327,11 @@ pub fn bs_anim_group_sequence_deactivate(
 ) -> u8 {
     let base = this.addr();
     if e.mem.u32(base + SEQUENCE_ACCUM_ROOT) != 0 {
-        let group = e
-            .call(0x0055_9450, &args![base + SEQUENCE_ANIM_GROUP])
-            .u32();
+        let group = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + SEQUENCE_ANIM_GROUP)
+        );
         let kind = e.call(0x005f_2420, &args![group]).i32();
         if (0x17..=0x19).contains(&kind) {
             let root = e.mem.u32(base + SEQUENCE_ACCUM_ROOT);
@@ -624,7 +627,7 @@ fn sound_data_flags(e: &mut Engine, sound: u32, out: u32) -> u32 {
 /// audio, temp, form id, flags)` into the temporary handle at `temp`, assigned to `handle`
 /// (`00418900`) and the temporary destroyed.
 fn make_sound_handle(e: &mut Engine, handle: u32, sound: u32, flags: u32, temp: u32) {
-    let form_id = e.call(0x0084_e3a0, &args![sound]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
     let audio = e.call(0x0045_3a70, &args![]).u32();
     let made = e
         .call(0x00ad_73b0, &args![audio, temp, form_id, flags])
@@ -760,7 +763,7 @@ fn reset_after_load(e: &mut Engine, this: Ptr, time: f32) {
 /// (the word at +0xC, `m_uiArraySize`), asked again before each item.
 pub fn fn_004efa50(e: &mut Engine, this: Ptr) {
     let mut index = 0u32;
-    while index < e.call(0x0084_e3a0, &args![this]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) {
         let items = e.mem.u32(this.addr() + SEQUENCE_INTERP_ARRAY);
         e.mem
             .set_u32(items.wrapping_add(index << 4).wrapping_add(8), 0);

@@ -15,12 +15,14 @@ const OPERATOR_NEW: u32 = 0x0040_1000;
 /// `operator delete` (`00401030`, `cdecl`, one word: the block).
 const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// `0044ddc0` (unnamed): `thiscall`, returns the word at `+8` (the array's count).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 /// `006a7ad0` (unnamed, `navmeshsearch.cpp` per the engine map): `thiscall`, one index
 /// word (`RET 4`); returns the address of that element (it forwards to `00877a30`).
 const ARRAY_ELEMENT: u32 = 0x006a_7ad0;
 /// `00559450` (unnamed): `thiscall`, returns the word at `+0` (here a link's
 /// `iLocation`).
+#[cfg(test)]
 const READ_FIRST_WORD: u32 = 0x0055_9450;
 /// `00994a90` (unnamed, `run_009948f0`): `thiscall`, the key of a plan node.
 const NODE_KEY: u32 = 0x0099_4a90;
@@ -103,7 +105,7 @@ pub fn fn_00993db0(
     e.mem.set_u32(p + 0xc, goal);
     e.mem.set_u32(p + 0x10, 0xffff_ffff);
     e.mem.set_u32(p + 0x14, controller);
-    let count = e.call(ARRAY_COUNT, &args![links]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, links));
     fn_00993fd0(e, this, count);
 
     let mut index = 0u32;
@@ -132,8 +134,8 @@ pub fn fn_00993db0(
         e.mem.set_u32(target + 0x8, key);
         let target = step(e, this, index);
         e.mem.set_u32(target + 0x4, 0);
-        if e.call(READ_FIRST_WORD, &args![link + 0xc]).u32() != 0xffff_ffff {
-            let location = e.call(READ_FIRST_WORD, &args![link + 0xc]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, link + 0xc)) != 0xffff_ffff {
+            let location = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, link + 0xc));
             e.mem.set_u32(p + 0x10, location);
         }
         index = index.wrapping_add(1);

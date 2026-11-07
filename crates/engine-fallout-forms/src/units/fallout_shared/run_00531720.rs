@@ -22,6 +22,7 @@ const COLOR_SET: u32 = 0x0041_4430;
 /// `00452dc0` (`thiscall`, `RET 8`): sets a two-float point, answers it.
 const POINT_SET: u32 = 0x0045_2dc0;
 /// `NiAVObject::GetWorldBound` (engine map, `0043d450`, `thiscall`).
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 /// `004a4f40` (`thiscall`, `RET 8`: the answer object and a float; engine-map unit
 /// `bgsprimitive.cpp`): scales the object `this` holds into the answer.
@@ -296,7 +297,7 @@ pub fn fn_00531720(e: &mut Engine, this: Ptr, start: u32, scale: u32, object: Pt
         let use_bound = e.mem.u8(node + 0xe8) != 0;
         if use_bound && !object.is_null() {
             e.vcall(object.addr(), 0xbc, &[]);
-            let bound = e.call(GET_WORLD_BOUND, &args![object]).u32();
+            let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, object));
             let group = [
                 scaled(e, frame.slot(0x2c), scale),
                 value(e, 0x38),
@@ -332,7 +333,7 @@ pub fn fn_00531720(e: &mut Engine, this: Ptr, start: u32, scale: u32, object: Pt
         let flag = u32::from(e.mem.u8(node + 0x101));
         if use_pair_bound && !object.is_null() {
             e.vcall(object.addr(), 0xbc, &[]);
-            let bound = e.call(GET_WORLD_BOUND, &args![object]).u32();
+            let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, object));
             let pair = scaled(e, frame.slot(0x18), scale);
             e.call(
                 SET_PAIR_BOUND_GROUP,
@@ -413,6 +414,7 @@ pub fn fn_00531d20(e: &mut Engine, this: Ptr, start: u32, scale: u32) {
 
 /// `00559450` (`thiscall` on the member at +0x10, no stack words): the
 /// object `00533000` reads, or 0.
+#[cfg(test)]
 const MEMBER_00559450: u32 = 0x0055_9450;
 
 // Translated from 00533000 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -422,13 +424,13 @@ const MEMBER_00559450: u32 = 0x0055_9450;
 /// the two words and the byte and answers 0.
 pub fn fn_00533000(e: &mut Engine, this: Ptr, first: Ptr, second: Ptr, flag: Ptr) -> u32 {
     let member = this.addr() + 0x10;
-    if e.call(MEMBER_00559450, &args![member]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member)) == 0 {
         e.mem.set_u32(first.addr(), 0);
         e.mem.set_u32(second.addr(), 0);
         e.mem.set_u8(flag.addr(), 0);
         return 0;
     }
-    let object = e.call(MEMBER_00559450, &args![member]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member));
     fn_00533060(e, Ptr::new(object), first, second, flag)
 }
 
@@ -454,6 +456,7 @@ const SET_BOUND_POINT: u32 = 0x00b8_b1c0;
 const SET_PAIR_BOUND_POINT: u32 = 0x00b8_bb70;
 /// `006815c0` (`thiscall`, no stack word), run on the result point before
 /// it is filled.
+#[cfg(test)]
 const POINT_PREPARE: u32 = 0x0068_15c0;
 /// The two-float point operators (`thiscall`, `RET 8`: the answer and the
 /// other point): `004e8880` (`this - other`, `teswater.cpp`) and `004dfe30`
@@ -655,16 +658,24 @@ pub fn fn_00532220(
             e.call(POINT_SET, &args![at, half, half]);
         }
         let point = slot(0x8c);
-        e.call(POINT_PREPARE, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         if e.mem.u8(first + 0xe8) != 0 && !first_object.is_null() {
             e.vcall(first_object.addr(), 0xbc, &args![]);
-            let bound = e.call(GET_WORLD_BOUND, &args![first_object]).u32();
+            let bound = typed_call!(
+                leaf::FAMILY,
+                0x0043_d450,
+                leaf::world_bound(e, first_object)
+            );
             e.call(SET_BOUND_POINT, &args![manager, bound, mine_point]);
         }
         if e.mem.u8(second + 0xe8) != 0 && !second_object.is_null() {
             // The exe calls slot 0xbc of the first object here.
             e.vcall(first_object.addr(), 0xbc, &args![]);
-            let bound = e.call(GET_WORLD_BOUND, &args![second_object]).u32();
+            let bound = typed_call!(
+                leaf::FAMILY,
+                0x0043_d450,
+                leaf::world_bound(e, second_object)
+            );
             e.call(SET_BOUND_POINT, &args![manager, bound, their_point]);
         }
         for (modifier, at) in [(first, mine_point), (second, their_point)] {
@@ -715,15 +726,23 @@ pub fn fn_00532220(
             e.call(POINT_SET, &args![at, zero, zero]);
         }
         let pair = slot(0x7c);
-        e.call(POINT_PREPARE, &args![pair]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, pair));
         if e.mem.u8(first + 0x100) != 0 && !first_object.is_null() {
             e.vcall(first_object.addr(), 0xbc, &args![]);
-            let bound = e.call(GET_WORLD_BOUND, &args![first_object]).u32();
+            let bound = typed_call!(
+                leaf::FAMILY,
+                0x0043_d450,
+                leaf::world_bound(e, first_object)
+            );
             e.call(SET_PAIR_BOUND_POINT, &args![manager, bound, mine_pair]);
         }
         if e.mem.u8(second + 0x100) != 0 && !second_object.is_null() {
             e.vcall(second_object.addr(), 0xbc, &args![]);
-            let bound = e.call(GET_WORLD_BOUND, &args![second_object]).u32();
+            let bound = typed_call!(
+                leaf::FAMILY,
+                0x0043_d450,
+                leaf::world_bound(e, second_object)
+            );
             e.call(SET_PAIR_BOUND_POINT, &args![manager, bound, their_pair]);
         }
         for (modifier, at, x_slot, y_slot, temporary) in [

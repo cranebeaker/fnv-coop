@@ -43,6 +43,7 @@ const NI_NEW: u32 = 0x00aa_13e0;
 const BS_SHADER_ACCUMULATOR_CONSTRUCTOR: u32 = 0x00b6_60d0;
 /// Reads the word at `this` (`00559450`) and the step the accumulator is
 /// given (`005db4c0`, thiscall: one word).
+#[cfg(test)]
 const READ_WORD: u32 = 0x0055_9450;
 const ACCUMULATOR_STEP: u32 = 0x005d_b4c0;
 
@@ -119,7 +120,7 @@ pub fn fovats_effect_manager_constructor(e: &mut Engine, this: Ptr) -> Ptr {
         .u32()
     };
     e.call(NI_POINTER_ASSIGN, &args![t + 0x2cc, accumulator]);
-    let accumulator = e.call(READ_WORD, &args![t + 0x2cc]).u32();
+    let accumulator = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0x2cc));
     e.call(ACCUMULATOR_STEP, &args![accumulator, 0u32]);
     e.mem.set_u32(t + 0x2c8, 1);
     for i in 0..0x10u32 {
@@ -305,12 +306,12 @@ pub fn fovats_effect_manager_draw_target_to_texture(
                 e.call(QUERY_BEGIN_00C4ED70, &args![query]);
             }
         }
-        let accumulator = e.call(READ_WORD, &args![base + 0x2cc]).u32();
+        let accumulator = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2cc));
         e.call(ACCUMULATOR_004A1040, &args![accumulator, 8u32]);
         e.call(SHADER_MANAGER_00B4F450, &args![8u32]);
         fn_00801420(e, this, flag, word);
         e.call(SHADER_MANAGER_00B4F450, &args![0u32]);
-        let accumulator = e.call(READ_WORD, &args![base + 0x2cc]).u32();
+        let accumulator = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2cc));
         e.call(ACCUMULATOR_004A1040, &args![accumulator, 0u32]);
         if started {
             if mode == 2 {

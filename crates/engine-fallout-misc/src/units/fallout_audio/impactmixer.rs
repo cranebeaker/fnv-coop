@@ -473,11 +473,13 @@ const SOURCE_TYPE_01183108: u32 = 0x0118_3108;
 const TARGET_TYPE_01183998: u32 = 0x0118_3998;
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map; folded body),
 /// thiscall on the actor.
+#[cfg(test)]
 const ACTOR_PROCESS_008D8520: u32 = 0x008d_8520;
 /// The `BSSoundHandle` constructor and destructor, thiscall.
 const SOUND_HANDLE_CONSTRUCT: u32 = 0x0041_a250;
 const SOUND_HANDLE_DESTRUCT: u32 = 0x0048_3710;
 /// Thiscall on an object (`run_0044d8c0.rs`).
+#[cfg(test)]
 const OBJECT_0044DDC0: u32 = 0x0044_ddc0;
 /// Thiscall on the cast form: its sounds for types 9 and 10.
 const SOUND_FOR_TYPE_9: u32 = 0x0052_2520;
@@ -542,7 +544,9 @@ pub fn fn_0083a930(e: &mut Engine, actor: u32, kind: u32) {
                 ],
             )
             .u32();
-        if reference != 0 && e.call(ACTOR_PROCESS_008D8520, &args![reference]).u32() != 0 {
+        if reference != 0
+            && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference)) != 0
+        {
             e.with_stack(0xc, |e, handle| {
                 e.call(SOUND_HANDLE_CONSTRUCT, &args![handle]);
                 play_impact(e, actor, kind, reference, handle.addr(), position);
@@ -562,10 +566,10 @@ fn play_impact(
     handle: u32,
     position: [u32; 3],
 ) {
-    let process = e.call(ACTOR_PROCESS_008D8520, &args![reference]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference));
     let object = e.vcall(process, 0x148, &args![]).u32();
     let base = if object != 0 {
-        e.call(OBJECT_0044DDC0, &args![object]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object))
     } else {
         0
     };
@@ -687,6 +691,7 @@ const SETTING_INT: u32 = 0x0043_d4d0;
 /// The sound form's numeric id (`run_0084e3a0.rs`), and
 /// `BSAudio::GetSoundHandleByNumericID` (engine map; thiscall (result, id,
 /// flags), `RET 0xC`).
+#[cfg(test)]
 const SOUND_ID: u32 = 0x0084_e3a0;
 const GET_SOUND_HANDLE_BY_ID: u32 = 0x00ad_73b0;
 /// `BSSoundHandle::SetPriority`, `SetStaticAttenuation` and
@@ -718,7 +723,7 @@ fn casing_body(e: &mut Engine, body: u32) -> bool {
 /// handle at `handle`.
 fn handle_by_id(e: &mut Engine, handle: u32, sound: u32, flags: u32) {
     e.with_stack(0xc, |e, temporary| {
-        let id = e.call(SOUND_ID, &args![sound]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         let audio = e.call(AUDIO_INSTANCE, &args![]).u32();
         let made = e
             .call(GET_SOUND_HANDLE_BY_ID, &args![audio, temporary, id, flags])
@@ -1033,6 +1038,7 @@ const SOUND_SECOND_VALUE_00553B90: u32 = 0x0055_3b90;
 const HUNDRED_01017A40: u32 = 0x0101_7a40;
 const FIVE_01020998: u32 = 0x0102_0998;
 /// `006815c0` (returns `this`), called on a local point.
+#[cfg(test)]
 const RETURN_THIS: u32 = 0x0068_15c0;
 
 /// `00403e20` on a setting, then its value's bits.
@@ -1102,7 +1108,7 @@ fn weapon_sound_body(e: &mut Engine, weapon: u32, actor: u32, object: u32, first
     let player_clear = !e.call(PLAYER_FLAG_00524D10, &args![player]).bool();
     let mut modded = false;
     e.with_stack(0xc, |e, local| {
-        e.call(RETURN_THIS, &args![local]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
     });
     let player = e.global::<u32>(PLAYER);
     if e.call(PLAYER_PLACE_008D6F30, &args![player]).u32() != 0 {
@@ -1121,10 +1127,10 @@ fn weapon_sound_body(e: &mut Engine, weapon: u32, actor: u32, object: u32, first
     }
     if first_person != 0 {
         let player = e.global::<u32>(PLAYER);
-        if e.call(ACTOR_PROCESS_008D8520, &args![player]).u32() != 0 {
-            let process = e.call(ACTOR_PROCESS_008D8520, &args![player]).u32();
+        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player)) != 0 {
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
             if e.vcall(process, 0x148, &args![]).u32() != 0 {
-                let process = e.call(ACTOR_PROCESS_008D8520, &args![player]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
                 let item = e.vcall(process, 0x148, &args![]).u32();
                 if item != 0
                     && (e.call(HAS_MOD_EFFECT, &args![item, 0xbu32]).bool()
@@ -1570,12 +1576,14 @@ const POINT_SUBTRACT_IN_PLACE: u32 = 0x0045_78c0;
 const POINT_LENGTH: u32 = 0x0045_7990;
 /// `BGSSaveFormBuffer::GetForm` (engine map; folded body): the reference's
 /// base form.
+#[cfg(test)]
 const BASE_FORM: u32 = 0x007a_f430;
 /// The type descriptor the creature cast uses (`01183a00`).
 const TARGET_TYPE_01183A00: u32 = 0x0118_3a00;
 /// `TESCreature::PickCreatureSound` (engine map), thiscall (type), `RET 4`.
 const PICK_CREATURE_SOUND: u32 = 0x005f_92d0;
 /// Thiscall on the creature (`algs.rs`): an object to follow.
+#[cfg(test)]
 const CREATURE_FOLLOWED_00ACBB70: u32 = 0x00ac_bb70;
 /// The creature jump volume (`010205fc`, `0.98`).
 const CREATURE_JUMP_VOLUME: u32 = 0x0102_05fc;
@@ -1811,7 +1819,7 @@ fn movement_body(
         return;
     }
     if e.vcall(reference, 0x21c, &args![]).bool() {
-        let base = e.call(BASE_FORM, &args![actor]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
         let creature = e
             .call(
                 DYNAMIC_CAST,
@@ -1829,8 +1837,8 @@ fn movement_body(
         }
         let [x, y, z] = read_point(e, point).map(x87_quiet_bits);
         e.call(SOUND_SET_POSITION, &args![first_handle, x, y, z]);
-        if e.call(CREATURE_FOLLOWED_00ACBB70, &args![creature]).u32() != 0 {
-            let followed = e.call(CREATURE_FOLLOWED_00ACBB70, &args![creature]).u32();
+        if typed_call!(leaf::FAMILY, 0x00ac_bb70, leaf::zero_of_this(e, creature)) != 0 {
+            let followed = typed_call!(leaf::FAMILY, 0x00ac_bb70, leaf::zero_of_this(e, creature));
             e.call(SOUND_SET_OBJECT_TO_FOLLOW, &args![first_handle, followed]);
         }
         let volume = x87_quiet_bits(e.global::<u32>(CREATURE_JUMP_VOLUME));
@@ -2010,6 +2018,7 @@ const WEAPON_INDEX_00446390: u32 = 0x0044_6390;
 const BLOCK_HAND_0107D1DC: u32 = 0x0107_d1dc;
 const BLOCK_MELEE_0107D1CC: u32 = 0x0107_d1cc;
 /// The vector constructor `006815c0` (thiscall), run on the position local.
+#[cfg(test)]
 const VECTOR_CONSTRUCT_006815C0: u32 = 0x0068_15c0;
 /// The `float` minimum (`0040ebd0`) and maximum (`00404010`), cdecl, the result in ST0.
 const FLOAT_MIN_0040EBD0: u32 = 0x0040_ebd0;
@@ -2085,7 +2094,7 @@ pub fn impact_mixer_play_weapon_block(
             e.call(SOUND_HANDLE_ASSIGN, &args![handle, made]);
             e.call(SOUND_HANDLE_DESTRUCT, &args![temporary]);
         }
-        e.call(VECTOR_CONSTRUCT_006815C0, &args![position]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
         let two: f64 = e.global(TWO_01011590);
         for (k, (first, second)) in (0u32..).zip([
             (first_x, second_x),

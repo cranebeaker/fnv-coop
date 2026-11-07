@@ -17,10 +17,12 @@ const PRINT_00703C00: u32 = 0x0070_3c00;
 /// Thiscall on the packer: its number of entries (`00658930`) and the
 /// address of entry `index` (`00877a30`, `RET 4`).
 const ENTRY_COUNT_00658930: u32 = 0x0065_8930;
+#[cfg(test)]
 const ENTRY_ADDRESS_00877A30: u32 = 0x0087_7a30;
 /// Thiscall on a tile: a related tile (`0045cd60`), its name (`00700300`),
 /// and its node (`0056c7f0`), whose position `0043c490` gives the address
 /// of.
+#[cfg(test)]
 const TILE_RELATED_0045CD60: u32 = 0x0045_cd60;
 const TILE_NAME_00700300: u32 = 0x0070_0300;
 const TILE_NODE_0056C7F0: u32 = 0x0056_c7f0;
@@ -58,10 +60,14 @@ pub fn bgs_menu_packer_dump_info(e: &mut Engine, this: Ptr) {
     e.call(PRINT_00703C00, &args![BEGIN_TEXT]);
     let mut index = 0i32;
     while index < e.call(ENTRY_COUNT_00658930, &args![this]).i32() {
-        let slot = e.call(ENTRY_ADDRESS_00877A30, &args![this, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, this, index)
+        );
         let entry = e.mem.u32(slot);
         let tile = e.mem.u32(entry.wrapping_add(0x18));
-        let related = e.call(TILE_RELATED_0045CD60, &args![tile]).u32();
+        let related = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
         let related_name = e.call(TILE_NAME_00700300, &args![related]).u32();
         let tile = e.mem.u32(entry.wrapping_add(0x18));
         let tile_name = e.call(TILE_NAME_00700300, &args![tile]).u32();

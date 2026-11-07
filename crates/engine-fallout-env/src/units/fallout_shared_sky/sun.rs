@@ -54,6 +54,7 @@ const ELEMENT_CONSTRUCT_006815C0: u32 = 0x0068_15c0;
 const ELEMENT_CONSTRUCT_004A7800: u32 = 0x004a_7800;
 /// `NiPoint3`/`NiColor` from three `float`s (`00416870`), `NiColorA` from four
 /// (`00414430`) and `NiPoint2` from two (`00452dc0`) (`thiscall`).
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 const COLOR_A_CONSTRUCT: u32 = 0x0041_4430;
 const POINT2_CONSTRUCT: u32 = 0x0045_2dc0;
@@ -123,6 +124,7 @@ const IDENTITY_MATRIX: u32 = 0x011a_9448;
 /// (`01023128`).
 const TES_011DEA10: u32 = 0x011d_ea10;
 const HOLDER_CELL_005F36F0: u32 = 0x005f_36f0;
+#[cfg(test)]
 const HOLDER_VALUE_0084E3A0: u32 = 0x0084_e3a0;
 const CELL_ANGLE_00544910: u32 = 0x0054_4910;
 const CELL_ANGLE_00544970: u32 = 0x0054_4970;
@@ -346,9 +348,11 @@ fn quad_points(e: &mut Engine, setting: u32) -> u32 {
         let y = coordinate(e, corner[1]);
         let x = coordinate(e, corner[2]);
         e.with_stack(12, |e, local| {
-            let made = e
-                .call(POINT3_CONSTRUCT, &args![local.addr(), x, y, z])
-                .u32();
+            let made = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, local.addr(), x, y, z)
+            );
             for word in 0..3 {
                 let value = e.mem.u32(made + 4 * word);
                 e.mem.set_u32(points + 0xc * index as u32 + 4 * word, value);
@@ -597,7 +601,7 @@ fn update_interior_light(e: &mut Engine, base: u32, sky: u32) {
             0
         };
         if cell != 0 {
-            e.call(ELEMENT_CONSTRUCT_006815C0, &args![turn]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, turn));
             let to_radians = e.global::<f64>(DEGREES_TO_RADIANS);
             let first = e.call(CELL_ANGLE_00544910, &args![cell]).u32();
             let angle = x87_store32(x87_mul(f64::from(first), to_radians));
@@ -880,7 +884,11 @@ fn sun_update_body(e: &mut Engine, base: u32, sky: u32, time: f32) {
         let y = x87_store32(e.call(SETTING_FLOAT_IN_ST0, &args![DISTANCE_SETTING]).f64());
         // FLD, FCHS, FSTP: the sign flipped (a NaN's too).
         let x = x87_quiet_bits(height) ^ 0x8000_0000;
-        e.call(POINT3_CONSTRUCT, &args![light_point, x, y, z]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, light_point, x, y, z)
+        );
         e.call(POINT_UNITIZE, &args![light_point]);
         e.call(MATRIX_SET_COLUMN, &args![matrix, 0u32, light_point]);
         let light = pointer_get(e, base + 0x1c);
@@ -889,7 +897,7 @@ fn sun_update_body(e: &mut Engine, base: u32, sky: u32, time: f32) {
     set_light_colors(e, base, sky);
 
     let holder = e.global::<u32>(TES_011DEA10);
-    if holder != 0 && e.call(HOLDER_VALUE_0084E3A0, &args![holder]).u32() != 0 {
+    if holder != 0 && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, holder)) != 0 {
         update_glare(e, base, time, direction);
     }
     let hidden = fn_00642680(e, sky) != 0;

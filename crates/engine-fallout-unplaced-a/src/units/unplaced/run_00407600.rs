@@ -27,6 +27,7 @@ const TYPE_EFFECT_SETTING: u32 = 0x0118_37c4;
 /// `TESForm::CopyAllComponents` (Xbox PDB, `004851b0`, `ECX`, one stack word: the source).
 const COPY_ALL_COMPONENTS: u32 = 0x0048_51b0;
 /// `0084e3a0` (`ECX`): a word of the form, tested for zero.
+#[cfg(test)]
 const RECORD_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// `TESDataHandler::GetNextID` (Xbox PDB, `00469800`, `ECX` = the data handler, no stack
 /// word).
@@ -111,7 +112,7 @@ pub fn fn_00407600(e: &mut Engine, this: Ptr, source: Ptr) {
     if fn_004077c0(e, this) {
         return;
     }
-    if e.call(RECORD_ID_0084E3A0, &args![this]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) != 0 {
         return;
     }
     let handler: u32 = e.global(DATA_HANDLER);

@@ -272,6 +272,7 @@ const SET_NAME: u32 = 0x00a5_b950;
 const NI_POINTER_INIT: u32 = 0x0063_3c90;
 const NI_POINTER_SET: u32 = 0x0066_b0d0;
 const NI_POINTER_RELEASE: u32 = 0x0045_cec0;
+#[cfg(test)]
 const READ_WORD: u32 = 0x0055_9450;
 /// `NiNode` child accessors: the count of the child array (`0043b480`) and
 /// the child at an index (`0043b4a0`).
@@ -309,9 +310,11 @@ const SET_LOD_MULT_TYPE: u32 = 0x00b4_dec0;
 /// The form type getter (`TESForm::cFormType`, `00401170`) and the form id
 /// getter (`0084e3a0`, `this+0xc`).
 const FORM_TYPE: u32 = 0x0040_1170;
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The reference's base form getter (`007af430`; the maps name it
 /// `BGSSaveFormBuffer::GetForm`, a folded name).
+#[cfg(test)]
 const REFERENCE_FORM: u32 = 0x007a_f430;
 /// `TESBipedModelForm::GetFormAsBipedModel` (`00480db0`, cdecl),
 /// `FillsBipedSlot(slot, flag, flag)` (`00480af0`) and the model path getter
@@ -349,6 +352,7 @@ const SKIN_TEXTURE_PATH: u32 = 0x0061_4640;
 /// `006151f0(form; arg, slot)`: the item a form gives for a slot.
 const FORM_SLOT_ITEM: u32 = 0x0061_51f0;
 /// `00726070(object)`: reads the word at `+4`.
+#[cfg(test)]
 const READ_WORD_PLUS_4: u32 = 0x0072_6070;
 /// The player: `GetBiped(first)` (`00950b00`), `Is1stPersonBiped(biped)`
 /// (`00950b30`), `GetNode(first)` (`00950bb0`) and
@@ -360,6 +364,7 @@ const PLAYER_ANIMATION: u32 = 0x0095_0a60;
 /// Actor: `GetSavedAcquireObject` (`008d8520`, the word at `+0x68`),
 /// `GetAnimation` (`008b70d0`), `IsWeaponDrawn` (`008a16d0`) and
 /// `ReloadTargets(flag)` (`008b0b00`).
+#[cfg(test)]
 const SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 const ACTOR_ANIMATION: u32 = 0x008b_70d0;
 const IS_WEAPON_DRAWN: u32 = 0x008a_16d0;
@@ -408,6 +413,7 @@ const SET_ROTATION: u32 = 0x0043_fa80;
 const MAKE_Y_ROTATION: u32 = 0x0043_f850;
 const MATRIX_MULTIPLY: u32 = 0x0043_f8d0;
 const NODE_ROTATION: u32 = 0x006a_9540;
+#[cfg(test)]
 const MATRIX_INIT: u32 = 0x0068_15c0;
 /// `TESNPC::GetFaceCoord(out)` (`00603ad0`) and the FaceGen model method
 /// `0065a970(coords, node, 0)`.
@@ -694,7 +700,9 @@ fn ni_pointer_release(e: &mut Engine, handle: Ptr) {
 
 /// `NiPointer::operator T*` (`00559450`): the pointer held in `handle`.
 pub(crate) fn ni_pointer_get(e: &mut Engine, handle: Ptr) -> Ptr {
-    e.call(READ_WORD, &args![handle]).ptr()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, handle))
+        .into_ret()
+        .ptr()
 }
 
 /// `NiPointer::operator=(T*)` on `handle`.
@@ -726,7 +734,9 @@ fn dynamic_cast(e: &mut Engine, object: Ptr, source: u32, target: u32) -> Ptr {
 
 /// The base form of `requester` cast to `TESNPC` (null when it is not one).
 fn requester_npc(e: &mut Engine, requester: Ptr) -> Ptr {
-    let form = e.call(REFERENCE_FORM, &args![requester]).ptr();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, requester))
+        .into_ret()
+        .ptr();
     dynamic_cast(e, form, TYPE_TES_BOUND_OBJECT, TYPE_TES_NPC)
 }
 
@@ -780,7 +790,7 @@ fn name_part_node(e: &mut Engine, node: Ptr, form: Ptr, slot: u32) {
 
 /// [`name_part_node`] with the caller's `BSString` `text`.
 fn name_part_node_with(e: &mut Engine, node: Ptr, form: Ptr, slot: u32, text: Ptr) {
-    let id = e.call(FORM_ID, &args![form]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     // Virtual slot 0x130 of the form: its name.
     let name = e.vcall(form.addr(), 0x130, &[]).u32();
     let slot_name = e.global::<u32>(SLOT_NAMES + 4 * slot);
@@ -800,7 +810,7 @@ fn name_part_node_with(e: &mut Engine, node: Ptr, form: Ptr, slot: u32, text: Pt
 fn fire_weapon_state(e: &mut Engine, this: Ptr<BipedAnim>, requester: Ptr) {
     let player = e.global::<u32>(PLAYER);
     let on_player_biped = requester.addr() == player && player_biped(e, 1) == this.addr();
-    let process = e.call(SAVED_ACQUIRE_OBJECT, &args![requester]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, requester));
     let animation = if on_player_biped {
         e.call(PLAYER_ANIMATION, &args![player, 1u8]).u32()
     } else {
@@ -1163,7 +1173,10 @@ pub fn fn_004ab400(e: &mut Engine, this: Ptr<BipedAnim>, form: Ptr, flags: u8) {
     let on_player_biped = this.addr() == player_biped(e, 1) || this.addr() == player_biped(e, 0);
     if on_player_biped {
         let mut anims = e.call(FORM_ANIMS, &args![form]).ptr::<()>();
-        if flags != 0 && e.call(FORM_ID, &args![form]).u32() != FORM_ID_SPECIAL_WEAPON {
+        if flags != 0
+            && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
+                != FORM_ID_SPECIAL_WEAPON
+        {
             let chosen = fn_004ab500(e, form, flags);
             if chosen != 0 {
                 anims = Ptr::new(chosen);
@@ -1220,7 +1233,7 @@ pub fn biped_anim_remove_biped_weapon(e: &mut Engine, this: Ptr<BipedAnim>) {
     fn_004aaff0(e, this, WEAPON_SLOT, 1, Ptr::NULL);
     let requester = e.get(this, BipedAnim::m_pRequester);
     if e.vcall(requester.addr(), 0x100, &[]).bool() {
-        let process = e.call(SAVED_ACQUIRE_OBJECT, &args![requester]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, requester));
         reload_targets_unless_blocked(e, this, requester, process, 0);
         let root = e.get(this, BipedAnim::root);
         let backpack = fn_004aae30(e, root, Ptr::new(BACKPACK_NAME));
@@ -1286,7 +1299,7 @@ pub fn fn_004ab750(e: &mut Engine, this: Ptr<BipedAnim>, form: Ptr, flags: u8) {
         e.call(SET_WEAPON_FLAG, &args![weapon_clone, 1u32]);
     }
     if e.vcall(requester.addr(), 0x100, &[]).bool() {
-        let process = e.call(SAVED_ACQUIRE_OBJECT, &args![requester]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, requester));
         reload_targets_unless_blocked(e, this, requester, process, 1);
         let flags_object = e.global::<u32>(FLAGS_OBJECT);
         if process != 0 && !e.call(FLAGS_OBJECT_FLAG, &args![flags_object]).bool() {
@@ -1481,7 +1494,11 @@ pub fn fn_004abfe0(e: &mut Engine, this: Ptr<BipedAnim>, mask: u32, first: u32, 
 /// The word at `+0x110` of the NPC `npc` (its race, `this` of the `TESRace`
 /// methods), read with `00726070` on `npc + 0x10c`.
 pub fn fn_004ac110(e: &mut Engine, npc: Ptr) -> u32 {
-    e.call(READ_WORD_PLUS_4, &args![npc.byte_add(0x10c)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, npc.byte_add(0x10c))
+    )
 }
 
 // Translated from 004ac130 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1536,7 +1553,7 @@ pub fn biped_anim_load_biped_parts(e: &mut Engine, this: Ptr<BipedAnim>, flag: u
         first_person = true;
     }
     if e.global::<u8>(PALETTE_FLAG) != 0 {
-        let form = e.call(REFERENCE_FORM, &args![requester]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, requester));
         e.call(CLEAR_BODY_PALETTE, &args![form]);
     }
     for slot in 0..SLOT_COUNT {
@@ -1618,7 +1635,7 @@ fn load_part(
     let form = e.get(current, BipedObject::pParent);
     if slot == WEAPON_SLOT && !form.is_null() {
         if requester.addr() == player {
-            let process = e.call(SAVED_ACQUIRE_OBJECT, &args![player]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
             // Virtual slot 0x148 of the process: the item change of the
             // equipped weapon.
             let item_change = e.vcall(process, 0x148, &[]).u32();
@@ -1738,9 +1755,18 @@ fn load_part(
                         if !geometry.is_null()
                             && e.call(NODE_SKIN_DATA, &args![geometry]).u32() != 0
                             && !requester.is_null()
-                            && e.call(REFERENCE_FORM, &args![requester]).u32() != 0
+                            && typed_call!(
+                                leaf::FAMILY,
+                                0x007a_f430,
+                                leaf::word_at_20(e, requester)
+                            ) != 0
                         {
-                            let base = e.call(REFERENCE_FORM, &args![requester]);
+                            let base = typed_call!(
+                                leaf::FAMILY,
+                                0x007a_f430,
+                                leaf::word_at_20(e, requester)
+                            )
+                            .into_ret();
                             if e.call(FORM_TYPE, &args![base.u32()]).u32() == FORM_TYPE_NPC {
                                 apply_face_gen(e, requester, face, geometry);
                             }
@@ -1754,7 +1780,8 @@ fn load_part(
             let save_load = e.global::<u32>(SAVE_LOAD);
             if !e.call(SAVE_LOAD_FLAG, &args![save_load]).bool() && slot == WEAPON_SLOT {
                 let requester = e.get(this, BipedAnim::m_pRequester);
-                let process = e.call(SAVED_ACQUIRE_OBJECT, &args![requester]).u32();
+                let process =
+                    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, requester));
                 if process != 0 {
                     fire_weapon_state(e, this, requester);
                 }
@@ -1776,7 +1803,9 @@ fn load_part(
 /// `face`; when they are (or the setting `0043faf0` is off) the geometry's
 /// rotation is turned by a quarter turn about Y.
 fn apply_face_gen(e: &mut Engine, requester: Ptr, face: Ptr, geometry: Ptr) {
-    let npc = e.call(REFERENCE_FORM, &args![requester]).ptr::<()>();
+    let npc = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, requester))
+        .into_ret()
+        .ptr::<()>();
     let coords = stack_alloc(e, 0x80);
     e.call(
         VECTOR_CONSTRUCT,
@@ -1800,7 +1829,7 @@ fn apply_face_gen(e: &mut Engine, requester: Ptr, face: Ptr, geometry: Ptr) {
     {
         let turn = stack_alloc(e, 0x24);
         let product = stack_alloc(e, 0x24);
-        e.call(MATRIX_INIT, &args![turn]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, turn));
         let angle = e.global::<f32>(QUARTER_TURN_BACK);
         e.call(MAKE_Y_ROTATION, &args![turn, angle]);
         let rotation = e.call(NODE_ROTATION, &args![geometry]).u32();
@@ -1900,7 +1929,11 @@ pub fn fn_004ad030(e: &mut Engine, form: Ptr) -> bool {
 /// to `scale`. Returns `this`.
 pub fn fn_004ad050(e: &mut Engine, this: Ptr, scale: f32) -> Ptr {
     fn_004ad0c0(e, this.cast(), 0x101);
-    e.call(MATRIX_INIT, &args![this.byte_add(0x10)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(0x10))
+    );
     fn_004ad240(e, this.cast(), scale);
     this
 }
@@ -2199,9 +2232,9 @@ pub fn biped_anim_attach_skinned_object(
                 && e.call(NODE_DATA_POINTER, &args![child]).u32() != 0
                 && !face.is_null()
                 && !requester.is_null()
-                && e.call(REFERENCE_FORM, &args![requester]).u32() != 0
+                && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, requester)) != 0
             {
-                let base = e.call(REFERENCE_FORM, &args![requester]).u32();
+                let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, requester));
                 if e.call(FORM_TYPE, &args![base]).u32() == FORM_TYPE_NPC {
                     attach_face_gen(e, requester, face, child, handle);
                 }
@@ -2263,7 +2296,9 @@ pub fn biped_anim_attach_skinned_object(
 /// the setting `0043faf0` is on, applied to `face`. `handle` is the
 /// function's `NiPointer` the deep copies are written to.
 fn attach_face_gen(e: &mut Engine, requester: Ptr, face: Ptr, child: Ptr, handle: Ptr) {
-    let npc = e.call(REFERENCE_FORM, &args![requester]).ptr::<()>();
+    let npc = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, requester))
+        .into_ret()
+        .ptr::<()>();
     let coords = stack_alloc(e, 0x80);
     e.call(
         VECTOR_CONSTRUCT,
@@ -2550,12 +2585,13 @@ pub fn biped_anim_attach_to_parent(
                 let reference = e.call(FIND_REFERENCE_FOR_3D, &args![root]).ptr::<()>();
                 let mut scabbard = false;
                 if !reference.is_null()
-                    && !e
-                        .call(REFERENCE_FORM, &args![reference])
+                    && !typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+                        .into_ret()
                         .ptr::<()>()
                         .is_null()
                 {
-                    let form = e.call(REFERENCE_FORM, &args![reference]).u32();
+                    let form =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                     if e.call(FORM_TYPE, &args![form]).u32() == FORM_TYPE_REMOVES_SCABBARD {
                         e.call(REMOVE_SCABBARD, &args![node]);
                         scabbard = true;
@@ -3238,7 +3274,11 @@ pub fn fn_004af880(e: &mut Engine, this: Ptr) {
 pub fn fn_004af8a0(e: &mut Engine) -> u32 {
     let owner = e.global::<u32>(TEXTURE_OWNER);
     if owner != 0 {
-        return e.call(READ_WORD, &args![owner.wrapping_add(0x11a0)]).u32();
+        return typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, owner.wrapping_add(0x11a0))
+        );
     }
     let handle = stack_alloc(e, 4);
     ni_pointer_new(e, handle, Ptr::NULL);

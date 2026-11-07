@@ -250,7 +250,7 @@ pub fn tes_use_weapon_package_data_init_item(
     {
         let reference = e.call(0x0067_f390, &args![location]).u32();
         if reference != 0 {
-            let form = e.call(0x007a_f430, &args![reference]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             if form == e.global::<u32>(SPECIAL_FORM_A) || form == e.global::<u32>(SPECIAL_FORM_B) {
                 let extra = e.call(0x005d_43c0, &args![reference]).u32();
                 if extra != 0 {
@@ -377,6 +377,7 @@ const FLOAT_ABS: u32 = 0x0040_8860;
 /// `0.01` (`double`): the volley wait tolerance of `Compare`.
 const WAIT_TOLERANCE: u32 = 0x0103_1148;
 /// `0084e3a0` (`thiscall`): a form's id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `00403d30` (`cdecl`: destination, value, count): fills bytes.
 const FILL_BYTES: u32 = 0x0040_3d30;
@@ -635,7 +636,7 @@ pub fn tes_use_weapon_package_data_save(e: &mut Engine, this: Ptr<TESUseWeaponPa
         e.mem.set_u32(record + 0x10, wait_max);
         let weapon = e.get(this, TESUseWeaponPackageData::pWeapon);
         let id = if weapon != 0 {
-            e.call(FORM_ID, &args![weapon]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, weapon))
         } else {
             0
         };

@@ -28,9 +28,9 @@ pub fn fn_00681110(e: &mut Engine, this: Ptr) {
 /// 1) when it is not null and takes the head off (`0063f7b0`). The engine
 /// map gives it no name.
 pub fn fn_00680fe0(e: &mut Engine, this: Ptr) {
-    let list = e.call(0x0068_15c0, &args![this]).u32();
-    while list != 0 && !e.call(0x0082_56d0, &args![list]).bool() {
-        let slot = e.call(0x0068_15c0, &args![list]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    while list != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let item = e.mem.u32(slot);
         if item != 0 {
             e.call(0x007b_3fa0, &args![item, 1u32]);

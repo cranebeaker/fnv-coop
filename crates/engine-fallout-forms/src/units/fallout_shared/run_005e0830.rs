@@ -30,17 +30,21 @@ pub fn fn_005e0860(e: &mut Engine, this: Ptr, name: u32, found: Ptr) -> bool {
     }
     let mut node = this.addr().wrapping_add(0x10c);
     while node != 0 {
-        if e.call(0x0082_56d0, &args![node]).u8() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            != 0
+        {
             break;
         }
-        let item_slot = e.call(0x0068_15c0, &args![node]).u32();
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_slot);
-        let item_name = e.call(0x0044_ddc0, &args![item]).u32();
+        let item_name = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         if e.call(0x0040_4dc0, &args![item_name, name]).u32() == 0 {
             e.mem.set_u32(found.addr(), item);
             return true;
         }
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }

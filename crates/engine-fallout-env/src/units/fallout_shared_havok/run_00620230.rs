@@ -34,16 +34,19 @@ const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// that `00620230` frees.
 const ENTRY_DESTRUCT: u32 = 0x0061_fc50;
 /// `00726070` (unnamed in the engine map): `thiscall`; the dword at `this + 4`.
+#[cfg(test)]
 const LINK_NEXT: u32 = 0x0072_6070;
 /// `006ecd40` (unnamed in the engine map): `thiscall`, `RET 4`; stores a link on a node.
 const LINK_SET: u32 = 0x006e_cd40;
 /// `0044ddc0` (unnamed in the engine map): `thiscall`, no stack words; a node's key.
+#[cfg(test)]
 const NODE_KEY: u32 = 0x0044_ddc0;
 /// `GetAVObjectForCollidable` (engine map, `globalfunc.cpp`, `004b5820`): cdecl, one word.
 const AV_OBJECT_FOR_COLLIDABLE: u32 = 0x004b_5820;
 /// `TESObjectREFR::FindReferenceFor3D` (engine map, `0056f930`): cdecl, one word.
 const FIND_REFERENCE_FOR_3D: u32 = 0x0056_f930;
 /// `006815c0` (unnamed in the engine map): `thiscall`, no stack words.
+#[cfg(test)]
 const MEMBER_SETUP: u32 = 0x0068_15c0;
 /// `00538f40` (unnamed in the engine map): `thiscall`, no stack words.
 const MEMBER_SETUP_AFTER: u32 = 0x0053_8f40;
@@ -87,10 +90,10 @@ pub fn fn_00620230(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 pub fn fn_00620810(e: &mut Engine, this: Ptr, key: u32) -> u32 {
     let mut node = this.addr();
     while node != 0 {
-        if e.call(NODE_KEY, &args![node]).u32() == key {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, node)) == key {
             break;
         }
-        node = e.call(LINK_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     node
 }
@@ -156,13 +159,13 @@ pub fn fn_006205c0(e: &mut Engine, this: Ptr, value: u32) {
 pub fn fn_006207a0(e: &mut Engine, this: Ptr, start: u32) -> u32 {
     let mut head = start;
     if this.addr() == head {
-        head = e.call(LINK_NEXT, &args![this]).u32();
+        head = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     } else {
         let mut node = head;
         while node != 0 {
-            let next = e.call(LINK_NEXT, &args![node]).u32();
+            let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             if this.addr() == next {
-                let after = e.call(LINK_NEXT, &args![next]).u32();
+                let after = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, next));
                 e.call(LINK_SET, &args![node, after]);
                 break;
             }
@@ -293,16 +296,20 @@ pub fn fn_00620340(
             e.vcall(made, 0, &args![ref_b, collidable_b, extra]).u32()
         };
         if created != 0 {
-            let setup = e.call(MEMBER_SETUP, &args![pair]).u32();
+            let setup = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, pair));
             fn_006205c0(e, Ptr::new(created), setup);
-            let key = e.call(NODE_KEY, &args![made.wrapping_add(4)]).u32();
+            let key = typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, made.wrapping_add(4))
+            );
             let found = e.call(LOOKUP_BY_KEY, &args![key]).u32();
             // The word `0x24` sits just before the 0x14-byte local member: `EBP-0x54` and `EBP-0x50`
             // of the exe's frame (`EBP` on a 16-byte boundary, `SUB ESP,0x70`).
             e.with_stack(0x70 + 0x10, |e, raw| {
                 let block = ((raw.addr() + 0x70 + 0xf) & !0xf) - 0x54;
                 let local = block.wrapping_add(4);
-                e.call(MEMBER_SETUP, &args![local]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
                 e.mem.set_u32(block, 0x24);
                 if found != 0 {
                     let value = e.call(LOOKUP_RESULT_VALUE, &args![found]).u32();

@@ -80,8 +80,10 @@ const NAME_CLEAR_ALL: u32 = 0x0108_27c4;
 /// `m_usSize` of an `NiTArray`.
 const ARRAY_SIZE: u32 = 0x0065_8930;
 /// Address of element `index` of an `NiTArray` or `BSSimpleArray`.
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// `iSize` of a `BSSimpleArray`.
+#[cfg(test)]
 const SIMPLE_ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// Address of element `index` of a `BSSimpleArray` (calls `ARRAY_ELEMENT`).
 const SIMPLE_ARRAY_ELEMENT: u32 = 0x006a_7ad0;
@@ -108,6 +110,7 @@ const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 const NI_POINTER_DESTRUCT: u32 = 0x0045_cec0;
 const NI_POINTER_COPY_CONSTRUCT: u32 = 0x0055_9a40;
 const NI_POINTER_ASSIGN: u32 = 0x006e_5cc0;
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer::operator!=` (compares the two pointers).
 const NI_POINTER_NOT_EQUAL: u32 = 0x0063_1820;
@@ -157,12 +160,16 @@ fn array_size(e: &mut Engine, array: u32) -> u32 {
 }
 
 fn simple_array_size(e: &mut Engine, array: u32) -> u32 {
-    e.call(SIMPLE_ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 /// The pointer stored in element `index` of an array of raw pointers.
 fn array_pointer_at(e: &mut Engine, array: u32, index: u32) -> u32 {
-    let slot = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    );
     e.mem.u32(slot)
 }
 
@@ -267,7 +274,7 @@ pub fn garbage_collector_add(e: &mut Engine, object: Ptr) {
     let guard = e.new_object::<GarbageCollectorGuard>();
     fn_008681c0(e, guard, KIND_OBJECT, NAME_ADD_OBJECT);
 
-    let form = e.call(0x0084_e3a0, &args![object]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object));
     let found = e.call(0x0048_39c0, &args![form]).ptr::<()>();
     if found != object {
         if !object.is_null() {
@@ -290,7 +297,7 @@ pub fn garbage_collector_add(e: &mut Engine, object: Ptr) {
         // TESForm::RemoveFromDataStructures (Xbox PDB)
         e.call(0x0048_3c70, &args![this]);
         // BGSSaveFormBuffer::GetForm (Xbox PDB)
-        let owner = e.call(0x007a_f430, &args![this]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
         if e.call(0x0054_9580, &args![owner]).bool() {
             // TESObjectREFR::GetWorldSpace (Xbox PDB)
             let world_space = e.call(0x0057_5d70, &args![this]).u32();
@@ -517,7 +524,11 @@ pub fn garbage_collector_add_ov6(e: &mut Engine, navmesh_pointer: Ptr) {
     let guard = e.new_object::<GarbageCollectorGuard>();
     fn_008681c0(e, guard, KIND_NAVMESH, NAME_ADD_NAVMESH);
 
-    let target = e.call(NI_POINTER_GET, &args![navmesh_pointer]).u32();
+    let target = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, navmesh_pointer)
+    );
     e.call(0x0040_f6e0, &args![target + 0x1c]);
     let array = if thread_flag(e) {
         NAVMESH_GARBAGE_FLAG_SET
@@ -734,10 +745,12 @@ pub fn garbage_collector_clear_all(e: &mut Engine, try_lock: u8) {
     if !fn_00869180(e, KIND_ACTOR_3D) {
         let mut index = 0;
         while index < array_size(e, ACTOR_3D_GARBAGE_FLAG_SET) {
-            let slot = e
-                .call(ARRAY_ELEMENT, &args![ACTOR_3D_GARBAGE_FLAG_SET, index])
-                .u32();
-            if e.call(NI_POINTER_GET, &args![slot]).u32() != 0 {
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, ACTOR_3D_GARBAGE_FLAG_SET, index)
+            );
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) != 0 {
                 let object = array_pointer_at(e, ACTOR_3D_GARBAGE_FLAG_SET, index);
                 fn_00868ce0(e, Ptr::new(object));
             }
@@ -881,10 +894,14 @@ pub fn ni_t_array_ni_pointer_ni_av_object_remove_at(
 pub fn fn_00869420(e: &mut Engine, source: u32, destination: u32) {
     let mut index = 0;
     while index < array_size(e, source) {
-        let slot = e.call(ARRAY_ELEMENT, &args![source, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, source, index)
+        );
         let copy = e.mem.alloc(4);
         e.call(NI_POINTER_COPY_CONSTRUCT, &args![copy, slot]);
-        if e.call(NI_POINTER_GET, &args![copy]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, copy)) != 0 {
             e.call(ARRAY_ADD_ACTOR_3D, &args![destination, copy]);
         }
         e.call(NI_POINTER_DESTRUCT, &args![copy]);
@@ -928,10 +945,14 @@ pub fn fn_00869510(e: &mut Engine, source: u32, destination: u32) {
 pub fn fn_00869560(e: &mut Engine, source: u32, destination: u32) {
     let mut index = 0;
     while index < array_size(e, source) {
-        let slot = e.call(ARRAY_ELEMENT, &args![source, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, source, index)
+        );
         let copy = e.mem.alloc(4);
         e.call(NI_POINTER_COPY_CONSTRUCT, &args![copy, slot]);
-        if e.call(NI_POINTER_GET, &args![copy]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, copy)) != 0 {
             e.call(ARRAY_ADD_EFFECT, &args![destination, copy]);
         }
         e.call(NI_POINTER_DESTRUCT, &args![copy]);

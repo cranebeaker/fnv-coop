@@ -286,8 +286,10 @@ const CHARACTER_PROGRESSION_REWARD_EXPERIENCE: u32 = 0x008d_5100;
 /// `ItemChange::GetWorn` (Xbox PDB name of `004bddd0`), one word.
 const ITEM_CHANGE_GET_WORN: u32 = 0x004b_ddd0;
 /// The form id of an object (`0084e3a0`: the word at `+0xc`).
+#[cfg(test)]
 const FORM_ID_OF: u32 = 0x0084_e3a0;
 /// The word at `+8` of an object (`0044ddc0`): the item's form.
+#[cfg(test)]
 const WORD_AT_8: u32 = 0x0044_ddc0;
 /// The full name of an item (`004be2d0`, `ItemChange::GetFullName` in the Xbox
 /// PDB).
@@ -298,8 +300,11 @@ const SPRINTF: u32 = 0x0040_6d00;
 const STRING_APPEND: u32 = 0x0040_4820;
 /// List helpers: item slot of a node (`006815c0`), next node (`00726070`),
 /// emptiness test (`008256d0`), clear (`00470470`).
+#[cfg(test)]
 const LIST_NODE_ITEM_SLOT: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 const LIST_CLEAR: u32 = 0x0047_0470;
 /// `MobileObject::GetCurrentParentCell`-style getter `008d6f30`: the player's
@@ -316,6 +321,7 @@ const FORM_TYPE_OF: u32 = 0x0040_1170;
 /// `operator new(size)` (`cdecl`).
 const OPERATOR_NEW: u32 = 0x0040_1000;
 /// `Error(format, ...)` (`cdecl`).
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 /// The setting getters: `00403e20` (float pointer) and `0043d4d0` (int
 /// pointer); `ECX` = the setting.
@@ -566,22 +572,22 @@ fn setting_int(e: &mut Engine, setting: u32) -> i32 {
 
 /// The value slot of the list node (`006815c0`).
 fn list_item_slot(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
 }
 
 /// The next node (`00726070`).
 fn list_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// Whether the list head is empty (`008256d0`).
 fn list_is_empty(e: &mut Engine, node: u32) -> bool {
-    e.call(LIST_IS_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 /// The form id (`0084e3a0`).
 fn form_id_of(e: &mut Engine, object: u32) -> u32 {
-    e.call(FORM_ID_OF, &args![object]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object))
 }
 
 /// The pointer of the actor's process (`this + 0x68`).
@@ -1010,7 +1016,7 @@ pub fn fn_0094cae0(e: &mut Engine, this: Ptr<PlayerCharacter>, cell: Ptr) {
         e.mem.set_u32(player + 0x7b4, music);
         let interior = e.call(0x0045_43c0, &args![cell]).u32();
         if interior != 0 {
-            let lighting = e.call(0x0045_cd60, &args![interior]).u32();
+            let lighting = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interior));
             e.call(0x0048_93c0, &args![lighting, 1u32]);
         }
         e.vcall(player, 0x1fc, &args![0u32]);
@@ -1055,15 +1061,27 @@ pub fn fn_0094cae0(e: &mut Engine, this: Ptr<PlayerCharacter>, cell: Ptr) {
                 0
             };
             e.call(SMART_POINTER_ASSIGN, &args![player + 0xdec, body]);
-            let body_ptr = e.call(0x0055_9450, &args![player + 0xdec]).u32();
+            let body_ptr = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, player + 0xdec)
+            );
             e.call(0x0056_1580, &args![body_ptr, 1u32]);
-            let body_ptr = e.call(0x0055_9450, &args![player + 0xdec]).u32();
+            let body_ptr = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, player + 0xdec)
+            );
             e.vcall(body_ptr, 0xe4, &args![4u32]);
-            let body_ptr = e.call(0x0055_9450, &args![player + 0xdec]).u32();
+            let body_ptr = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, player + 0xdec)
+            );
             let motion = e.call(0x004a_e700, &args![body_ptr]).u32();
             fn_0094db80(e, Ptr::new(motion), 9);
             let out_buffer = ebp - FRAME_OUT_BUFFER;
-            e.call(LIST_NODE_ITEM_SLOT, &args![out_buffer]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, out_buffer));
             let position = e.vcall(player, 0x1f4, &args![]).u32();
             let copy = ebp - FRAME_POSITION_COPY;
             for word in 0..3 {
@@ -1071,11 +1089,19 @@ pub fn fn_0094cae0(e: &mut Engine, this: Ptr<PlayerCharacter>, cell: Ptr) {
                 e.mem.set_u32(copy + 4 * word, value);
             }
             e.call(0x004a_3e00, &args![out_buffer, copy]);
-            let body_ptr = e.call(0x0055_9450, &args![player + 0xdec]).u32();
+            let body_ptr = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, player + 0xdec)
+            );
             e.call(0x0056_10f0, &args![body_ptr, copy]);
             e.call(0x0056_d730, &args![cinfo]);
         }
-        let body_ptr = e.call(0x0055_9450, &args![player + 0xdec]).u32();
+        let body_ptr = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, player + 0xdec)
+        );
         let current = e.call(PARENT_CELL_OF, &args![player]).u32();
         let current_interior = e.call(0x0045_43c0, &args![current]).u32();
         e.vcall(body_ptr, 0x9c, &args![current_interior]);
@@ -1173,10 +1199,10 @@ pub fn fn_0094cae0(e: &mut Engine, this: Ptr<PlayerCharacter>, cell: Ptr) {
             let position = e.call(0x0089_1170, &args![player]).u32();
             e.call(0x004f_7030, &args![player_point, position + 0x10]);
 
-            let skip = e.call(0x0044_0d80, &args![item]).bool() || {
-                let form = e.call(0x007a_f430, &args![item]).u32();
+            let skip = typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, item)) || {
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
                 let wrong_world = form != 0 && {
-                    let again = e.call(0x007a_f430, &args![item]).u32();
+                    let again = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
                     let world = e.call(0x0057_5d70, &args![player]).u32();
                     again != world
                 };
@@ -1666,7 +1692,7 @@ pub fn fn_0094df80(e: &mut Engine, this: Ptr<PlayerCharacter>) {
 
     let source = e.call(0x0084_d030, &args![TIMER_SOURCE_011F6394]).f32();
     let holder = e.global::<u32>(SKY_HOLDER_POINTER);
-    let sky = e.call(0x008d_8520, &args![holder]).u32();
+    let sky = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, holder));
     e.call(0x0063_ac70, &args![sky, source]);
     e.call(0x0097_23f0, &args![PROCESS_LISTS]);
     e.call(0x008c_3c40, &args![player, 1u32, 0u32]);
@@ -1716,7 +1742,7 @@ pub fn player_character_load_3d(e: &mut Engine, this: Ptr<PlayerCharacter>, flag
             0x0040_4eb0,
             &args![scope, 0x34u32, 1u32, SOURCE_FILE_NAME, 0x2458u32],
         );
-        let form = e.call(0x007a_f430, &args![player]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
         let load_state = e.global::<u32>(LOAD_STATE_POINTER);
         let skip =
             e.call(0x0042_ce10, &args![load_state]).bool() || e.global::<u8>(0x011d_8907) != 0;
@@ -1743,10 +1769,10 @@ pub fn player_character_load_3d(e: &mut Engine, this: Ptr<PlayerCharacter>, flag
                         .call(0x004c_8220, &args![inventory, base, 6u32, 1u32])
                         .u32();
                     if item != 0 {
-                        let name = e.call(WORD_AT_8, &args![item]).u32();
+                        let name = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                         let mut extra = 0;
-                        if e.call(0x0055_9450, &args![item]).u32() != 0 {
-                            let pointer = e.call(0x0055_9450, &args![item]).u32();
+                        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) != 0 {
+                            let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                             let slot = list_item_slot(e, pointer);
                             extra = e.mem.u32(slot);
                         }
@@ -1775,17 +1801,17 @@ pub fn player_character_load_3d(e: &mut Engine, this: Ptr<PlayerCharacter>, flag
             (fn_0094eae0(e), NODE_CAMERA_1ST_SLOT),
             (fn_0094eac0(e), NODE_BIP_SLOT),
         ] {
-            let node = e.call(0x0055_9450, &args![player + 0x694]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, player + 0x694));
             let found = e.vcall(node, 0x9c, &args![name]).u32();
             e.set_global(slot, found);
         }
         if e.global::<u32>(NODE_CAMERA_1ST_SLOT) == 0 {
             let text = setting_text(e, MODEL_PATH_SETTING);
-            e.call(ERROR, &args![FORMAT_MISSING_CAMERA_1ST, text]);
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words FORMAT_MISSING_CAMERA_1ST, text);
         }
         if e.global::<u32>(NODE_BIP_SLOT) == 0 {
             let text = setting_text(e, MODEL_PATH_SETTING);
-            e.call(ERROR, &args![FORMAT_MISSING_BIP, text]);
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words FORMAT_MISSING_BIP, text);
         }
         let zero = frame.addr() + 0x1c4;
         e.call(0x0043_d410, &args![zero, 0.0f32, 0u32, 0u32]);
@@ -1869,8 +1895,8 @@ pub fn player_character_load_3d(e: &mut Engine, this: Ptr<PlayerCharacter>, flag
 
         let animation = e.get(this, PlayerCharacter::p1stPersonAnimation);
         e.call(0x0048_ffd0, &args![animation, list, model, player, 1u32]);
-        let first = e.call(0x008d_8520, &args![player]).u32();
-        let second = e.call(0x008d_8520, &args![player]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
+        let second = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
         // 0094e8ee..0094e91d: the two 0s are pushed before GetCurrentWeapon (slot 0x148, no
         // stack words); they are SetCurrentWeapon's (slot 0x160) group and force.
         let result = e.vcall(first, 0x148, &args![]).u32();
@@ -1878,7 +1904,7 @@ pub fn player_character_load_3d(e: &mut Engine, this: Ptr<PlayerCharacter>, flag
         fn_0094eaf0(e, this.cast(), Ptr::new(node), true);
         if e.global::<u32>(NODE_CAMERA_3RD_SLOT) == 0 {
             let name = e.call(0x0057_15d0, &args![player]).u32();
-            e.call(ERROR, &args![FORMAT_MISSING_CAMERA_3RD, name]);
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words FORMAT_MISSING_CAMERA_3RD, name);
         }
         e.call(0x008c_2e50, &args![player]);
         let process = process_of(e, this);
@@ -1904,7 +1930,7 @@ pub fn player_character_load_3d(e: &mut Engine, this: Ptr<PlayerCharacter>, flag
         }
         for which in 0..2u32 {
             let biped = e.call(0x0095_0b00, &args![player, which]).u32();
-            let pointer = e.call(0x0055_9450, &args![biped]).u32();
+            let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, biped));
             e.call(0x0093_80e0, &args![pointer]);
         }
         e.call(0x0040_4ee0, &args![scope]);
@@ -2005,7 +2031,7 @@ pub fn build_inv_string_callback(e: &mut Engine, item: Ptr, output: Ptr) -> bool
         } else {
             INVENTORY_PREFIX_CARRIED
         };
-        let form = e.call(WORD_AT_8, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let id = form_id_of(e, form);
         let name = e.call(ITEM_CHANGE_GET_FULL_NAME, &args![item]).u32();
         let count = list_next(e, item.addr());
@@ -2105,7 +2131,7 @@ pub fn player_character_export_progress_data(
         e.vcall(file, 0x14, &args![0u32, seek]);
         let text = frame.addr() + 0x38c;
         e.call(0x0040_37b0, &args![text]);
-        let _form = e.call(0x007a_f430, &args![player]).u32();
+        let _form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
 
         let owner = player + ACTOR_VALUE_OWNER;
         if e.mem.i8(BUILD_NAME_BUFFER) != 0 {
@@ -2602,7 +2628,7 @@ const QUEST_TARGET_LIST: u32 = 0x6c4;
 /// `NiPointer` dereference (`00559450`): the object the smart pointer at
 /// `slot` holds.
 fn pointer_target(e: &mut Engine, slot: u32) -> u32 {
-    e.call(0x0055_9450, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 // Translated from 00950110 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2818,7 +2844,12 @@ pub fn player_character_update_temp_1st_person(e: &mut Engine, this: Ptr<PlayerC
     if e.call(0x0096_7ae0, &args![player]).bool() {
         return;
     }
-    if e.call(0x0044_ddc0, &args![OBJECT_011F2250]).u32() == 4 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, OBJECT_011F2250)
+    ) == 4
+    {
         return;
     }
     if e.global::<u8>(IRON_SIGHTS_SKIP_FLAG) == 0 && e.call(0x008b_bc10, &args![player]).bool() {
@@ -2826,7 +2857,7 @@ pub fn player_character_update_temp_1st_person(e: &mut Engine, this: Ptr<PlayerC
         if e.vcall(process, 0x148, &args![]).u32() != 0 {
             let process = process_of(e, this);
             let item = e.vcall(process, 0x148, &args![]).u32();
-            let form = e.call(0x0044_ddc0, &args![item]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             let form = e.call(0x0050_4e60, &args![form]).u32();
             if e.call(0x0048_cee0, &args![form]).u32() != 0 {
                 return;
@@ -3198,7 +3229,7 @@ fn clone_inventory_3d_create(e: &mut Engine, this: Ptr<PlayerCharacter>) -> bool
         let model = pointer_target(e, slot);
         e.call(0x0044_0460, &args![model, INVENTORY_MODEL_ARGUMENT]);
         let model = pointer_target(e, slot);
-        let form = e.call(0x007a_f430, &args![player]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
         e.call(0x0060_62e0, &args![form, player, model]);
         let matrix = frame.addr() + 0x204;
         let rotated_out = frame.addr() + 0x80;
@@ -3269,7 +3300,7 @@ fn clone_inventory_3d_create(e: &mut Engine, this: Ptr<PlayerCharacter>) -> bool
             0
         };
         e.mem.set_u32(player + 0x6a0, animation);
-        e.call(0x007a_f430, &args![player]);
+        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
         let model_name = e.call(0x0057_15d0, &args![player]).u32();
         let folder = frame.addr() + 0xf8;
         e.call(
@@ -3340,8 +3371,8 @@ fn clone_inventory_3d_create(e: &mut Engine, this: Ptr<PlayerCharacter>) -> bool
         e.call(0x0041_8250, &args![extra]);
         let model = pointer_target(e, slot);
         e.vcall(model, 0xbc, &args![]);
-        if e.call(0x008d_8520, &args![player]).u32() != 0 {
-            let process = e.call(0x008d_8520, &args![player]).u32();
+        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player)) != 0 {
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
             e.vcall(process, 0x580, &args![1u32, 0u32, 0u32]);
         }
         fn_00951910(e, saved_flag);
@@ -3503,13 +3534,13 @@ pub fn fn_00951a10(e: &mut Engine, this: Ptr<PlayerCharacter>, hide_first_person
             if e.vcall(process, 0x148, &args![]).u32() != 0 {
                 let process = process_of(e, this);
                 let item = e.vcall(process, 0x148, &args![]).u32();
-                let form = e.call(0x0044_ddc0, &args![item]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                 let form = e.call(0x0050_4e60, &args![form]).u32();
                 if e.call(0x0048_cee0, &args![form]).u32() != 0 {
                     handled = true;
                     let process = process_of(e, this);
                     let item = e.vcall(process, 0x148, &args![]).u32();
-                    let form = e.call(0x0044_ddc0, &args![item]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                     let local = frame.addr() + 0xb0;
                     e.mem.set_f32(local, 0.0);
                     if !e.call(0x004a_d030, &args![form]).bool() {
@@ -3538,7 +3569,7 @@ pub fn fn_00951a10(e: &mut Engine, this: Ptr<PlayerCharacter>, hide_first_person
             e.call(0x0044_0460, &args![own, argument]);
             let rotation = frame.addr() + 0x84;
             let rotated_out = frame.addr() + 0x20;
-            e.call(0x0068_15c0, &args![rotation]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
             let angle = e.vcall(player, 0x2bc, &args![0u32]).f64() as f32;
             e.call(0x004a_0c90, &args![rotation, angle]);
             let rotated = e
@@ -3605,7 +3636,7 @@ pub fn fn_00951a10(e: &mut Engine, this: Ptr<PlayerCharacter>, hide_first_person
         }
         e.call(0x0048_3710, &args![player]);
         e.call(0x008b_0bd0, &args![player, lighting]);
-        let process = e.call(0x008d_8520, &args![player]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
         e.vcall(process, 0x580, &args![1u32, 1u32, 0u32]);
     });
 }
@@ -3764,8 +3795,8 @@ pub fn fn_00952290(e: &mut Engine, this: Ptr<PlayerCharacter>) {
         let up = frame.addr() + 0x9c;
         let flat = frame.addr() + 0xf8;
         let rotated_up = frame.addr() + 0x38;
-        e.call(0x0068_15c0, &args![matrix_a]);
-        e.call(0x0068_15c0, &args![matrix_b]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix_a));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix_b));
         let pitch = e.vcall(player, 0x2bc, &args![0u32]).f64() as f32;
         let node = e.global::<u32>(NODE_BY_EAD0_SLOT);
         if node != 0 {
@@ -3780,13 +3811,17 @@ pub fn fn_00952290(e: &mut Engine, this: Ptr<PlayerCharacter>) {
                 .u32();
             copy_words(e, product, matrix_a, 9);
         }
-        e.call(0x0041_6870, &args![up, 0.0f32, 1.0f32, 0.0f32]);
-        e.call(0x0068_15c0, &args![flat]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, up, 0.0f32, 1.0f32, 0.0f32)
+        );
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, flat));
         let rotated = e.call(0x004b_4500, &args![matrix_a, rotated_up, up]).u32();
         copy_words(e, rotated, up, 3);
         copy_words(e, up, flat, 3);
         e.mem.set_f32(flat + 8, 0.0);
-        let mut dot = e.call(0x004b_6190, &args![up, flat]).f32();
+        let mut dot = typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, up, flat));
         if f64::from(dot) < e.global::<f64>(MINUS_ONE_DOUBLE) {
             dot = e.global::<f32>(MINUS_ONE_FLOAT);
         }
@@ -3801,8 +3836,8 @@ pub fn fn_00952290(e: &mut Engine, this: Ptr<PlayerCharacter>) {
             let flipped = (f64::from(scaled) * e.global::<f64>(MINUS_ONE_DOUBLE)) as f32;
             e.set_global(LOOK_ANGLE, flipped);
         }
-        e.call(0x0068_15c0, &args![matrix_c]);
-        e.call(0x0068_15c0, &args![matrix_d]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix_c));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix_d));
         let angle = e.global::<f32>(LOOK_ANGLE);
         e.call(0x0052_4ac0, &args![matrix_c, angle]);
         copy_words(e, matrix_a, matrix_d, 9);
@@ -4074,7 +4109,7 @@ pub fn fn_00952a20(e: &mut Engine, this: Ptr<PlayerCharacter>, target: u32) {
     if e.call(0x005d_43e0, &args![owner]).u32() != 0 {
         let owner = e.call(0x0044_edb0, &args![target]).u32();
         let list = e.call(0x005d_43e0, &args![owner]).u32();
-        worth_adding = !e.call(LIST_IS_EMPTY, &args![list]).bool();
+        worth_adding = !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list));
     }
     if worth_adding && !present {
         // The exe passes its own argument slot (`EBP+8`): `SUB ESP,0x18` under `EBP`, so the
@@ -4106,7 +4141,7 @@ pub fn fn_00952b30(e: &mut Engine, this: Ptr<PlayerCharacter>) -> u32 {
         let item_slot = list_item_slot(e, node);
         let item = e.mem.u32(item_slot);
         if e.call(0x0044_edb0, &args![item]).u32() == active
-            && e.call(0x007a_f430, &args![item]).u32() == 1
+            && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item)) == 1
         {
             return item;
         }
@@ -4380,7 +4415,7 @@ pub fn player_character_focus_on_actor(
             let word = e.mem.u32(camera_position + i * 4);
             e.mem.set_u32(delta + i * 4, word);
         }
-        e.call(LIST_NODE_ITEM_SLOT, &args![head_position]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, head_position));
         let mut has_face_animation = false;
         let mut head_found = true;
         let target = if e.call(0x0057_4900, &args![actor]).bool() {
@@ -4424,7 +4459,8 @@ pub fn player_character_focus_on_actor(
                 }
                 e.call(0x0062_40d0, &args![bound]);
                 if head != 0 {
-                    let world_bound = e.call(0x0043_d450, &args![head]).u32();
+                    let world_bound =
+                        typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, head));
                     e.call(0x004a_5250, &args![bound, world_bound]);
                 } else {
                     let position = e.call(0x0045_bb80, &args![found]).u32();
@@ -4432,7 +4468,7 @@ pub fn player_character_focus_on_actor(
                     let radius = e.global::<u32>(FOCUS_BOUND_RADIUS);
                     e.call(0x0063_f790, &args![bound, radius]);
                 }
-                let center = e.call(LIST_NODE_ITEM_SLOT, &args![bound]).u32();
+                let center = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
                 for i in 0..3 {
                     let word = e.mem.u32(center + i * 4);
                     e.mem.set_u32(head_position + i * 4, word);
@@ -4841,20 +4877,20 @@ pub fn fn_00953ff0(e: &mut Engine, this: Ptr<PlayerCharacter>, item: u32, count:
     let player = this.addr();
     let mut flag = flag;
     let mut touched_item = false;
-    let base = e.call(0x007a_f430, &args![item]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
     let kind = e.call(FORM_TYPE_OF, &args![base]).u32();
     if kind == 0x28 {
-        let base = e.call(0x007a_f430, &args![item]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
         if !e.call(0x0047_bcf0, &args![base]).bool() {
             return;
         }
     } else if kind == 0x29 {
-        let base = e.call(0x007a_f430, &args![item]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
         if !e.call(0x004c_94d0, &args![base]).bool() {
             return;
         }
     }
-    let base = e.call(0x007a_f430, &args![item]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
     e.call(0x008a_ded0, &args![this, base, 1u32, 0u32]);
     let slot = e.vcall(item, 0x1d0, &args![]).u32();
     e.call(0x00c6_a270, &args![slot, 1u32, 1u32, 0u32]);
@@ -4889,7 +4925,7 @@ pub fn fn_00953ff0(e: &mut Engine, this: Ptr<PlayerCharacter>, item: u32, count:
         let owner = e.call(0x0056_7790, &args![item]).u32();
         let mut keep_ownership = false;
         if owner != 0 && !e.call(0x0057_85e0, &args![item, player, 1u32]).bool() {
-            let base = e.call(0x007a_f430, &args![item]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
             if e.call(FORM_TYPE_OF, &args![base]).u32() != 0x33 {
                 let thief = e.call(0x0097_3ab0, &args![PROCESS_LISTS, item]).u32();
                 e.set_global(STEAL_ACTOR, thief);
@@ -4897,10 +4933,10 @@ pub fn fn_00953ff0(e: &mut Engine, this: Ptr<PlayerCharacter>, item: u32, count:
                     || file != 0
                     || e.call(0x0057_2d30, &args![item, 2u32]).bool()
                 {
-                    let base = e.call(0x007a_f430, &args![item]).u32();
+                    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
                     e.call(0x008b_fa40, &args![this, item, base, count, 0u32, owner]);
                 } else if thief != 0 {
-                    let base = e.call(0x007a_f430, &args![item]).u32();
+                    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
                     e.call(0x008b_fa40, &args![this, thief, base, count, 0u32, owner]);
                 }
                 let evil = e.call(0x0057_8790, &args![item, 0u32]).bool();
@@ -4921,28 +4957,24 @@ pub fn fn_00953ff0(e: &mut Engine, this: Ptr<PlayerCharacter>, item: u32, count:
         // A menu is visible: nothing about ownership is touched.
     }
     let process = process_of(e, this);
-    let base = e.call(0x007a_f430, &args![item]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
     let kind = e.call(FORM_TYPE_OF, &args![base]).u32();
     if kind == 0x28 {
-        let base = e.call(0x007a_f430, &args![item]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
         if e.call(0x004c_0bf0, &args![base]).bool() && e.vcall(process, 0x14c, &args![]).u32() != 0
         {
             let current = e.vcall(process, 0x14c, &args![]).u32();
-            if base == e.call(WORD_AT_8, &args![current]).u32() {
+            if base == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, current)) {
                 if e.vcall(process, 0x148, &args![]).u32() != 0 {
                     let entry = e.vcall(process, 0x148, &args![]).u32();
-                    let total = e
-                        .call(LIST_NODE_NEXT, &args![entry])
-                        .u32()
+                    let total = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
                         .wrapping_add(count);
                     let entry = e.vcall(process, 0x148, &args![]).u32();
                     e.call(0x006e_cd40, &args![entry, total]);
                 }
                 if e.vcall(process, 0x14c, &args![]).u32() != 0 {
                     let entry = e.vcall(process, 0x14c, &args![]).u32();
-                    let total = e
-                        .call(LIST_NODE_NEXT, &args![entry])
-                        .u32()
+                    let total = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
                         .wrapping_add(count);
                     let entry = e.vcall(process, 0x14c, &args![]).u32();
                     e.call(0x006e_cd40, &args![entry, total]);
@@ -4976,21 +5008,21 @@ pub fn fn_00953ff0(e: &mut Engine, this: Ptr<PlayerCharacter>, item: u32, count:
     let mut skip = false;
     if e.vcall(process, 0x14c, &args![]).u32() != 0 {
         let entry = e.vcall(process, 0x14c, &args![]).u32();
-        if e.call(LIST_NODE_NEXT, &args![entry]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry)) != 0 {
             skip = true;
         }
     }
     if !skip && e.vcall(process, 0x148, &args![]).u32() != 0 && item != 0 {
-        let base = e.call(0x007a_f430, &args![item]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
         let player_pointer = e.global::<u32>(PLAYER_POINTER);
         let entry = e.vcall(process, 0x148, &args![]).u32();
-        let form = e.call(WORD_AT_8, &args![entry]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         let ammo = e.call(0x0052_5980, &args![form, player_pointer]).u32();
         if base == ammo {
             let entry = e.vcall(process, 0x148, &args![]).u32();
             let modded = e.call(0x004b_da70, &args![entry, 6u32]).u8();
             let entry = e.vcall(process, 0x148, &args![]).u32();
-            let form = e.call(WORD_AT_8, &args![entry]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             let regeneration = e.call(0x0070_9430, &args![form, u32::from(modded)]).f64();
             if regeneration <= 0.0 {
                 let entry = e.vcall(process, 0x148, &args![]).u32();
@@ -4998,7 +5030,7 @@ pub fn fn_00953ff0(e: &mut Engine, this: Ptr<PlayerCharacter>, item: u32, count:
                 let drawn = e.call(0x008a_16d0, &args![this]).bool();
                 let mode = if drawn { 2u32 } else { 0 };
                 let entry = e.vcall(process, 0x148, &args![]).u32();
-                let form = e.call(WORD_AT_8, &args![entry]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                 e.vcall(player, 0x3ec, &args![form, mode, u32::from(modded), 0u32]);
             }
         }
@@ -5106,8 +5138,10 @@ pub fn fn_00954610(
                     let word = e.mem.u32(source + i * 4);
                     e.mem.set_u32(position + i * 4, word);
                 }
-                let world_bound = e.call(0x0043_d450, &args![body]).u32();
-                let center = e.call(LIST_NODE_ITEM_SLOT, &args![world_bound]).u32();
+                let world_bound =
+                    typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, body));
+                let center =
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, world_bound));
                 e.call(0x0043_9ef0, &args![position, scratch, center]);
                 e.call(0x0063_c8a0, &args![position, scratch]);
                 e.call(0x0044_0460, &args![body, position]);
@@ -5162,7 +5196,7 @@ pub fn fn_00954960(e: &mut Engine, this: Ptr<PlayerCharacter>, flag: u8, _unused
 /// `0x128`) and `008a6210` is false. `this` is not used.
 pub fn fn_009549a0(e: &mut Engine, _this: Ptr, actor: u32) -> u8 {
     if e.vcall(actor, 0x22c, &args![0u32]).bool()
-        || e.call(0x0044_0da0, &args![actor]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
         || e.vcall(actor, 0x234, &args![]).bool()
         || e.call(0x0043_7bf0, &args![actor]).bool()
     {
@@ -5177,7 +5211,7 @@ pub fn fn_009549a0(e: &mut Engine, _this: Ptr, actor: u32) -> u8 {
     {
         return 0;
     }
-    let holder = e.call(0x008d_8520, &args![actor]).u32();
+    let holder = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     let target = e.vcall(holder, 0x128, &args![]).u32();
     if target == e.global::<u32>(PLAYER_POINTER) && !e.call(0x008a_6210, &args![actor]).bool() {
         1
@@ -5195,26 +5229,32 @@ pub fn fn_009549a0(e: &mut Engine, _this: Ptr, actor: u32) -> u8 {
 pub fn fn_00954a70(e: &mut Engine, _this: Ptr, actor: u32, mode: u8) -> u8 {
     let player_pointer = e.global::<u32>(PLAYER_POINTER);
     if e.vcall(actor, 0x22c, &args![0u32]).bool()
-        || e.call(0x0044_0da0, &args![actor]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
         || e.vcall(actor, 0x234, &args![]).bool()
         || e.call(0x0043_7bf0, &args![actor]).bool()
     {
         return 0;
     }
-    let holder = e.call(0x008d_8520, &args![actor]).u32();
+    let holder = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(holder, 0x24, &args![actor, 1u32]);
     let package = e.call(0x0088_1510, &args![actor]).u32();
-    let holder = e.call(0x008d_8520, &args![actor]).u32();
+    let holder = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     let acquire = holder + 4;
     if mode != 0 {
         let mut target = 0;
-        if acquire != 0 && e.call(WORD_AT_8, &args![acquire]).u32() != 0 {
-            target = e.call(WORD_AT_8, &args![acquire]).u32();
+        if acquire != 0 && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, acquire)) != 0
+        {
+            target = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, acquire));
             if target == 0 {
-                let package_target = e.call(0x0067_1d10, &args![package]).u32();
+                let package_target =
+                    typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
                 let object = e.call(0x0068_0050, &args![package_target]).u32();
                 if object != 0 {
-                    let player_base = e.call(0x007a_f430, &args![player_pointer]).u32();
+                    let player_base = typed_call!(
+                        leaf::FAMILY,
+                        0x007a_f430,
+                        leaf::word_at_20(e, player_pointer)
+                    );
                     if object == player_base {
                         target = player_pointer;
                     }
@@ -5225,7 +5265,7 @@ pub fn fn_00954a70(e: &mut Engine, _this: Ptr, actor: u32, mode: u8) -> u8 {
             package != 0 && e.call(0x0067_6140, &args![package, actor]).u32() == player_pointer;
         if !location_is_player {
             if target != player_pointer {
-                let holder = e.call(0x008d_8520, &args![actor]).u32();
+                let holder = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 if e.vcall(holder, 0x128, &args![]).u32() != player_pointer {
                     return 0;
                 }
@@ -5248,17 +5288,22 @@ pub fn fn_00954a70(e: &mut Engine, _this: Ptr, actor: u32, mode: u8) -> u8 {
         {
             return 0;
         }
-        if e.call(0x0067_1d10, &args![package]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package)) == 0 {
             return 0;
         }
-        let holder = e.call(0x008d_8520, &args![actor]).u32();
+        let holder = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let acquire = holder + 4;
-        let mut target = e.call(WORD_AT_8, &args![acquire]).u32();
+        let mut target = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, acquire));
         if target == 0 {
-            let package_target = e.call(0x0067_1d10, &args![package]).u32();
+            let package_target =
+                typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
             let object = e.call(0x0068_0050, &args![package_target]).u32();
             if object != 0 {
-                let player_base = e.call(0x007a_f430, &args![player_pointer]).u32();
+                let player_base = typed_call!(
+                    leaf::FAMILY,
+                    0x007a_f430,
+                    leaf::word_at_20(e, player_pointer)
+                );
                 if object == player_base {
                     target = player_pointer;
                 }
@@ -5301,23 +5346,9 @@ fn save_size_report(e: &mut Engine, formats: (u32, u32), size: i32, line: u32) {
         let form_type = e.call(0x0048_39c0, &args![form_id]).u32();
         let name = e.vcall(form_type, 0x130, &args![]).u32();
         let flags = e.mem.u32(record + 5);
-        e.call(
-            ERROR,
-            &args![
-                formats.0,
-                size as u32,
-                form_id,
-                name,
-                flags,
-                line,
-                SOURCE_FILE_NAME
-            ],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words formats.0, size as u32, form_id, name, flags, line, SOURCE_FILE_NAME);
     } else {
-        e.call(
-            ERROR,
-            &args![formats.1, size as u32, line, SOURCE_FILE_NAME],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words formats.1, size as u32, line, SOURCE_FILE_NAME);
     }
 }
 
@@ -5428,7 +5459,11 @@ pub fn fn_00954d40(e: &mut Engine, this: Ptr<PlayerCharacter>, flags: u32) -> u1
     }
     if save_version(e) >= 0x6f {
         total = add16(total, 2);
-        let count = e.call(0x0084_e3a0, &args![player + 0x854]).u32();
+        let count = typed_call!(
+            leaf::FAMILY,
+            0x0084_e3a0,
+            leaf::word_at_c(e, player + 0x854)
+        );
         total = add16(total, count.wrapping_mul(5));
     }
     if save_version(e) >= 0x73 {
@@ -5472,7 +5507,7 @@ pub fn fn_00954d40(e: &mut Engine, this: Ptr<PlayerCharacter>, flags: u32) -> u1
     total = add16(total, count.wrapping_mul(5));
     let extra = e.call(0x0040_8c30, &args![]).u32();
     total = add16(total, extra);
-    let base_form = e.call(0x007a_f430, &args![this]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
     let size = e.call(0x0060_9c70, &args![base_form, this]).u16();
     total = add16(total, u32::from(size));
     let name = e.call(0x0055_d520, &args![this]).u32();
@@ -5979,7 +6014,7 @@ pub fn fn_00955620(e: &mut Engine, this: Ptr<PlayerCharacter>, flags: u32) {
     e.mem.set_u16(count_position, count);
 
     // The base object's data and the name.
-    let base = e.call(0x007a_f430, &args![this]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
     e.call(0x0060_9d60, &args![base, this]);
     let name = e.call(0x0055_d520, &args![this]).u32();
     let length = e.call(0x00ec_6130, &args![name]).u32();
@@ -6211,7 +6246,7 @@ pub fn fn_00956f70(e: &mut Engine, this: Ptr<PlayerCharacter>, flags: u32, secon
     // `EBP-0x1c4` (+0x168) and `EBP-0x1dc` (+0x150), the name at `EBP-0x2ec` (+0x40).
     e.with_stack(0x32c, |e, frame| {
         let position = frame.addr() + 0x2f4;
-        e.call(LIST_NODE_ITEM_SLOT, &args![position]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
         for (offset, size) in [
             (0x64au32, 1u32),
             (0x64d, 1),
@@ -6501,13 +6536,13 @@ pub fn fn_00956f70(e: &mut Engine, this: Ptr<PlayerCharacter>, flags: u32, secon
             }
             index += 1;
         }
-        let base = e.call(0x007a_f430, &args![this]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
         e.call(0x0060_9f60, &args![base, this]);
         let length = load_value(e, player, 1);
         let name = frame.addr() + 0x40;
         e.mem.set_u32(name, 0);
         load_data(e, player, name, length);
-        let base = e.call(0x007a_f430, &args![this]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
         e.call(0x0048_9100, &args![base + 0xd0, name]);
         if save_version(e) >= 0x2c {
             let base_object = e.call(BASE_FORM_OF, &args![this]).u32();
@@ -6659,7 +6694,7 @@ pub fn fn_00958990(e: &mut Engine, this: Ptr<PlayerCharacter>, first: u32, secon
     e.call(0x0080_60e0, &args![progress, this]);
     let process = process_of(e, this);
     e.vcall(process, 0x58, &args![]);
-    let base = e.call(0x007a_f430, &args![this]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
     e.call(0x0060_a890, &args![base, this]);
     e.call(0x0093_a5f0, &args![this, 0u32]);
     e.call(0x0093_a6f0, &args![this, 0u32]);
@@ -6974,7 +7009,7 @@ pub fn fn_009590f0(e: &mut Engine, this: Ptr<PlayerCharacter>, buffer: u32) {
     let item_count = if items == 0 {
         0
     } else {
-        e.call(WORD_AT_8, &args![items]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, items))
     };
     e.call(0x0086_5f60, &args![buffer, item_count]);
     let mut index = 0;
@@ -7189,7 +7224,7 @@ pub fn fn_0095a3b0(e: &mut Engine, this: Ptr<PlayerCharacter>, buffer: u32) {
         e.call(0x0042_80f0, &args![flags, 0x1000_0000u32]).bool()
     });
     if wanted {
-        let base = e.call(0x007a_f430, &args![this]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
         let statistics = e.global::<u32>(STATISTICS_OBJECT);
         e.call(0x0084_a810, &args![statistics, 0u32, buffer, base]);
     }
@@ -7218,7 +7253,7 @@ pub fn fn_0095a3b0(e: &mut Engine, this: Ptr<PlayerCharacter>, buffer: u32) {
     if e.mem.u8(player + 0x7c5) != old_byte && e.vcall(player, 0x1d0, &args![]).u32() != 0 {
         let base = e.call(BASE_FORM_OF, &args![this]).u32();
         e.call(0x005d_d560, &args![base]);
-        let holder = e.call(0x008d_8520, &args![this]).u32();
+        let holder = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
         e.vcall(holder, 0x468, &args![8u32]);
     }
     buffer_read(e, buffer, player + 0x7c6, 1);
@@ -7226,7 +7261,7 @@ pub fn fn_0095a3b0(e: &mut Engine, this: Ptr<PlayerCharacter>, buffer: u32) {
     // marker below.
     let position = e.with_stack(0x200, |e, frame| {
         let position = frame.addr() + 0x1e4;
-        e.call(LIST_NODE_ITEM_SLOT, &args![position]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
         buffer_read(e, buffer, player + 0x6e4, 4);
         buffer_read(e, buffer, position, 0xc);
         [0u32, 4, 8].map(|at| e.mem.u32(position + at))
@@ -7575,18 +7610,18 @@ pub fn fn_0095a3b0(e: &mut Engine, this: Ptr<PlayerCharacter>, buffer: u32) {
             };
             e.call(0x004b_fb70, &args![this, index, form]);
         }
-        let holder = e.call(0x008d_8520, &args![this]).u32();
+        let holder = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
         if holder != 0 {
-            let holder = e.call(0x008d_8520, &args![this]).u32();
+            let holder = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
             if e.vcall(holder, 0x148, &args![]).u32() != 0 {
-                let holder = e.call(0x008d_8520, &args![this]).u32();
+                let holder = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
                 e.vcall(holder, 0x168, &args![0u32]);
-                let first = e.call(0x008d_8520, &args![this]).u32();
-                let second = e.call(0x008d_8520, &args![this]).u32();
+                let first = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
+                let second = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
                 let entry = e.vcall(first, 0x148, &args![]).u32();
                 let modded = e.call(0x004b_da70, &args![entry, 2u32]).u8();
                 let entry = e.vcall(second, 0x148, &args![]).u32();
-                let form = e.call(WORD_AT_8, &args![entry]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                 e.vcall(player, 0x3ec, &args![form, 0u32, u32::from(modded), 1u32]);
             }
         }
@@ -7682,7 +7717,7 @@ pub fn fn_0095c0a0(e: &mut Engine, this: Ptr<PlayerCharacter>, buffer: u32) {
                 load_cast_form(e, id, RTTI_RESOLVE_0D2C)
             };
             e.mem.set_u32(item, form);
-            if form == 0 || e.call(0x007a_f430, &args![form]).u32() == 0 {
+            if form == 0 || typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, form)) == 0 {
                 e.call(0x0040_1030, &args![item]);
                 dead = true;
             }
@@ -7844,7 +7879,7 @@ pub fn fn_0095c730(e: &mut Engine, this: Ptr<PlayerCharacter>, buffer: u32) {
     e.call(0x0070_59d0, &args![]);
     e.call(0x0094_44d0, &args![this, 0.0f32]);
     if e.call(0x008b_bc10, &args![this]).bool() {
-        let holder = e.call(0x008d_8520, &args![this]).u32();
+        let holder = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
         e.vcall(holder, 0x400, &args![0u32]);
         e.call(0x008b_b650, &args![this, 1u32, 0u32, 0u32]);
     }

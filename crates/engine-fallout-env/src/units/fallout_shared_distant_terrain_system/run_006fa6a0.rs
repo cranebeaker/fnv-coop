@@ -16,12 +16,15 @@ use crate::prelude::*;
 const CHUNKS_LOADED_LIST: u32 = 0x011d_8624;
 /// `BSSimpleList` node accessors: the address of the node's item word
 /// (`this`) and the next node (`[this + 4]`).
+#[cfg(test)]
 const LIST_ITEM_ADDRESS: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// `BSSimpleList::Remove` of the item whose address is given (list head
 /// `this`; the argument is the address of a word holding the item).
 const LIST_REMOVE: u32 = 0x0090_5330;
 /// `NiPointer` dereference (`*this`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// The word at `+0x8c` of its `this` is the address of three floats
 /// (`this + 0x8c`).
@@ -43,7 +46,7 @@ const MODE_BYTE: u32 = 0x0119_f154;
 
 /// The item of the list node at `node` (through the node accessor).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let address = e.call(LIST_ITEM_ADDRESS, &args![node]).u32();
+    let address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(address)
 }
 
@@ -61,7 +64,11 @@ pub fn fn_006fa6a0(e: &mut Engine, this: Ptr) {
 /// The pointer held by the smart pointer at `this + 0x10` (`spNode` of a
 /// chunk).
 pub fn fn_006fa820(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(POINTER_GET, &args![this.addr() + 0x10]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x10)
+    )
 }
 
 // Translated from 006fa840 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -104,21 +111,25 @@ pub fn fn_006fa6d0(e: &mut Engine, source: u32, flag: u32) {
     while node != 0 {
         let chunk = node_item(e, node);
         if chunk != 0 {
-            let chunk_node = e.call(POINTER_GET, &args![chunk]).u32();
+            let chunk_node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, chunk));
             if fn_006fa840(e, Ptr::new(chunk_node)) == 0 {
                 let sp_node = fn_006fa820(e, Ptr::new(chunk));
                 if sp_node != 0 {
                     update_node_at(e, sp_node, position, flag);
                 }
                 for offset in [0x14, 0x18] {
-                    let child = e.call(POINTER_GET, &args![chunk + offset]).u32();
+                    let child = typed_call!(
+                        leaf::FAMILY,
+                        0x0055_9450,
+                        leaf::word_at_0(e, chunk + offset)
+                    );
                     if child != 0 {
                         update_node_at(e, child, position, flag);
                     }
                 }
             }
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -143,13 +154,17 @@ pub fn fn_006fa860(e: &mut Engine) {
                 clear_through_chain(e, sp_node);
             }
             for offset in [0x14, 0x18] {
-                let child = e.call(POINTER_GET, &args![chunk + offset]).u32();
+                let child = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, chunk + offset)
+                );
                 if child != 0 {
                     clear_through_chain(e, child);
                 }
             }
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -171,7 +186,7 @@ pub fn fn_006fa920(e: &mut Engine, mode: u8) {
                 e.call(CHUNK_CALL_006FB3D0, &args![chunk, 1u32]);
             }
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.set_global(MODE_BYTE, mode);
 }

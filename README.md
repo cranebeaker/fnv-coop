@@ -89,7 +89,7 @@ nearly all compiler-made error handling.
 | ✅ | **Gameplay:** combat, AI, quests, dialogue, menus, V.A.T.S., perks, crafting | Translated, audited and playable through the whole game, quests included |
 | ✅ | **Saves, the open world and the DLCs** | Translated, audited and playable: the open world, many locations and the DLCs load and play, saves load and are written |
 | ✅ | **Fixes preset:** on by default, the original's behaviour one setting away; first fixes: the frame cap and its landing and slow-motion timing | First version in ([docs/FIXES.md](docs/FIXES.md)) |
-| 🔨 | **Typed, native 64-bit code:** the main speed work | Starting: designed, with its first layer written. No game system has moved yet |
+| 🔨 | **Typed, native 64-bit code:** the main speed work | Started: the 29 small functions the game calls most are typed, about 7% more fps in Goodsprings in a test build. Off by default for now. No game system has moved yet |
 | ⬜ | **Modern systems:** no memory limit, every core in use, wgpu graphics with optional upgrades | Planned, built on the typed code |
 | ⬜ | **Built-in script extender, co-op, more platforms, VR** | Planned |
 

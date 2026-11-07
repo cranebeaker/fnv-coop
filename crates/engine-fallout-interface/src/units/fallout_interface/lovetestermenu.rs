@@ -59,14 +59,17 @@ const INIT_MACHINE: u32 = 0x0079_28e0;
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const POINTER_CONSTRUCTOR: u32 = 0x0063_3c90;
 const POINTER_DESTRUCTOR: u32 = 0x0045_cec0;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const SCRIPT_005CFCB0: u32 = 0x005c_fcb0;
+#[cfg(test)]
 const WORD_4_00726070: u32 = 0x0072_6070;
 const MODEL_LOADER: u32 = 0x011c_3b3c;
 const RELEASE_MODEL_FILE_0045A5E0: u32 = 0x0045_a5e0;
 const SCENE_GRAPH_00450B80: u32 = 0x0045_0b80;
 const SCENE_RESET_004DEF90: u32 = 0x004d_ef90;
 const SHADOW_SCENE_RESET_00B5D180: u32 = 0x00b5_d180;
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 const ARRAY_ELEMENT: u32 = 0x006a_7ad0;
 const ARRAY_CLEAR: u32 = 0x0084_54f0;
@@ -110,9 +113,9 @@ const CURSOR_OBJECT_004B7210: u32 = 0x004b_7210;
 const CURSOR_X_009A9350: u32 = 0x009a_9350;
 const FTOL: u32 = 0x00ec_62c0;
 const OBJECT_0043C4B0: u32 = 0x0043_c4b0;
-const SIZE_0084E3A0: u32 = 0x0084_e3a0;
 const WIDESCREEN_011F9426: u32 = 0x011f_9426;
 const VIEWPORT_011AD840: u32 = 0x011a_d840;
+#[cfg(test)]
 const POINT_CONSTRUCTOR_006815C0: u32 = 0x0068_15c0;
 const PICK_CONSTRUCTOR: u32 = 0x00e9_8f20;
 const PICK_DESTRUCTOR: u32 = 0x00e9_8fa0;
@@ -142,6 +145,7 @@ const HALF_ANGLE_01074B98: u32 = 0x0107_4b98;
 const TANGENT_0057DD70: u32 = 0x0057_dd70;
 const SET_VIEW_FRUSTUM: u32 = 0x00a6_faf0;
 const SET_TRANSLATE_004BC1F0: u32 = 0x004b_c1f0;
+#[cfg(test)]
 const POINT_00416870: u32 = 0x0041_6870;
 const LOOK_AT_WORLD_POINT: u32 = 0x00a7_01b0;
 const SET_SCALE_00733FD0: u32 = 0x0073_3fd0;
@@ -188,7 +192,7 @@ fn menu(e: &Engine) -> u32 {
 
 /// `0044ddc0`: the size of a `BSSimpleArray` (its word +8).
 fn array_size(e: &mut Engine, array: u32) -> u32 {
-    e.call(ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 /// `*006a7ad0(array, index)`: an element of a `BSSimpleArray`.
@@ -326,7 +330,7 @@ pub fn love_tester_menu_create(e: &mut Engine, points: u32) {
         e.call(MENU_PREP_FOR_VISIBILITY, &args![found, 0u32]);
         return;
     }
-    if found != 0 && e.call(WORD_4_00726070, &args![found]).u32() != 0 {
+    if found != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, found)) != 0 {
         e.vcall(found, 0, &args![1u32]);
     }
 }
@@ -561,17 +565,21 @@ fn pick_buttons(e: &mut Engine, buttons: impl Fn(&Engine) -> u32, x: i32, y: i32
             if i >= array_size(e, array) {
                 break;
             }
-            e.call(POINT_CONSTRUCTOR_006815C0, &args![origin]);
-            e.call(POINT_CONSTRUCTOR_006815C0, &args![direction]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
             e.call(PICK_CONSTRUCTOR, &args![pick, 0u32, 8u32]);
             e.call(PICK_SET_00458B30, &args![pick, 1u32]);
             let array = buttons(e);
             let button = element(e, array, i);
-            let object = e.call(POINTER_GET, &args![button + 8]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, button + 8));
             e.call(PICK_SET_TARGET_00705FC0, &args![pick, object]);
             e.call(PICK_SET_006ECD40, &args![pick, 0u32]);
             fn_00792780(e, Ptr::new(pick), 1);
-            let camera = e.call(POINTER_GET, &args![CAMERA_POINTER]).u32();
+            let camera = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, CAMERA_POINTER)
+            );
             e.call(
                 CAMERA_WINDOW_POINT_TO_RAY,
                 &args![camera, x, y, origin, direction, 0u32],
@@ -667,7 +675,7 @@ pub fn love_tester_menu_do_click(e: &mut Engine, this: Ptr, id: u32, _unused_2: 
                 let object = e.call(OBJECT_0043C4B0, &args![]).u32();
                 let top = x87_load32(e.mem.u32(VIEWPORT_011AD840 + 0xc));
                 let window = e.vcall(object, 0xd4, &args![]).u32();
-                let height = e.call(SIZE_0084E3A0, &args![window]).u32();
+                let height = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, window));
                 let scaled = x87_mul(f64::from(height), top);
                 let span = x87_sub(
                     x87_m32(e.mem.u32(VIEWPORT_011AD840 + 8)),
@@ -824,12 +832,16 @@ pub fn love_tester_menu_init_camera(e: &mut Engine, _this: Ptr) -> u32 {
         );
         e.call(UPDATE_BLOCK_0043D410, &args![update, 0.0f32, 0u32, 0u32]);
         e.call(UPDATE_00A59C60, &args![camera, update]);
-        let up = e
-            .call(POINT_00416870, &args![up, 0.0f32, 1.0f32, 0.0f32])
-            .u32();
-        let target = e
-            .call(POINT_00416870, &args![target, 0.0f32, 0.0f32, 0.0f32])
-            .u32();
+        let up = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, up, 0.0f32, 1.0f32, 0.0f32)
+        );
+        let target = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, target, 0.0f32, 0.0f32, 0.0f32)
+        );
         e.call(LOOK_AT_WORLD_POINT, &args![camera, target, up]);
         e.call(SET_SCALE_00733FD0, &args![camera, 1.0f32]);
         let string = e.call(STRING_CONSTRUCTOR, &args![name, CAMERA_NAME]).u32();
@@ -851,7 +863,13 @@ pub fn love_tester_menu_init_camera(e: &mut Engine, _this: Ptr) -> u32 {
 /// The exception frame (`FS:[0]`) is not translated.
 // Translation incomplete: 007948d0 - the FS:[0] exception frame (unwinding on a throw) is not translated
 pub fn fn_007948d0(e: &mut Engine) {
-    if menu(e) == 0 || e.call(POINTER_GET, &args![CAMERA_POINTER]).u32() == 0 {
+    if menu(e) == 0
+        || typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, CAMERA_POINTER)
+        ) == 0
+    {
         return;
     }
     let object = e.call(OBJECT_0043C4B0, &args![]).u32();
@@ -859,18 +877,22 @@ pub fn fn_007948d0(e: &mut Engine) {
     let main = e.call(MAIN_CAMERA_0045C670, &args![]).u32();
     let scene = e.call(SCENE_008D80E0, &args![main]).u32();
     e.call(SCENE_SET_00C4F270, &args![scene, 1u32]);
-    let camera = e.call(POINTER_GET, &args![CAMERA_POINTER]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_POINTER)
+    );
     let value = x87_quiet_bits(e.mem.u32(RENDER_VALUE_01023934));
     e.call(RENDER_TO_TEXTURE_00709D50, &args![camera, value]);
     e.with_stack(4, |e, node| {
         let object = e.call(GLOBAL_004B7210, &args![]).u32();
         let rendered = e.call(RENDERED_MENU_007FD640, &args![object]).u32();
         e.call(POINTER_CONSTRUCTOR, &args![node, rendered]);
-        let held = e.call(POINTER_GET, &args![node]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
         e.call(SCENE_SET_NODE_004A0FD0, &args![scene, held]);
         let graph = e.call(SCENE_GRAPH_00450B80, &args![1u32]).u32();
         e.call(ACCUMULATE_SCENE, &args![camera, graph, scene]);
-        let held = e.call(POINTER_GET, &args![node]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
         e.call(RENDER_00B6C0D0, &args![camera, held, 0u32]);
         e.call(SCENE_SET_NODE_004A0FD0, &args![scene, 0u32]);
         e.call(SCENE_RESET_00C4F2D0, &args![scene]);
@@ -1082,7 +1104,7 @@ pub fn fn_00795390(e: &mut Engine, item: u32) {
     let index = e.mem.u32(item + 0x14);
     let value = player_value(e, index) as u32;
     let slot = menu(e) + value.wrapping_mul(4) + 0x1c4;
-    let texture = e.call(POINTER_GET, &args![slot]).u32();
+    let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     let text = e.mem.u32(item + 4);
     show_texture(e, text, texture);
 }
@@ -1126,7 +1148,7 @@ pub fn fn_007953f0(e: &mut Engine, item: u32) {
     } else {
         menu(e) + 0x1c4
     };
-    let texture = e.call(POINTER_GET, &args![slot]).u32();
+    let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     let text = e.mem.u32(item + 4);
     show_texture(e, text, texture);
     let object = e.mem.u32(item + 0x10);
@@ -1134,14 +1156,14 @@ pub fn fn_007953f0(e: &mut Engine, item: u32) {
     let slot = menu(e)
         .wrapping_add((units as u32).wrapping_mul(4))
         .wrapping_add(0x1c4);
-    let texture = e.call(POINTER_GET, &args![slot]).u32();
+    let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     let text = e.mem.u32(item + 8);
     show_texture(e, text, texture);
 }
 
 /// Hides or shows the button's object (`00450f90` on `spButton`).
 fn set_button_culled(e: &mut Engine, button: u32, culled: bool) {
-    let object = e.call(POINTER_GET, &args![button + 8]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, button + 8));
     e.call(SET_CULLED_00450F90, &args![object, u32::from(culled)]);
 }
 
@@ -1208,7 +1230,7 @@ pub fn fn_00795700(e: &mut Engine, button: u32) {
     } else {
         menu(e) + 0x204
     };
-    let texture = e.call(POINTER_GET, &args![slot]).u32();
+    let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     let image = e.mem.u32(button + 0xc);
     show_texture(e, image, texture);
 }
@@ -1218,7 +1240,7 @@ pub fn fn_00795700(e: &mut Engine, button: u32) {
 /// its image shows `spPreviousPageButtonImage[0]` (+0x208).
 pub fn fn_00795780(e: &mut Engine, button: u32) {
     let slot = menu(e) + 0x208;
-    let texture = e.call(POINTER_GET, &args![slot]).u32();
+    let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     let image = e.mem.u32(button + 0xc);
     show_texture(e, image, texture);
 }
@@ -1481,6 +1503,7 @@ const MODEL_SET_MATRIX_0043FA80: u32 = 0x0043_fa80;
 /// `NiTimeController::StartAnimations` (`cdecl`, the object).
 const START_ANIMATIONS: u32 = 0x00a6_d2d0;
 /// `NiAVObject::GetWorldBound` (no words).
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 /// The float at `this + 0xc` in `ST0` (`0084d030`, also the frame timer's elapsed time).
 const VALUE_AT_12_0084D030: u32 = FRAME_TIME_0084D030;
@@ -1657,8 +1680,8 @@ fn init_models(e: &mut Engine, frame: Frame) {
     }
     let rotation = frame.at(0x4c);
     let turn = frame.at(0x9c);
-    e.call(POINT_CONSTRUCTOR_006815C0, &args![rotation]);
-    e.call(POINT_CONSTRUCTOR_006815C0, &args![turn]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, turn));
     let angle = x87_quiet_bits(e.mem.u32(HALF_PI_0101FF38));
     e.call(MAKE_X_ROTATION, &args![rotation, angle]);
     let angle = x87_quiet_bits(e.mem.u32(PI_0102B3C8));
@@ -1776,7 +1799,7 @@ fn start_machine(e: &mut Engine, this: u32, frame: Frame) {
 /// attached (slot +0xdc with 1).
 fn init_light(e: &mut Engine, frame: Frame) {
     let model = e.mem.u32(menu(e) + 0x5c);
-    let bound = e.call(GET_WORLD_BOUND, &args![model]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, model));
     let size = e.call(VALUE_AT_12_0084D030, &args![bound]).f64();
     let radius = x87_store32(x87_mul(size, e.mem.f64(RADIUS_SCALE_0102FC70)));
     let model = e.mem.u32(menu(e) + 0x5c);
@@ -1795,24 +1818,24 @@ fn init_light(e: &mut Engine, frame: Frame) {
         } else {
             0
         };
-        let point = e
-            .call(
-                POINT_00416870,
-                &args![frame.at(0x184), 0.0f32, 0.0f32, 0.0f32],
-            )
-            .u32();
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, frame.at(0x184), 0.0f32, 0.0f32, 0.0f32)
+        );
         e.call(LIGHT_SET_00440460, &args![light, point]);
         let grey = x87_quiet_bits(e.mem.u32(GREY_01019DE0));
-        let point = e
-            .call(POINT_00416870, &args![frame.at(0x190), grey, grey, grey])
-            .u32();
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, frame.at(0x190), grey, grey, grey)
+        );
         e.call(LIGHT_SET_004BC2E0, &args![light, point]);
-        let point = e
-            .call(
-                POINT_00416870,
-                &args![frame.at(0x19c), x87_quiet_bits(radius), 0.0f32, 0.0f32],
-            )
-            .u32();
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, frame.at(0x19c), x87_quiet_bits(radius), 0.0f32, 0.0f32)
+        );
         e.call(LIGHT_SET_0050DD50, &args![light, point]);
         e.call(LIGHT_SET_0050DD20, &args![light, 1.0f32]);
         let block = frame.at(0xc4);

@@ -105,6 +105,7 @@ const NEXT_CHUNK: u32 = 0x0047_26f0;
 /// `this`), `00afd270` (`cdecl`: path, directory hash, name hash) and `00af6540` (`cdecl`:
 /// type index, directory hash, name hash, path), the file entry it finds.
 const ARCHIVE_PATH_00AF4200: u32 = 0x00af_4200;
+#[cfg(test)]
 const IDENTITY_006815C0: u32 = 0x0068_15c0;
 const PATH_HASH_00AFD270: u32 = 0x00af_d270;
 const ARCHIVE_FIND_00AF6540: u32 = 0x00af_6540;
@@ -408,8 +409,12 @@ pub fn fn_005928a0(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
                 ARCHIVE_PATH_00AF4200,
                 &args![full_path, archive_path, 0x104u32],
             );
-            e.call(IDENTITY_006815C0, &args![directory_hash]);
-            e.call(IDENTITY_006815C0, &args![name_hash]);
+            typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, directory_hash)
+            );
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, name_hash));
             e.call(
                 PATH_HASH_00AFD270,
                 &args![archive_path, directory_hash, name_hash],

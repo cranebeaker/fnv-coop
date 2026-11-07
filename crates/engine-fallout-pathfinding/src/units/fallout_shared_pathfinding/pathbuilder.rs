@@ -260,6 +260,7 @@ const POINT3_SUBTRACT: u32 = 0x0043_9ef0;
 const POINT3_TIMES_SCALAR: u32 = 0x0045_bb20;
 const POINT3_ADD_ASSIGN: u32 = 0x0063_c8a0;
 const POINT3_UNIT_CROSS: u32 = 0x0053_d1a0;
+#[cfg(test)]
 const POINT3_DEFAULT_CONSTRUCT: u32 = 0x0068_15c0;
 const POINT3_LENGTH_SQUARED: u32 = 0x004a_7290;
 const POINT3_LENGTH: u32 = 0x0045_7990;
@@ -1705,8 +1706,8 @@ pub fn fn_006cb6a0(
         let first = fn_006cedf0(e, edges);
         let edge = f.at(-0x40);
         fn_006cb900(e, edge, first);
-        e.call(POINT3_DEFAULT_CONSTRUCT, &[f.at(-0x18)]);
-        e.call(POINT3_DEFAULT_CONSTRUCT, &[f.at(-0x28)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, f.at(-0x18)));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, f.at(-0x28)));
         let holder = f.at(-0x1c);
         e.call(NAV_HOLDER_CONSTRUCT, &[holder]);
         let info = e.mem.u32(edge);
@@ -1774,7 +1775,7 @@ pub fn fn_006cb6a0(
 /// then `Location` (+0x0C); returns `this`.
 pub fn fn_006cb900(e: &mut Engine, this: u32, source: u32) -> u32 {
     e.call(EDGE_HANDLE_COPY, &[this, source]);
-    e.call(POINT3_DEFAULT_CONSTRUCT, &[this + 0xc]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this + 0xc));
     copy_point(e, this + 0xc, source + 0xc);
     this
 }
@@ -2882,8 +2883,16 @@ fn edge_point(
     temporaries: [i32; 3],
     result: u32,
 ) -> u32 {
-    e.call(POINT3_DEFAULT_CONSTRUCT, &[f.at(vertices[0])]);
-    e.call(POINT3_DEFAULT_CONSTRUCT, &[f.at(vertices[1])]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, f.at(vertices[0]))
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, f.at(vertices[1]))
+    );
     let navmesh = call_u32(e, NI_POINTER_GET, &[navmesh_holder]);
     e.call(
         NAVMESH_EDGE_POINTS,
@@ -3044,8 +3053,8 @@ pub fn fn_006cde50(
             }
             let triangle = u32::from(e.mem.u16(f.at(-0x14)));
             let edge = e.mem.u32(f.at(-0x18));
-            e.call(POINT3_DEFAULT_CONSTRUCT, &[f.at(-0x40)]);
-            e.call(POINT3_DEFAULT_CONSTRUCT, &[f.at(-0x34)]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, f.at(-0x40)));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, f.at(-0x34)));
             let navmesh = call_u32(e, NI_POINTER_GET, &[holder]);
             e.call(
                 NAVMESH_EDGE_POINTS,

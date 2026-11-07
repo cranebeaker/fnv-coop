@@ -199,6 +199,7 @@ pub fn fn_00e91590(e: &mut Engine, renderer: u32, caps: u32, flag: u8) -> u32 {
 const MAKE_PASS_00E804D0: u32 = 0x00e8_04d0;
 const MAKE_GROUP_00E7EDF0: u32 = 0x00e7_edf0;
 const SET_STATE_00E88FC0: u32 = 0x00e8_8fc0;
+#[cfg(test)]
 const SET_SAMPLER_STATE_00E890C0: u32 = 0x00e8_90c0;
 const ATTACH_00E802B0: u32 = 0x00e8_02b0;
 const RELEASE_GROUP_00E7ECD0: u32 = 0x00e7_ecd0;
@@ -237,9 +238,10 @@ pub fn fn_00e90850(e: &mut Engine, this: Ptr) -> u8 {
         };
         let samplers = |e: &mut Engine, words: [u32; 4]| {
             let target = e.mem.u32(group + 0x10);
-            e.call(
-                SET_SAMPLER_STATE_00E890C0,
-                &args![target, words[0], words[1], words[2], words[3]],
+            typed_call!(
+                leaf::FAMILY,
+                0x00e8_90c0,
+                leaf::set_state_slot(e, target, words[0], words[1], words[2], words[3])
             );
         };
         states(e, [1, 2, 0]);

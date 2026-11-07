@@ -74,8 +74,11 @@ const ACTOR_MAGIC_CASTER: u32 = 0x88;
 const PLAYER: u32 = 0x011d_ea3c;
 
 /// List helpers (bodies: both words zero / the node itself / word at +4).
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 
 /// `ActiveEffect` getters (body: the field at the offset; Xbox PDB names).
@@ -223,16 +226,16 @@ fn effect_list(e: &mut Engine, this: Ptr<MagicTarget>) -> u32 {
 }
 
 fn node_is_empty(e: &mut Engine, node: u32) -> bool {
-    e.call(LIST_NODE_IS_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 fn word_of(e: &mut Engine, getter: u32, object: u32) -> u32 {
@@ -930,7 +933,7 @@ pub fn magic_target_update_target(e: &mut Engine, this: Ptr<MagicTarget>, second
             .vcall(this.addr(), SLOT_GET_TARGET_STATS_OBJECT, &[])
             .u32();
         let actor = actor_of(this.addr());
-        if actor == 0 || e.call(0x008d_8520, &args![actor]).u32() == 0 {
+        if actor == 0 || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) == 0 {
             return;
         }
     }

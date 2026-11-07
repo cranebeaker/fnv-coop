@@ -62,6 +62,7 @@ const UNHANDLED_OPERATOR: u32 = 0x0103_3fd0;
 
 const MEMCPY: u32 = 0x0040_1460;
 const STRLEN: u32 = 0x0044_a670;
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 const FLOAT_TO_LONG: u32 = 0x00ec_62c0;
 
@@ -141,7 +142,7 @@ impl Operand {
 pub fn expression_set_error(e: &mut Engine, this: Ptr<CExpression>, code: u32) {
     e.set(this, CExpression::m_ExpressionError, code);
     let name = e.mem.u32(ERROR_NAMES.wrapping_add(code.wrapping_mul(4)));
-    e.call(ERROR, &args![PERCENT_S, name]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words PERCENT_S, name);
 }
 
 // Translated from 00593500 (PC disassembly, FalloutNV.exe 1.4.0.525).

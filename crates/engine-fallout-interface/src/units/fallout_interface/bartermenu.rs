@@ -31,7 +31,9 @@ const LIST_BOX_UNREGISTER: u32 = 0x0072_11c0;
 const FREE: u32 = 0x0040_1030;
 /// The list node helpers: `006815c0` (the node's item slot), `00726070` (the next node),
 /// `006ecd40` (sets the next node, `RET 4`), `004702f0` (deletes the node, `RET 4`).
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 const NODE_SET_NEXT: u32 = 0x006e_cd40;
 const NODE_DELETE: u32 = 0x0047_02f0;
@@ -133,7 +135,7 @@ fn static_trait(e: &mut Engine, which: StaticTrait) -> u32 {
 
 /// The item word of a list node, reached through `006815c0` as the code does.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let node = e.call(NODE_SELF, &args![node]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(node)
 }
 
@@ -246,7 +248,7 @@ pub fn list_box_item_change_remove_all(e: &mut Engine, this: Ptr<ListBox>) {
             break;
         }
         let second = e.mem.u32(base + 8);
-        let next = e.call(NODE_NEXT, &args![second]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, second));
         delete_item(e, this, |e| {
             let node = e.mem.u32(base + 8);
             node_item(e, node)
@@ -341,7 +343,7 @@ pub fn list_box_item_change_filter(e: &mut Engine, this: Ptr<ListBox>, filter: u
             e.call(TILE_SET_INT, &args![tile, 0xfacu32, 0xffff_ffffu32]);
             filtered_count += 1;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let num_filtered = e.mem.u32(FILTER_TRAIT.cache);
     let container = e.get(this, ListBox::pContainerRect);
@@ -478,7 +480,7 @@ pub fn fn_007314c0(e: &mut Engine, this: Ptr<ListBox>, callback: u32, start: i32
             let tile = e.mem.u32(item);
             e.call(callback, &args![tile, data]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -605,6 +607,7 @@ const PLAY_MENU_SOUND: u32 = 0x0070_6f30;
 /// `MiddleHighProcess::GetSavedAcquireObject` (`008d8520`; the player's process, by the
 /// engine map's name for the folded code) and `PlayerCharacter::UpdatePlayer3d`
 /// (`00950030`).
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 const UPDATE_PLAYER_3D: u32 = 0x0095_0030;
 /// `TESTopic::GetTopic` (`0061a2d0`, cdecl, two words).
@@ -619,8 +622,10 @@ const SHOW_MESSAGE_BOX: u32 = 0x0070_3e80;
 /// `ExtraDataList::GetOriginalReference` (`00418630`) and the form id getter
 /// `0084e3a0` (`thiscall`).
 const GET_ORIGINAL_REFERENCE: u32 = 0x0041_8630;
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// The first word of an object (`00559450`).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `0x00406d90` (cdecl, one `float`): the `float` as an integer.
 const FLOAT_TO_INT_00406D90: u32 = 0x0040_6d90;
@@ -653,6 +658,7 @@ const LIST_ITEM_COUNT: u32 = 0x0072_6c40;
 /// `ItemChange::ItemChange` (`004bc550`, `RET 8`), `ItemChange::GetItemValue`
 /// (`004bd400`, `ST0`).
 const ITEM_FULL_NAME: u32 = 0x004b_e2d0;
+#[cfg(test)]
 const ITEM_OBJECT: u32 = 0x0044_ddc0;
 const ITEM_CHANGE_CONSTRUCT: u32 = 0x004b_c550;
 const ITEM_GET_VALUE: u32 = 0x004b_d400;
@@ -737,6 +743,7 @@ const LIST_GET_TILE_FOR: u32 = 0x007a_22d0;
 /// `008aded0` (`thiscall` on the player, `RET 0xc`, `actor.cpp`).
 const PLAYER_BARTER_008ADED0: u32 = 0x008a_ded0;
 /// `008256d0` (`thiscall` on a `BSSimpleList`, a `bool`): whether the list is empty.
+#[cfg(test)]
 const LIST_IS_EMPTY_008256D0: u32 = 0x0082_56d0;
 /// `00406ce0` (cdecl, a `float`, `ST0`).
 const VALUE_00406CE0: u32 = 0x0040_6ce0;
@@ -858,10 +865,10 @@ fn walk_item(e: &mut Engine, node: u32) -> u32 {
 /// The extra data list's first item (`[006815c0(00559450(object))]`), or 0 when the
 /// object's first word is null.
 fn first_extra(e: &mut Engine, object: u32) -> u32 {
-    if e.call(FIRST_WORD, &args![object]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object)) == 0 {
         return 0;
     }
-    let list = e.call(FIRST_WORD, &args![object]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
     node_item(e, list)
 }
 
@@ -869,11 +876,11 @@ fn first_extra(e: &mut Engine, object: u32) -> u32 {
 /// time, as the code does.
 fn node_first_extra(e: &mut Engine, node: u32) -> u32 {
     let item = node_item(e, node);
-    if e.call(FIRST_WORD, &args![item]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) == 0 {
         return 0;
     }
     let item = node_item(e, node);
-    let list = e.call(FIRST_WORD, &args![item]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
     node_item(e, list)
 }
 
@@ -953,7 +960,7 @@ fn delete_list_items(e: &mut Engine, mut node: u32) {
         if item != 0 {
             e.call(ITEM_DATA_DELETE, &args![item, 1u32]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -1029,7 +1036,7 @@ pub fn barter_menu_create(e: &mut Engine, vendor: u32, discount: i32) -> u32 {
     }
     if barter_menu(e).addr() != 0 {
         let me = barter_menu(e).addr();
-        if e.call(NODE_NEXT, &args![me]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me)) != 0 {
             let me = barter_menu(e).addr();
             if me != 0 {
                 e.vcall(me, 0, &args![1u32]);
@@ -1159,7 +1166,7 @@ pub fn fn_0072d6d0(e: &mut Engine) {
         return;
     }
     let player = e.global::<u32>(PLAYER);
-    let process = e.call(ACTOR_PROCESS, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     if e.vcall(process, 0x474, &args![1u32]).bool() {
         let player = e.global::<u32>(PLAYER);
         e.call(UPDATE_PLAYER_3D, &args![player]);
@@ -1287,7 +1294,9 @@ pub fn barter_menu_do_click(e: &mut Engine, this: Ptr<BarterMenu>, id: i32, tile
             }
             e.set_global(ITEM_ENTERED_0119FDB0, 0u8);
             let item = e.global::<u32>(BARTER_CURRENT_ITEM);
-            let count = e.call(NODE_NEXT, &args![item]).i32();
+            let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+                .into_ret()
+                .i32();
             let numbered = e.call(TEXT_TO_TRAIT, &args![NUM_BARTERED_TEXT]).u32();
             let value = e.call(TILE_GET_FLOAT, &args![tile, numbered]).f64();
             let bartered = e
@@ -1299,14 +1308,14 @@ pub fn barter_menu_do_click(e: &mut Engine, this: Ptr<BarterMenu>, id: i32, tile
                 let extra = first_extra(e, item);
                 let reference = if extra != 0 {
                     let item = e.global::<u32>(BARTER_CURRENT_ITEM);
-                    let list = e.call(FIRST_WORD, &args![item]).u32();
+                    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                     let first = node_item(e, list);
                     e.call(GET_ORIGINAL_REFERENCE, &args![first]).u32()
                 } else {
                     0
                 };
                 if reference != 0 {
-                    let id = e.call(FORM_ID_0084E3A0, &args![reference]).u32();
+                    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
                     let name = e.vcall(reference, 0x130, &args![]).u32();
                     e.call(CONSOLE_PRINT, &args![ORIGINAL_REFERENCE_FORMAT, name, id]);
                 } else {
@@ -1409,7 +1418,7 @@ fn refresh_group(
                 e.call(ITEM_DATA_DELETE, &args![item, 1u32]);
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(LIST_CLEAR, &args![group]);
 }
@@ -1431,15 +1440,15 @@ fn readd_transaction_items(
     while walk_item(e, node) != 0 {
         let matches = form == 0 || {
             let item = node_item(e, node);
-            e.call(ITEM_OBJECT, &args![item]).u32() == form
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item)) == form
         };
         if matches {
             let block = e.call(OPERATOR_NEW, &args![0xcu32]).u32();
             let change = if block != 0 {
                 let item = node_item(e, node);
-                let count = e.call(NODE_NEXT, &args![item]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
                 let item = node_item(e, node);
-                let object = e.call(ITEM_OBJECT, &args![item]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                 e.call(ITEM_CHANGE_CONSTRUCT, &args![block, object, count])
                     .u32()
             } else {
@@ -1449,7 +1458,7 @@ fn readd_transaction_items(
             e.with_stack(4, |e, local| {
                 e.mem.set_u32(local.addr(), extra);
                 if extra != 0 {
-                    let list = e.call(FIRST_WORD, &args![change]).u32();
+                    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change));
                     e.call(LIST_ADD_005AE3D0, &args![list, local]);
                 }
             });
@@ -1460,7 +1469,7 @@ fn readd_transaction_items(
             let selected = e.global::<u32>(IS_BARTER_SELECTED_TRAIT);
             e.call(TILE_SET_INT, &args![tile, selected, 1u32]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -1618,7 +1627,7 @@ pub fn barter_menu_do_enter(e: &mut Engine, this: Ptr<BarterMenu>, id: i32, tile
             e.vcall(base, 0x14, &args![0x17u32, 0u32]);
             e.vcall(base + other, 0, &args![0u32]);
             let which = e.global::<u32>(IS_CONTAINER_LIST_SELECTED_TRAIT);
-            let menu_tile = e.call(NODE_NEXT, &args![base]).u32();
+            let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base));
             e.call(TILE_SET_INT, &args![menu_tile, which, selected]);
             e.set(this, BarterMenu::plbCurrListbox, base + current);
         }
@@ -1678,9 +1687,9 @@ fn first_pass_inputs(e: &mut Engine, item: u32, object: u32) -> (u32, u32, u32, 
         )
         .u32();
     let typed = |e: &mut Engine, kind: u32| {
-        let found = e.call(ITEM_OBJECT, &args![item]).u32();
+        let found = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         if e.call(FORM_TYPE, &args![found]).u32() == kind {
-            e.call(ITEM_OBJECT, &args![item]).u32()
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
         } else {
             0
         }
@@ -1698,7 +1707,7 @@ fn first_pass_inputs(e: &mut Engine, item: u32, object: u32) -> (u32, u32, u32, 
 /// without a null check, as the code does.
 pub fn barter_menu_player_first_pass_filter_func(e: &mut Engine, item: u32) -> bool {
     let object = if item != 0 {
-        e.call(ITEM_OBJECT, &args![item]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
     } else {
         0
     };
@@ -1760,12 +1769,12 @@ pub fn barter_menu_vendor_first_pass_filter_func(e: &mut Engine, item: u32) -> b
         }
     }
     let object = if item != 0 {
-        e.call(ITEM_OBJECT, &args![item]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
     } else {
         0
     };
     if vendor != 0 {
-        let found = e.call(ITEM_OBJECT, &args![item]).u32();
+        let found = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let kind = e.call(FORM_TYPE, &args![found]).u32();
         match kind {
             0x18 => filtered = vendor_refuses(e, vendor, 2),
@@ -1781,7 +1790,7 @@ pub fn barter_menu_vendor_first_pass_filter_func(e: &mut Engine, item: u32) -> b
                 };
             }
             0x2f => {
-                let found = e.call(ITEM_OBJECT, &args![item]).u32();
+                let found = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                 match e.call(GET_EQUIP_TYPE, &args![found]).u32() {
                     10 => filtered = vendor_refuses(e, vendor, 0x20),
                     11 => filtered = vendor_refuses(e, vendor, 0x40),
@@ -1841,7 +1850,7 @@ pub fn barter_menu_remove_stolen_items(e: &mut Engine, _unused_1: u32, item: u32
         let entry_local = frame.addr() + 8;
         let reference = frame.addr() + 0xc;
         e.call(LIST_CONSTRUCT, &args![list]);
-        let mut node = e.call(FIRST_WORD, &args![item]).u32();
+        let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
         while walk_item(e, node) != 0 {
             let entry = node_item(e, node);
             e.mem.set_u32(entry_local, entry);
@@ -1853,7 +1862,7 @@ pub fn barter_menu_remove_stolen_items(e: &mut Engine, _unused_1: u32, item: u32
                 e.call(REFERENCE_SET_GLOBAL, &args![reference, global]);
                 let rank = e.call(EXTRA_GET_RANK, &args![entry]).u32();
                 e.call(REFERENCE_SET_RANK_00567BD0, &args![reference, rank]);
-                let object = e.call(ITEM_OBJECT, &args![item]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                 e.call(REFERENCE_SET_OBJECT, &args![reference, object]);
                 if e.call(REFERENCE_IS_AN_OWNER, &args![reference, vendor, 1u32])
                     .bool()
@@ -1862,18 +1871,20 @@ pub fn barter_menu_remove_stolen_items(e: &mut Engine, _unused_1: u32, item: u32
                 }
                 e.call(REFERENCE_DESTRUCT, &args![reference]);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let mut node = list;
         while walk_item(e, node) != 0 {
-            let count = e.call(NODE_NEXT, &args![item]).i32();
+            let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+                .into_ret()
+                .i32();
             let entry = node_item(e, node);
             let removed = i32::from(e.call(EXTRA_GET_COUNT, &args![entry]).u16() as i16);
             e.call(NODE_SET_NEXT, &args![item, count.wrapping_sub(removed)]);
-            let slot = e.call(NODE_SELF, &args![node]).u32();
-            let extras = e.call(FIRST_WORD, &args![item]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
+            let extras = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
             e.call(EXTRA_REMOVE_00905330, &args![extras, slot]);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         e.call(LIST_CLEAR, &args![list]);
         e.call(LIST_DESTRUCT, &args![list]);
@@ -1887,9 +1898,9 @@ pub fn barter_menu_remove_stolen_items(e: &mut Engine, _unused_1: u32, item: u32
 /// with 0.1. Returns the value as stored.
 fn sort_side_value(e: &mut Engine, item: u32, value: u32, multiplier: u32, buying: bool) -> u32 {
     let me = barter_menu(e).addr();
-    let found = e.call(ITEM_OBJECT, &args![item]).u32();
+    let found = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     let special = e.call(FORM_TYPE, &args![found]).u32() == 0x6c || {
-        let found = e.call(ITEM_OBJECT, &args![item]).u32();
+        let found = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         e.call(FORM_TYPE, &args![found]).u32() == 0x74
     };
     let scale = if special {
@@ -1924,7 +1935,7 @@ fn sort_side_value(e: &mut Engine, item: u32, value: u32, multiplier: u32, buyin
     if buying {
         e.with_stack(4, |e, local| {
             e.mem.set_u32(local.addr(), value);
-            let found = e.call(ITEM_OBJECT, &args![item]).u32();
+            let found = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             let player = e.global::<u32>(PLAYER);
             e.call(
                 HANDLE_ENTRY_POINT,
@@ -2022,15 +2033,15 @@ pub fn barter_menu_get_transact_item(
     let mut node = list;
     while found == 0 && walk_item(e, node) != 0 {
         let candidate = node_item(e, node);
-        let object = e.call(ITEM_OBJECT, &args![item]).u32();
-        if object == e.call(ITEM_OBJECT, &args![candidate]).u32() {
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
+        if object == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, candidate)) {
             let wanted = first_extra(e, item);
             let extra = first_extra(e, candidate);
             if wanted == extra {
                 found = candidate;
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     found
 }
@@ -2057,13 +2068,18 @@ pub fn barter_menu_init_func(e: &mut Engine, tile: u32, item: u32) {
             transact = barter_menu_get_transact_item(e, me, me.addr() + ITEMS_TO_SELL, item);
         }
         let traded = if transact != 0 {
-            e.call(NODE_NEXT, &args![transact]).i32()
+            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, transact))
+                .into_ret()
+                .i32()
         } else {
             0
         };
-        let count = e.call(NODE_NEXT, &args![item]).i32().wrapping_sub(traded);
+        let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+            .into_ret()
+            .i32()
+            .wrapping_sub(traded);
         let traded = if transact != 0 {
-            e.call(NODE_NEXT, &args![transact]).u32()
+            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, transact))
         } else {
             0
         };
@@ -2071,7 +2087,9 @@ pub fn barter_menu_init_func(e: &mut Engine, tile: u32, item: u32) {
         e.call(TILE_SET_INT, &args![tile, numbered, traded]);
         count
     } else {
-        e.call(NODE_NEXT, &args![item]).i32()
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+            .into_ret()
+            .i32()
     };
     // The frame below `EBP`: the buffer is at `EBP - 0x88`.
     e.with_stack(0x80, |e, buffer| {
@@ -2238,7 +2256,7 @@ pub fn barter_menu_item_select_callback(e: &mut Engine, count: i32) {
     let me = barter_menu(e);
     let vendor_side = u32::from(e.get(me, BarterMenu::plbCurrListbox) == me.addr() + VENDOR_ITEMS);
     let item = e.global::<u32>(BARTER_CURRENT_ITEM);
-    let object = e.call(ITEM_OBJECT, &args![item]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     let player = e.global::<u32>(PLAYER);
     e.call(
         PLAYER_BARTER_008ADED0,
@@ -2253,18 +2271,22 @@ pub fn barter_menu_item_select_callback(e: &mut Engine, count: i32) {
         barter_menu_add_transact_item(e, me, count);
     }
     let item = e.global::<u32>(BARTER_CURRENT_ITEM);
-    let object = e.call(ITEM_OBJECT, &args![item]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     let me = barter_menu(e);
     fn_0072dc30(e, me, object);
     let me = barter_menu(e).addr();
-    let empty = e
-        .call(LIST_IS_EMPTY_008256D0, &args![me + ITEMS_TO_BUY])
-        .bool()
-        && {
-            let me = barter_menu(e).addr();
-            e.call(LIST_IS_EMPTY_008256D0, &args![me + ITEMS_TO_SELL])
-                .bool()
-        };
+    let empty = typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, me + ITEMS_TO_BUY)
+    ) && {
+        let me = barter_menu(e).addr();
+        typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, me + ITEMS_TO_SELL)
+        )
+    };
     let amount_tile = |e: &Engine| barter_tile(e, barter_menu(e), 0xc);
     let trade_tile = |e: &Engine| barter_tile(e, barter_menu(e), 0xd);
     if empty {
@@ -2287,7 +2309,7 @@ pub fn barter_menu_item_select_callback(e: &mut Engine, count: i32) {
     let arrow = if amount(e) > zero { 2u32 } else { 1 };
     let which = e.global::<u32>(ARROW_DIRECTION_TRAIT);
     let me = barter_menu(e).addr();
-    let menu_tile = e.call(NODE_NEXT, &args![me]).u32();
+    let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me));
     e.call(TILE_SET_INT, &args![menu_tile, which, arrow]);
     let vendor_caps = e.get(barter_menu(e), BarterMenu::iVendorCaps);
     let bounded = e.call(BOUND_004A8F20, &args![whole, vendor_caps]).i32();
@@ -2361,7 +2383,10 @@ pub fn barter_menu_add_transact_item(e: &mut Engine, this: Ptr<BarterMenu>, coun
     let entry = barter_menu_get_transact_item(e, this, list, item);
     let _entry_extra = if entry != 0 { first_extra(e, entry) } else { 0 };
     if entry != 0 {
-        let total = e.call(NODE_NEXT, &args![entry]).i32().wrapping_add(count);
+        let total = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+            .into_ret()
+            .i32()
+            .wrapping_add(count);
         e.call(NODE_SET_NEXT, &args![entry, total]);
         return;
     }
@@ -2375,7 +2400,7 @@ pub fn barter_menu_add_transact_item(e: &mut Engine, this: Ptr<BarterMenu>, coun
         let block = e.call(OPERATOR_NEW, &args![0xcu32]).u32();
         let change = if block != 0 {
             let item = e.global::<u32>(BARTER_CURRENT_ITEM);
-            let object = e.call(ITEM_OBJECT, &args![item]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             e.call(ITEM_CHANGE_CONSTRUCT, &args![block, object, count])
                 .u32()
         } else {
@@ -2384,7 +2409,7 @@ pub fn barter_menu_add_transact_item(e: &mut Engine, this: Ptr<BarterMenu>, coun
         e.mem.set_u32(entry_local, change);
         if e.mem.u32(extra_local) != 0 {
             let change = e.mem.u32(entry_local);
-            let extras = e.call(FIRST_WORD, &args![change]).u32();
+            let extras = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, change));
             e.call(LIST_ADD_005AE3D0, &args![extras, extra_local]);
         }
         e.call(LIST_APPEND_00905820, &args![list, entry_local]);
@@ -2403,9 +2428,15 @@ pub fn barter_menu_remove_transact_item(e: &mut Engine, this: Ptr<BarterMenu>, c
     let item = e.global::<u32>(BARTER_CURRENT_ITEM);
     let entry = barter_menu_get_transact_item(e, this, list, item);
     let _entry_extra = first_extra(e, entry);
-    let left = e.call(NODE_NEXT, &args![entry]).i32().wrapping_sub(count);
+    let left = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+        .into_ret()
+        .i32()
+        .wrapping_sub(count);
     if left > 0 {
-        let left = e.call(NODE_NEXT, &args![entry]).i32().wrapping_sub(count);
+        let left = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+            .into_ret()
+            .i32()
+            .wrapping_sub(count);
         e.call(NODE_SET_NEXT, &args![entry, left]);
         return;
     }
@@ -2477,7 +2508,7 @@ fn complete_transaction_body(e: &mut Engine, this: Ptr<BarterMenu>, base: u32) {
         e.get(this, BarterMenu::pVendorRef)
     };
     let player = e.global::<u32>(PLAYER);
-    let process = e.call(ACTOR_PROCESS, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     let weapon = e.vcall(process, 0x14c, &args![]).u32();
     let mut node = base + ITEMS_TO_BUY;
     while walk_item(e, node) != 0 {
@@ -2488,7 +2519,7 @@ fn complete_transaction_body(e: &mut Engine, this: Ptr<BarterMenu>, base: u32) {
             e.call(SET_ACTION_FLAG, &args![vendor, extra, 0x4000u32]);
         }
         let vendor = e.get(this, BarterMenu::pVendorRef);
-        let count = e.call(NODE_NEXT, &args![item]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
         let handler = e.global::<u32>(DATA_HANDLER);
         e.call(
             REMOVE_ITEM_BARTER_CONTAINER,
@@ -2497,7 +2528,7 @@ fn complete_transaction_body(e: &mut Engine, this: Ptr<BarterMenu>, base: u32) {
         if item != 0 {
             e.call(ITEM_DATA_DELETE, &args![item, 1u32]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let mut node = base + ITEMS_TO_SELL;
     while walk_item(e, node) != 0 {
@@ -2507,8 +2538,8 @@ fn complete_transaction_body(e: &mut Engine, this: Ptr<BarterMenu>, base: u32) {
             let player = e.global::<u32>(PLAYER);
             e.call(SET_ACTION_FLAG, &args![player, extra, 0x4000u32]);
         }
-        let count = e.call(NODE_NEXT, &args![item]).u32();
-        let object = e.call(ITEM_OBJECT, &args![item]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let player = e.global::<u32>(PLAYER);
         e.vcall(
             player,
@@ -2518,7 +2549,7 @@ fn complete_transaction_body(e: &mut Engine, this: Ptr<BarterMenu>, base: u32) {
         if item != 0 {
             e.call(ITEM_DATA_DELETE, &args![item, 1u32]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let trade = barter_tile(e, barter_menu(e), 0xd);
     e.call(TILE_SET_INT, &args![trade, 0xfafu32, 0u32]);
@@ -2572,12 +2603,12 @@ fn complete_transaction_body(e: &mut Engine, this: Ptr<BarterMenu>, base: u32) {
     e.call(LIST_CLEAR, &args![base + ITEMS_TO_SELL]);
     e.set(this, BarterMenu::bItemsTraded, 1);
     if weapon != 0 {
-        let object = e.call(ITEM_OBJECT, &args![weapon]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, weapon));
         let player = e.global::<u32>(PLAYER);
         let inventory = e.call(GET_INVENTORY_CHANGES, &args![player]).u32();
         if e.call(GET_OBJECT_COUNT, &args![inventory, object]).u32() == 0 {
             let player = e.global::<u32>(PLAYER);
-            let process = e.call(ACTOR_PROCESS, &args![player]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
             e.vcall(process, 0x168, &args![0u32]);
         }
     }
@@ -2650,7 +2681,7 @@ pub fn barter_menu_filter_mode_func(e: &mut Engine, item: u32) -> bool {
         let argument = argument.addr();
         e.mem.set_u32(argument, item);
         let mut filtered = false;
-        let object = e.call(ITEM_OBJECT, &args![item]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let kind = e.call(FORM_TYPE, &args![object]).u32();
         let me = barter_menu(e).addr();
         let mut tile = e
@@ -2680,7 +2711,9 @@ pub fn barter_menu_filter_mode_func(e: &mut Engine, item: u32) -> bool {
         }
         if tile != 0 && !filtered {
             let item = e.mem.u32(argument);
-            let count = e.call(NODE_NEXT, &args![item]).i32();
+            let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+                .into_ret()
+                .i32();
             let count = f64::from(count);
             let numbered = e.call(TEXT_TO_TRAIT, &args![NUM_BARTERED_TEXT]).u32();
             let bartered = e.call(TILE_GET_FLOAT, &args![tile, numbered]).f64();
@@ -2725,7 +2758,7 @@ pub fn barter_menu_do_idle(e: &mut Engine, this: Ptr<BarterMenu>) {
     }
     let item_kind = |e: &mut Engine| {
         let item = e.global::<u32>(BARTER_CURRENT_ITEM);
-        let object = e.call(ITEM_OBJECT, &args![item]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         e.call(FORM_TYPE, &args![object]).u32()
     };
     if e.global::<u32>(BARTER_CURRENT_ITEM) != 0 && item_kind(e) == 0x28 {
@@ -2746,7 +2779,7 @@ pub fn barter_menu_do_idle(e: &mut Engine, this: Ptr<BarterMenu>) {
             return 0;
         }
         let item = e.global::<u32>(BARTER_CURRENT_ITEM);
-        let object = e.call(ITEM_OBJECT, &args![item]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let value = e.call(getter, &args![object]).f64();
         // FCOMP against 0.0; TEST AH,0x44; JNP: none only when equal.
         if value != zero {
@@ -2851,7 +2884,7 @@ pub fn list_box_item_change_get_highlight_target(
                     let item = node_item(e, node);
                     target = e.mem.u32(item);
                 }
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             if target == 0 || tile_enabled(e, target) {
                 break;

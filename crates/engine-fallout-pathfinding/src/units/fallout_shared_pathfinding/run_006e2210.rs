@@ -80,6 +80,7 @@ pub fn fn_006e2350(e: &mut Engine, this: Ptr, buffer: u32) {
 const PATHING_LOCATION_DEFAULT: u32 = 0x006d_cbb0;
 /// `006815c0` (`thiscall`): returns `this` (the point's trivial
 /// constructor).
+#[cfg(test)]
 const SELF_006815C0: u32 = 0x0068_15c0;
 /// `00864980` (`thiscall` on the load buffer, `RET 8`: destination, size):
 /// reads bytes from the buffer.
@@ -106,7 +107,7 @@ const TES_OBJECT_REFR_TYPE: u32 = 0x0118_41cc;
 pub fn fn_006e2210(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
     e.call(PATHING_LOCATION_DEFAULT, &args![base + 4]);
-    e.call(SELF_006815C0, &args![base + 0x2c]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x2c));
     e.mem.set_u32(base, 0);
     e.mem.set_u32(base + 0x38, 0);
     this

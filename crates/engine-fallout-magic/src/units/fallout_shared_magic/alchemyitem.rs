@@ -68,6 +68,7 @@ const EQUIP_TYPE_SAVE: u32 = 0x0047_9350;
 const FORM_SAVE_DATA: u32 = 0x0048_5e00;
 
 /// `0084e3a0`: the word at `+0xc` of its object (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `00874460` (`RET 4`): stores its argument at `+0xc0` (the setter that
 /// goes with `004030b0`).
@@ -231,7 +232,7 @@ pub fn fn_00402f90(e: &mut Engine, this: Ptr) {
         0
     } else {
         let item = fn_004030b0(e, object);
-        e.call(FORM_ID, &args![item]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item))
     };
     e.call(SET_ADDICTION_ITEM, &args![object, addiction_id]);
     let consumption_sound = e.call(GET_CONSUMPTION_SOUND, &args![object]).u32();
@@ -239,7 +240,7 @@ pub fn fn_00402f90(e: &mut Engine, this: Ptr) {
         0
     } else {
         let sound = e.call(GET_CONSUMPTION_SOUND, &args![object]).u32();
-        e.call(FORM_ID, &args![sound]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound))
     };
     fn_004030d0(e, object, Ptr::new(sound_id));
     if e.call(ENDIAN_SWAP_ON_SAVE, &[]).bool() {
@@ -291,7 +292,7 @@ fn resolve_reference(e: &mut Engine, this: Ptr<AlchemyItem>, id: Ptr, target: u3
 /// resolve: the format, the id, the object's type name (virtual slot 0x130)
 /// and the object's form id.
 fn log_missing_reference(e: &mut Engine, this: Ptr<AlchemyItem>, format: u32, id: u32) {
-    let form_id = e.call(FORM_ID, &args![this]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let name = e.vcall(this.addr(), 0x130, &[]).u32();
     e.call(LOG_MESSAGE, &args![format, id, name, form_id]);
 }

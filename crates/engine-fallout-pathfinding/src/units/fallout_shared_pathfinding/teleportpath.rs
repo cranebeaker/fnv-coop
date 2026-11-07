@@ -57,6 +57,7 @@ const SPACES_INITIALIZE: u32 = 0x006b_3f40;
 /// arrays' destructors and by `TeleportPath::Clear`.
 const ARRAY_008454F0: u32 = 0x0084_54f0;
 /// `006815c0` (thiscall, no stack words): the `NiPoint3` constructor.
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
 /// `006dbcf0` (thiscall `(array, buffer, count)`, `RET 8`): constructs
 /// `count` `TeleportLink`s in `buffer`.
@@ -72,6 +73,7 @@ const FN_0069CFE0: u32 = 0x0069_cfe0;
 /// `0076b610` (thiscall): whether the array is empty (`iSize == 0`).
 const IS_EMPTY: u32 = 0x0076_b610;
 /// `0044ddc0` (thiscall): the array's `iSize`.
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `00558dd0` (thiscall `(array, index)`, `RET 4`): the address of a
 /// 0x10-byte element.
@@ -99,8 +101,16 @@ const NO_PATH_LENGTH: u32 = 0x0101_2054;
 pub fn teleport_path_teleport_path(e: &mut Engine, this: Ptr<TeleportPath>) -> Ptr<TeleportPath> {
     fn_006f4b10(e, this.at(TeleportPath::Spaces));
     fn_006f4b60(e, this.at(TeleportPath::Doors));
-    e.call(POINT_CONSTRUCT, &args![this.at(TeleportPath::Start)]);
-    e.call(POINT_CONSTRUCT, &args![this.at(TeleportPath::End)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.at(TeleportPath::Start))
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.at(TeleportPath::End))
+    );
     this
 }
 
@@ -153,7 +163,7 @@ pub fn teleport_path_compute_length(e: &mut Engine, this: Ptr<TeleportPath>) -> 
         let length = distance(e, position, start, locals.byte_add(0xc));
         total = (length + total as f64) as f32;
         let mut i = 1u32;
-        while i < e.call(ARRAY_SIZE, &args![doors]).u32() {
+        while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, doors)) {
             let link = e.call(ELEMENT_AT, &args![doors, i]).u32();
             let door = e.mem.u32(link);
             let previous = e.call(ELEMENT_AT, &args![doors, i - 1]).u32();

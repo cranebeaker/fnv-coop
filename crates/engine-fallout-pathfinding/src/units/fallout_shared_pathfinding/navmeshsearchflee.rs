@@ -44,6 +44,7 @@ const AVOID_NODE_CENTER: u32 = 0x2070;
 const GOAL_LOCATION: u32 = 0x2084;
 
 /// `0084e3a0(form)`: the form's id (the word at `+0xC`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `NavMesh::GetCenter` (`00558220`, map name; thiscall `(mesh, out,
 /// triangle)`): writes the triangle's centre.
@@ -123,6 +124,7 @@ const DOOR_LOCK_CAN_UNLOCK: u32 = 0x0050_2450;
 /// `006c9900(request)`: the address of the request's lock data.
 const REQUEST_LOCK_DATA: u32 = 0x006c_9900;
 /// `007af430(door)`: the door's base form.
+#[cfg(test)]
 const DOOR_BASE_FORM: u32 = 0x007a_f430;
 /// `TESObjectDOOR::IsMinimalUse` (`00518000`, map name).
 const IS_MINIMAL_USE: u32 = 0x0051_8000;
@@ -140,6 +142,7 @@ const FLAT_LENGTH: u32 = 0x0058_9850;
 /// &point)`), in ST0.
 const AVOID_COST_FOR_POINT: u32 = 0x006d_c990;
 /// `NiPoint3::Dot` (`004b6190`, map name), in ST0.
+#[cfg(test)]
 const DOT: u32 = 0x004b_6190;
 /// The double `1000000.0` weighting the direction penalty.
 const DIRECTION_WEIGHT: u32 = 0x0106_b798;
@@ -155,6 +158,7 @@ const LIST_ADD: u32 = 0x007c_b2e0;
 /// its pointer.
 const HOLDER_CONSTRUCT: u32 = 0x0042_fb00;
 const HOLDER_DESTRUCT: u32 = 0x0042_fa40;
+#[cfg(test)]
 const HOLDER_GET: u32 = 0x0055_9450;
 /// `PathingLocation::GetNavMeshAndTriangle` (`006dd640`, map name;
 /// `(location, &mesh holder, &triangle)`).
@@ -270,7 +274,7 @@ pub fn nav_mesh_search_flee_build_node_path(
 /// the navmesh's form id (`0084e3a0`) above the triangle index. `this` (a
 /// search) is not read. `RET 8`.
 pub fn fn_006a94f0(e: &mut Engine, _this: Ptr, mesh: Ptr, triangle: u16) -> u32 {
-    let id = e.call(FORM_ID, &args![mesh]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, mesh));
     ((id & 0xffff) << 16) | u32::from(triangle)
 }
 
@@ -405,7 +409,7 @@ fn door_cost(e: &mut Engine, request: Ptr, mesh: u32, triangle: u32, l: &Locals)
         e.call(DOOR_LOCK_DESTRUCT, &args![l.lock]);
         return None;
     }
-    let base = e.call(DOOR_BASE_FORM, &args![door]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, door));
     if e.call(IS_MINIMAL_USE, &args![base]).bool() {
         cost = x87_quiet(e.global::<f32>(MINIMAL_USE_DOOR_COST));
     }
@@ -471,7 +475,11 @@ fn expand_edge(
         total = (avoid_cost + f64::from(total)) as f32;
         copy_words(e, l.unit, l.offset, 3);
         e.call(NORMALIZE, &args![l.unit]);
-        let along = e.call(DOT, &args![l.unit, l.direction]).f32();
+        let along = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, l.unit, l.direction)
+        );
         let penalty = e.call(MAX, &args![0.0f32, along]).f32();
         let weight = e.global::<f64>(DIRECTION_WEIGHT);
         total = (f64::from(penalty) * weight + f64::from(total)) as f32;
@@ -614,7 +622,7 @@ pub fn nav_mesh_search_flee_is_goal_node(
                 .bool();
             if located {
                 let data = e.call(NODE_DATA, &args![node]).u32();
-                let mesh = e.call(HOLDER_GET, &args![holder]).u32();
+                let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                 if e.mem.u32(data) == mesh && e.mem.u16(data + 4) == e.mem.u16(triangle) {
                     e.call(HOLDER_DESTRUCT, &args![holder]);
                     return true;

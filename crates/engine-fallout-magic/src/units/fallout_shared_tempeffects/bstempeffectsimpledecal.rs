@@ -133,6 +133,7 @@ const SOURCE_FILE_NAME: u32 = 0x0106_9ea0;
 // ---- callees (identified by their bodies unless marked) ------------------
 
 /// `NiPointer` slot reader: returns the word at `this`.
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer::operator=(T*)`: releases the old, stores, adds a reference.
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
@@ -143,6 +144,7 @@ const NI_POINTER_RELEASE: u32 = 0x0045_cec0;
 /// Empty constructor: returns `this`.
 const EMPTY_CONSTRUCTOR: u32 = 0x0068_15c0;
 /// Constructor storing three floats (`NiPoint3`, also `NiColor`).
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// Constructor storing four floats (`NiColorA`).
 const COLOR4_CONSTRUCT: u32 = 0x0041_4430;
@@ -164,6 +166,7 @@ const POINT3_SCALE: u32 = 0x0045_bb20;
 /// `a x b`: `this = a`, then `(result, b)`; returns `result`.
 const POINT3_CROSS: u32 = 0x004b_3800;
 /// Dot product: `this = a`, then `(b)`, result in `ST0`.
+#[cfg(test)]
 const POINT3_DOT: u32 = 0x004b_6190;
 /// Length of `this`, result in `ST0`.
 const POINT3_LENGTH: u32 = 0x0045_7990;
@@ -189,11 +192,10 @@ const ROTATION_Z_TO_VECTOR_TRANSPOSE: u32 = 0x00c4_b8a0;
 /// Copies row `index` of a matrix: `this`, then `(index, result)`.
 const MATRIX_GET_ROW: u32 = 0x0047_6930;
 /// `this = plane`, then `(point)`: 0 on the plane, 1 in front, 2 behind.
+#[cfg(test)]
 const PLANE_SIDE: u32 = 0x0049_da80;
 /// The constant of a plane (`this + 0xC`), result in `ST0`.
 const PLANE_CONSTANT: u32 = 0x0084_d030;
-/// `this` and nothing else (a getter for the normal at the plane's start).
-const PLANE_NORMAL: u32 = 0x0068_15c0;
 /// Writes a formatted line (`cdecl`, variable arguments).
 const PRINT_LINE: u32 = 0x005b_5e40;
 /// Reads the byte setting at `this + 4`, or a zero byte when `this` is null.
@@ -543,7 +545,9 @@ type Decal = BSTempEffectSimpleDecal;
 
 /// The `NiPointer` slot at `slot`: the pointer it holds.
 fn ni_pointer_get(e: &mut Engine, slot: u32) -> Ptr {
-    e.call(NI_POINTER_GET, &args![slot]).ptr()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
+        .into_ret()
+        .ptr()
 }
 
 fn ni_pointer_assign(e: &mut Engine, slot: u32, value: Ptr) {
@@ -551,7 +555,7 @@ fn ni_pointer_assign(e: &mut Engine, slot: u32, value: Ptr) {
 }
 
 fn construct_empty(e: &mut Engine, object: u32) {
-    e.call(EMPTY_CONSTRUCTOR, &args![object]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, object));
 }
 
 /// Copies `words` 32-bit words (the `MOVSD` and register copies of the code).
@@ -675,9 +679,10 @@ pub fn fn_0068ad20(
         NI_POINTER_CONSTRUCT,
         &args![t + Decal::spTargetNode.off, 0u32],
     );
-    e.call(
-        POINT3_CONSTRUCT,
-        &args![t + Decal::fVertexColor.off, 0.0f32, 0.0f32, 0.0f32],
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, t + Decal::fVertexColor.off, 0.0f32, 0.0f32, 0.0f32)
     );
     e.set(this, Decal::bFinished, false);
     e.set(this, Decal::bValidDecal, false);
@@ -844,14 +849,14 @@ pub fn bstempeffectsimpledecal_clean_up_memory(e: &mut Engine, this: Ptr<Decal>)
     }
     let map = t + Decal::pNewIndexMap.off;
     let mut i = 0u32;
-    while i < e.call(ARRAY_SIZE, &args![map]).u32() {
-        let slot = e.call(ARRAY_ELEMENT, &args![map, i]).u32();
+    while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, map)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, map, i));
         let vertex = e.mem.u32(slot);
         if vertex != 0 {
             // The vertex's scalar deleting destructor, flag 1 (delete).
             e.call(DECAL_VERTEX_DELETE, &args![vertex, 1u32]);
         }
-        let slot = e.call(ARRAY_ELEMENT, &args![map, i]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, map, i));
         e.mem.set_u32(slot, 0);
         i += 1;
     }
@@ -859,8 +864,10 @@ pub fn bstempeffectsimpledecal_clean_up_memory(e: &mut Engine, this: Ptr<Decal>)
 }
 
 /// Number of elements of a `BSSimpleArray` (`this + 8`).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// Address of element `index` of a `BSSimpleArray` (`this`, then `(index)`).
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// Scalar deleting destructor of a `DecalVertex`: `this`, then `(flags)`.
 const DECAL_VERTEX_DELETE: u32 = 0x007b_3fa0;
@@ -1038,22 +1045,38 @@ pub fn bstempeffectsimpledecal_process_geometry(
     );
     let planes = t + Decal::pClippingPlanes.off;
 
-    let along_u = e.call(POINT3_DOT, &args![center_address, axis_u]).f64() as f32;
+    let along_u = typed_call!(
+        leaf::FAMILY,
+        0x004b_6190,
+        leaf::point3_dot(e, center_address, axis_u)
+    )
+    .into_ret()
+    .f64() as f32;
     let left = (-(width as f64 * half - along_u as f64)) as f32;
     store_plane(e, plane_scratch, planes, [ux, uy, uz], left);
     let right = (-(width as f64 * half + along_u as f64)) as f32;
     store_plane(e, plane_scratch, planes + 0x10, [-ux, -uy, -uz], right);
 
-    let along_v = e.call(POINT3_DOT, &args![center_address, axis_v]).f64() as f32;
+    let along_v = typed_call!(
+        leaf::FAMILY,
+        0x004b_6190,
+        leaf::point3_dot(e, center_address, axis_v)
+    )
+    .into_ret()
+    .f64() as f32;
     let bottom = (-(height as f64 * half - along_v as f64)) as f32;
     store_plane(e, plane_scratch, planes + 0x20, [vx, vy, vz], bottom);
     let top = (-(height as f64 * half + along_v as f64)) as f32;
     store_plane(e, plane_scratch, planes + 0x30, [-vx, -vy, -vz], top);
 
     let normal_address = t + Decal::pDecalNormal.off;
-    let along_normal = e
-        .call(POINT3_DOT, &args![center_address, normal_address])
-        .f64() as f32;
+    let along_normal = typed_call!(
+        leaf::FAMILY,
+        0x004b_6190,
+        leaf::point3_dot(e, center_address, normal_address)
+    )
+    .into_ret()
+    .f64() as f32;
     let (dx, dy, dz) = (
         e.mem.f32(normal_address),
         e.mem.f32(normal_address + 4),
@@ -1092,9 +1115,21 @@ pub fn bstempeffectsimpledecal_process_geometry(
             POINT3_SUBTRACT,
             &args![vertices + 12 * i as u32, offset, center_address],
         );
-        let dot_u = e.call(POINT3_DOT, &args![offset, axis_u]).f64();
+        let dot_u = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, offset, axis_u)
+        )
+        .into_ret()
+        .f64();
         let mut u = (dot_u * inverse_width as f64 + half) as f32;
-        let dot_v = e.call(POINT3_DOT, &args![offset, axis_v]).f64();
+        let dot_v = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, offset, axis_v)
+        )
+        .into_ret()
+        .f64();
         let sub_texture = e.get(this, Decal::cSubTexture);
         let two: f64 = e.global(TWO);
         u = (u as f64 / two) as f32;
@@ -1146,9 +1181,10 @@ pub fn bstempeffectsimpledecal_process_geometry(
 fn store_plane(e: &mut Engine, scratch: u32, destination: u32, normal: [f32; 3], constant: f32) {
     let point = scratch;
     let plane = scratch + 0x10;
-    e.call(
-        POINT3_CONSTRUCT,
-        &args![point, normal[0], normal[1], normal[2]],
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, point, normal[0], normal[1], normal[2])
     );
     let result = e
         .call(PLANE_CONSTRUCT, &args![plane, point, constant])
@@ -1321,8 +1357,8 @@ pub fn bstempeffectsimpledecal_finalize_geometry(e: &mut Engine, this: Ptr<Decal
             let count = e.global::<i32>(LISTED_DECAL_COUNT).wrapping_add(1);
             e.set_global(LISTED_DECAL_COUNT, count);
             if count > e.global::<i32>(MAX_DECAL_COUNT) {
-                let list = e.call(EMPTY_CONSTRUCTOR, &args![DECAL_LIST]).u32();
-                let oldest = e.call(NI_POINTER_GET, &args![list]).u32();
+                let list = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, DECAL_LIST));
+                let oldest = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
                 e.call(ADD_TEMP_EFFECT, &args![PROCESS_LISTS, oldest]);
                 e.call(LIST_REMOVE_HEAD, &args![DECAL_LIST]);
                 let count = e.global::<i32>(LISTED_DECAL_COUNT).wrapping_sub(1);
@@ -1610,14 +1646,15 @@ pub fn fn_0068cb60(
             let map = t + Decal::pNewIndexMap.off;
             let mut found = -1i32;
             let mut k = 0u32;
-            while k < e.call(ARRAY_SIZE, &args![map]).u32() {
+            while k < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, map)) {
                 let weld = e.global::<f32>(WELD_DISTANCE);
-                let slot = e.call(ARRAY_ELEMENT, &args![map, k]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, map, k));
                 let existing = e.mem.u32(slot);
                 if e.call(POINTS_NEARLY_EQUAL, &args![source_vertex, existing, weld])
                     .bool()
                 {
-                    let slot = e.call(ARRAY_ELEMENT, &args![map, k]).u32();
+                    let slot =
+                        typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, map, k));
                     let existing = e.mem.u32(slot);
                     found = e.mem.i16(existing + 0xc) as i32;
                     break;
@@ -1706,9 +1743,13 @@ fn add_vertex_data(
     copy_words(e, stored, source_normal, 3);
     let local = e.mem.alloc(12);
     copy_words(e, local, stored, 3);
-    let dot = e
-        .call(POINT3_DOT, &args![t + Decal::pDecalNormal.off, local])
-        .f64();
+    let dot = typed_call!(
+        leaf::FAMILY,
+        0x004b_6190,
+        leaf::point3_dot(e, t + Decal::pDecalNormal.off, local)
+    )
+    .into_ret()
+    .f64();
     let length = e.call(POINT3_LENGTH, &args![local]).f64();
     let alpha = (((dot / length) - limit as f64) * reciprocal as f64) as f32;
     e.mem.free(local);
@@ -1786,9 +1827,13 @@ pub fn bstempeffectsimpledecal_clip_mesh(e: &mut Engine, this: Ptr<Decal>, geome
             e.call(POINT3_SUBTRACT, &args![point_b, edge_first, point_a]);
             e.call(POINT3_SUBTRACT, &args![point_c, edge_second, point_a]);
             e.call(POINT3_CROSS, &args![edge_first, cross, edge_second]);
-            let facing = e
-                .call(POINT3_DOT, &args![t + Decal::pDecalNormal.off, cross])
-                .f64();
+            let facing = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, t + Decal::pDecalNormal.off, cross)
+            )
+            .into_ret()
+            .f64();
             let length = e.call(POINT3_LENGTH, &args![cross]).f64();
             let limit = e.global::<f32>(CLIP_ANGLE_LIMIT);
             if length * (limit as f64) < facing {
@@ -1977,12 +2022,13 @@ pub fn bstempeffectsimpledecal_clip_polygon_against_plane(
     let mut behind = vec![false; count.max(0) as usize];
     let mut behind_count = 0;
     for (i, flag) in behind.iter_mut().enumerate() {
-        let side = e
-            .call(
-                PLANE_SIDE,
-                &args![plane, vertices_in.addr() + 12 * i as u32],
-            )
-            .i32();
+        let side = typed_call!(
+            leaf::FAMILY,
+            0x0049_da80,
+            leaf::plane_side(e, plane, vertices_in.addr() + 12 * i as u32)
+        )
+        .into_ret()
+        .i32();
         if side == 2 {
             *flag = true;
             behind_count += 1;
@@ -2075,14 +2121,24 @@ fn add_crossing_point(
         &args![inside_point, difference, outside_point],
     );
     let normal_holder = frame.take(12);
-    let normal_source = e.call(PLANE_NORMAL, &args![plane]).u32();
+    let normal_source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, plane));
     copy_words(e, normal_holder, normal_source, 3);
-    let along_inside = e
-        .call(POINT3_DOT, &args![normal_holder, inside_point])
-        .f64();
+    let along_inside = typed_call!(
+        leaf::FAMILY,
+        0x004b_6190,
+        leaf::point3_dot(e, normal_holder, inside_point)
+    )
+    .into_ret()
+    .f64();
     let constant = e.call(PLANE_CONSTANT, &args![plane]).f64();
     let numerator = -constant + along_inside;
-    let along_difference = e.call(POINT3_DOT, &args![normal_holder, difference]).f64();
+    let along_difference = typed_call!(
+        leaf::FAMILY,
+        0x004b_6190,
+        leaf::point3_dot(e, normal_holder, difference)
+    )
+    .into_ret()
+    .f64();
     let mut t = (numerator / along_difference) as f32;
     if tolerant {
         let tolerance: f64 = e.global(CLIP_PARAMETER_TOLERANCE);

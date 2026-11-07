@@ -178,6 +178,7 @@ const MEMORY_SET: u32 = 0x00ec_61c0;
 const FILE_ACCESS: u32 = 0x00ec_bf05;
 const FILE_RENAME: u32 = 0x00ec_862c;
 /// Returns its `this` unchanged.
+#[cfg(test)]
 const THIS_IDENTITY: u32 = 0x0068_15c0;
 /// `BSString` constructor, destructor, assignment `(this, text, 0)`, length
 /// and character-data accessors.
@@ -185,6 +186,7 @@ const BSSTRING_CONSTRUCT: u32 = 0x0040_37b0;
 const BSSTRING_DESTRUCT: u32 = 0x0040_37d0;
 const BSSTRING_SET: u32 = 0x0040_37f0;
 const BSSTRING_LENGTH: u32 = 0x0040_48e0;
+#[cfg(test)]
 const BSSTRING_DATA: u32 = 0x0055_9450;
 /// Windows imports, by their import slot.
 const DELETE_FILE: u32 = 0x00fd_f0d4;
@@ -219,6 +221,7 @@ const FILE_ENTRY_COMPARE: u32 = 0x0084_fbe0;
 /// List helpers: sort, next node, clear, delete, construct, remove, add at
 /// the head, count.
 const LIST_SORT: u32 = 0x0083_fd60;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 const LIST_CLEAR: u32 = 0x0047_0470;
 const LIST_DELETE: u32 = 0x0047_02f0;
@@ -272,6 +275,7 @@ const PLAY_TIME_MS: u32 = 0x0085_1cb0;
 const FRAME_SECONDS: u32 = 0x0045_3850;
 const SKY_UPDATE: u32 = 0x0063_ac70;
 /// Returns the object `Sky::Update` runs on, for the world object.
+#[cfg(test)]
 const SKY_OWNER: u32 = 0x008d_8520;
 /// The singleton accessors of the path manager and the audio system.
 const PATH_MANAGER: u32 = 0x0047_d0b0;
@@ -307,6 +311,7 @@ const DIRECTORY_FILE_NAME: u32 = 0x0043_6aa0;
 /// `(this, buffer, size_low, size_high, &bytes_read)`.
 const FILE_CONSTRUCT: u32 = 0x00b0_0900;
 const FILE_DESTRUCT: u32 = 0x00b0_0950;
+#[cfg(test)]
 const FILE_OPEN_RESULT: u32 = 0x0055_9450;
 const FILE_GET_SIZE: u32 = 0x0065_c290;
 const FILE_READ: u32 = 0x0085_26d0;
@@ -507,7 +512,7 @@ pub fn bgssaveloadmanager_close_save_file(
         let older = final_name + PATH_SIZE;
         let newer = older + PATH_SIZE;
 
-        let path = e.call(THIS_IDENTITY, &args![file]).u32();
+        let path = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, file));
         copy_string(e, file_name, PATH_SIZE, path);
         if !file.is_null() {
             fn_00850330(e, file, 1);
@@ -835,7 +840,7 @@ pub fn fn_008509f0(e: &mut Engine, this: Ptr<BGSSaveLoadManager>) -> bool {
 fn update_sky_for_save(e: &mut Engine) {
     let seconds = e.call(FRAME_SECONDS, &args![]).f32();
     let world = e.global::<u32>(WORLD);
-    let owner = e.call(SKY_OWNER, &args![world]).u32();
+    let owner = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, world));
     e.call(SKY_UPDATE, &args![owner, seconds]);
 }
 
@@ -991,7 +996,7 @@ pub fn fn_00850d60(e: &mut Engine, _unused_this: Ptr<BGSSaveLoadManager>) {
     let world = e.global::<u32>(WORLD);
     e.call(0x0045_9a00, &args![world]);
     e.call(0x0048_3710, &args![main]);
-    let grid = e.call(0x0044_ddc0, &args![world]).u32();
+    let grid = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, world));
     e.call(0x004b_a8d0, &args![grid]);
     e.call(0x009c_a410, &args![VATS]);
 
@@ -1291,7 +1296,7 @@ pub fn fn_00851330(e: &mut Engine, this: Ptr<BGSSaveLoadManager>) {
         e.call(FIND_CLOSE, &args![handle]);
         let list = e.get(this, BGSSaveLoadManager::pSaveGameList);
         e.call(LIST_SORT, &args![list, FILE_ENTRY_COMPARE]);
-        let head = e.call(THIS_IDENTITY, &args![list]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let first = e.mem.u32(head);
         if first != 0 && e.get(this, BGSSaveLoadManager::iCurrentSaveGameNumber) <= 1 {
             let number = e.call(FILE_ENTRY_SAVE_NUMBER, &args![first]).u32();
@@ -1316,12 +1321,12 @@ pub fn fn_00851330(e: &mut Engine, this: Ptr<BGSSaveLoadManager>) {
 pub fn fn_00851540(e: &mut Engine, this: Ptr<BGSSaveLoadManager>) {
     let mut node = e.get(this, BGSSaveLoadManager::pSaveGameList).addr();
     while node != 0 {
-        let head = e.call(THIS_IDENTITY, &args![node]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(head);
         if entry != 0 {
             fn_008515f0(e, Ptr::new(entry), 1);
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let list = e.get(this, BGSSaveLoadManager::pSaveGameList);
     if !list.is_null() {
@@ -1579,9 +1584,9 @@ pub fn bgssaveloadmanager_get_player_location_name(
         e.call(BSSTRING_CONSTRUCT, &args![text]);
         let player = e.global::<u32>(PLAYER);
         e.call(PLAYER_LOCATION_NAME, &args![player, text]);
-        let data = e.call(BSSTRING_DATA, &args![text]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         if data != 0 {
-            let data = e.call(BSSTRING_DATA, &args![text]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             copy_string(e, buffer.addr(), PATH_SIZE, data);
         } else {
             copy_string(e, buffer.addr(), PATH_SIZE, EMPTY_STRING);
@@ -1854,7 +1859,7 @@ pub fn bgssaveloadmanager_copy_save_games(
                 &args![path, PATH_SIZE, COPY_PATH_FORMAT, folder, name],
             );
             e.call(FILE_CONSTRUCT, &args![file, path, 0u32, 0u32, 0u32]);
-            if e.call(FILE_OPEN_RESULT, &args![file]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, file)) != 0 {
                 e.call(DEBUG_PRINT, &args![COPY_OPEN_FAILED, path]);
             } else {
                 let places = CopyPlaces {
@@ -1918,7 +1923,7 @@ fn copy_one_save(e: &mut Engine, this: Ptr<BGSSaveLoadManager>, at: &CopyPlaces)
         FILE_READ,
         &args![file, data, size_low, size_high, bytes_read],
     );
-    if e.call(FILE_OPEN_RESULT, &args![file]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, file)) != 0 {
         e.call(DEBUG_PRINT, &args![COPY_READ_FAILED, path]);
         return;
     }

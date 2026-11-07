@@ -69,6 +69,7 @@ const SCRIPT_LOCALS_DESTRUCTOR: u32 = 0x005a_8bc0;
 /// `TESObjectCELL::GetWorldSpace` (Xbox PDB).
 const CELL_GET_WORLD_SPACE: u32 = 0x0054_ddd0;
 /// The form id getter (`MOV EAX,[ECX+0x0C]`, `TESForm::iFormID`).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// The diagnostic logger (`cdecl`, format first; the PC build's body returns
 /// 0 and prints nothing).
@@ -240,6 +241,7 @@ const EXTRA_DATA_BASE_DESTRUCTOR: u32 = 0x0043_2f30;
 /// pointer.
 const NI_POINTER_INIT: u32 = 0x0063_3c90;
 const NI_POINTER_DESTROY: u32 = 0x0045_cec0;
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const NI_POINTER_EQUALS: u32 = 0x0082_2510;
@@ -491,11 +493,15 @@ fn get_ni_pointer_extra(
 ) -> u32 {
     let extra = find_extra(e, list, extra_type);
     if !extra.is_null() {
-        return e.call(NI_POINTER_GET, &args![extra.addr() + offset]).u32();
+        return typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, extra.addr() + offset)
+        );
     }
     e.with_stack(4, |e, temporary| {
         e.call(NI_POINTER_INIT, &args![temporary, 0u32]);
-        let value = e.call(NI_POINTER_GET, &args![temporary]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, temporary));
         e.call(NI_POINTER_DESTROY, &args![temporary]);
         value
     })
@@ -860,7 +866,7 @@ pub fn extra_data_list_set_starting_world_or_cell_for_ref(
             fn_0041b1e0(e, this, cell);
         }
     } else {
-        let form_id = e.call(GET_FORM_ID, &args![reference]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         let name = e
             .vcall(reference.addr(), REFERENCE_NAME_SLOT, &args![])
             .u32();
@@ -1450,7 +1456,11 @@ pub fn fn_0041c580(e: &mut Engine, this: Ptr<ExtraDataList>, mask_out: Ptr, rect
     if extra.is_null() {
         return 0;
     }
-    let mask = e.call(NI_POINTER_GET, &args![extra.addr() + 0x10]).u32();
+    let mask = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, extra.addr() + 0x10)
+    );
     e.mem.set_u32(mask_out.addr(), mask);
     e.mem.set_u32(rect_out.addr(), extra.addr() + 0x14);
     e.mem.u32(extra.addr() + 0x0c)
@@ -1519,7 +1529,11 @@ pub fn fn_0041c7c0(e: &mut Engine, this: Ptr<ExtraDataList>) -> u32 {
     if extra.is_null() {
         0
     } else {
-        e.call(NI_POINTER_GET, &args![extra.addr() + 0x0c]).u32()
+        typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, extra.addr() + 0x0c)
+        )
     }
 }
 
@@ -1881,14 +1895,14 @@ pub fn extra_data_list_remove_player_crime_list_extra(
     if e.mem.u32(extra.addr() + 0x0c) != 0 {
         let mut node = e.mem.u32(extra.addr() + 0x0c);
         while node != 0 {
-            let slot = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 {
                 break;
             }
-            let slot = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let crime = e.mem.u32(slot);
             e.call(CRIME_REMOVE_ENTRY, &args![crime, value]);
-            node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let crimes = e.mem.u32(extra.addr() + 0x0c);
         e.call(SIMPLE_LIST_FREE_NODES, &args![crimes]);
@@ -2131,24 +2145,25 @@ pub fn fn_0041d7b0(e: &mut Engine, this: Ptr<ExtraDataList>, flag: i8) {
     let extra: Ptr<ExtraRunOncePacks> = extra.cast();
     let mut node = e.get(extra, ExtraRunOncePacks::pPackageList).addr();
     while node != 0 {
-        let slot = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(slot);
         let mut expired = false;
         if entry != 0 && e.mem.u32(entry) != 0 {
             let package = e.mem.u32(entry);
             let time_stamp = fn_0041d8a0(e, Ptr::new(package)).addr();
             let high_byte = e.call(TIME_STAMP_BYTE, &args![time_stamp]).u8() as i8 as i32;
-            let word = e.call(SIMPLE_LIST_NEXT, &args![time_stamp]).u32() as i32;
+            let word =
+                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, time_stamp)) as i32;
             if high_byte.wrapping_add(word) >= 0x15 {
                 expired = true;
             }
         }
         if e.mem.u8(entry + 4) as i8 == flag && !expired {
-            node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         } else {
             let packages = e.get(extra, ExtraRunOncePacks::pPackageList).addr();
             let entry = e.with_stack(4, |e, local| {
@@ -2189,16 +2204,16 @@ pub fn extra_data_list_is_in_run_once_day_package_list(
         )
         .addr();
     while node != 0 {
-        let slot = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(SIMPLE_LIST_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(slot);
         if e.mem.u32(entry) == package {
             return true;
         }
-        node = e.call(SIMPLE_LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }

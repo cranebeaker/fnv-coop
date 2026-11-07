@@ -142,23 +142,23 @@ pub fn fn_00595560(e: &mut Engine, _this: Ptr, list: Ptr) -> u32 {
     if node == 0 {
         return 0;
     }
-    let slot = e.call(0x0068_15c0, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     if e.mem.u32(slot) == 0 {
         return 0;
     }
     e.with_stack(4, |e, picked| {
         while node != 0 {
-            let slot = e.call(0x0068_15c0, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 {
                 break;
             }
             let roll = e.call(0x0094_4460, &args![0u32, 4u32]).u32();
             if roll == 0 || e.mem.u32(picked.addr()) == 0 {
-                let slot = e.call(0x0068_15c0, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(slot);
                 e.mem.set_u32(picked.addr(), item);
             }
-            node = e.call(0x0072_6070, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         if e.mem.u32(picked.addr()) != 0 {
             e.call(0x0090_5330, &args![list, picked]);
@@ -277,8 +277,8 @@ pub fn fn_00595600(e: &mut Engine, this: Ptr, flag: u8) -> u8 {
     let had_members = e.mem.u32(base + 0x44) != 0;
     e.mem.set_u32(base + 0x44, 0);
     e.mem.set_u32(base + 0x40, 0);
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let slot = e.call(0x0068_15c0, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(slot);
         if entry != 0 && e.mem.u32(entry) != 0 {
             let faction = e.mem.u32(base + 0x60);
@@ -296,7 +296,7 @@ pub fn fn_00595600(e: &mut Engine, this: Ptr, flag: u8) -> u8 {
                 e.mem.set_u32(base + 0x40, count.wrapping_add(1));
             }
         }
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 
     let mut members_changed = had_members != (e.mem.u32(base + 0x44) != 0);
@@ -427,7 +427,7 @@ pub fn fn_00595d10(e: &mut Engine, this: Ptr) -> u32 {
 /// below the low bound or above the high one, or a comparison is unordered.
 pub fn fn_00595d30(e: &mut Engine, this: Ptr) -> bool {
     let owner = e.global::<u32>(OWNER_POINTER_011DEA10);
-    let target = e.call(0x008d_8520, &args![owner]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner));
     if fn_00595e80(e, this) {
         if target == 0 {
             return true;

@@ -278,7 +278,7 @@ pub fn bgs_save_load_references_map_load_references_for_cell(
         let list_slot = map_slot + 4;
         e.mem.set_u32(map_slot, 0);
         let key = if e.call(0x0042_5fd0, &args![cell]).bool() {
-            let key = e.call(0x0084_e3a0, &args![cell]).u32();
+            let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell));
             e.mem.set_u32(map_slot, this.addr().wrapping_add(0x10));
             key
         } else {
@@ -286,7 +286,7 @@ pub fn bgs_save_load_references_map_load_references_for_cell(
             let x = e.call(0x0054_4c30, &args![cell]).u32();
             let key = e.call(0x0058_7410, &args![x, y]).u32();
             let world = e.call(0x0054_ddd0, &args![cell]).u32();
-            let world_key = e.call(0x0084_e3a0, &args![world]).u32();
+            let world_key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world));
             lookup(e, this.byte_add(0x20).cast(), world_key, Ptr::new(map_slot));
             key
         };
@@ -301,7 +301,7 @@ pub fn bgs_save_load_references_map_load_references_for_cell(
         let mut index = 0u32;
         loop {
             let list = e.mem.u32(list_slot);
-            let count = e.call(0x0044_ddc0, &args![list]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list));
             if index >= count {
                 break;
             }
@@ -343,6 +343,7 @@ const ARRAY_MAP_ADD: u32 = 0x0085_2950;
 /// The save/load game singleton pointer (`011ddf38`).
 const SAVE_LOAD_GAME: u32 = 0x011d_df38;
 /// `00559450` (`thiscall`): the word at `this`.
+#[cfg(test)]
 const WORD_AT: u32 = 0x0055_9450;
 /// `CombatTargetMap::GetTargetAttackerArray` (`009a4250`, `thiscall`,
 /// `RET 4`; a folded body): the map's value for a key, null when absent.
@@ -545,7 +546,7 @@ pub fn bgs_save_load_references_map_load_changed_reference(
     reconstruct: u32,
 ) {
     let game = e.global::<u32>(SAVE_LOAD_GAME);
-    let changes = e.call(WORD_AT, &args![game]).u32();
+    let changes = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, game));
     let entry = e.call(MAP_VALUE, &args![changes, id]).u32();
     if entry == 0 {
         return;
@@ -557,7 +558,7 @@ pub fn bgs_save_load_references_map_load_changed_reference(
         return;
     }
     let buffer = entry.wrapping_add(4);
-    if e.call(WORD_AT, &args![buffer]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, buffer)) == 0 {
         e.call(SAVE_GAME_WARNING, &args![WARNING_NO_UNLOADED_BUFFER, id]);
         return;
     }

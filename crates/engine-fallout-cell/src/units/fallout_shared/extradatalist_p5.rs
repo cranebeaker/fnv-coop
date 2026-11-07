@@ -150,6 +150,7 @@ const EXTRA_WATER_ZONE_MAP_UPDATE: u32 = 0x0043_7850;
 /// `WaterZoneMap` at +0x0C of an `ExtraWaterZoneMap` (a zero result means it
 /// is empty) and with the address +4 of the object at +0x1C of it
 /// (`pHighestWaterZone`).
+#[cfg(test)]
 const MAP_COUNT: u32 = 0x0084_e3a0;
 /// Called by `fn_0042f130` with `this` = the `WaterZoneMap` at +0x0C, a word
 /// and the address of a count that starts at 0 (`00853130`).
@@ -1014,7 +1015,12 @@ pub fn fn_0042f030(e: &mut Engine, this: Ptr<ExtraDataList>, zone: u32, flag: u8
         EXTRA_WATER_ZONE_MAP_UPDATE,
         &args![extra, zone, flag as u32],
     );
-    if e.call(MAP_COUNT, &args![extra.addr() + 0x0c]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0084_e3a0,
+        leaf::word_at_c(e, extra.addr() + 0x0c)
+    ) == 0
+    {
         base_extra_list_remove_extra(e, this.cast(), extra, true);
         return 0;
     }
@@ -1022,7 +1028,7 @@ pub fn fn_0042f030(e: &mut Engine, this: Ptr<ExtraDataList>, zone: u32, flag: u8
     if highest == 0 {
         0
     } else {
-        e.call(MAP_COUNT, &args![highest + 4]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, highest + 4))
     }
 }
 

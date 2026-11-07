@@ -5,11 +5,14 @@
 use crate::prelude::*;
 
 /// `008256d0` (`thiscall`, no stack word): the stop test of the walk (low byte of `EAX`).
+#[cfg(test)]
 const WALK_STOPS: u32 = 0x0082_56d0;
 /// `006815c0` (`thiscall`, no stack word): the address of the word holding the entry to test.
+#[cfg(test)]
 const ENTRY_HOLDER: u32 = 0x0068_15c0;
 /// `00726070` (`thiscall`, no stack word; unit `fallout/interface/menumanager.cpp`): the next
 /// object of the walk.
+#[cfg(test)]
 const WALK_NEXT: u32 = 0x0072_6070;
 /// `004a4460` (`thiscall`, no stack word): the emptiness test of the list at +4 of the entry
 /// (low byte of `EAX`).
@@ -40,14 +43,14 @@ pub fn fn_004b0aa0(e: &mut Engine, this: Ptr, key: u32, count: u32) {
         let mut current = this.addr();
         while current != 0
             && e.mem.u32(found.addr()) == 0
-            && !e.call(WALK_STOPS, &args![current]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, current))
         {
-            let holder = e.call(ENTRY_HOLDER, &args![current]).u32();
+            let holder = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, current));
             let entry = e.mem.u32(holder);
             if entry != 0 && e.mem.u32(entry) == key {
                 e.mem.set_u32(found.addr(), entry);
             }
-            current = e.call(WALK_NEXT, &args![current]).u32();
+            current = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, current));
         }
         let entry = e.mem.u32(found.addr());
         if entry == 0 {
@@ -70,6 +73,7 @@ pub fn fn_004b0aa0(e: &mut Engine, this: Ptr, key: u32, count: u32) {
 }
 
 /// `00559450` (`thiscall`, no stack word): the word at `this`.
+#[cfg(test)]
 const WORD_AT: u32 = 0x0055_9450;
 
 // Translated from 004b0ba0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -84,13 +88,16 @@ const WORD_AT: u32 = 0x0055_9450;
 pub fn fn_004b0ba0(e: &mut Engine, this: Ptr, key: u32) -> u32 {
     let mut found = 0u32;
     let mut node = this.addr();
-    while node != 0 && found == 0 && !e.call(WALK_STOPS, &args![node]).bool() {
-        let entry_at = e.call(ENTRY_HOLDER, &args![node]).u32();
+    while node != 0
+        && found == 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+    {
+        let entry_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(entry_at);
         if entry != 0 && e.mem.u32(entry) == key {
             found = entry;
         }
-        node = e.call(WALK_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let mut result = 0u32;
     if found == 0 {
@@ -101,12 +108,12 @@ pub fn fn_004b0ba0(e: &mut Engine, this: Ptr, key: u32) -> u32 {
         if e.call(LIST_IS_EMPTY, &args![node]).bool() {
             break;
         }
-        let item_at = e.call(ENTRY_HOLDER, &args![node]).u32();
-        let item = e.call(WORD_AT, &args![item_at]).u32();
-        if item != 0 && e.call(WALK_NEXT, &args![item]).u32() == 1 {
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
+        let item = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item_at));
+        if item != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item)) == 1 {
             result = item;
         }
-        node = e.call(WALK_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     result
 }

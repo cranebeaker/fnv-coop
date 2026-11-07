@@ -28,6 +28,7 @@ const MANAGER_READY: u32 = 0x0093_73f0;
 /// `00586150`: the manager's `pMenusRoot`.
 const GET_MENUS_ROOT: u32 = 0x0058_6150;
 /// `00559450`: the first word of the object (a list head).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `0057cbe0`: list iterator step (list, address of the cursor word); it
 /// returns the address of the current item and advances the cursor.
@@ -508,7 +509,7 @@ pub fn interface_close_all_support_menus(e: &mut Engine, _unused_0: u32) {
     let current = manager(e);
     let root = e.call(GET_MENUS_ROOT, &args![current]).u32();
     let list = root + 4;
-    let first = e.call(FIRST_WORD, &args![list]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     // Two words of the game's stack: the list cursor and the current tile.
     e.with_stack(8, |e, slots| {
         let cursor = slots.addr();
@@ -1121,7 +1122,7 @@ pub fn fn_00707080(e: &mut Engine, value: u32) {
 /// `0045cd60` on the manager (a getter; its body is not part of this unit).
 pub fn fn_007070a0(e: &mut Engine) -> u32 {
     let current = manager(e);
-    e.call(0x0045_cd60, &args![current]).u32()
+    typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, current))
 }
 
 /// The bounded string copy (`00406d30`: destination, size, source) the
@@ -1435,6 +1436,7 @@ const INTERFACE_GET_PIPBOY: u32 = 0x0070_5990;
 const PIPBOY_QUERY: u32 = 0x0097_4d90;
 /// `00726070`: returns the word at `+4` of its object (a list's first node,
 /// an item's count, a menu's tile).
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// `MenuManager::Instance` (Xbox PDB), `cdecl`: the create flag.
 const MENU_MANAGER_INSTANCE: u32 = 0x0071_e290;
@@ -1598,6 +1600,7 @@ const PLAYER: u32 = 0x011d_ea3c;
 /// inventory list) getters: value, form (`+8`), health, mod slots, ownership,
 /// a mod effect flag, the mod item in a slot (on the form).
 const ITEM_GET_VALUE: u32 = 0x004b_d400;
+#[cfg(test)]
 const ITEM_GET_FORM: u32 = 0x0044_ddc0;
 const ITEM_GET_HEALTH: u32 = 0x004b_cdb0;
 const ITEM_GET_MOD_SLOTS: u32 = 0x004b_d820;
@@ -1622,6 +1625,7 @@ const SETTING_GET_STRING: u32 = 0x0040_3df0;
 /// `00403e20` on a game setting object: the address of its `float`.
 const FLOAT_SETTING_GET: u32 = 0x0040_3e20;
 /// `006815c0`: returns its `this`.
+#[cfg(test)]
 const IDENTITY: u32 = 0x0068_15c0;
 /// `00408da0` on a form's name string at `+0x30`: the characters.
 const GET_NAME: u32 = 0x0040_8da0;
@@ -1671,6 +1675,7 @@ const WEAPON_GET_CURRENT_AMMO: u32 = 0x0052_5980;
 const WEAPON_GET_CLIP_ROUNDS: u32 = 0x004f_e160;
 const WEAPON_GET_AMMO_REGEN_RATE: u32 = 0x0070_9430;
 /// `MiddleHighProcess::GetSavedAcquireObject` (Xbox PDB), on the player.
+#[cfg(test)]
 const GET_SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// `00663b40` on an ammo form: its name characters (word at `+0xc4`).
 const AMMO_NAME: u32 = 0x0066_3b40;
@@ -1848,7 +1853,7 @@ pub fn fn_007079f0(e: &mut Engine, this: u32) -> bool {
 /// is `0x421`, `0x41f` or `0x40c`.
 pub fn interface_is_rendered_menu(e: &mut Engine, menu: u32) -> bool {
     let tile = if menu != 0 {
-        e.call(WORD_AT_4, &args![menu]).u32()
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu))
     } else {
         0
     };
@@ -1966,9 +1971,9 @@ pub fn interface_initialize_tabline(
                     &args![menu, tile, TAB_BUTTON_TEMPLATE, 0u32],
                 )
                 .u32();
-            let characters = e.call(FIRST_WORD, &args![string]).u32();
+            let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
             tile_set_text(e, button, 0xfc4, characters);
-            let characters = e.call(FIRST_WORD, &args![string]).u32();
+            let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
             fn_00707e10(e, button, characters);
             tile_set_int(e, button, 0xfac, count);
             tile_set_int(e, button, 0xfaa, base_index.wrapping_add(count));
@@ -1992,7 +1997,7 @@ pub fn interface_initialize_tabline(
         let mut position = left_line_length;
         let mut index = 0usize;
         while e.call(STRING_LENGTH, &args![string]).u32() != 0 {
-            let characters = e.call(FIRST_WORD, &args![string]).u32();
+            let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
             let child = e
                 .call(TILE_GET_CHILD_BY_NAME, &args![tile, characters])
                 .u32();
@@ -2078,7 +2083,7 @@ pub fn interface_populate_item_stats_display(e: &mut Engine, item: u32, display:
 
 /// `ItemChange`'s form (`0044ddc0`, the word at `+8`).
 fn item_form(e: &mut Engine, item: u32) -> u32 {
-    e.call(ITEM_GET_FORM, &args![item]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
 }
 
 /// The form's type byte (`00401170`).
@@ -2094,7 +2099,7 @@ fn setting_text(e: &mut Engine, setting: u32) -> u32 {
 /// `MiddleHighProcess::GetSavedAcquireObject` (Xbox PDB) on the player.
 fn saved_acquire_object(e: &mut Engine) -> u32 {
     let player = e.global::<u32>(PLAYER);
-    e.call(GET_SAVED_ACQUIRE_OBJECT, &args![player]).u32()
+    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player))
 }
 
 /// `00406d00(dest, size, format, word)`.
@@ -2146,7 +2151,7 @@ fn populate_item_stats(e: &mut Engine, frame: u32, item: u32, display: u32) {
 
     // The cells: the first 13 children of the display tile.
     let list = display + 4;
-    let first_node = e.call(WORD_AT_4, &args![list]).u32();
+    let first_node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list));
     e.mem.set_u32(cursor, first_node);
     let mut cells = [0u32; 13];
     let mut filled = 0usize;
@@ -2388,16 +2393,24 @@ fn populate_item_stats(e: &mut Engine, frame: u32, item: u32, display: u32) {
                 }
                 let mut loaded_known = false;
                 if held_item != 0
-                    && e.call(FIRST_WORD, &args![held_item]).u32() != 0
-                    && e.call(FIRST_WORD, &args![item]).u32() != 0
+                    && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_item)) != 0
+                    && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) != 0
                 {
-                    let held_first = e.call(FIRST_WORD, &args![held_item]).u32();
-                    let held_slot = e.call(IDENTITY, &args![held_first]).u32();
-                    let item_first = e.call(FIRST_WORD, &args![item]).u32();
-                    let item_slot = e.call(IDENTITY, &args![item_first]).u32();
+                    let held_first =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_item));
+                    let held_slot =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, held_first));
+                    let item_first =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+                    let item_slot =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, item_first));
                     if e.mem.u32(held_slot) == e.mem.u32(item_slot) {
                         loaded = if held_ammo_item != 0 {
-                            e.call(WORD_AT_4, &args![held_ammo_item]).u32()
+                            typed_call!(
+                                leaf::FAMILY,
+                                0x0072_6070,
+                                leaf::word_at_4(e, held_ammo_item)
+                            )
                         } else {
                             0
                         };
@@ -2469,7 +2482,7 @@ fn populate_item_stats(e: &mut Engine, frame: u32, item: u32, display: u32) {
         }
     }
     let has_effects = effects != 0 && {
-        let list = e.call(IDENTITY, &args![effects + 4]).u32();
+        let list = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, effects + 4));
         e.mem.u32(list) != 0
     };
     if has_effects {
@@ -2562,7 +2575,7 @@ fn populate_item_stats(e: &mut Engine, frame: u32, item: u32, display: u32) {
     if item_value <= 0.0 || item_value.is_nan() {
         copy_text(e, value_text, 0x10, DASHES);
     } else {
-        let count = e.call(WORD_AT_4, &args![item]).u32() as i32;
+        let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item)) as i32;
         // 708f6b..708f77, 708f9d..708fa9: FILD, FMUL float (rounded with the running thread's
         // control word), FSTP double.
         let product = x87_mul(count as f64, x87_m32(item_value.to_bits()));
@@ -2593,7 +2606,7 @@ fn populate_item_stats(e: &mut Engine, frame: u32, item: u32, display: u32) {
     if weight <= 0.0 || weight.is_nan() {
         copy_text(e, weight_text, 0x20, DASHES);
     } else {
-        let count = e.call(WORD_AT_4, &args![item]).u32() as i32;
+        let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item)) as i32;
         // 709061..70906d: as for the value.
         let product = x87_mul(count as f64, x87_m32(weight.to_bits()));
         e.call(

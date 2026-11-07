@@ -14,6 +14,7 @@
 use crate::prelude::*;
 
 /// `NiPointer` dereference (`*this`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer<..>::operator=(NiPointer const&)` (Xbox PDB map name
 /// `NiPointer<PathingDebugGeometryData>::operator_`; the body is the generic
@@ -65,7 +66,12 @@ fn x87_copy(value: f32) -> u32 {
 /// `this + 0x2c` (`0056c7f0`) is not null, stores `value` at `+0x80` of that
 /// object (an x87 `FLD`/`FSTP` copy: a signalling NaN is stored quieted).
 pub fn fn_006faa90(e: &mut Engine, this: Ptr, value: f32) {
-    if e.call(POINTER_GET, &args![this.addr() + 4]).u32() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 4)
+    ) != 0
+    {
         let target = e.call(POINTER_FIELD_2C, &args![this]).u32();
         if target != 0 {
             e.mem.set_u32(target + 0x80, x87_copy(value));

@@ -158,6 +158,7 @@ const MEMSET: u32 = 0x0040_3d30;
 const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const NI_POINTER_DESTROY: u32 = 0x0045_cec0;
+#[cfg(test)]
 const NI_POINTER_DEREF: u32 = 0x0055_9450;
 const NI_POINTER_COPY: u32 = 0x0055_9a40;
 /// The default constructors the vector helpers run on the `NiPointer<T>`
@@ -168,6 +169,7 @@ const NI_POINT3_CONSTRUCT: u32 = 0x0068_15c0;
 const NI_COLOR_A_DEFAULT_CONSTRUCT: u32 = 0x004a_7800;
 /// `NiColorA(r, g, b, a)` (`00414430`) and `NiPoint3(x, y, z)` (`00416870`).
 const NI_COLOR_A_CONSTRUCT: u32 = 0x0041_4430;
+#[cfg(test)]
 const NI_POINT3_CONSTRUCT_XYZ: u32 = 0x0041_6870;
 /// `NiPoint3` arithmetic: `this * factor` (`0045bb20(this, out, factor)`),
 /// `this + other` (`00439e90(this, out, other)`), `this - other`
@@ -278,6 +280,7 @@ const NAV_MESH_POINTER_EQUAL: u32 = 0x0042_ff30;
 /// (`00691640`).
 const NAV_MESH_VERTEX_COUNT: u32 = 0x0099_0a60;
 const NAV_MESH_TRIANGLE_COUNT: u32 = 0x0055_8200;
+#[cfg(test)]
 const NAV_MESH_IS_SPECIAL: u32 = 0x0044_0da0;
 const NAV_MESH_TRIANGLE_AT: u32 = 0x0055_82f0;
 const NAV_MESH_EDGE_EXTRA_INFO: u32 = 0x0068_f230;
@@ -323,7 +326,7 @@ const TRIANGLE_HAS_FLAG_0X400: u32 = 0x0069_0e70;
 
 /// `NiPointer<T>::operator*` of the slot at `slot`.
 fn deref(e: &mut Engine, slot: u32) -> u32 {
-    e.call(NI_POINTER_DEREF, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// `NiPointer(T *)` constructed at `slot` from `value`.
@@ -1363,12 +1366,11 @@ fn attach_property(e: &mut Engine, target_slot: u32, property: u32) {
 /// Builds the translation `(x, y, z)` and sets it on the object in
 /// `target_slot`.
 fn set_translation(e: &mut Engine, frame: u32, target_slot: u32, x: f32, y: f32, z: f32) {
-    let translation = e
-        .call(
-            NI_POINT3_CONSTRUCT_XYZ,
-            &args![frame + F_TRANSLATE, x, y, z],
-        )
-        .u32();
+    let translation = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, frame + F_TRANSLATE, x, y, z)
+    );
     let target = deref(e, target_slot);
     e.call(NI_AV_OBJECT_SET_TRANSLATE, &args![target, translation]);
 }
@@ -1522,7 +1524,7 @@ fn draw_nav_mesh(e: &mut Engine, this: u32, frame: u32) {
         return;
     }
     let mesh = deref(e, mesh_slot);
-    let is_special = e.call(NAV_MESH_IS_SPECIAL, &args![mesh]).bool();
+    let is_special = typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, mesh));
 
     bs_simple_array_ni_point3_construct(e, Ptr::new(frame + F_POINTS_A), vertex_count);
     bs_simple_array_ni_color_a_construct(e, Ptr::new(frame + F_COLOURS_A), vertex_count);
@@ -2085,7 +2087,7 @@ fn finish_nav_mesh(e: &mut Engine, build: &mut Build, triangle_count: u32) {
         e.call(NI_ALPHA_PROPERTY_SET_BLENDING, &args![alpha_property, 1u32]);
         let alpha_property = deref(e, frame + F_SPHERE_ALPHA);
         attach_property(e, frame + F_SPHERE, alpha_property);
-        let position = e.call(NI_POINT3_CONSTRUCT, &args![sphere]).u32();
+        let position = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, sphere));
         let target = deref(e, frame + F_SPHERE);
         e.call(NI_AV_OBJECT_SET_TRANSLATE, &args![target, position]);
         let node = deref(e, node_slot);

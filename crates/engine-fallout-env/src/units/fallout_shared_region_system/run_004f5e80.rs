@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// `006815c0` (`thiscall`, no stack word): the address of the list's head item word.
+#[cfg(test)]
 const HEAD_ITEM_SLOT: u32 = 0x0068_15c0;
 /// `0063f7b0` (`thiscall`, no stack word): removes the list's head.
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -15,14 +16,14 @@ const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
 /// +0xc is set, calls the item's vtable slot +8 with 1. Then clears the word at +0x10.
 pub fn fn_004f5ef0(e: &mut Engine, this: Ptr) {
     let list = this.addr() + 4;
-    let slot = e.call(HEAD_ITEM_SLOT, &args![list]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     let mut item = e.mem.u32(slot);
     while item != 0 {
         e.call(LIST_REMOVE_HEAD, &args![list]);
         if e.mem.u8(this.addr() + 0xc) != 0 && item != 0 {
             e.vcall(item, 8, &args![1u32]);
         }
-        let slot = e.call(HEAD_ITEM_SLOT, &args![list]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         item = e.mem.u32(slot);
     }
     e.mem.set_u32(this.addr() + 0x10, 0);
@@ -35,8 +36,10 @@ const LIST_CONTAINS: u32 = 0x005f_65d0;
 /// item to the list.
 const LIST_ADD: u32 = 0x0090_5820;
 /// `00726070` (`thiscall`): the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `0084e3a0` (`thiscall`): the form's id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The game's allocator (`00401000`, cdecl: size).
 const ALLOCATE: u32 = 0x0040_1000;
@@ -90,17 +93,21 @@ pub fn fn_004f5ec0(e: &mut Engine, this: Ptr, item: u32) {
 pub fn fn_004f5f80(e: &mut Engine, this: Ptr, first: u32, second: i32) -> u32 {
     let mut node = if this.is_null() { 0 } else { this.addr() + 4 };
     while node != 0 {
-        let item_address = e.call(HEAD_ITEM_SLOT, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             return 0;
         }
-        let item_address = e.call(HEAD_ITEM_SLOT, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         let form = e.vcall(item, 4, &args![]).u32();
-        if e.call(FORM_ID, &args![form]).u32() == first {
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form)) == first {
             if second >= 0 && e.vcall(item, 0xc, &args![]).u32() != 0 {
                 let other = e.vcall(item, 0xc, &args![]).u32();
-                if e.call(FORM_ID, &args![other]).i32() == second {
+                if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, other))
+                    .into_ret()
+                    .i32()
+                    == second
+                {
                     return item;
                 }
             }
@@ -108,7 +115,7 @@ pub fn fn_004f5f80(e: &mut Engine, this: Ptr, first: u32, second: i32) -> u32 {
                 return item;
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     0
 }
@@ -137,23 +144,23 @@ pub fn fn_004f6060(e: &mut Engine, this: Ptr, target: u32) -> u32 {
         }
     };
     while node != 0 {
-        let item_address = e.call(HEAD_ITEM_SLOT, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             break;
         }
         if e.mem.u8(target.wrapping_add(0xc)) != 0 {
-            let item_address = e.call(HEAD_ITEM_SLOT, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_address);
             let copy = e.vcall(item, 0x14, &args![0u32]).u32();
             if !fn_004f5e80(e, Ptr::new(target), copy) && copy != 0 {
                 e.vcall(copy, 8, &args![1u32]);
             }
         } else {
-            let item_address = e.call(HEAD_ITEM_SLOT, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_address);
             fn_004f5e80(e, Ptr::new(target), item);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     target
 }
@@ -195,19 +202,19 @@ pub fn fn_004f61d0(e: &mut Engine, this: Ptr, first: f32, source: u32, second: f
     }
     let mut node = source.wrapping_add(4);
     while node != 0 {
-        let item_address = e.call(HEAD_ITEM_SLOT, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             return;
         }
-        let item_address = e.call(HEAD_ITEM_SLOT, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         if e.vcall(item, 4, &args![]).u32() != 0 {
-            let item_address = e.call(HEAD_ITEM_SLOT, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_address);
             let copy = e.vcall(item, 0x14, &args![0u32]).u32();
             fn_004f5e80(e, this, copy);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 

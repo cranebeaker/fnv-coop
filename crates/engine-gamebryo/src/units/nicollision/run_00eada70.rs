@@ -20,6 +20,7 @@ const MINUS_EPSILON: u32 = 0x010d_5368;
 /// ST0), the cross product (`004b3800`, `thiscall`: out, other point), the
 /// point scale (`004a3760`, `cdecl`: out, float, point; answers out) and
 /// the point sum (`00439e90`, `thiscall`: out, other point; answers out).
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 const POINT_CROSS: u32 = 0x004b_3800;
 const POINT_SCALE: u32 = 0x004a_3760;
@@ -229,7 +230,13 @@ pub fn fn_00eadb90(
             if det < uv {
                 return false;
             }
-            let t = e.call(POINT_DOT, &args![edge2, scratch]).f64();
+            let t = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, edge2, scratch)
+            )
+            .into_ret()
+            .f64();
             let t_bits = x87_store32(t);
             e.mem.set_u32(t_out, t_bits);
             if 0.0 > x87_load32(t_bits) {
@@ -252,7 +259,9 @@ pub fn fn_00eadb90(
                 return false;
             }
             e.call(POINT_CROSS, &args![scratch, cross, edge1]);
-            let v = e.call(POINT_DOT, &args![d, cross]).f64();
+            let v = typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, d, cross))
+                .into_ret()
+                .f64();
             let v_bits = x87_store32(v);
             e.mem.set_u32(v_out, v_bits);
             let v = x87_load32(v_bits);
@@ -263,7 +272,9 @@ pub fn fn_00eadb90(
             if det > uv {
                 return false;
             }
-            let t = e.call(POINT_DOT, &args![edge2, cross]).f64();
+            let t = typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, edge2, cross))
+                .into_ret()
+                .f64();
             let t_bits = x87_store32(t);
             e.mem.set_u32(t_out, t_bits);
             if 0.0 < x87_load32(t_bits) {

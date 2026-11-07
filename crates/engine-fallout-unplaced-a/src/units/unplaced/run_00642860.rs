@@ -29,6 +29,7 @@ const FLOAT_PAIR_00404010: u32 = 0x0040_4010;
 const POW: u32 = 0x00ec_9ac0;
 /// `00559450` (`thiscall`, no stack words; no Xbox PDB name): the object a
 /// smart-pointer member holds.
+#[cfg(test)]
 const POINTER_GET_00559450: u32 = 0x0055_9450;
 /// `NiAVObject::GetProperty` (`00a59d30`, engine map; `thiscall`, one word:
 /// the property type).
@@ -135,9 +136,11 @@ fn float_result(bits: u32) -> f32 {
 /// object, runs `00b64d60` on it (`thiscall`; no Xbox PDB name).
 pub fn fn_00642860(e: &mut Engine, this: Ptr) {
     e.mem.set_u8(this.addr() + 0x24, 1);
-    let object = e
-        .call(POINTER_GET_00559450, &args![this.addr() + 0x28])
-        .u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x28)
+    );
     if object != 0 {
         e.call(OBJECT_STEP_00B64D60, &args![object]);
     }
@@ -151,7 +154,7 @@ pub fn fn_00642890(e: &mut Engine, this: Ptr) {
 
 /// Property 3 of the object the smart pointer at `member` holds.
 fn property_3(e: &mut Engine, member: u32) -> u32 {
-    let object = e.call(POINTER_GET_00559450, &args![member]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member));
     e.call(NI_AV_OBJECT_GET_PROPERTY, &args![object, 3u32])
         .u32()
 }

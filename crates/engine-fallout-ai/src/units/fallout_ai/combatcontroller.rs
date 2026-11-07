@@ -152,6 +152,7 @@ const GET_ATTACKER: u32 = 0x0097_ae90;
 const GET_TARGET: u32 = 0x0040_30b0;
 /// The getter `008d8520`: returns the word at +0x68 of its `this` (an
 /// actor's process).
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 /// `BSSimpleArray` element count (`0044ddc0`, `this` only).
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
@@ -203,6 +204,7 @@ const RELEASE_PROCEDURE_0097F270: u32 = 0x0097_f270;
 /// `CombatPlanner` planning call `00994bd0` (`this`, controller, flag).
 const PLANNER_PLAN: u32 = 0x0099_4bd0;
 /// `0084e3a0` on a `CombatPlan` (`this` only).
+#[cfg(test)]
 const PLAN_GOAL_0084E3A0: u32 = 0x0084_e3a0;
 /// `00994050` on a `CombatPlan` (`this`, controller).
 const PLAN_START_00994050: u32 = 0x0099_4050;
@@ -284,6 +286,7 @@ const STATE_SET_LOCATION_TARGET_REF: u32 = 0x009a_0790;
 /// two floats).
 const STATE_SET_LOCATION: u32 = 0x009a_0910;
 /// The package getter `00671d10` (`this` only; the package data).
+#[cfg(test)]
 const PACKAGE_DATA: u32 = 0x0067_1d10;
 /// The package getter `0055b980` (`this` only; the package location).
 const PACKAGE_LOCATION: u32 = 0x0055_b980;
@@ -322,7 +325,11 @@ fn background_at(e: &mut Engine, this: Ptr<CombatController>, index: u32) -> u32
 
 /// Number of background procedures.
 fn background_count(e: &mut Engine, this: Ptr<CombatController>) -> u32 {
-    e.call(ARRAY_SIZE, &args![background(this)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, background(this))
+    )
 }
 
 /// `delete procedure` as the code writes it: the vtable slot 0xc call, then
@@ -451,7 +458,7 @@ pub fn combat_controller_combat_controller(
         let mut package = package;
         if package == 0 {
             let attacker = e.get(this, CombatController::pAttacker);
-            let process = e.call(GET_PROCESS, &args![attacker]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
             package = e.vcall(process, 0x22c, &[]).u32();
         }
         e.call(0x0098_0ae0, &args![this, package]);
@@ -631,7 +638,7 @@ pub fn fn_0097da50(e: &mut Engine, this: Ptr<CombatController>) {
         return;
     }
     let attacker = attacker_of(e, this);
-    if attacker == 0 || e.call(GET_PROCESS, &args![attacker]).u32() == 0 {
+    if attacker == 0 || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker)) == 0 {
         return;
     }
     if e.call(0x0098_1450, &args![this]).bool() {
@@ -643,7 +650,7 @@ pub fn fn_0097da50(e: &mut Engine, this: Ptr<CombatController>) {
     if slot_1d0 == 0 || anim_data == 0 {
         return;
     }
-    let process = e.call(GET_PROCESS, &args![attacker]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
     let process_kind = e.vcall(process, 0x610, &[]).u32();
     if process_kind != 0 && process_kind != 2 && process_kind != 1 {
         return;
@@ -665,13 +672,13 @@ pub fn fn_0097da50(e: &mut Engine, this: Ptr<CombatController>) {
     fn_0097f390(e, this);
     let target = e.call(GET_TARGET, &args![this]).u32();
     if target != 0 {
-        let stops = if e.vcall(target, 0x22c, &args![0u32]).bool()
-            && !e.vcall(target, 0x2e8, &[]).bool()
-        {
-            true
-        } else {
-            e.call(0x0044_0da0, &args![target]).bool() || e.call(0x0044_0d80, &args![target]).bool()
-        };
+        let stops =
+            if e.vcall(target, 0x22c, &args![0u32]).bool() && !e.vcall(target, 0x2e8, &[]).bool() {
+                true
+            } else {
+                typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, target))
+                    || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, target))
+            };
         if stops {
             e.vcall(attacker, 0x434, &args![target]);
             return;
@@ -725,7 +732,7 @@ pub fn fn_0097da50(e: &mut Engine, this: Ptr<CombatController>) {
         let plan = e.get(this, CombatController::pCombatPlan);
         if e.call(0x0097_e490, &args![plan]).bool() {
             let plan = e.get(this, CombatController::pCombatPlan);
-            let goal = e.call(PLAN_GOAL_0084E3A0, &args![plan]).u32();
+            let goal = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, plan));
             let group = e.get(this, CombatController::pCombatGroup);
             e.call(0x0098_91d0, &args![group, this, goal]);
             replan = true;
@@ -753,7 +760,7 @@ pub fn fn_0097da50(e: &mut Engine, this: Ptr<CombatController>) {
             e.set(this, CombatController::pCombatPlan, Ptr::new(plan));
             let goal = if !e.get(this, CombatController::pCombatPlan).is_null() {
                 let plan = e.get(this, CombatController::pCombatPlan);
-                e.call(PLAN_GOAL_0084E3A0, &args![plan]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, plan))
             } else {
                 0
             };
@@ -999,7 +1006,7 @@ pub fn fn_0097f580(e: &mut Engine, this: Ptr<CombatController>, actor: Ptr, _unu
     if actor.addr() == attacker_of(e, this) {
         return;
     }
-    if e.call(GET_PROCESS, &args![actor]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) == 0 {
         return;
     }
     let mut priority: i32 = 0;
@@ -1015,7 +1022,7 @@ pub fn fn_0097f580(e: &mut Engine, this: Ptr<CombatController>, actor: Ptr, _unu
         priority = 100;
     }
     if priority > 0 {
-        let process = e.call(GET_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let attacker = e.get(this, CombatController::pAttacker);
         let value = e.vcall(process, 0x208, &args![actor, attacker]).f64();
         let value = e.call(FTOL, &args![value]).u32();
@@ -1984,7 +1991,7 @@ pub fn combat_controller_update_package_data(
             &args![this, (flags & 0x0400_0000 != 0) as u32],
         );
         let attacker = e.get(this, CombatController::pAttacker);
-        let process = e.call(GET_PROCESS, &args![attacker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
         let mut use_reference = true;
         if e.call(PACKAGE_LOCATION, &args![package]).u32() != 0 {
             let location = e.call(PACKAGE_LOCATION, &args![package]).u32();
@@ -1999,12 +2006,14 @@ pub fn combat_controller_update_package_data(
         let mut radius = e.vcall(process, 0xa4, &args![attacker]).f64() as f32;
         if reference == 0 || reference == e.get(this, CombatController::pAttacker).addr() {
             reference = e.vcall(process, 0x128, &[]).u32();
-            if reference == 0 && e.call(PACKAGE_DATA, &args![package]).u32() != 0 {
-                let data = e.call(PACKAGE_DATA, &args![package]).u32();
+            if reference == 0
+                && typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package)) != 0
+            {
+                let data = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
                 if e.call(0x0068_0020, &args![data]).u32() != 0 {
-                    let data = e.call(PACKAGE_DATA, &args![package]).u32();
+                    let data = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
                     reference = e.call(0x0068_0020, &args![data]).u32();
-                    let data = e.call(PACKAGE_DATA, &args![package]).u32();
+                    let data = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
                     radius = e.call(WORD_AT_8_GETTER, &args![data]).i32() as f32;
                 }
             }
@@ -2012,7 +2021,7 @@ pub fn combat_controller_update_package_data(
         match e.call(0x0041_ca90, &args![package]).u32() {
             0 | 0x11 => {
                 let form = if reference != 0 {
-                    e.call(0x007a_f430, &args![reference]).u32()
+                    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
                 } else {
                     0
                 };
@@ -2025,7 +2034,7 @@ pub fn combat_controller_update_package_data(
                 let scale = setting_float(e, if force { 0x011c_ed7c } else { 0x011c_eafc });
                 let minimum = setting_float(e, if force { 0x011c_e6a8 } else { 0x011c_efcc });
                 let offset = setting_float(e, if force { 0x011c_e588 } else { 0x011c_e218 });
-                let data = e.call(PACKAGE_DATA, &args![package]).u32();
+                let data = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
                 let count = e.call(WORD_AT_8_GETTER, &args![data]).i32() as f32;
                 let distance = (count as f64 * scale as f64 + offset as f64) as f32;
                 let distance = e
@@ -2041,7 +2050,7 @@ pub fn combat_controller_update_package_data(
                 if fn_00981320(e, package) {
                     use_reference = true;
                 }
-                let data = e.call(PACKAGE_DATA, &args![package]).u32();
+                let data = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
                 let has_location = e.call(0x0090_1c50, &args![package]).bool()
                     && e.call(PACKAGE_LOCATION, &args![package]).u32() != 0;
                 let distance = if has_location {
@@ -2114,7 +2123,7 @@ pub fn fn_00981380(e: &mut Engine, this: Ptr<CombatController>) {
     }
     e.with_stack(4, |e, package| {
         let attacker = e.get(this, CombatController::pAttacker);
-        let process = e.call(GET_PROCESS, &args![attacker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
         let attacker = e.get(this, CombatController::pAttacker);
         if e.vcall(process, 0xb4, &args![attacker, package]).bool() {
             e.call(0x005c_1ae0, &args![this]);
@@ -2158,7 +2167,7 @@ pub fn fn_00981450(e: &mut Engine, this: Ptr<CombatController>) -> bool {
                 stop = false;
             } else {
                 let attacker = e.get(this, CombatController::pAttacker);
-                let process = e.call(GET_PROCESS, &args![attacker]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
                 if e.vcall(process, 0x20c, &[]).u32() != 0 {
                     stop = false;
                 }
@@ -2460,7 +2469,7 @@ pub fn fn_009819f0(e: &mut Engine, this: Ptr<CombatController>, buffer: Ptr) {
         let has_plan = group_word.wrapping_add(4);
         let action_byte = group_word.wrapping_add(5);
         let group = e.get(this, CombatController::pCombatGroup);
-        let word = e.call(0x0072_6070, &args![group]).u32();
+        let word = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, group));
         e.mem.set_u32(group_word, word);
         save_bytes(e, buffer, group_word, 4);
         let state = e.get(this, CombatController::pCombatState);
@@ -2561,7 +2570,7 @@ pub fn fn_00981d00(e: &mut Engine, this: Ptr<CombatController>, buffer: Ptr) {
             let plan = e.get(this, CombatController::pCombatPlan);
             e.call(0x0099_49a0, &args![plan, buffer]);
             let plan = e.get(this, CombatController::pCombatPlan);
-            let goal = e.call(PLAN_GOAL_0084E3A0, &args![plan]).u32();
+            let goal = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, plan));
             e.set(this, CombatController::pCurrentGoal, Ptr::new(goal));
         }
         e.mem.set_u8(action_byte, 0xff);

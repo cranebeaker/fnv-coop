@@ -265,6 +265,7 @@ const OPERATOR_DELETE: u32 = 0x0040_1030;
 const VECTOR_DESTRUCT: u32 = 0x00ec_5fce;
 /// `NiPointer` getter (the first word of `this`), assignment, destructor and
 /// constructor taking a pointer.
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 const NI_POINTER_SET: u32 = 0x0066_b0d0;
 const NI_POINTER_DESTRUCTOR: u32 = 0x0045_cec0;
@@ -294,10 +295,13 @@ const POINTER_LIST_ADD: u32 = 0x004e_d8c0;
 /// List iteration: the address of the item word of a `BSSimpleList` node,
 /// the next node, and the `NiTPointerList` step that returns the address of
 /// the element and advances the iterator whose address it is given.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 const POINTER_LIST_STEP: u32 = 0x0057_cbe0;
 /// `BSSimpleList`: empty test, count, push at the head, append, free nodes.
+#[cfg(test)]
 const LIST_EMPTY: u32 = 0x0082_56d0;
 const LIST_COUNT: u32 = 0x005a_e380;
 const LIST_PUSH: u32 = 0x005a_e3d0;
@@ -355,6 +359,7 @@ const FORM_NAME: u32 = 0x0040_8da0;
 const NAME_COMPARE: u32 = 0x0040_8b20;
 const SET_PATH: u32 = 0x0048_9100;
 const SET_TEMPORARY: u32 = 0x0048_4490;
+#[cfg(test)]
 const WORD_AT_8: u32 = 0x0044_ddc0;
 const IS_TEMPORARY: u32 = 0x0040_77c0;
 /// Load screen calls: constructor, type, match for a location, generic
@@ -376,6 +381,7 @@ const MINIMUM: u32 = 0x0042_f5a0;
 /// keeps the buffer), element address, add, remove, and the head of the
 /// global list of all load screens.
 const CANDIDATES_RESET: u32 = 0x0084_54f0;
+#[cfg(test)]
 const CANDIDATE_AT: u32 = 0x0087_7a30;
 const CANDIDATE_ADD: u32 = 0x007c_b2e0;
 const CANDIDATE_REMOVE: u32 = 0x009a_4320;
@@ -397,6 +403,7 @@ const SET_INFO_FOR_REF: u32 = 0x0077_5a00;
 const SET_CROSSHAIR_TARGET_TYPE: u32 = 0x0070_3860;
 const SET_CURRENT_SPELL: u32 = 0x0041_fd00;
 const PLAYER_BYTE: u32 = 0x0042_4940;
+#[cfg(test)]
 const PLAYER_TILE: u32 = 0x0045_cd60;
 const ROOT_TILE_GETTER: u32 = 0x0058_6150;
 const PLAYING_SEQUENCE: u32 = 0x00ec_17c0;
@@ -576,6 +583,7 @@ const INSET_Y: u32 = 0x0071_7820;
 const FLOAT_MAX: u32 = 0x0040_4010;
 const FLOAT_MIN: u32 = 0x0040_ebd0;
 /// Logs an error (cdecl, the format string address as argument).
+#[cfg(test)]
 const ERROR_LOG: u32 = 0x0040_fbe0;
 /// Font manager: the global getter (`0x011f33f8`), the `float` at `+0x2c` of
 /// a font, and `FontManager::CalculateStringDimensions` (Xbox PDB; writes a
@@ -701,12 +709,12 @@ fn set_tile_string(e: &mut Engine, tile: u32, id: u32, text: u32, flag: u32) {
 /// The `TESLoadScreen` held by the list node `node` (`006815c0` returns the
 /// address of the item word).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 fn next_node(e: &mut Engine, node: u32) -> u32 {
-    e.call(NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 fn setting_float(e: &mut Engine, setting: u32) -> f32 {
@@ -817,8 +825,8 @@ pub fn fn_007887a0(e: &mut Engine, this: Ptr<LoadingMenu>) {
     e.call(SUSPEND_BACKGROUND_THREAD, &args![]);
     for index in 0..HOLD_TEXTURE_COUNT {
         let pointer = this.addr() + HOLD_TEXTURES + index * 4;
-        if e.call(NI_POINTER_GET, &args![pointer]).u32() != 0 {
-            let texture = e.call(NI_POINTER_GET, &args![pointer]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
+            let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             e.call(REMOVE_TEXTURE, &args![texture]);
             e.call(NI_POINTER_SET, &args![pointer, 0u32]);
         }
@@ -958,7 +966,7 @@ pub fn fn_00788ab0(e: &mut Engine, this: Ptr<LoadingMenu>, location: u32) {
         fn_0078a230(e, this);
     }
     let player = e.call(PLAYER_GETTER, &args![]).u32();
-    let player_tile = e.call(PLAYER_TILE, &args![player]).u32();
+    let player_tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, player));
     set_tile_int(e, player_tile, 0xfa3, 0);
     e.call(TILE_UPDATE_ALL, &args![1u32]);
     decals_end(e);
@@ -1632,7 +1640,11 @@ pub fn fn_0078a3e0(e: &mut Engine, this: Ptr<LoadingMenu>, _unused_0: u32) {
         );
         e.with_stack(4, |e, texture| {
             e.call(NI_POINTER_NEW, &args![texture, 0u32]);
-            let path = e.call(NI_POINTER_GET, &args![string_buffer(this)]).u32();
+            let path = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, string_buffer(this))
+            );
             let owner = e.mem.u32(TEXTURE_OWNER);
             e.call(TEXTURE_LOAD, &args![owner, path, texture, 0u32, 0u32]);
             let index = e.get(this, LoadingMenu::m_nHoldTextureIndex);
@@ -1642,11 +1654,11 @@ pub fn fn_0078a3e0(e: &mut Engine, this: Ptr<LoadingMenu>, _unused_0: u32) {
             if next_index >= HOLD_TEXTURE_COUNT {
                 e.set(this, LoadingMenu::m_nHoldTextureIndex, 0);
             }
-            if e.call(NI_POINTER_GET, &args![slot]).u32() != 0 {
-                let held = e.call(NI_POINTER_GET, &args![slot]).u32();
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) != 0 {
+                let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
                 e.call(REMOVE_TEXTURE, &args![held]);
             }
-            let loaded = e.call(NI_POINTER_GET, &args![texture]).u32();
+            let loaded = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
             e.call(NI_POINTER_SET, &args![slot, loaded]);
             let fading = if e.get(this, LoadingMenu::m_SlideCount) % 2 == 0 {
                 tile(e, this, SLOT_FADE_A)
@@ -1655,7 +1667,7 @@ pub fn fn_0078a3e0(e: &mut Engine, this: Ptr<LoadingMenu>, _unused_0: u32) {
             };
             let property = e.vcall(fading, 0x20, &args![]).u32();
             if property != 0 {
-                let loaded = e.call(NI_POINTER_GET, &args![texture]).u32();
+                let loaded = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
                 e.call(TEXTURE_APPLY, &args![property, loaded]);
             }
             e.call(NI_POINTER_DESTRUCTOR, &args![texture]);
@@ -1672,7 +1684,11 @@ fn new_load_screen(e: &mut Engine, this: Ptr<LoadingMenu>) -> u32 {
     } else {
         0
     };
-    let path = e.call(NI_POINTER_GET, &args![string_buffer(this)]).u32();
+    let path = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, string_buffer(this))
+    );
     e.call(SET_PATH, &args![screen + 0x18, path]);
     e.call(SET_TEMPORARY, &args![screen]);
     screen
@@ -1698,7 +1714,11 @@ fn add_load_screen(e: &mut Engine, this: Ptr<LoadingMenu>, add: u32, screen: u32
 /// screen. Then the first screen becomes current and is shown (`0078b3f0`).
 pub fn loading_menu_make_load_screen_list(e: &mut Engine, this: Ptr<LoadingMenu>) {
     let mut cleared = false;
-    if !e.call(LIST_EMPTY, &args![load_screens(this)]).bool() {
+    if !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, load_screens(this))
+    ) {
         fn_0078a940(e, this);
         cleared = true;
     }
@@ -1748,7 +1768,11 @@ pub fn loading_menu_make_load_screen_list(e: &mut Engine, this: Ptr<LoadingMenu>
             e.call(CANDIDATE_LIST_DESTRUCTOR, &args![candidates]);
         });
     }
-    if e.call(LIST_EMPTY, &args![load_screens(this)]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, load_screens(this))
+    ) {
         let name = setting_string(e, SETTING_FIRST_SCREEN);
         e.call(
             STRING_FORMAT,
@@ -1932,7 +1956,7 @@ pub fn loading_menu_build_candidate_list(e: &mut Engine, this: Ptr<LoadingMenu>,
             e.call(LOAD_SCREEN_GENERIC, &args![screen]).bool()
         };
         if suits {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let index = e.call(CANDIDATE_ADD, &args![list, slot]).u32();
             let kind = e.call(LOAD_SCREEN_TYPE, &args![screen]).u32();
             if (e.mem.u8(MENU_REPLACED) != 0 || overlay_active(e)) && kind != 3 && kind != 0 {
@@ -1946,7 +1970,7 @@ pub fn loading_menu_build_candidate_list(e: &mut Engine, this: Ptr<LoadingMenu>,
 // Translated from 0078ada0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Whether bit `0x400` of the load screen's flags word (`+8`) is set.
 pub fn fn_0078ada0(e: &mut Engine, screen: u32) -> bool {
-    e.call(WORD_AT_8, &args![screen]).u32() & 0x400 != 0
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, screen)) & 0x400 != 0
 }
 
 // Translated from 0078adc0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1965,15 +1989,23 @@ pub fn fn_0078adc0(e: &mut Engine, this: Ptr<LoadingMenu>, list: u32) {
     }
     let mut count = e.call(LIST_COUNT, &args![load_screens(this)]).u32();
     while count < limit {
-        if e.call(WORD_AT_8, &args![list]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) == 0 {
             break;
         }
-        let size = e.call(WORD_AT_8, &args![list]).u32();
+        let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list));
         let index = e.call(RANDOM_INDEX, &args![size]).u32();
-        let slot = e.call(CANDIDATE_AT, &args![list, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, list, index)
+        );
         let screen = e.mem.u32(slot);
         if fn_0078ab20(e, this, screen) {
-            let slot = e.call(CANDIDATE_AT, &args![list, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, list, index)
+            );
             e.call(LIST_ADD, &args![load_screens(this), slot]);
             count += 1;
         }
@@ -2064,7 +2096,7 @@ pub fn fn_0078afc0(e: &mut Engine, this: Ptr<LoadingMenu>, item: u32, value: f32
 fn fade_tile_list(e: &mut Engine, this: Ptr<LoadingMenu>, list: u32, value: f32) {
     let list = this.addr() + list;
     e.with_stack(4, |e, iterator| {
-        let head = e.call(NI_POINTER_GET, &args![list]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
         e.mem.set_u32(iterator.addr(), head);
         while e.mem.u32(iterator.addr()) != 0 {
             let element = e.call(POINTER_LIST_STEP, &args![list, iterator]).u32();
@@ -2182,7 +2214,7 @@ fn truncate_to_i64_low(value: f64) -> u32 {
 /// the element's word.
 fn for_each_in_list(e: &mut Engine, list: u32, mut visit: impl FnMut(&mut Engine, u32)) {
     e.with_stack(4, |e, iterator| {
-        let head = e.call(NI_POINTER_GET, &args![list]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
         e.mem.set_u32(iterator.addr(), head);
         while e.mem.u32(iterator.addr()) != 0 {
             let element = e.call(POINTER_LIST_STEP, &args![list, iterator]).u32();
@@ -2342,7 +2374,7 @@ pub fn loading_menu_calc_load_screen_type_text_window_faces(
     data: u32,
 ) {
     if data == 0 {
-        e.call(ERROR_LOG, &args![NULL_DATA_WARNING]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words NULL_DATA_WARNING);
         return;
     }
     let screen_width = e.call(SCREEN_WIDTH, &args![]).f32();
@@ -2455,8 +2487,8 @@ pub fn loading_menu_init_stats_tiles_settings(e: &mut Engine, this: Ptr<LoadingM
     let mut y = 0.0f32;
     let mut row = 1u32;
     e.with_stack(8, |e, iterators| {
-        let first_a = e.call(NODE_NEXT, &args![column_a + 4]).u32();
-        let first_b = e.call(NODE_NEXT, &args![column_b + 4]).u32();
+        let first_a = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, column_a + 4));
+        let first_b = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, column_b + 4));
         e.mem.set_u32(iterators.addr(), first_a);
         e.mem.set_u32(iterators.addr() + 4, first_b);
         while e.mem.u32(iterators.addr()) != 0 && e.mem.u32(iterators.addr() + 4) != 0 {
@@ -2771,7 +2803,11 @@ pub fn fn_0078cc50(e: &mut Engine, this: Ptr<LoadingMenu>) {
 /// The rendered texture: `BSRenderedTexture::GetTexture` (flag 0) of the
 /// `NiPointer` at `011ded3c`. The register argument is not used.
 pub fn fn_0078cdf0(e: &mut Engine, _unused_0: u32) -> u32 {
-    let rendered = e.call(NI_POINTER_GET, &args![RENDERED_TEXTURE]).u32();
+    let rendered = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, RENDERED_TEXTURE)
+    );
     e.call(RENDERED_GET_TEXTURE, &args![rendered, 0u32]).u32()
 }
 
@@ -2801,7 +2837,7 @@ pub fn fn_0078ce10(e: &mut Engine, this: Ptr<LoadingMenu>, item: u32, value: f32
     e.mem.set_u8(DO_TILE_UPDATE, 1);
     let list = item + 4;
     e.with_stack(4, |e, iterator| {
-        let head = e.call(NI_POINTER_GET, &args![list]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
         e.mem.set_u32(iterator.addr(), head);
         while e.mem.u32(iterator.addr()) != 0 {
             let element = e.call(POINTER_LIST_STEP, &args![list, iterator]).u32();
@@ -2969,7 +3005,7 @@ pub fn fn_0078d200(e: &mut Engine, this: Ptr) -> bool {
         .u32();
     let held = previous == 0;
     if held {
-        e.call(ERROR_LOG, &args![]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
         e.mem.set_u32(this.addr() + 4, 1);
     }
     held
@@ -3193,7 +3229,7 @@ pub fn fn_0078d6b0(e: &mut Engine, buffer: u32) {
         0
     };
     let handle = if owner != 0 {
-        e.call(NODE_NEXT, &args![owner]).u32()
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, owner))
     } else {
         0
     };

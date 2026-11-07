@@ -22,13 +22,16 @@ const LIST_AT_0X14: u32 = 0x007d_6bb0;
 /// `0048d150` (unnamed): `thiscall`, an action's second list (its first node).
 const SECOND_LIST: u32 = 0x0048_d150;
 /// `006815c0` (unnamed): `thiscall`, returns `this` (a list node's item slot).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `0062d990` (unnamed): `thiscall`, the next list node.
 const NODE_NEXT: u32 = 0x0062_d990;
 /// `00559450` (unnamed): `thiscall`, returns the word at `+0`.
+#[cfg(test)]
 const READ_FIRST_WORD: u32 = 0x0055_9450;
 /// `00726070` (unnamed, `menumanager.cpp` per the engine map): `thiscall` on a list item,
 /// no stack words; a word result.
+#[cfg(test)]
 const ITEM_VALUE: u32 = 0x0072_6070;
 /// `00984470` (unnamed, `combatgoal.cpp`): `thiscall`, one word (`RET 4`); a word result.
 const RESOLVE_VALUE: u32 = 0x0098_4470;
@@ -63,13 +66,13 @@ fn has_item(e: &mut Engine, node: u32) -> bool {
     if node == 0 {
         return false;
     }
-    let item_slot = e.call(NODE_ITEM, &args![node]).u32();
+    let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(item_slot) != 0
 }
 
 /// The item of a list node (`*006815c0(node)`).
 fn item(e: &mut Engine, node: u32) -> u32 {
-    let item_slot = e.call(NODE_ITEM, &args![node]).u32();
+    let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(item_slot)
 }
 
@@ -129,8 +132,11 @@ pub fn fn_00994350(
                 let mut other = e.call(LIST_AT_0X14, &args![later_action]).u32();
                 while has_item(e, other) {
                     let candidate = item(e, other);
-                    let wanted_word = e.call(READ_FIRST_WORD, &args![wanted]).u32();
-                    if wanted_word == e.call(READ_FIRST_WORD, &args![candidate]).u32() {
+                    let wanted_word =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, wanted));
+                    if wanted_word
+                        == typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, candidate))
+                    {
                         found = true;
                         break;
                     }
@@ -177,14 +183,18 @@ pub fn fn_00994350(
         let mut node = e.call(LIST_AT_0X14, &args![action]).u32();
         while has_item(e, node) {
             let wanted = item(e, node);
-            let wanted_value = e.call(ITEM_VALUE, &args![wanted]).u32();
+            let wanted_value = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, wanted));
             let first = fn_009947f0(e, Ptr::new(context), wanted_value as i32, value as i32);
             let mut other = e.call(SECOND_LIST, &args![later_action]).u32();
             while has_item(e, other) {
                 let candidate = item(e, other);
-                let wanted_word = e.call(READ_FIRST_WORD, &args![wanted]).u32();
-                if wanted_word == e.call(READ_FIRST_WORD, &args![candidate]).u32() {
-                    let candidate_value = e.call(ITEM_VALUE, &args![candidate]).u32();
+                let wanted_word =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, wanted));
+                if wanted_word
+                    == typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, candidate))
+                {
+                    let candidate_value =
+                        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, candidate));
                     let second = fn_009947f0(
                         e,
                         Ptr::new(context),

@@ -33,6 +33,7 @@ const ACTIVE_EFFECT_TYPE: u32 = 0x011a_0d1c;
 /// `AssociatedItemEffect`'s RTTI type descriptor (`.?AVAssociatedItemEffect@@`).
 const ASSOCIATED_ITEM_EFFECT_TYPE: u32 = 0x011a_0d60;
 /// `0084e3a0` (thiscall, returns a word; unnamed getter, here of the item).
+#[cfg(test)]
 const GETTER_0084E3A0: u32 = 0x0084_e3a0;
 /// The `TESSaveLoadGame` pointer (`011de45c`).
 const SAVE_LOAD_GAME_POINTER: u32 = 0x011d_e45c;
@@ -106,7 +107,7 @@ pub fn associated_item_effect_save_game(
         let value = if item == 0 {
             0
         } else {
-            e.call(GETTER_0084E3A0, &args![item]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item))
         };
         e.mem.set_u32(id.addr(), value);
         let game = e.global::<u32>(SAVE_LOAD_GAME_POINTER);

@@ -33,8 +33,10 @@ const UNITIZE_GET_LENGTH: u32 = 0x0045_7910;
 /// the list holds the item.
 const LIST_CONTAINS: u32 = 0x005f_65d0;
 /// `006815c0` (`thiscall`): the address of a node's item.
+#[cfg(test)]
 const NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
 /// `00726070` (`thiscall`): the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `005f36f0` (`thiscall`; the engine map's `ActorMover::GetPreferredMoveMode`
 /// is a folded body): the item's nested list object.
@@ -87,17 +89,17 @@ pub fn fn_004f6e60(e: &mut Engine, this: Ptr, form: u32, all: u8, typed: u8) -> 
     }
     let mut node = if this.is_null() { 0 } else { this.addr() + 4 };
     while node != 0 {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             break;
         }
         let search = if all != 0 {
             true
         } else if typed != 0 {
-            let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_address);
             if e.vcall(item, 4, &args![]).u32() != 0 {
-                let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+                let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(item_address);
                 fn_004f6f70(e, Ptr::new(item))
             } else {
@@ -107,14 +109,14 @@ pub fn fn_004f6e60(e: &mut Engine, this: Ptr, form: u32, all: u8, typed: u8) -> 
             false
         };
         if search {
-            let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_address);
             let nested = e.call(NESTED_LIST_005F36F0, &args![item]).u32();
             if fn_004f6e60(e, Ptr::new(nested), form, all, typed) {
                 return true;
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }

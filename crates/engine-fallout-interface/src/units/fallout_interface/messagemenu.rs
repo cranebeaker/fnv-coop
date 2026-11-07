@@ -86,6 +86,7 @@ const SET_TRAIT_FROM_INT: u32 = 0x0070_0320;
 /// `Tile::GetMaximumDepth` (engine map).
 const GET_MAXIMUM_DEPTH: u32 = 0x00a0_1530;
 /// Returns the word at +4 of its object (`Menu::pMenu`, a list node's next).
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 const MENU_SET_MENU_TILE: u32 = 0x00a1_dc70;
 const MENU_PREP_FOR_VISIBILITY: u32 = 0x00a1_dc20;
@@ -117,8 +118,10 @@ const WORD_AT_0X14: u32 = 0x0082_5c00;
 /// Returns the word at +0x24 of its object (the menu's fade state).
 const WORD_AT_0X24: u32 = 0x0059_bb30;
 /// `BSSimpleArray` size (word at +8).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `BSSimpleArray` element address (list, index), `this + 4 * index`.
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// The same body under another name (a second template instance).
 const ARRAY_ELEMENT_ALIAS: u32 = 0x006a_7ad0;
@@ -144,6 +147,7 @@ const STRING_ASSIGN: u32 = 0x0043_8390;
 /// `BSStringT<char>::operator+=` of a C string.
 const STRING_APPEND: u32 = 0x0040_4820;
 const STRING_LENGTH: u32 = 0x0040_48e0;
+#[cfg(test)]
 const STRING_C_STR: u32 = 0x0055_9450;
 /// Copies a C string: destination, size, source (cdecl).
 const COPY_C_STRING: u32 = 0x0040_6d30;
@@ -206,6 +210,7 @@ const CLOSE_CHECK: u32 = 0x004a_4040;
 /// The check `Create` makes on the new menu object.
 const MENU_INITIALIZED_CHECK: u32 = 0x007a_bdb0;
 /// Prints an error message (engine map `Error`, cdecl).
+#[cfg(test)]
 const ERROR_PRINT: u32 = 0x0040_fbe0;
 /// The sound system instance getter.
 const SOUND_SYSTEM: u32 = 0x0045_3a70;
@@ -240,6 +245,7 @@ const SCRIPT_RUN: u32 = 0x005a_c1e0;
 const REFR_ACTIVATE: u32 = 0x0057_3170;
 const REFR_COUNT: u32 = 0x0077_8930;
 const REFR_GET_TARGET_TYPE: u32 = 0x0057_9280;
+#[cfg(test)]
 const REFR_BASE_FORM: u32 = 0x007a_f430;
 const FORM_TYPE: u32 = 0x0040_1170;
 const REFR_GET_LOCK: u32 = 0x0056_9160;
@@ -250,8 +256,10 @@ const DOOR_CAN_IGNORE_LOCK: u32 = 0x0051_8f00;
 const OPEN_CLOSE_STATE: u32 = 0x0047_b250;
 const SCRIPT_OF_ITEM: u32 = 0x0041_3f40;
 /// Whether a list node is the end of the list.
+#[cfg(test)]
 const NODE_IS_END: u32 = 0x0082_56d0;
 /// Returns its `this` (the address of a list node's item slot).
+#[cfg(test)]
 const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
 /// The player reference pointer.
 const PLAYER: u32 = 0x011d_ea3c;
@@ -423,7 +431,7 @@ fn set_string(e: &mut Engine, tile: u32, id: u32, text: u32, flag: bool) {
 }
 
 fn c_str(e: &mut Engine, string: Ptr<BSStringT>) -> u32 {
-    e.call(STRING_C_STR, &args![string]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string))
 }
 
 /// A new entry: `operator new(0x50)` and the constructor.
@@ -576,7 +584,7 @@ pub fn message_menu_create(e: &mut Engine) -> bool {
     }
     if menu_object(e) != 0 {
         let me = menu_object(e);
-        if e.call(WORD_AT_FOUR, &args![me]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me)) != 0 {
             let me = menu_object(e);
             e.vcall(me, 0, &args![1u32]);
         }
@@ -590,7 +598,7 @@ fn create_finish(e: &mut Engine, root: u32, top_menu_set: bool) -> bool {
     e.call(MENU_SET_MENU_TILE, &args![me, root, 0u32]);
     let me = menu_object(e);
     if !e.call(MENU_INITIALIZED_CHECK, &args![me]).bool() {
-        e.call(ERROR_PRINT, &args![CREATION_FAILED]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words CREATION_FAILED);
         return false;
     }
     let kind = get_float(e, root, TRAIT_STACKING_TYPE) as f64;
@@ -619,7 +627,7 @@ fn create_finish(e: &mut Engine, root: u32, top_menu_set: bool) -> bool {
         let value = e.mem.f32(setting);
         let opacity = (fld_fstp(value) as f64 * e.global::<f64>(TWO_FIFTY_FIVE_DOUBLE)) as f32;
         let me = menu_object(e);
-        let tile = e.call(WORD_AT_FOUR, &args![me]).u32();
+        let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me));
         let background = e
             .call(GET_CHILD_BY_NAME, &args![tile, BACKGROUND_TILE_NAME])
             .u32();
@@ -650,7 +658,7 @@ pub fn message_menu_close(e: &mut Engine) {
         return;
     }
     let me = menu_object(e);
-    let tile = e.call(WORD_AT_FOUR, &args![me]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me));
     set_int(e, tile, TRAIT_FADE, 1);
     if e.call(GET_CURRENT_RENDERED_MENU, &args![]).u32() != 0 {
         let me = menu_object(e);
@@ -832,16 +840,24 @@ fn parse_button_text(e: &mut Engine, entry: Ptr<MessageMenuEntry>, work: u32, ke
 /// when it is modal, else at the end (`007a8e60`). `slot` is the caller's local for the entry.
 fn queue_entry(e: &mut Engine, entry: Ptr<MessageMenuEntry>, slot: u32) {
     e.mem.set_u32(slot, entry.addr());
-    if e.call(ARRAY_SIZE, &args![ENTRY_LIST]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, ENTRY_LIST)) != 0 {
         let mut index = 0u32;
-        while index < e.call(ARRAY_SIZE, &args![ENTRY_LIST]).u32() {
-            let element = e.call(ARRAY_ELEMENT, &args![ENTRY_LIST, index]).u32();
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, ENTRY_LIST)) {
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, ENTRY_LIST, index)
+            );
             let existing = e.mem.u32(element);
             if fn_007a9280(e, Ptr::new(existing)) == 0 && fn_007a9280(e, entry) != 0 {
                 e.call(ARRAY_INSERT, &args![ENTRY_LIST, index, slot]);
                 break;
             }
-            let element = e.call(ARRAY_ELEMENT, &args![ENTRY_LIST, index]).u32();
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, ENTRY_LIST, index)
+            );
             let last = e.call(ARRAY_LAST_ELEMENT, &args![ENTRY_LIST]).u32();
             if e.mem.u32(element) == e.mem.u32(last) {
                 e.call(ARRAY_ADD, &args![ENTRY_LIST, slot]);
@@ -865,10 +881,14 @@ pub fn fn_007a9280(e: &mut Engine, this: Ptr<MessageMenuEntry>) -> u8 {
 /// when the index is past the end.
 pub fn fn_007a92a0(e: &mut Engine) -> Ptr<MessageMenuEntry> {
     let mut entry = 0;
-    let count = e.call(ARRAY_SIZE, &args![ENTRY_LIST]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, ENTRY_LIST));
     if e.global::<u32>(START_INDEX) < count {
         let index = e.global::<u32>(START_INDEX);
-        let element = e.call(ARRAY_ELEMENT, &args![ENTRY_LIST, index]).u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, ENTRY_LIST, index)
+        );
         entry = e.mem.u32(element);
     }
     Ptr::new(entry)
@@ -901,7 +921,7 @@ pub fn message_menu_load_next_message(e: &mut Engine, this: Ptr<MessageMenu>) {
         let mut title_width = 0.0f32;
         let mut height_sum = 0.0f32;
         let id = e.call(TEXT_TO_TRAIT, &args![HORIZONTAL_BUFFER_NAME]).u32();
-        let menu_tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+        let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         let margin = get_float(e, menu_tile, id);
         let margin_twice = margin as f64 * 2.0;
         let width_override = e.get(cur, MessageMenuEntry::uiWidthOverride);
@@ -1120,7 +1140,7 @@ pub fn message_menu_load_next_message(e: &mut Engine, this: Ptr<MessageMenu>) {
             ((width_override as f64 / divisor) * screen) as f32
         } else {
             let id = e.call(TEXT_TO_TRAIT, &args![MAX_MENU_WIDTH_NAME]).u32();
-            let menu_tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+            let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
             get_float(e, menu_tile, id)
         };
         let mut room = (room as f64 - margin_twice) as f32;
@@ -1158,11 +1178,11 @@ pub fn message_menu_load_next_message(e: &mut Engine, this: Ptr<MessageMenu>) {
             let wider = e.call(FLOAT_MAX_OF, &args![title_width, height_sum]).f32();
             let menu_width = e.call(FLOAT_MAX_OF, &args![wider, list_width]).f32();
             let id = e.call(TEXT_TO_TRAIT, &args![MAX_MENU_WIDTH_NAME]).u32();
-            let menu_tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+            let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
             let maximum = get_float(e, menu_tile, id);
             let menu_width = e.call(FLOAT_MIN_OF, &args![menu_width, maximum]).f32();
             let id = e.call(TEXT_TO_TRAIT, &args![MIN_MENU_WIDTH_NAME]).u32();
-            let menu_tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+            let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
             let minimum = get_float(e, menu_tile, id);
             e.call(FLOAT_MAX_OF, &args![menu_width, minimum]).f32()
         } else {
@@ -1181,9 +1201,9 @@ pub fn message_menu_load_next_message(e: &mut Engine, this: Ptr<MessageMenu>) {
             WARNING_STATE_FLAG_0119F348,
             (e.get(cur, MessageMenuEntry::iWarningContext) == 0x17) as u8,
         );
-        let menu_tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+        let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         set_int(e, menu_tile, TRAIT_FADE, 0);
-        let menu_tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+        let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         set_int(e, menu_tile, TRAIT_VISIBLE, 1);
 
         if fn_007a9280(e, cur) == 0 {
@@ -1402,7 +1422,8 @@ pub fn message_menu_do_idle(e: &mut Engine, this: Ptr<MessageMenu>) {
             if visible as f64 <= elapsed as f64 {
                 let last = e.call(ARRAY_LAST_ELEMENT, &args![ENTRY_LIST]).u32();
                 if entry.addr() == e.mem.u32(last) {
-                    let menu_tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+                    let menu_tile =
+                        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
                     set_int(e, menu_tile, TRAIT_FADE, 1);
                     message_menu_clear_message_queue_head(e);
                 } else {
@@ -1418,7 +1439,7 @@ pub fn message_menu_do_idle(e: &mut Engine, this: Ptr<MessageMenu>) {
 /// `iStartIndex` (not named in the engine map).
 pub fn fn_007aa480(e: &mut Engine) {
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![ENTRY_LIST]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, ENTRY_LIST)) {
         let element = e.call(ARRAY_ELEMENT_ALIAS, &args![ENTRY_LIST, index]).u32();
         let entry = e.mem.u32(element);
         if entry != 0 {
@@ -1483,8 +1504,12 @@ pub fn fn_007aa5c0(e: &mut Engine) {
     e.call(0x00aa_4c40, &args![object, context]);
     fn_007aa6a0(e, 1);
     let mut index = e.global::<u32>(START_INDEX);
-    while index < e.call(ARRAY_SIZE, &args![ENTRY_LIST]).u32() {
-        let element = e.call(ARRAY_ELEMENT, &args![ENTRY_LIST, index]).u32();
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, ENTRY_LIST)) {
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, ENTRY_LIST, index)
+        );
         let entry = e.mem.u32(element);
         if e.mem.u32(entry + 0x2c) == context {
             let element = e.call(ARRAY_ELEMENT_ALIAS, &args![ENTRY_LIST, index]).u32();
@@ -1565,14 +1590,15 @@ pub fn fn_007aa720(e: &mut Engine, choices: u32, object: u32) -> bool {
         );
         let buffer = local(0xc8);
         let mut node = choices;
-        while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let item = item_of(e, node);
-            let text = e.call(WORD_AT_FOUR, &args![item]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
             e.call(COPY_C_STRING, &args![buffer, 0x104u32, text]);
             let item = item_of(e, node);
             if e.vcall(item, 4, &args![]).u32() == 4 {
                 let item = item_of(e, node);
-                let mut usable = e.call(WORD_AT_FOUR, &args![item]).u32() != 0;
+                let mut usable =
+                    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item)) != 0;
                 if usable {
                     let item = item_of(e, node);
                     usable = e.call(SCRIPT_OF_ITEM, &args![item]).u32() != 0;
@@ -1580,7 +1606,7 @@ pub fn fn_007aa720(e: &mut Engine, choices: u32, object: u32) -> bool {
                 if usable {
                     let perk = e.call(OPERATOR_NEW, &args![0xcu32]).u32();
                     let item = item_of(e, node);
-                    let text = e.call(WORD_AT_FOUR, &args![item]).u32();
+                    let text = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
                     e.mem.set_u32(perk, text);
                     let item = item_of(e, node);
                     let script = e.call(SCRIPT_OF_ITEM, &args![item]).u32();
@@ -1596,15 +1622,15 @@ pub fn fn_007aa720(e: &mut Engine, choices: u32, object: u32) -> bool {
                     }
                 }
             }
-            node = e.call(WORD_AT_FOUR, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
 
         // The reference's own choice.
         let target_type = e.call(REFR_GET_TARGET_TYPE, &args![object]).i32();
-        let base = e.call(REFR_BASE_FORM, &args![object]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, object));
         let form_type = e.call(FORM_TYPE, &args![base]).u32();
         let lock = e.call(REFR_GET_LOCK, &args![object]).u32();
-        let base_form = e.call(REFR_BASE_FORM, &args![object]).u32();
+        let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, object));
         let player: u32 = e.global(PLAYER);
         if target_type == 1 && e.call(REFR_CHECK_0057_9690, &args![object]).bool() {
             let setting = if form_type == 0x2a {
@@ -1670,7 +1696,7 @@ pub fn fn_007aa720(e: &mut Engine, choices: u32, object: u32) -> bool {
 
 /// The item of a list node: the word at the address `006815c0` returns.
 fn item_of(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -1727,7 +1753,11 @@ fn parse_activation_text(e: &mut Engine, entry: Ptr<MessageMenuEntry>, work: u32
 /// player. The activation array is then cleared.
 pub fn fn_007aae70(e: &mut Engine) {
     let chosen = e.call(GET_MESSAGE_MENU_RESULT, &args![]).u8() as i8 as i32;
-    let count = e.call(ARRAY_SIZE, &args![PERK_ACTIVATIONS]).u32();
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, PERK_ACTIVATIONS)
+    );
     if chosen != count.wrapping_sub(1) as i32 {
         let element = e
             .call(ARRAY_ELEMENT_ALIAS, &args![PERK_ACTIVATIONS, chosen as u32])
@@ -1765,7 +1795,7 @@ pub fn fn_007aae70(e: &mut Engine) {
 /// both.
 pub fn message_menu_set_pause_menu_mode(e: &mut Engine, pause: u8) {
     if pause != 0 {
-        let size = e.call(ARRAY_SIZE, &args![ENTRY_LIST]).u32();
+        let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, ENTRY_LIST));
         e.set_global(START_INDEX, size);
         message_menu_close(e);
         let flag = e.global::<u8>(DISABLE_MESSAGE_MENU);

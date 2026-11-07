@@ -45,7 +45,9 @@ const ITERATOR_DELETE: u32 = 0x004b_f630;
 /// Item helpers (`thiscall`): `00726070` (+4, the count), `0044ddc0` (+8, the form),
 /// `ItemChange::GetModSlots` (`004bd820`), `ItemChange::ItemChange_ov3` (`0076b630`),
 /// `004bc810` (one word: copies an item) and `006ecd40` (one word: sets the count).
+#[cfg(test)]
 const ITEM_COUNT_00726070: u32 = 0x0072_6070;
+#[cfg(test)]
 const ITEM_FORM_0044DDC0: u32 = 0x0044_ddc0;
 const ITEM_HAS_MODS: u32 = 0x004b_d820;
 const ITEM_CONSTRUCTOR: u32 = 0x0076_b630;
@@ -130,9 +132,11 @@ pub fn fn_00719ef0(
             let skipped = filter != 0 && e.call(filter, &args![item]).u8() != 0;
             if !skipped {
                 let mut copies = 0i32;
-                let count = e.call(ITEM_COUNT_00726070, &args![item]).i32();
+                let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+                    .into_ret()
+                    .i32();
                 loop {
-                    let form = e.call(ITEM_FORM_0044DDC0, &args![item]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                     let form = e
                         .call(
                             DYNAMIC_CAST,
@@ -214,13 +218,21 @@ pub fn fn_00719c80(e: &mut Engine, first: u32, second: u32) -> i32 {
 /// Unnamed (cdecl, two items; a list sort's comparison): -1, 1 or 0 as the first item's
 /// count (`00726070`) is below, above or equal to the second's.
 pub fn fn_00719ca0(e: &mut Engine, first: u32, second: u32) -> i32 {
-    let a = e.call(ITEM_COUNT_00726070, &args![first]).i32();
-    let b = e.call(ITEM_COUNT_00726070, &args![second]).i32();
+    let a = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, first))
+        .into_ret()
+        .i32();
+    let b = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, second))
+        .into_ret()
+        .i32();
     if a < b {
         return -1;
     }
-    let a = e.call(ITEM_COUNT_00726070, &args![first]).i32();
-    let b = e.call(ITEM_COUNT_00726070, &args![second]).i32();
+    let a = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, first))
+        .into_ret()
+        .i32();
+    let b = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, second))
+        .into_ret()
+        .i32();
     if a > b {
         1
     } else {
@@ -231,7 +243,7 @@ pub fn fn_00719ca0(e: &mut Engine, first: u32, second: u32) -> i32 {
 /// The item's form cast to `TESHealthForm` (`__RTDynamicCast(form, 0, 01183108,
 /// 01186c3c, 0)`).
 fn health_form(e: &mut Engine, item: u32) -> u32 {
-    let form = e.call(ITEM_FORM_0044DDC0, &args![item]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     e.call(
         DYNAMIC_CAST,
         &args![
@@ -273,7 +285,7 @@ fn item_form_type_is(e: &mut Engine, item: u32, types: &[u32]) -> bool {
         return false;
     }
     for &kind in types {
-        let form = e.call(ITEM_FORM_0044DDC0, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         if e.call(FORM_TYPE_00401170, &args![form]).u32() == kind {
             return true;
         }

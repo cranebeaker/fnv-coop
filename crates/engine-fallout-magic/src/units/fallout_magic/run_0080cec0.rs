@@ -13,6 +13,7 @@ const HIT_SHADER_011C3588: u32 = 0x011c_3588;
 const PLAYER: u32 = 0x011d_ea3c;
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map name of `008d8520`; the body
 /// answers the word at +0x68 of a reference: its process). `thiscall`, no stack words.
+#[cfg(test)]
 const REFERENCE_PROCESS: u32 = 0x008d_8520;
 /// `00403e20` (`thiscall`, no stack words): the address of a setting's value (+4), or of a
 /// zeroed float at `01202800` for a null setting.
@@ -31,6 +32,7 @@ const POINT_LENGTH: u32 = 0x004a_7290;
 /// effect fail when set.
 const SLOT_22C: u32 = 0x22c;
 /// `0045cd60` (`thiscall`): the word at +0x28 of the process.
+#[cfg(test)]
 const PROCESS_WORD_28: u32 = 0x0045_cd60;
 /// `00477ba0` (`thiscall`): bit 0x800000 of the form flags (+8) of the reference.
 const FORM_FLAG_800000: u32 = 0x0047_7ba0;
@@ -77,7 +79,7 @@ pub fn fn_0080ced0(e: &mut Engine, reference: u32, flag: u8) -> bool {
     if shader == 0
         || reference == 0
         || reference == player
-        || e.call(REFERENCE_PROCESS, &args![reference]).u32() == 0
+        || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference)) == 0
     {
         return false;
     }
@@ -106,8 +108,8 @@ pub fn fn_0080ced0(e: &mut Engine, reference: u32, flag: u8) -> bool {
     if close_enough
         && !e.vcall(reference, SLOT_22C, &args![0u32]).bool()
         && {
-            let process = e.call(REFERENCE_PROCESS, &args![reference]).u32();
-            e.call(PROCESS_WORD_28, &args![process]).u32() == 0
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference));
+            typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == 0
         }
         && !e.call(FORM_FLAG_800000, &args![reference]).bool()
     {

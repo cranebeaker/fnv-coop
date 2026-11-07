@@ -10,6 +10,7 @@ const VTABLE_NAV_MESH_SEARCH_HIDE: u32 = 0x0106_b7dc;
 const BASE_CONSTRUCT_006A6A40: u32 = 0x006a_6a40;
 /// `006815c0` (`thiscall`): returns `this` (the members at `+0x20bc` and
 /// `+0x20cc`).
+#[cfg(test)]
 const SELF_006815C0: u32 = 0x0068_15c0;
 
 // Translated from 006a9cb0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -22,8 +23,8 @@ pub fn fn_006a9cb0(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
     e.call(BASE_CONSTRUCT_006A6A40, &args![this]);
     e.mem.set_u32(base, VTABLE_NAV_MESH_SEARCH_HIDE);
-    e.call(SELF_006815C0, &args![base + 0x20bc]);
-    e.call(SELF_006815C0, &args![base + 0x20cc]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x20bc));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x20cc));
     e.mem.set_u32(base + 0x20a4, 0);
     this
 }

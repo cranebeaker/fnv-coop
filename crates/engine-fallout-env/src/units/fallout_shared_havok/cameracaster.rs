@@ -56,6 +56,7 @@ const NI_POINTER_DESTRUCT: u32 = 0x0045_cec0;
 /// `NiPointer` assignment (`0066b0d0`).
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 /// The pointer a `NiPointer` holds (`00559450`: `*this`).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// The game heap allocation (`00aa13e0`, cdecl `(size)`).
 const ALLOCATE: u32 = 0x00aa_13e0;
@@ -63,6 +64,7 @@ const ALLOCATE: u32 = 0x00aa_13e0;
 const MEMORY_ROUTER: u32 = 0x00c8_5750;
 const ROUTER_ALLOCATOR: u32 = 0x0044_edb0;
 /// `hkVector4` construction (`006815c0`, returns `this`).
+#[cfg(test)]
 const VECTOR_CONSTRUCT: u32 = 0x0068_15c0;
 
 fn copy_words(e: &mut Engine, from: u32, to: u32, words: u32) {
@@ -103,7 +105,7 @@ pub fn camera_caster_dtor(e: &mut Engine, this: Ptr<CameraCaster>) {
 /// (`bhkSimpleShapePhantom::bhkSimpleShapePhantom`, null when the
 /// allocation failed) and assigns it to the `NiPointer` at `slot`.
 fn make_phantom(e: &mut Engine, filter_info: u32, sphere: u32, info: u32, slot: u32) {
-    let shape_filter = e.call(NI_POINTER_GET, &args![filter_info]).u32();
+    let shape_filter = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, filter_info));
     e.mem.set_u32(info, shape_filter);
     // `bhkCharacterProxy::operatorP` (Xbox PDB name of `004ae750`).
     let shape = e.call(0x004a_e750, &args![sphere]).u32();
@@ -163,14 +165,14 @@ pub fn fn_00620930(e: &mut Engine, this: Ptr<CameraCaster>, radius: f32, filter:
 // Translated from 00620b80 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns `0044ddc0(this)` (the word at +0x08 of `this`).
 pub fn fn_00620b80(e: &mut Engine, this: u32) -> u32 {
-    e.call(0x0044_ddc0, &args![this]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this))
 }
 
 // Translated from 00620ba0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Hands `value` to `00c85ce0` (`bhkworldobject.obj`) on the object the
 /// `NiPointer` at `this` holds.
 pub fn fn_00620ba0(e: &mut Engine, this: u32, value: u32) {
-    let object = e.call(NI_POINTER_GET, &args![this]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     e.call(0x00c8_5ce0, &args![object, value]);
 }
 
@@ -198,7 +200,7 @@ pub fn camera_caster_pick(
     hit: u32,
 ) -> bool {
     let mut result = false;
-    if e.call(NI_POINTER_GET, &args![this]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) == 0 {
         return result;
     }
     e.with_stack(0x400, |e, frame| {
@@ -207,12 +209,12 @@ pub fn camera_caster_pick(
         let start = frame.addr() + 0x3c0;
         let has_hit = frame.addr() + 0x3d0;
         let filter = frame.addr() + 0x3d4;
-        e.call(VECTOR_CONSTRUCT, &args![start]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, start));
         hkp_all_cd_point_collector_ctor(e, collector);
         fn_00621290(e, input);
         e.call(0x004a_3e00, &args![start, from]);
         e.call(0x004a_3e00, &args![input, to]);
-        let phantom = e.call(NI_POINTER_GET, &args![this]).u32();
+        let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         fn_00c9eba0(e, phantom, start, input, collector, 0);
         let flag = fn_00621210(e, collector, has_hit);
         result = e.call(0x0056_09f0, &args![flag]).bool();
@@ -221,7 +223,7 @@ pub fn camera_caster_pick(
             e.call(0x00ca_bad0, &args![collector]);
             let mut index = 0i32;
             let mut found = false;
-            let in_vats = e.call(0x0044_ddc0, &args![VATS]).u32() == 4;
+            let in_vats = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, VATS)) == 4;
             let mut target = 0;
             if in_vats {
                 // `VATS::GetCurrentAction` (Xbox PDB).
@@ -237,7 +239,9 @@ pub fn camera_caster_pick(
             }
             while !found {
                 let hits = e.call(0x0046_0140, &args![collector]).u32();
-                let count = e.call(0x0072_6070, &args![hits]).i32();
+                let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, hits))
+                    .into_ret()
+                    .i32();
                 if index >= count {
                     break;
                 }
@@ -291,7 +295,7 @@ pub fn camera_caster_pick(
                 let hits = e.call(0x0046_0140, &args![collector]).u32();
                 let point = e.call(0x0080_7770, &args![hits, index]).u32();
                 hkp_root_cd_point_assign(e, hit, point);
-                let position = e.call(VECTOR_CONSTRUCT, &args![hit]).u32();
+                let position = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, hit));
                 e.call(0x0045_8620, &args![to, position]);
             } else {
                 result = false;
@@ -410,7 +414,9 @@ pub fn hkp_all_cd_point_collector_dtor(e: &mut Engine, this: u32) {
 /// (`00726070` on +0x10 greater than 0, through `00622570`); returns
 /// `result`.
 pub fn fn_00621210(e: &mut Engine, this: u32, result: u32) -> u32 {
-    let count = e.call(0x0072_6070, &args![this + 0x10]).i32();
+    let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this + 0x10))
+        .into_ret()
+        .i32();
     e.call(0x0062_2570, &args![result, (count > 0) as u32]);
     result
 }
@@ -433,7 +439,7 @@ pub fn fn_00621270(e: &mut Engine, this: u32, mask: u32) -> u32 {
 /// tolerances at +0x10 and +0x14 to `FLT_EPSILON` (`0104da4c`). Returns
 /// `this`.
 pub fn fn_00621290(e: &mut Engine, this: u32) -> u32 {
-    e.call(VECTOR_CONSTRUCT, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     let tolerance = x87_quiet(e.global::<f32>(CAST_TOLERANCE));
     e.mem.set_f32(this + 0x10, tolerance);
     e.mem.set_f32(this + 0x14, tolerance);

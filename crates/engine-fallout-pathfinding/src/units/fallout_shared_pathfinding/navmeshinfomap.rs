@@ -92,12 +92,14 @@ const MAP_FIRST_004B9BA0: u32 = 0x004b_9ba0;
 /// `006b6390` (`NavMeshInfo` scalar deleting destructor; `thiscall`, `RET 4`).
 const NAV_MESH_INFO_DELETE: u32 = 0x006b_6390;
 /// `0044ddc0` (unnamed in the engine map): an array's size.
+#[cfg(test)]
 const ARRAY_SIZE_0044DDC0: u32 = 0x0044_ddc0;
 /// `006a7ad0` (unnamed in the engine map; `thiscall`, `RET 4`): the address
 /// of an array's element.
 const ARRAY_AT_006A7AD0: u32 = 0x006a_7ad0;
 /// `00877a30` (unnamed in the engine map; `thiscall`, `RET 4`): the address
 /// of an array's element.
+#[cfg(test)]
 const ARRAY_AT_00877A30: u32 = 0x0087_7a30;
 /// `006286d0` (named `LowProcess::GetNumberOfItemsActivated` in the engine
 /// map, a folded body): the word the cell check counts non-zero.
@@ -153,6 +155,7 @@ const CELL_KEY_00587410: u32 = 0x0058_7410;
 /// `TESObjectCELL::GetWorldSpace` (`0054ddd0`, engine map).
 const CELL_GET_WORLD_SPACE: u32 = 0x0054_ddd0;
 /// `0084e3a0` (unnamed in the engine map): the worldspace's id word.
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// `00408840` (unnamed in the engine map; cdecl, a float): a float result
 /// (ST0) compared with the location limit.
@@ -166,6 +169,7 @@ const NO_PARENT_SPACE_FORMAT: u32 = 0x0106_bd60;
 /// `"MASTERFILE: NavmeshInfo %08x has bad approx location, ignoring"`.
 const BAD_LOCATION_FORMAT: u32 = 0x0106_bd1c;
 /// `00559450` (unnamed in the engine map): the word at +0 of its `this`.
+#[cfg(test)]
 const FIRST_OF_00559450: u32 = 0x0055_9450;
 /// `NiTMapBase<..>::RemoveAt` (`00405430`, engine map; `thiscall`, `RET 4`).
 const MAP_REMOVE_AT_00405430: u32 = 0x0040_5430;
@@ -376,7 +380,7 @@ pub fn fn_006b7850(e: &mut Engine, this: Ptr, world: Ptr, key: u32) -> u32 {
     e.with_stack(8, |e, locals| {
         let inner_slot = locals.addr();
         let array_slot = locals.addr() + 4;
-        let id = e.call(FORM_ID_0084E3A0, &args![world]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world));
         if !map_get(e, this.addr() + 0x2c, id, inner_slot) {
             return 0;
         }
@@ -533,12 +537,14 @@ pub fn fn_006b7cb0(e: &mut Engine, this: Ptr) -> bool {
                     Ptr::new(value2),
                 );
                 let array = e.mem.u32(value2);
-                if e.call(ARRAY_SIZE_0044DDC0, &args![array]).u32() > 1 {
+                if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) > 1 {
                     let mut counted: u32 = 0;
                     let mut index: u32 = 0;
                     loop {
                         let array = e.mem.u32(value2);
-                        if index >= e.call(ARRAY_SIZE_0044DDC0, &args![array]).u32() {
+                        if index
+                            >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
+                        {
                             break;
                         }
                         let element = e.call(ARRAY_AT_006A7AD0, &args![array, index]).u32();
@@ -549,7 +555,7 @@ pub fn fn_006b7cb0(e: &mut Engine, this: Ptr) -> bool {
                         index = index.wrapping_add(1);
                     }
                     let array = e.mem.u32(value2);
-                    let size = e.call(ARRAY_SIZE_0044DDC0, &args![array]).u32();
+                    let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array));
                     if counted < size.wrapping_sub(1) {
                         result = false;
                     }
@@ -708,12 +714,20 @@ pub fn nav_mesh_info_map_init_item(e: &mut Engine, this: Ptr) {
             }
         }
         let mut index: u32 = 0;
-        while index < e.call(ARRAY_SIZE_0044DDC0, &args![array]).u32() {
-            let element = e.call(ARRAY_AT_00877A30, &args![array, index]).u32();
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
             let info = e.mem.u32(element);
-            let info_key = e.call(FIRST_OF_00559450, &args![info]).u32();
+            let info_key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
             e.call(MAP_REMOVE_AT_00405430, &args![info_map, info_key]);
-            let element = e.call(ARRAY_AT_00877A30, &args![array, index]).u32();
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
             let info = e.mem.u32(element);
             if info != 0 {
                 e.call(NAV_MESH_INFO_DELETE, &args![info, 1u32]);
@@ -764,6 +778,7 @@ const FILE_GET_MASTER: u32 = 0x0047_1c20;
 /// `00460340` (`ECX` only): whether bit 1 of the word at +8 of a form is set.
 const FORM_FLAG_2_00460340: u32 = 0x0046_0340;
 /// `00440d80` (`ECX` only): whether bit 5 (0x20) of the word at +8 of a form is set.
+#[cfg(test)]
 const FORM_FLAG_20_00440D80: u32 = 0x0044_0d80;
 /// `0047c850` (`ECX` only): returns 0 in AL (`tesactorbasedata.cpp`).
 const ALWAYS_ZERO_0047C850: u32 = 0x0047_c850;
@@ -881,7 +896,7 @@ pub fn fn_006b6910(e: &mut Engine, this: Ptr, form: Ptr) -> u32 {
 /// info map at +0x1C under its id (`00559450`, `SetAt`), then in the cell key
 /// map (`AddInfoToCellKeyMap`), and runs the form's virtual slot +0xC8 with 1.
 pub fn nav_mesh_info_map_add_nav_mesh_info(e: &mut Engine, this: Ptr, info: u32) {
-    let id = e.call(FIRST_OF_00559450, &args![info]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
     e.call(MAP_SET_AT_00844700, &args![this.addr() + 0x1c, id, info]);
     nav_mesh_info_map_add_info_to_cell_key_map(e, this, info);
     e.vcall(this.addr(), SLOT_MAP_FINISH, &args![1u32]);
@@ -936,7 +951,7 @@ pub fn nav_mesh_info_map_delete_nav_mesh_info(e: &mut Engine, this: Ptr, key: u3
         e.call(NI_POINTER_CONSTRUCT_0042FB00, &args![mesh]);
         let info = e.mem.u32(info_slot);
         if e.call(INFO_NAV_MESH_00690860, &args![info, mesh]).u8() != 0 {
-            let nav_mesh = e.call(FIRST_OF_00559450, &args![mesh]).u32();
+            let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
             let file = e.call(FORM_GET_FILE, &args![nav_mesh, 0u32]).u32();
             if file != 0 && e.call(FILE_GET_MASTER, &args![file]).u8() != 0 {
                 master = true;
@@ -1062,7 +1077,7 @@ fn warn_with_cell(e: &mut Engine, format: u32, info: u32) {
     } else {
         EMPTY_STRING
     };
-    let id = e.call(FIRST_OF_00559450, &args![info]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
     e.call(PRINT_WARNING_005B5E40, &args![format, id, name]);
 }
 
@@ -1076,17 +1091,25 @@ fn remove_dangling_portals(e: &mut Engine, this: Ptr, info_slot: u32, offset: u3
     loop {
         let info = e.mem.u32(info_slot);
         let array = info.wrapping_add(offset);
-        if index >= e.call(ARRAY_SIZE_0044DDC0, &args![array]).u32() {
+        if index >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
             break;
         }
         let mut missing = false;
-        let element = e.call(ARRAY_AT_00877A30, &args![array, index]).u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
         if e.mem.u32(element) == 0 {
             missing = true;
         } else {
-            let element = e.call(ARRAY_AT_00877A30, &args![array, index]).u32();
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
             let neighbour = e.mem.u32(element);
-            let id = e.call(FIRST_OF_00559450, &args![neighbour]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, neighbour));
             if e.call(INFO_OF_ID_00693D70, &args![this, id]).u32() == 0 {
                 missing = true;
             }
@@ -1122,20 +1145,24 @@ fn find_missing_triangle_portal(
     loop {
         let info = e.mem.u32(info_slot);
         let array = info.wrapping_add(offset);
-        if index >= e.call(ARRAY_SIZE_0044DDC0, &args![array]).u32() {
+        if index >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
             return false;
         }
-        let element = e.call(ARRAY_AT_00877A30, &args![array, index]).u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
         let target = e.mem.u32(element);
         e.mem.set_u32(target_slot, target);
         e.call(TRIANGLE_ARRAY_CONSTRUCT_00694DE0, &args![triangles]);
-        let nav_mesh = e.call(FIRST_OF_00559450, &args![mesh]).u32();
+        let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
         e.call(FIND_PORTAL_TRIANGLES, &args![nav_mesh, target, triangles]);
         if e.call(ARRAY_IS_EMPTY_0076B610, &args![triangles]).u8() != 0 {
             let target = e.mem.u32(target_slot);
-            let target_id = e.call(FIRST_OF_00559450, &args![target]).u32();
+            let target_id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, target));
             let info = e.mem.u32(info_slot);
-            let id = e.call(FIRST_OF_00559450, &args![info]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
             e.call(
                 PRINT_WARNING_005B5E40,
                 &args![NO_TRIANGLE_PORTAL_WARNING, id, target_id],
@@ -1152,10 +1179,14 @@ fn find_missing_triangle_portal(
 /// entry ends the search).
 fn portal_listed(e: &mut Engine, info: u32, offset: u32, target: u32) -> bool {
     let array = info.wrapping_add(offset);
-    let count = e.call(ARRAY_SIZE_0044DDC0, &args![array]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array));
     let mut index: u32 = 0;
     while index < count {
-        let element = e.call(ARRAY_AT_00877A30, &args![array, index]).u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
         if e.mem.u32(element) == target {
             return true;
         }
@@ -1183,12 +1214,12 @@ fn portals_disagree(
     }
     // Every linked triangle edge of the navmesh: a neighbour neither array
     // lists but the nearby infos hold (`00719b20` on the local array).
-    let nav_mesh = e.call(FIRST_OF_00559450, &args![mesh]).u32();
+    let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
     let triangles = e.call(TRIANGLE_COUNT_00695370, &args![nav_mesh]).u32();
     let target_slot = frame(0xb0);
     let mut index: u32 = 0;
     while index < triangles {
-        let nav_mesh = e.call(FIRST_OF_00559450, &args![mesh]).u32();
+        let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
         let triangle = e
             .call(TRIANGLE_AT_00693D30, &args![nav_mesh, index & 0xffff])
             .u32();
@@ -1196,7 +1227,7 @@ fn portals_disagree(
             .u8()
             != 0
         {
-            let nav_mesh = e.call(FIRST_OF_00559450, &args![mesh]).u32();
+            let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
             let triangle = e
                 .call(TRIANGLE_AT_00693D30, &args![nav_mesh, index & 0xffff])
                 .u32();
@@ -1215,8 +1246,9 @@ fn portals_disagree(
                     .u32();
                 if found != 0xffff_ffff {
                     let target = e.mem.u32(target_slot);
-                    let target_id = e.call(FIRST_OF_00559450, &args![target]).u32();
-                    let id = e.call(FIRST_OF_00559450, &args![info]).u32();
+                    let target_id =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, target));
+                    let id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
                     e.call(
                         PRINT_WARNING_005B5E40,
                         &args![MISSING_PORTAL_WARNING, id, target_id],
@@ -1231,11 +1263,11 @@ fn portals_disagree(
     // Every door of the navmesh must be in `ConnectedDoors` (+0x44).
     let mut index: u32 = 0;
     loop {
-        let nav_mesh = e.call(FIRST_OF_00559450, &args![mesh]).u32();
+        let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
         if index >= e.call(DOOR_COUNT_006B5A90, &args![nav_mesh]).u32() {
             break;
         }
-        let nav_mesh = e.call(FIRST_OF_00559450, &args![mesh]).u32();
+        let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
         let door = e
             .call(DOOR_AT_0068F6B0, &args![nav_mesh, index & 0xffff])
             .u32();
@@ -1248,8 +1280,8 @@ fn portals_disagree(
             .u32();
         if found == 0xffff_ffff {
             let reference = e.mem.u32(door);
-            let door_id = e.call(FORM_ID_0084E3A0, &args![reference]).u32();
-            let id = e.call(FIRST_OF_00559450, &args![info]).u32();
+            let door_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
+            let id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
             e.call(
                 PRINT_WARNING_005B5E40,
                 &args![MISSING_DOOR_PORTAL_WARNING, id, door_id],
@@ -1264,19 +1296,23 @@ fn portals_disagree(
     loop {
         let info = e.mem.u32(info_slot);
         let doors = info.wrapping_add(0x44);
-        if index >= e.call(ARRAY_SIZE_0044DDC0, &args![doors]).u32() {
+        if index >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, doors)) {
             break;
         }
-        let element = e.call(ARRAY_AT_00877A30, &args![doors, index]).u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, doors, index)
+        );
         let door = e.mem.u32(element);
         let mut found = false;
         let mut door_index: u32 = 0;
         loop {
-            let nav_mesh = e.call(FIRST_OF_00559450, &args![mesh]).u32();
+            let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
             if door_index >= e.call(DOOR_COUNT_006B5A90, &args![nav_mesh]).u32() {
                 break;
             }
-            let nav_mesh = e.call(FIRST_OF_00559450, &args![mesh]).u32();
+            let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
             let entry = e
                 .call(DOOR_AT_0068F6B0, &args![nav_mesh, door_index & 0xffff])
                 .u32();
@@ -1287,8 +1323,8 @@ fn portals_disagree(
             door_index = door_index.wrapping_add(1);
         }
         if !found {
-            let door_id = e.call(FORM_ID_0084E3A0, &args![door]).u32();
-            let id = e.call(FIRST_OF_00559450, &args![info]).u32();
+            let door_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, door));
+            let id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
             e.call(
                 PRINT_WARNING_005B5E40,
                 &args![EXTRA_DOOR_PORTAL_WARNING, id, door_id],
@@ -1363,8 +1399,12 @@ pub fn nav_mesh_info_map_check_map(e: &mut Engine, this: Ptr) {
                 e.call(NI_POINTER_DESTRUCT_0042FA40, &args![first_mesh]);
                 continue;
             }
-            let nav_mesh = e.call(FIRST_OF_00559450, &args![first_mesh]).u32();
-            if e.call(FORM_FLAG_20_00440D80, &args![nav_mesh]).u8() != 0 {
+            let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first_mesh));
+            if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, nav_mesh))
+                .into_ret()
+                .u8()
+                != 0
+            {
                 e.call(ARRAY_ADD_007CB2E0, &args![bad, info_slot]);
             }
             remove_dangling_portals(e, this, info_slot, 0x24);
@@ -1393,7 +1433,13 @@ pub fn nav_mesh_info_map_check_map(e: &mut Engine, this: Ptr) {
                             let list = fn_006b7850(e, this, world, cell);
                             if list != 0 {
                                 let mut index: u32 = 0;
-                                while index < e.call(ARRAY_SIZE_0044DDC0, &args![list]).u32() {
+                                while index
+                                    < typed_call!(
+                                        leaf::FAMILY,
+                                        0x0044_ddc0,
+                                        leaf::word_at_8(e, list)
+                                    )
+                                {
                                     let element =
                                         e.call(ARRAY_AT_006A7AD0, &args![list, index]).u32();
                                     e.call(ARRAY_ADD_007CB2E0, &args![near, element]);
@@ -1413,7 +1459,8 @@ pub fn nav_mesh_info_map_check_map(e: &mut Engine, this: Ptr) {
                 != 0
                 && portals_disagree(e, info_slot, second_mesh, near, &at)
             {
-                let nav_mesh = e.call(FIRST_OF_00559450, &args![second_mesh]).u32();
+                let nav_mesh =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, second_mesh));
                 let info = e.mem.u32(info_slot);
                 e.call(INFO_REBUILD_006B5560, &args![info, nav_mesh]);
             }
@@ -1422,12 +1469,20 @@ pub fn nav_mesh_info_map_check_map(e: &mut Engine, this: Ptr) {
             e.call(NI_POINTER_DESTRUCT_0042FA40, &args![first_mesh]);
         }
         let mut index: u32 = 0;
-        while index < e.call(ARRAY_SIZE_0044DDC0, &args![bad]).u32() {
-            let element = e.call(ARRAY_AT_00877A30, &args![bad, index]).u32();
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, bad)) {
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, bad, index)
+            );
             let info = e.mem.u32(element);
-            let id = e.call(FIRST_OF_00559450, &args![info]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
             fn_006b6990(e, this, id);
-            let element = e.call(ARRAY_AT_00877A30, &args![bad, index]).u32();
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, bad, index)
+            );
             let info = e.mem.u32(element);
             if info != 0 {
                 e.call(NAV_MESH_INFO_DELETE, &args![info, 1u32]);
@@ -1453,12 +1508,16 @@ pub fn fn_006b6580(e: &mut Engine, this: Ptr) -> u8 {
         return 1;
     }
     let list: u32 = e.global(FORM_LIST_011C54C4);
-    let count = e.call(FORM_ID_0084E3A0, &args![list]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, list));
     let mut of_type: u32 = 0;
     let mut index: u32 = 0;
     while index < count {
         let list: u32 = e.global(FORM_LIST_011C54C4);
-        let element = e.call(ARRAY_AT_00877A30, &args![list, index]).u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, list, index)
+        );
         let form = e.mem.u32(element);
         if e.call(FORM_TYPE_00401170, &args![form]).u32() == 0x43 {
             of_type = of_type.wrapping_add(1);
@@ -1496,11 +1555,16 @@ pub fn fn_006b6580(e: &mut Engine, this: Ptr) -> u8 {
             e.call(NI_POINTER_CONSTRUCT_0042FB00, &args![mesh]);
             let info = e.mem.u32(value2);
             if e.call(INFO_NAV_MESH_00690860, &args![info, mesh]).u8() != 0 {
-                let nav_mesh = e.call(FIRST_OF_00559450, &args![mesh]).u32();
+                let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
                 if e.call(FORM_FLAG_2_00460340, &args![nav_mesh]).u8() != 0 {
-                    let nav_mesh = e.call(FIRST_OF_00559450, &args![mesh]).u32();
-                    if e.call(FORM_FLAG_20_00440D80, &args![nav_mesh]).u8() == 0 {
-                        let nav_mesh = e.call(FIRST_OF_00559450, &args![mesh]).u32();
+                    let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
+                    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, nav_mesh))
+                        .into_ret()
+                        .u8()
+                        == 0
+                    {
+                        let nav_mesh =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
                         e.call(NAV_MESH_STEP_006986D0, &args![nav_mesh]);
                     }
                 }
@@ -1554,7 +1618,7 @@ pub fn fn_006b6740(e: &mut Engine, this: Ptr) {
                 .wrapping_add(4);
             let block = e.call(ALLOCATE, &args![size]).u32();
             let info = e.mem.u32(value2);
-            let id = e.call(FIRST_OF_00559450, &args![info]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info));
             e.mem.set_u32(word, id);
             if e.call(SWAP_BYTES_00401500, &args![]).u8() != 0 {
                 e.call(BYTE_SWAP_00401080, &args![word, 0u32]);
@@ -1601,10 +1665,10 @@ pub fn fn_006dfcb0(e: &mut Engine, this: Ptr, first: u32, second: u32) -> Ptr {
 /// (`007cb2e0` with the address of a slot holding it); then the word at
 /// +0x10 becomes the navmesh's word `0068efb0`.
 pub fn fn_006dfba0(e: &mut Engine, this: Ptr, navmesh: Ptr) {
-    let nav_mesh = e.call(FIRST_OF_00559450, &args![navmesh]).u32();
+    let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, navmesh));
     let count = e.call(NAV_MESH_COUNT_006911C0, &args![nav_mesh]).u32();
     if e.mem.u32(this.addr().wrapping_add(0x10)) != 0
-        && e.call(ARRAY_SIZE_0044DDC0, &args![this]).u32() == count
+        && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) == count
     {
         return;
     }
@@ -1616,7 +1680,7 @@ pub fn fn_006dfba0(e: &mut Engine, this: Ptr, navmesh: Ptr) {
         while index < count {
             let block = e.call(ALLOCATE, &args![0x1cu32]).u32();
             let item = if block != 0 {
-                let nav_mesh = e.call(FIRST_OF_00559450, &args![navmesh]).u32();
+                let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, navmesh));
                 let word = e.call(NAV_MESH_VALUE_0068EFB0, &args![nav_mesh]).u32();
                 fn_006dfcb0(e, Ptr::new(block), word, index).addr()
             } else {
@@ -1627,7 +1691,7 @@ pub fn fn_006dfba0(e: &mut Engine, this: Ptr, navmesh: Ptr) {
             index = index.wrapping_add(1);
         }
     });
-    let nav_mesh = e.call(FIRST_OF_00559450, &args![navmesh]).u32();
+    let nav_mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, navmesh));
     let word = e.call(NAV_MESH_VALUE_0068EFB0, &args![nav_mesh]).u32();
     e.mem.set_u32(this.addr().wrapping_add(0x10), word);
 }

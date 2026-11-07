@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// `00559450` (`thiscall`, no stack words): the word at `this`.
+#[cfg(test)]
 const WORD_AT: u32 = 0x0055_9450;
 /// `00562210` (`thiscall` on a flag word, one word: clears those bits; `RET 4`).
 const CLEAR_BITS: u32 = 0x0056_2210;
@@ -29,7 +30,7 @@ pub fn fn_00841120(
         let mask_slot = flags_slot + 4;
         e.mem.set_u32(flags_slot, flags);
         e.mem.set_u32(mask_slot, mask);
-        let bits = e.call(WORD_AT, &args![mask_slot]).u32();
+        let bits = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mask_slot));
         e.call(CLEAR_BITS, &args![flags_slot, bits]);
         e.call(CLEAR_BITS, &args![flags_slot, 0xffff_0000u32]);
         if flag != 0 && (0x3b..=0x3c).contains(&form_type) {

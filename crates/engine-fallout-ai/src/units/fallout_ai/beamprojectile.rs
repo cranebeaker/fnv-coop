@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// A test on a reference (`00440d80`, `thiscall`, `bool`).
+#[cfg(test)]
 const REFERENCE_TEST: u32 = 0x0044_0d80;
 /// The projectile's age (`00885bd0`, `thiscall`, `float` in ST0; the code
 /// compares it with 0 and 5 and with `006ca4e0`'s value).
@@ -38,6 +39,7 @@ const SET_LOCATION: u32 = 0x0057_5830;
 /// The pointer at +0x150 (`00559450`, `thiscall`: its object), the value
 /// `00644660` (`thiscall`, `float` in ST0) and the setter `0051b840`
 /// (`thiscall(float)`) on that object.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const BEAM_VALUE: u32 = 0x0064_4660;
 const OBJECT_SET_VALUE: u32 = 0x0051_b840;
@@ -63,7 +65,7 @@ const NODE_CALL: u32 = 0x0045_0f90;
 /// `00450f90(1)` on slot 0x1D0's object (when there is one) and `009bc8f0`.
 /// The age is read again for each test, as the exe does; NaN compares false.
 pub fn beam_projectile_update_projectile(e: &mut Engine, this: Ptr, seconds: f32) {
-    if e.call(REFERENCE_TEST, &args![this]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
         return;
     }
     let zero: f64 = e.global(ZERO);
@@ -104,9 +106,18 @@ pub fn beam_projectile_update_projectile(e: &mut Engine, this: Ptr, seconds: f32
         let position = e.call(NODE_TRANSLATE, &args![source_node]).u32();
         e.call(SET_LOCATION, &args![this, position]);
     }
-    if e.call(POINTER_GET, &args![this.addr() + 0x150]).u32() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x150)
+    ) != 0
+    {
         let value = x87_store32(e.call(BEAM_VALUE, &args![this]).f64());
-        let object = e.call(POINTER_GET, &args![this.addr() + 0x150]).u32();
+        let object = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.addr() + 0x150)
+        );
         e.call(OBJECT_SET_VALUE, &args![object, value]);
     }
     let five: f64 = e.global(FIVE);

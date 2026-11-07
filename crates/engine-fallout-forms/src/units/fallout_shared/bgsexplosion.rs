@@ -168,6 +168,7 @@ const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// `__RTDynamicCast(object, 0, source type, target type, 0)`.
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// `iFormID` getter (`thiscall`; folded body `0084e3a0`).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// The message function the loaders call (`cdecl`, format and words; its
 /// body returns 0 in this build; `005b5e40`).
@@ -289,7 +290,7 @@ fn component(object: u32, offset: u32) -> u32 {
 
 /// The editor id and form id of the form, as the messages print them.
 fn name_and_id(e: &mut Engine, this: Ptr<BGSExplosion>) -> (u32, u32) {
-    let id = e.call(GET_FORM_ID, &args![this]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let name = e.vcall(this.addr(), FORM_GET_EDITOR_ID_SLOT, &[]).u32();
     (name, id)
 }
@@ -319,7 +320,7 @@ fn resolve_form(e: &mut Engine, this: Ptr<BGSExplosion>, id: u32, target: u32) -
 fn id_of(e: &mut Engine, this: Ptr<BGSExplosion>, getter: u32) -> u32 {
     if e.call(getter, &args![this]).u32() != 0 {
         let form = e.call(getter, &args![this]).u32();
-        e.call(GET_FORM_ID, &args![form]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
     } else {
         0
     }
@@ -652,7 +653,7 @@ pub fn bgs_explosion_save(e: &mut Engine, this: Ptr<BGSExplosion>) {
     let light = fn_004fb070(e, untyped);
     let light_id = if fn_004fb070(e, untyped) != 0 {
         let form = fn_004fb070(e, untyped);
-        e.call(GET_FORM_ID, &args![form]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
     } else {
         0
     };
@@ -682,7 +683,7 @@ pub fn bgs_explosion_save(e: &mut Engine, this: Ptr<BGSExplosion>) {
 
     if e.call(GET_IMPACT_PLACED_OBJECT, &args![this]).u32() != 0 {
         let placed = e.call(GET_IMPACT_PLACED_OBJECT, &args![this]).u32();
-        let id = e.call(GET_FORM_ID, &args![placed]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, placed));
         e.call(ADD_CHUNK_WORD, &args![CHUNK_INAM, id]);
     }
     e.call(FORM_CLOSE_FORM, &args![this]);

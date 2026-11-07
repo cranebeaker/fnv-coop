@@ -8,6 +8,7 @@ use crate::prelude::*;
 /// word) and `00442550` (`thiscall` on it; the engine map's name for it is
 /// `ReleaseSemaphore`).
 const MEMBER: u32 = 0x0c;
+#[cfg(test)]
 const MEMBER_VALUE: u32 = 0x0055_9450;
 const MEMBER_RELEASE: u32 = 0x0044_2550;
 
@@ -16,7 +17,7 @@ const MEMBER_RELEASE: u32 = 0x0044_2550;
 /// `00559450` on it gives 0.
 pub fn fn_00442600(e: &mut Engine, this: Ptr) {
     let member = this.addr().wrapping_add(MEMBER);
-    if e.call(MEMBER_VALUE, &args![member]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member)) == 0 {
         e.call(MEMBER_RELEASE, &args![member]);
     }
 }

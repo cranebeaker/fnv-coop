@@ -144,6 +144,7 @@ const OPERATOR_DELETE: u32 = 0x0040_1030;
 const REALLOCATE_BYTES: u32 = 0x0042_f5d0;
 
 /// `BSSimpleArray::iSize` getter (`0044ddc0`; `this` is the array).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// Size of the array at +0x20 of the solution (`008b6800`) and of the one at
 /// +0x08 (`005a4320`); both call `0044ddc0`.
@@ -167,6 +168,7 @@ const POINT_LENGTH_SQUARED: u32 = 0x004a_7290;
 /// `(node)` (`006ca0c0`): `(iFlags & 4) == 4`.
 const NODE_FLAG_4: u32 = 0x006c_a0c0;
 /// The no-op constructor (`006815c0`, returns `this`).
+#[cfg(test)]
 const TRIVIAL_CONSTRUCT: u32 = 0x0068_15c0;
 /// The destructor of [`CurveSegment`] (`0052d240`; it calls the empty
 /// function `00483710`).
@@ -448,7 +450,7 @@ pub fn fn_006e7a10(e: &mut Engine, this: Ptr<PathingSolution>, parameter: f32, o
 /// parameter and weights are left as they were.
 // Translation incomplete: 006e7b60 - C++ exception unwinding frame (FS:[0]) not translated.
 pub fn fn_006e7b60(e: &mut Engine, this: Ptr<CurveSegment>) -> Ptr<CurveSegment> {
-    e.call(TRIVIAL_CONSTRUCT, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     fn_006e7bd0(e, Ptr::new(this.addr() + SEGMENT_START));
     fn_006e7bd0(e, Ptr::new(this.addr() + SEGMENT_END));
     this
@@ -540,7 +542,7 @@ pub fn fn_006e7d10(e: &mut Engine, this: Ptr, other: Ptr) -> Ptr {
 /// tangents. Returns `out`.
 pub fn fn_006e7d60(e: &mut Engine, this: Ptr<CurveSegment>, out: Ptr, start: Ptr, end: Ptr) -> Ptr {
     e.with_stack(0x10, |e, frame| {
-        e.call(TRIVIAL_CONSTRUCT, &args![frame]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, frame));
         let x = fn_006e9000(
             e,
             this,
@@ -714,7 +716,7 @@ pub fn fn_006e7e70(
         if index < 0 {
             index = 0;
         }
-        let size = e.call(ARRAY_SIZE, &args![nodes]).u32();
+        let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, nodes));
         if index >= size.wrapping_sub(1) as i32 {
             index = index.wrapping_sub(1);
         }
@@ -956,7 +958,7 @@ pub fn fn_006e8790(
             segment_length = fn_006e9af0(e, segment, 0.0, 1.0, 2);
         }
         if (remaining as f64) < segment_length as f64 {
-            e.call(TRIVIAL_CONSTRUCT, &args![found_point]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, found_point));
             let tolerance = e.global::<f32>(TEN);
             let ok = fn_006e9830(
                 e,
@@ -1028,7 +1030,7 @@ pub fn pathing_solution_save_game(e: &mut Engine, this: Ptr<PathingSolution>, bu
     // `&this->VirtualPathingNodes` is tested against null before the size
     // is read; it never is.
     let virtual_count = if virtual_nodes.addr() != 0 {
-        e.call(ARRAY_SIZE, &args![virtual_nodes]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, virtual_nodes))
     } else {
         0
     };
@@ -1040,7 +1042,7 @@ pub fn pathing_solution_save_game(e: &mut Engine, this: Ptr<PathingSolution>, bu
 
     let current_nodes = this.at(PathingSolution::CurrentPathingNodes);
     let current_count = if current_nodes.addr() != 0 {
-        e.call(ARRAY_SIZE, &args![current_nodes]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, current_nodes))
     } else {
         0
     };
@@ -1055,7 +1057,7 @@ pub fn pathing_solution_save_game(e: &mut Engine, this: Ptr<PathingSolution>, bu
     e.with_stack(0x18, |e, infos| {
         e.call(INFO_ARRAY_CONSTRUCT, &args![infos]);
         let info_count = if infos.addr() != 0 {
-            e.call(ARRAY_SIZE, &args![infos]).u32()
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, infos))
         } else {
             0
         };
@@ -1067,7 +1069,7 @@ pub fn pathing_solution_save_game(e: &mut Engine, this: Ptr<PathingSolution>, bu
 
         let door_ids = this.addr() + DOOR_IDS;
         let door_count = if door_ids != 0 {
-            e.call(ARRAY_SIZE, &args![door_ids]).u32()
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, door_ids))
         } else {
             0
         };

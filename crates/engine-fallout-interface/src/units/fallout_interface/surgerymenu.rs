@@ -23,9 +23,13 @@ const SURGERY_MENU_CLASS: u32 = 0x41e;
 /// List nodes: the empty test (`008256d0`), the item slot (`006815c0`) and the next
 /// node (`00726070`); the first word of a holder (`00559450`) and a list clear
 /// (`00470470`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 const LIST_CLEAR: u32 = 0x0047_0470;
 /// The menu by class (`00a09030`, cdecl), `Interface::IsTopMenuID` (`00702450`, cdecl),
@@ -42,6 +46,7 @@ const TEXT_TO_TRAIT: u32 = 0x00a0_1860;
 const VALUE_TRAIT_NAME: u32 = 0x0106_ed18;
 const MENU_START_FADE_OUT: u32 = 0x00a1_d910;
 const INTERFACE_MANAGER: u32 = 0x004b_7210;
+#[cfg(test)]
 const MANAGER_MENU_TILE: u32 = 0x0045_cd60;
 /// Whether a gamepad is in use (`004b71d0`, no words).
 const GAMEPAD_IN_USE_004B71D0: u32 = 0x004b_71d0;
@@ -95,17 +100,17 @@ const ZERO_DOUBLE: u32 = 0x0101_2060;
 /// The items of the list from `node` while it is not empty (`008256d0`), as the code
 /// walks them: `visit` gets each node; it answers false to stop.
 fn walk_list(e: &mut Engine, mut node: u32, mut visit: impl FnMut(&mut Engine, u32) -> bool) {
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         if !visit(e, node) {
             return;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
 /// The item of a list node (the word its slot holds).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_SELF, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -153,7 +158,7 @@ pub fn surgery_menu_close(e: &mut Engine) {
                 true
             });
             let manager = e.call(INTERFACE_MANAGER, &args![]).u32();
-            let menu_tile = e.call(MANAGER_MENU_TILE, &args![manager]).u32();
+            let menu_tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, manager));
             e.call(TILE_SET_INT, &args![menu_tile, 0xfa9u32, 0xffu32]);
             e.call(SOUND_HANDLE_DESTRUCT, &args![sound]);
         });
@@ -177,10 +182,19 @@ pub fn surgery_menu_close(e: &mut Engine) {
 /// (slot +0x114) set to the pain (+0xac) mapped from 0..100 onto 0..1 (`004b3ab0`), and
 /// the skin is updated at the clock's time in seconds.
 pub fn fn_007e3750(e: &mut Engine, this: Ptr) {
-    if e.call(FIRST_WORD, &args![SKIN_HOLDER_011DAE5C]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SKIN_HOLDER_011DAE5C)
+    ) == 0
+    {
         return;
     }
-    let skin = e.call(FIRST_WORD, &args![SKIN_HOLDER_011DAE5C]).u32();
+    let skin = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SKIN_HOLDER_011DAE5C)
+    );
     // The fixed string at `EBP - 0x20`, the update data at `EBP - 0x1c`.
     e.with_stack(0x10, |e, frame| {
         let (name, data) = (frame.addr(), frame.addr() + 4);
@@ -203,7 +217,11 @@ pub fn fn_007e3750(e: &mut Engine, this: Ptr) {
             UPDATE_DATA_INIT,
             &args![data, x87_quiet_bits(seconds), 1u32, 0u32],
         );
-        let skin = e.call(FIRST_WORD, &args![SKIN_HOLDER_011DAE5C]).u32();
+        let skin = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, SKIN_HOLDER_011DAE5C)
+        );
         e.call(UPDATE_OBJECT, &args![skin, data]);
     });
 }
@@ -449,7 +467,11 @@ pub fn surgery_menu_set_limb_sequences(e: &mut Engine, _this: Ptr, fraction: f32
     // The update data at `EBP - 0x10`.
     e.with_stack(0xc, |e, data| {
         e.call(UPDATE_DATA_INIT, &args![data, x87_store32(0.0), 1u32, 0u32]);
-        let root = e.call(FIRST_WORD, &args![SKIN_ROOT_HOLDER_011DADE8]).u32();
+        let root = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, SKIN_ROOT_HOLDER_011DADE8)
+        );
         e.call(UPDATE_OBJECT, &args![root, data]);
     });
 }
@@ -581,6 +603,7 @@ const DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const CAST_SOURCE_01183028: u32 = 0x0118_3028;
 const CAST_TARGET_01187788: u32 = 0x0118_7788;
 const DECAL_DATA_CONSTRUCT: u32 = 0x004a_37b0;
+#[cfg(test)]
 const POINT_FROM_FLOATS: u32 = 0x0041_6870;
 const DECAL_004A4240: u32 = 0x004a_4240;
 const PLAYER_008D6F30: u32 = 0x008d_6f30;
@@ -605,7 +628,11 @@ fn frame_object(e: &mut Engine, this: Ptr, name: u32, local: u32) -> u32 {
 fn screen_point(e: &mut Engine, object: u32, x: u32, y: u32) {
     let tolerance = x87_quiet_bits(e.global::<u32>(SCREEN_TOLERANCE_010718C0));
     let point = e.call(WORLD_TRANSLATE_0045BB80, &args![object]).u32();
-    let camera = e.call(FIRST_WORD, &args![CAMERA_HOLDER_011DADB4]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_HOLDER_011DADB4)
+    );
     e.call(
         WORLD_PT_TO_SCREEN_PT,
         &args![camera, point, x, y, tolerance],
@@ -632,8 +659,8 @@ pub fn fn_007e4540(e: &mut Engine, this: Ptr) -> bool {
         let edge = frame_object(e, this, FRAME_NODE_NAME, local(0x44));
         let (center_x, edge_x, difference) = (local(0x34), local(0x3c), local(0x4c));
         let (left, top, radius) = if center != 0 && edge != 0 {
-            e.call(NODE_SELF, &args![center_x]);
-            e.call(NODE_SELF, &args![edge_x]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, center_x));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, edge_x));
             screen_point(e, center, center_x, center_x + 4);
             screen_point(e, edge, edge_x, edge_x + 4);
             for point in [center_x, edge_x] {
@@ -663,7 +690,7 @@ pub fn fn_007e4540(e: &mut Engine, this: Ptr) -> bool {
         };
         let manager = e.call(INTERFACE_MANAGER, &args![]).u32();
         let cursor = local(0x1c);
-        e.call(NODE_SELF, &args![cursor]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cursor));
         let x = e
             .call(CURSOR_X_00747D00, &args![manager])
             .i32()
@@ -689,8 +716,16 @@ pub fn fn_007e4540(e: &mut Engine, this: Ptr) -> bool {
 /// rendered, the skin shown (app-culled 0), then the scene node 3; the accumulator
 /// cleared, the pointer released and `00c4f2d0` closes the culler.
 pub fn fn_007e47a0(e: &mut Engine) {
-    if e.call(FIRST_WORD, &args![SKIN_ROOT_HOLDER_011DADE8]).u32() == 0
-        || e.call(FIRST_WORD, &args![SKIN_HOLDER_011DAE5C]).u32() == 0
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SKIN_ROOT_HOLDER_011DADE8)
+    ) == 0
+        || typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, SKIN_HOLDER_011DAE5C)
+        ) == 0
     {
         return;
     }
@@ -699,7 +734,11 @@ pub fn fn_007e47a0(e: &mut Engine) {
     let object = e.call(GETTER_0045C670, &args![]).u32();
     let culler = e.call(CULLER_008D80E0, &args![object]).u32();
     e.call(CULLER_00C4F270, &args![culler, 1u32]);
-    let camera = e.call(FIRST_WORD, &args![CAMERA_HOLDER_011DADB4]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_HOLDER_011DADB4)
+    );
     let value = x87_quiet_bits(e.global::<u32>(CAMERA_VALUE_01030FF4));
     e.call(CAMERA_00709D50, &args![camera, value]);
     let scene = e.call(SCENE_NODE_00450B80, &args![1u32]).u32();
@@ -708,16 +747,20 @@ pub fn fn_007e47a0(e: &mut Engine) {
     // The local `NiPointer` at `EBP - 0x20`.
     e.with_stack(4, |e, pointer| {
         e.call(NI_POINTER_CONSTRUCT, &args![pointer, texture]);
-        let held = e.call(FIRST_WORD, &args![pointer]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(CULLER_SET_ACCUMULATOR, &args![culler, held]);
         e.call(ACCUMULATE_SCENE, &args![camera, scene, culler]);
-        let held = e.call(FIRST_WORD, &args![pointer]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(RENDER_00B6C0D0, &args![camera, held, 0u32]);
-        let skin = e.call(FIRST_WORD, &args![SKIN_HOLDER_011DAE5C]).u32();
+        let skin = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, SKIN_HOLDER_011DAE5C)
+        );
         e.call(SET_APP_CULLED, &args![skin, 0u32]);
         let scene = e.call(SCENE_NODE_00450B80, &args![3u32]).u32();
         e.call(ACCUMULATE_SCENE, &args![camera, scene, culler]);
-        let held = e.call(FIRST_WORD, &args![pointer]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(RENDER_00B6C0D0, &args![camera, held, 0u32]);
         e.call(CULLER_SET_ACCUMULATOR, &args![culler, 0u32]);
         e.call(NI_POINTER_ASSIGN, &args![pointer, 0u32]);
@@ -738,10 +781,19 @@ fn setting_float(e: &mut Engine, setting: u32) -> f64 {
 /// `"Bip01"` gets the translation (`-011dae6c`, `011dadf0 - second`, `011dae28 - first`)
 /// (as the code pushes them) and the scale `011dadfc * third`; the skin is updated.
 pub fn fn_007e4fe0(e: &mut Engine, first: f32, second: f32, third: f32) {
-    if e.call(FIRST_WORD, &args![SKIN_HOLDER_011DAE5C]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SKIN_HOLDER_011DAE5C)
+    ) == 0
+    {
         return;
     }
-    let skin = e.call(FIRST_WORD, &args![SKIN_HOLDER_011DAE5C]).u32();
+    let skin = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SKIN_HOLDER_011DAE5C)
+    );
     // The fixed strings at `EBP - 0x1c` and `EBP - 0x20`, the update data at `EBP - 0x18`.
     e.with_stack(0x14, |e, frame| {
         let (data, name, scale_name) = (frame.addr() + 8, frame.addr() + 4, frame.addr());
@@ -763,7 +815,11 @@ pub fn fn_007e4fe0(e: &mut Engine, first: f32, second: f32, third: f32) {
             &args![bone, c, x87_quiet_bits(b), x87_quiet_bits(a)],
         );
         e.call(FIXED_STRING_DESTRUCT, &args![name]);
-        let skin = e.call(FIRST_WORD, &args![SKIN_HOLDER_011DAE5C]).u32();
+        let skin = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, SKIN_HOLDER_011DAE5C)
+        );
         let scale = x87_store32(x87_mul(
             setting_float(e, SETTING_011DADFC),
             x87_load32(third.to_bits()),
@@ -775,7 +831,11 @@ pub fn fn_007e4fe0(e: &mut Engine, first: f32, second: f32, third: f32) {
         e.call(SET_SCALE_00440490, &args![bone, x87_quiet_bits(scale)]);
         e.call(FIXED_STRING_DESTRUCT, &args![scale_name]);
         e.call(UPDATE_DATA_INIT, &args![data, x87_store32(0.0), 0u32, 0u32]);
-        let skin = e.call(FIRST_WORD, &args![SKIN_HOLDER_011DAE5C]).u32();
+        let skin = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, SKIN_HOLDER_011DAE5C)
+        );
         e.call(UPDATE_OBJECT, &args![skin, data]);
     });
 }
@@ -788,7 +848,7 @@ pub fn fn_007e4fe0(e: &mut Engine, first: f32, second: f32, third: f32) {
 pub fn surgery_menu_shutdown_3d_elements(e: &mut Engine) {
     for (node, holder) in [(1u32, SKIN_ROOT_HOLDER_011DADE8), (3, SKIN_HOLDER_011DAE5C)] {
         let scene = e.call(SCENE_NODE_00450B80, &args![node]).u32();
-        let child = e.call(FIRST_WORD, &args![holder]).u32();
+        let child = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         e.vcall(scene, 0xe8, &args![child]);
     }
     for node in [1u32, 3] {
@@ -798,9 +858,17 @@ pub fn surgery_menu_shutdown_3d_elements(e: &mut Engine) {
     let player = e.global::<u32>(PLAYER);
     e.call(CLONE_INVENTORY_3D, &args![player, 0u32]);
     let property = e.call(PROPERTY_005D9660, &args![]).u32();
-    let skin = e.call(FIRST_WORD, &args![SKIN_HOLDER_011DAE5C]).u32();
+    let skin = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SKIN_HOLDER_011DAE5C)
+    );
     e.call(REMOVE_PROPERTY, &args![skin, property]);
-    let skin = e.call(FIRST_WORD, &args![SKIN_HOLDER_011DAE5C]).u32();
+    let skin = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SKIN_HOLDER_011DAE5C)
+    );
     e.call(UPDATE_PROPERTIES, &args![skin]);
     for holder in [
         CAMERA_HOLDER_011DADB4,
@@ -846,7 +914,7 @@ pub fn surgery_menu_sort_sequence_by_cursor_distance(
         let max = x87_quiet_bits(e.global::<u32>(LARGEST_01016970));
         e.mem.set_u32(best, max);
         let point = local(8);
-        e.call(NODE_SELF, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         let cursor = local(0x10);
         let me = e.global::<u32>(SURGERY_MENU_ME);
         let (x, y) = (e.mem.u32(me + 0x74), e.mem.u32(me + 0x78));
@@ -858,10 +926,18 @@ pub fn surgery_menu_sort_sequence_by_cursor_distance(
         let height = e.call(GET_SCREEN_HEIGHT_00715DA0, &args![]).f64();
         let y = x87_store32(x87_div(x87_m32(e.mem.u32(cursor + 4)), height));
         e.mem.set_u32(cursor + 4, y);
-        let camera_set =
-            |e: &mut Engine| e.call(FIRST_WORD, &args![CAMERA_HOLDER_011DADB4]).u32() != 0;
+        let camera_set = |e: &mut Engine| {
+            typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, CAMERA_HOLDER_011DADB4)
+            ) != 0
+        };
         let mut node = e.mem.u32(first + 4);
-        while camera_set(e) && node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        while camera_set(e)
+            && node != 0
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        {
             let distance = node_distance(e, node, point, cursor, local(0x20));
             // FCOMPP of the best against the distance; TEST AH,0x41: above it only.
             if x87_load32(e.mem.u32(best)) > distance {
@@ -874,15 +950,18 @@ pub fn surgery_menu_sort_sequence_by_cursor_distance(
                 let length = e.call(POINT_LENGTH_00589850, &args![delta]).f64();
                 e.mem.set_u32(best, x87_store32(length));
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let mut node = e.mem.u32(second + 4);
-        while camera_set(e) && node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        while camera_set(e)
+            && node != 0
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        {
             let distance = node_distance(e, node, point, cursor, local(0x30));
             if x87_load32(e.mem.u32(best)) > distance {
                 return 1;
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         -1
     })
@@ -1075,19 +1154,31 @@ pub fn surgery_menu_switch_skin_geometry(e: &mut Engine, this: Ptr, old: i32, ne
     let skin_of = |e: &mut Engine, limb: i32| {
         let index = fn_007e5e30(e, this, limb);
         let me = e.global::<u32>(SURGERY_MENU_ME);
-        e.call(
-            FIRST_WORD,
-            &args![me.wrapping_add(0xc8).wrapping_add(index.wrapping_mul(4))],
+        typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, me.wrapping_add(0xc8).wrapping_add(index.wrapping_mul(4)))
         )
-        .u32()
     };
-    let root = e.call(FIRST_WORD, &args![SKIN_ROOT_HOLDER_011DADE8]).u32();
+    let root = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SKIN_ROOT_HOLDER_011DADE8)
+    );
     let old_skin = skin_of(e, old);
     e.vcall(root, 0xe8, &args![old_skin]);
-    let root = e.call(FIRST_WORD, &args![SKIN_ROOT_HOLDER_011DADE8]).u32();
+    let root = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SKIN_ROOT_HOLDER_011DADE8)
+    );
     let new_skin = skin_of(e, new);
     e.vcall(root, 0xdc, &args![new_skin, 1u32]);
-    let root = e.call(FIRST_WORD, &args![SKIN_ROOT_HOLDER_011DADE8]).u32();
+    let root = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SKIN_ROOT_HOLDER_011DADE8)
+    );
     // The fixed string at `EBP - 0x10`.
     e.with_stack(4, |e, name| {
         let fixed = e
@@ -1116,15 +1207,19 @@ pub fn surgery_menu_place_decal(e: &mut Engine, _this: Ptr, x: f32, y: f32, good
         let local = |offset: u32| ebp - offset;
         let (origin, direction, pick) = (local(0xe8), local(0xa8), local(0xdc));
         let (hit, decal) = (local(0x9c), local(0x8c));
-        e.call(NODE_SELF, &args![origin]);
-        e.call(NODE_SELF, &args![direction]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
         let width = e.call(SCREEN_004DC1F0, &args![]).i32();
         let pixel_x = x87_store32(x87_mul(f64::from(width), x87_m32(x.to_bits())));
         let height = e.call(SCREEN_004DC200, &args![]).i32();
         let pixel_y = x87_store32(x87_mul(f64::from(height), x87_m32(y.to_bits())));
         let row = e.call(FTOL2, &args![x87_load32(pixel_y)]).u32();
         let column = e.call(FTOL2, &args![x87_load32(pixel_x)]).u32();
-        let camera = e.call(FIRST_WORD, &args![CAMERA_HOLDER_011DADB4]).u32();
+        let camera = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, CAMERA_HOLDER_011DADB4)
+        );
         e.call(
             CAMERA_RAY,
             &args![camera, column, row, origin, direction, 0u32],
@@ -1174,9 +1269,11 @@ pub fn surgery_menu_place_decal(e: &mut Engine, _this: Ptr, x: f32, y: f32, good
             e.mem.set_u32(decal + 4 * i, word);
         }
         let (zero, one) = (x87_store32(0.0), x87_store32(1.0));
-        let up = e
-            .call(POINT_FROM_FLOATS, &args![local(0x104), zero, zero, one])
-            .u32();
+        let up = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, local(0x104), zero, zero, one)
+        );
         for i in 0..3 {
             let word = e.mem.u32(up + 4 * i);
             e.mem.set_u32(local(0x80) + 4 * i, word);
@@ -1197,9 +1294,11 @@ pub fn surgery_menu_place_decal(e: &mut Engine, _this: Ptr, x: f32, y: f32, good
         let twenty = x87_quiet_bits(e.global::<u32>(TWENTY_01017868));
         e.mem.set_u32(local(0x4c), twenty);
         e.mem.set_u32(local(0x30), zero);
-        let side = e
-            .call(POINT_FROM_FLOATS, &args![local(0x110), one, zero, zero])
-            .u32();
+        let side = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, local(0x110), one, zero, zero)
+        );
         for i in 0..3 {
             let word = e.mem.u32(side + 4 * i);
             e.mem.set_u32(local(0x2c) + 4 * i, word);
@@ -1236,8 +1335,8 @@ pub fn surgery_menu_place_tool_in_window(e: &mut Engine, this: Ptr, x: i32, y: i
         let edge = frame_object(e, this, FRAME_NODE_NAME, local(0x40));
         let (center_x, edge_x, difference) = (local(0x30), local(0x38), local(0x48));
         let (left, top, radius) = if center != 0 && edge != 0 {
-            e.call(NODE_SELF, &args![center_x]);
-            e.call(NODE_SELF, &args![edge_x]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, center_x));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, edge_x));
             screen_point(e, center, center_x, center_x + 4);
             screen_point(e, edge, edge_x, edge_x + 4);
             for point in [center_x, edge_x] {
@@ -1266,7 +1365,7 @@ pub fn surgery_menu_place_tool_in_window(e: &mut Engine, this: Ptr, x: i32, y: i
             (0x320, 0x1db, 0x145)
         };
         let offset = local(0x18);
-        e.call(NODE_SELF, &args![offset]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, offset));
         e.mem
             .set_u32(offset, x87_store32(f64::from(x.wrapping_sub(left))));
         e.mem
@@ -1307,6 +1406,7 @@ const OBJECT_NAME_0043B1B0: u32 = 0x0043_b1b0;
 const SPRINTF: u32 = 0x00ec_623a;
 const BONE_FORMAT: u32 = 0x0107_77c8;
 const STRNCMP: u32 = 0x00ec_7ec0;
+#[cfg(test)]
 const BLOCK_COUNT_0084E3A0: u32 = 0x0084_e3a0;
 const BLOCK_TEST_004937A0: u32 = 0x0049_37a0;
 const REMOVE_BLOCK_00A32B80: u32 = 0x00a3_2b80;
@@ -1409,16 +1509,18 @@ pub fn surgery_menu_prepare_sequences(e: &mut Engine, root: u32) {
                     e.mem.set_u32(record, sequence);
                 }
                 let mut block = 0u32;
-                while block < e.call(BLOCK_COUNT_0084E3A0, &args![sequence]).u32() {
+                while block < typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sequence)) {
                     let entry = fn_007e4fc0(e, Ptr::new(sequence), block);
                     if e.call(BLOCK_TEST_004937A0, &args![sequence, block]).u32() != 0 {
-                        let text = e.call(NODE_SELF, &args![entry]).u32();
+                        let text =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, entry));
                         let block_name = e.call(OBJECT_NAME_0043B1B0, &args![text]).u32();
                         if e.call(STRNCMP, &args![bone, block_name, 6u32]).u32() != 0 {
                             e.call(REMOVE_BLOCK_00A32B80, &args![sequence, block]);
                         } else if fresh(e) {
                             let owner = e.call(SEQUENCE_OWNER_005F5F80, &args![sequence]).u32();
-                            let key = e.call(NODE_SELF, &args![entry]).u32();
+                            let key =
+                                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, entry));
                             let object = e.vcall(owner, 0x9c, &args![key]).u32();
                             let object_holder = local(0x98);
                             e.mem.set_u32(object_holder, object);
@@ -1429,8 +1531,8 @@ pub fn surgery_menu_prepare_sequences(e: &mut Engine, root: u32) {
                     }
                     block += 1;
                 }
-                e.call(NODE_SELF, &args![local(0x3c)]);
-                e.call(NODE_SELF, &args![local(0x70)]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local(0x3c)));
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local(0x70)));
                 if e.mem.u32(record_holder) != 0 {
                     let wound = e.mem.u32(holder);
                     let list = e.mem.u32(wound);
@@ -1580,11 +1682,14 @@ fn milliseconds_since(e: &mut Engine, start: u32) -> f64 {
 /// index, through `00559450`).
 fn limb_skin(e: &mut Engine, this: Ptr, owner: u32, limb: u32) -> u32 {
     let index = fn_007e5e30(e, this, limb as i32);
-    e.call(
-        FIRST_WORD,
-        &args![owner.wrapping_add(0xc8).wrapping_add(index.wrapping_mul(4))],
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(
+            e,
+            owner.wrapping_add(0xc8).wrapping_add(index.wrapping_mul(4))
+        )
     )
-    .u32()
 }
 
 // Translated from 007e2de0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1604,7 +1709,13 @@ fn limb_skin(e: &mut Engine, this: Ptr, owner: u32, limb: u32) -> u32 {
 pub fn surgery_menu_update_flesh(e: &mut Engine, this: Ptr) -> f32 {
     let base = this.addr();
     let wound = surgery_menu_get_current_limb_wound(e, this);
-    if e.call(FIRST_WORD, &args![CAMERA_HOLDER_011DADB4]).u32() == 0 || wound == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_HOLDER_011DADB4)
+    ) == 0
+        || wound == 0
+    {
         return 0.0;
     }
     // The frame below `EBP`: `local(n)` is `EBP - n`.
@@ -1622,7 +1733,7 @@ pub fn surgery_menu_update_flesh(e: &mut Engine, this: Ptr) -> f32 {
                 .call(LIST_COUNT_005AE380, &args![list])
                 .u32()
                 .wrapping_shl(1);
-            e.call(NODE_SELF, &args![cursor]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cursor));
             let (x, y) = (e.mem.u32(base + 0x74), e.mem.u32(base + 0x78));
             e.mem.set_u32(cursor, x);
             e.mem.set_u32(cursor + 4, y);
@@ -1637,17 +1748,19 @@ pub fn surgery_menu_update_flesh(e: &mut Engine, this: Ptr) -> f32 {
             let quad = local(0x1b0);
             let point = local(0x28);
             let mut node = e.mem.u32(wound);
-            while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
                 let (a, b) = (local(0x30), local(0x1b8));
-                e.call(NODE_SELF, &args![a]);
-                e.call(NODE_SELF, &args![b]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, a));
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, b));
                 let record = node_item(e, node);
                 let objects = e.mem.u32(record + 4);
                 let object = node_item(e, objects);
                 screen_point(e, object, a, a + 4);
                 let record = node_item(e, node);
                 let objects = e.mem.u32(record + 4);
-                let second = e.call(NODE_NEXT, &args![objects]).u32();
+                let second = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, objects));
                 let object = node_item(e, second);
                 screen_point(e, object, b, b + 4);
                 for corner in [a, b] {
@@ -1669,19 +1782,20 @@ pub fn surgery_menu_update_flesh(e: &mut Engine, this: Ptr) -> f32 {
                 let (cx, cy) = (e.mem.u32(cursor), e.mem.u32(cursor + 4));
                 store_double(e, point, cx);
                 store_double(e, point + 8, cy);
-                if e.call(NODE_NEXT, &args![node]).u32() != 0 {
+                if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node)) != 0 {
                     let (c, d) = (local(0x1c0), local(0x1c8));
-                    e.call(NODE_SELF, &args![c]);
-                    e.call(NODE_SELF, &args![d]);
-                    let next = e.call(NODE_NEXT, &args![node]).u32();
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, c));
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, d));
+                    let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                     let record = node_item(e, next);
                     let objects = e.mem.u32(record + 4);
                     let object = node_item(e, objects);
                     screen_point(e, object, c, c + 4);
-                    let next = e.call(NODE_NEXT, &args![node]).u32();
+                    let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                     let record = node_item(e, next);
                     let objects = e.mem.u32(record + 4);
-                    let second = e.call(NODE_NEXT, &args![objects]).u32();
+                    let second =
+                        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, objects));
                     let object = node_item(e, second);
                     screen_point(e, object, d, d + 4);
                     for corner in [c, d] {
@@ -1701,7 +1815,7 @@ pub fn surgery_menu_update_flesh(e: &mut Engine, this: Ptr) -> f32 {
                         burning = true;
                     }
                 }
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             if burning && e.mem.u32(base + 0x88) == 0 {
                 let now = e.call(MILLISECONDS, &args![CLOCK_011F6394]).u32();
@@ -1758,7 +1872,7 @@ pub fn surgery_menu_update_flesh(e: &mut Engine, this: Ptr) -> f32 {
             e.global::<f64>(HUNDRED_DOUBLE),
         ));
         let which = e.global::<u32>(TRAIT_011DAD9C);
-        let menu_tile = e.call(NODE_NEXT, &args![base]).u32();
+        let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base));
         let value = e.call(TILE_GET_FLOAT, &args![menu_tile, which]).f64();
         let value = x87_store32(x87_div(value, e.global::<f64>(HUNDRED_DOUBLE)));
         e.call(
@@ -1773,7 +1887,7 @@ pub fn surgery_menu_update_flesh(e: &mut Engine, this: Ptr) -> f32 {
             ],
         );
         let wobble = local(0x214);
-        e.call(NODE_SELF, &args![wobble]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, wobble));
         let rate = e.global::<f64>(WOBBLE_RATE_010776C8);
         let now = e.call(MILLISECONDS, &args![CLOCK_011F6394]).u32();
         let angle = x87_store32(x87_mul(f64::from(now), rate));
@@ -1815,12 +1929,12 @@ fn close_wound(e: &mut Engine, this: Ptr, wound: u32, cursor: u32) {
     let list = e.mem.u32(wound);
     let first_record = node_item(e, list);
     let list = e.mem.u32(wound);
-    let second_node = e.call(NODE_NEXT, &args![list]).u32();
+    let second_node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list));
     let second_record = node_item(e, second_node);
     let list = e.mem.u32(wound);
     let first_record_again = node_item(e, list);
     let list = e.mem.u32(wound);
-    let second_node = e.call(NODE_NEXT, &args![list]).u32();
+    let second_node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list));
     let second_record_again = node_item(e, second_node);
     let sequences = [e.mem.u32(first_record), e.mem.u32(second_record)];
     let records = [first_record_again, second_record_again];
@@ -1903,8 +2017,6 @@ const MORPHINE_COUNT_NAME: u32 = 0x0107_7654;
 const MORPHINE_COUNT_TRAIT: u32 = 0x011d_ae90;
 const IS_TOP_MENU_NAME: u32 = 0x0107_768c;
 const ADD_USER_TRAIT: u32 = 0x00a0_0940;
-const MENU_TILE_OF: u32 = 0x0072_6070;
-const ITEM_COUNT: u32 = 0x0072_6070;
 const INPUT_HOLDER_011DEA0C: u32 = 0x011d_ea0c;
 const INPUT_DEVICE_00877720: u32 = 0x0087_7720;
 const THUMBSTICK_00A23390: u32 = 0x00a2_3390;
@@ -1934,6 +2046,7 @@ const TILE_ID_00720010: u32 = 0x0072_0010;
 const GET_DEFAULT_OBJECT: u32 = 0x0058_db10;
 const REFERENCE_GET_INVENTORY_ITEM: u32 = 0x0057_6260;
 const ACTOR_QUEUE_EQUIP_OBJECT: u32 = 0x0088_c650;
+#[cfg(test)]
 const ITEM_GET_FORM: u32 = 0x0044_ddc0;
 const ITEM_CHANGE_DELETE: u32 = 0x0044_59e0;
 const MAGIC_TARGET_IS_SPELL_TARGET: u32 = 0x0082_2b90;
@@ -1970,7 +2083,7 @@ fn interpolate_between(e: &mut Engine, from: u32, to: u32, low: u32, high: u32, 
 /// The menu tile's `float` of the trait kept in `holder`.
 fn menu_trait_float(e: &mut Engine, this: Ptr, holder: u32) -> f64 {
     let which = e.global::<u32>(holder);
-    let tile = e.call(MENU_TILE_OF, &args![this.addr()]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this.addr()));
     e.call(TILE_GET_FLOAT, &args![tile, which]).f64()
 }
 
@@ -2074,7 +2187,7 @@ pub fn surgery_menu_update_tool_location(e: &mut Engine, this: Ptr, burning: boo
             e.call(POINT2_ADD_004E88D0, &args![base + 0x74, base + 0x7c]);
             let holder = e.global::<u32>(INPUT_HOLDER_011DEA0C);
             let device = e.call(INPUT_DEVICE_00877720, &args![holder]).u32();
-            e.call(NODE_SELF, &args![point]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
             e.call(INTERFACE_MANAGER, &args![]);
             if e.call(GAMEPAD_IN_USE_004B71D0, &args![]).bool() {
                 let x = e
@@ -2203,12 +2316,12 @@ pub fn surgery_menu_do_idle(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     if !e.call(IS_TOP_MENU_ID, &args![SURGERY_MENU_CLASS]).bool() {
         let which = e.call(TEXT_TO_TRAIT, &args![IS_TOP_MENU_NAME]).u32();
-        let tile = e.call(MENU_TILE_OF, &args![base]).u32();
+        let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base));
         e.call(TILE_SET_INT, &args![tile, which, 0u32]);
         return;
     }
     let which = e.call(TEXT_TO_TRAIT, &args![IS_TOP_MENU_NAME]).u32();
-    let tile = e.call(MENU_TILE_OF, &args![base]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base));
     e.call(TILE_SET_INT, &args![tile, which, 1u32]);
     surgery_menu_update_animations(e, this);
     let mut idle = false;
@@ -2241,7 +2354,7 @@ pub fn surgery_menu_do_idle(e: &mut Engine, this: Ptr) {
         let inside = fn_007e4540(e, this);
         let alpha = if inside { 0u32 } else { 0xff };
         let manager = e.call(INTERFACE_MANAGER, &args![]).u32();
-        let menu_tile = e.call(MANAGER_MENU_TILE, &args![manager]).u32();
+        let menu_tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, manager));
         e.call(TILE_SET_INT, &args![menu_tile, 0xfa9u32, alpha]);
         let held = e.call(CONTROL_STATE, &args![device, 4u32, 0u32]).u32() != 0
             && e.mem.u8(base + 0x91) != 0;
@@ -2461,19 +2574,18 @@ fn show_chosen_limb(e: &mut Engine, this: Ptr, old: i32) {
     let limb = e.mem.u32(base + 0xc0) as i32;
     let index = fn_007e5e30(e, this, limb);
     let me = e.global::<u32>(SURGERY_MENU_ME);
-    let skin = e
-        .call(
-            FIRST_WORD,
-            &args![me.wrapping_add(0xc8).wrapping_add(index.wrapping_mul(4))],
-        )
-        .u32();
+    let skin = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, me.wrapping_add(0xc8).wrapping_add(index.wrapping_mul(4)))
+    );
     surgery_menu_prepare_sequences(e, skin);
 }
 
 /// The extra data of an inventory entry for equipping: its list's first item, or 0.
 fn first_extra(e: &mut Engine, entry: u32) -> u32 {
-    if e.call(FIRST_WORD, &args![entry]).u32() != 0 {
-        let list = e.call(FIRST_WORD, &args![entry]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry)) != 0 {
+        let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
         node_item(e, list)
     } else {
         0
@@ -2569,17 +2681,22 @@ pub fn surgery_menu_do_click(e: &mut Engine, this: Ptr, tile: u32, _unused: u32)
         4 => {
             let me = e.global::<u32>(SURGERY_MENU_ME);
             let stimpaks = e.mem.u32(me + 0xbc);
-            if stimpaks != 0 && e.call(ITEM_COUNT, &args![stimpaks]).i32() > 0 {
+            if stimpaks != 0
+                && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, stimpaks))
+                    .into_ret()
+                    .i32()
+                    > 0
+            {
                 let count = menu_trait_float(e, this, STIMPAK_COUNT_TRAIT);
                 let count = x87_store32(x87_sub(count, e.global::<f64>(ONE_01012070)));
                 let which = e.global::<u32>(STIMPAK_COUNT_TRAIT);
-                let tile = e.call(MENU_TILE_OF, &args![base]).u32();
+                let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base));
                 e.call(TILE_SET_FLOAT, &args![tile, which, q(count), 1u32]);
                 let me = e.global::<u32>(SURGERY_MENU_ME);
                 let stimpaks = e.mem.u32(me + 0xbc);
                 let extra = first_extra(e, stimpaks);
-                let count = e.call(ITEM_COUNT, &args![stimpaks]).u32();
-                let item = e.call(ITEM_GET_FORM, &args![stimpaks]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, stimpaks));
+                let item = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, stimpaks));
                 let player = e.global::<u32>(PLAYER);
                 e.call(
                     ACTOR_QUEUE_EQUIP_OBJECT,
@@ -2599,10 +2716,10 @@ pub fn surgery_menu_do_click(e: &mut Engine, this: Ptr, tile: u32, _unused: u32)
                 let count = menu_trait_float(e, this, MORPHINE_COUNT_TRAIT);
                 let count = x87_store32(x87_sub(count, e.global::<f64>(ONE_01012070)));
                 let which = e.global::<u32>(MORPHINE_COUNT_TRAIT);
-                let tile = e.call(MENU_TILE_OF, &args![base]).u32();
+                let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base));
                 e.call(TILE_SET_FLOAT, &args![tile, which, q(count), 1u32]);
                 let extra = first_extra(e, entry);
-                let count = e.call(ITEM_COUNT, &args![entry]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                 let object = e.call(GET_DEFAULT_OBJECT, &args![4u32]).u32();
                 let player = e.global::<u32>(PLAYER);
                 e.call(
@@ -2622,11 +2739,11 @@ pub fn surgery_menu_do_click(e: &mut Engine, this: Ptr, tile: u32, _unused: u32)
                     let wound = menu_trait_float(e, this, TRAIT_011DAD9C);
                     let wound = x87_store32(x87_sub(wound, e.global::<f64>(TWENTY_FIVE_DOUBLE)));
                     let which = e.global::<u32>(TRAIT_011DAD9C);
-                    let tile = e.call(MENU_TILE_OF, &args![base]).u32();
+                    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base));
                     e.call(TILE_SET_FLOAT, &args![tile, which, q(wound), 1u32]);
                 } else {
                     let which = e.global::<u32>(TRAIT_011DAD9C);
-                    let tile = e.call(MENU_TILE_OF, &args![base]).u32();
+                    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base));
                     e.call(TILE_SET_INT, &args![tile, which, 0u32]);
                 }
             }

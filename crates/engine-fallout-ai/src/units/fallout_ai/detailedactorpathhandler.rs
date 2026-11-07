@@ -219,6 +219,7 @@ const SETTING_MIN_ROTATE_TIME: u32 = 0x011c_d294;
 // Callees outside this unit (bodies read in Ghidra; names from the engine
 // map where it has one).
 /// `NiPointer<T>` get (`00559450`): returns the pointer held at `this`.
+#[cfg(test)]
 const NIPOINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer<T>::operator=` (`0066b0d0`): releases the old object, holds
 /// the new one.
@@ -229,8 +230,10 @@ const NIPOINTER_FROM_RAW: u32 = 0x0063_3c90;
 const NIPOINTER_RELEASE: u32 = 0x0045_cec0;
 /// The empty default constructor of a point or matrix (`006815c0`,
 /// returns `this`).
+#[cfg(test)]
 const DEFAULT_CONSTRUCT: u32 = 0x0068_15c0;
 /// `NiPoint3::NiPoint3(x, y, z)` (`00416870`).
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0041_6870;
 /// `BSSimpleList` constructor (`0096a2d0`: zeroes item and next).
 const LIST_CONSTRUCT: u32 = 0x0096_a2d0;
@@ -299,6 +302,7 @@ const POINT_LENGTH_SQUARED_XY: u32 = 0x0059_5c80;
 /// Normalizes a point (`004a0c10`).
 const POINT_NORMALIZE: u32 = 0x004a_0c10;
 /// `NiPoint3::Dot` (`004b6190`).
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 /// Matrix times point into a result (`004b4500`: matrix, result, point).
 const MATRIX_TIMES_POINT: u32 = 0x004b_4500;
@@ -502,6 +506,7 @@ const ACTOR_MOVE_DELTA: u32 = 0x008b_3d50;
 /// worldspace, two flags).
 const ACTOR_MOVE_TO_PATH_END: u32 = 0x008a_d1c0;
 /// The dword at +0x68 (`008d8520`): the actor's process.
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// The actor's state is 3 (`00437bd0`) or 5 (`00437bf0`), from `004f8960`.
 const ACTOR_STATE_IS_3: u32 = 0x0043_7bd0;
@@ -528,6 +533,7 @@ const ANIMATION_SHOULD_BE_MOVING: u32 = 0x0049_5be0;
 const ARRAY_CLEAR: u32 = 0x005e_03d0;
 const ARRAY_SET_SIZE: u32 = 0x0096_ad30;
 const ARRAY_ADD: u32 = 0x0096_a610;
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// Element address of an array of 8-byte entries (`006950d0`).
 const ARRAY_ELEMENT_8: u32 = 0x0069_50d0;
@@ -590,6 +596,7 @@ const FLOAT_CLAMP: u32 = 0x0053_30e0;
 /// A float remainder (`004b1500`, cdecl: value, divisor).
 const FLOAT_MODULO: u32 = 0x004b_1500;
 /// The dword at +0xC of a form (`0084e3a0`).
+#[cfg(test)]
 const FORM_DWORD_C: u32 = 0x0084_e3a0;
 /// The float at +0xC (`0084d030`).
 const FRAME_FLOAT_C: u32 = 0x0084_d030;
@@ -604,7 +611,9 @@ const LINKED_REFERENCE: u32 = 0x0056_8e50;
 /// pop front (`0063f7b0`).
 const LIST_CONTAINS: u32 = 0x005f_65d0;
 const LIST_COUNT: u32 = 0x005a_e380;
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 const LIST_PUSH_FRONT: u32 = 0x005a_e3d0;
 const LIST_POP_FRONT: u32 = 0x0063_f7b0;
@@ -797,9 +806,6 @@ const ARRAY_COMPACT: u32 = 0x0060_0bc0;
 const LIST_REMOVE: u32 = 0x0090_5330;
 /// Stores the item of a list node (`00726c60`, item address).
 const LIST_SET_ITEM: u32 = 0x0072_6c60;
-/// `this` itself (`006815c0`, the same body as the point's default
-/// constructor): a list node's item address.
-const LIST_NODE_ITEM: u32 = DEFAULT_CONSTRUCT;
 /// String copy, append and format with a size (`00406d30`, `00406d50`,
 /// `00406d00`; cdecl, buffer, size, then the source or the format).
 const STRING_COPY: u32 = 0x0040_6d30;
@@ -879,13 +885,19 @@ fn copy_point(e: &mut Engine, dst: u32, src: u32) {
 }
 
 fn path_of(e: &mut Engine, this: Ptr<H>) -> u32 {
-    e.call(NIPOINTER_GET, &args![this.addr() + H::spPath.off])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + H::spPath.off)
+    )
 }
 
 fn request_of(e: &mut Engine, this: Ptr<H>) -> u32 {
-    e.call(NIPOINTER_GET, &args![this.addr() + H::spRequest.off])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + H::spRequest.off)
+    )
 }
 
 fn actor_location(e: &mut Engine, this: Ptr<H>) -> u32 {
@@ -950,18 +962,24 @@ fn construct_fields(e: &mut Engine, this: Ptr<H>) {
     let base = this.addr();
     e.mem.set_u32(base, VTABLE);
     copy_point(e, base + H::MoveDelta.off, NO_POINT);
-    e.call(DEFAULT_CONSTRUCT, &args![base + H::BlockedTargetPoint.off]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base + H::BlockedTargetPoint.off)
+    );
     copy_point(e, base + H::TetherTargetPoint.off, NO_POINT);
     let max = fld(e, FLOAT_MAX);
-    e.call(
-        POINT_CONSTRUCT,
-        &args![base + H::LastLocation.off, max, max, max],
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, base + H::LastLocation.off, max, max, max)
     );
     copy_point(e, base + H::LastTetherPoint.off, NO_POINT);
     e.call(LIST_CONSTRUCT, &args![base + H::ActorAvoidList.off]);
-    e.call(
-        DEFAULT_CONSTRUCT,
-        &args![base + H::LastFrameMinMoveDelta.off],
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base + H::LastFrameMinMoveDelta.off)
     );
     e.set(this, H::MoveMode, 0);
     e.set(this, H::fTimeInAnim, 1.0);
@@ -1174,7 +1192,7 @@ pub fn detailed_actor_path_handler_init(
 
     if e.call(CHECK_GOAL_REACHED, &args![this]).u32() == 0 {
         let heading = e.with_stack(12, |e, target| {
-            e.call(DEFAULT_CONSTRUCT, &args![target]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, target));
             let have_look_at = !e.get(this, H::bIgnoreLookAtPoint) && {
                 let mover = mover_of(e, this);
                 e.call(MOVER_GET_LOOK_AT_POINT, &args![mover, target])
@@ -1456,7 +1474,7 @@ pub fn detailed_actor_path_handler_update(e: &mut Engine, this: Ptr<H>, seconds:
     e.with_stack(0x24 + 12, |e, block| {
         let matrix = block;
         let rotated = block.byte_add(0x24);
-        e.call(DEFAULT_CONSTRUCT, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         let heading_now = actor_heading(e, this) as f32;
         fn_009e1640(e, matrix, heading_now);
         let result = e
@@ -1487,7 +1505,13 @@ pub fn detailed_actor_path_handler_update(e: &mut Engine, this: Ptr<H>, seconds:
                 &args![this.addr() + H::TetherTargetPoint.off, to_actor, location],
             );
             e.mem.set_f32(to_actor.addr() + 8, 0.0);
-            let dot = e.call(POINT_DOT, &args![along, to_actor]).f64() as f32;
+            let dot = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, along, to_actor)
+            )
+            .into_ret()
+            .f64() as f32;
             if dot as f64 <= double(e, ZERO_DOUBLE) {
                 e.set(this, H::eState, STATE_PAST_END);
             }
@@ -1542,7 +1566,7 @@ fn update_request_new_path(e: &mut Engine, this: Ptr<H>) -> Option<u32> {
     };
     e.with_stack(4, |e, holder| {
         e.call(NIPOINTER_FROM_RAW, &args![holder, request]);
-        let new_request = e.call(NIPOINTER_GET, &args![holder]).u32();
+        let new_request = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         let current = request_of(e, this);
         e.call(REQUEST_COPY_TO, &args![current, new_request]);
         if path_of(e, this) == 0 {
@@ -1567,12 +1591,12 @@ fn update_request_new_path(e: &mut Engine, this: Ptr<H>) -> Option<u32> {
             let current = request_of(e, this);
             e.call(PLUS_34, &args![current]).u32()
         };
-        let new_request = e.call(NIPOINTER_GET, &args![holder]).u32();
+        let new_request = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         e.call(LOCATION_ASSIGN, &args![new_request, location]);
-        let new_request = e.call(NIPOINTER_GET, &args![holder]).u32();
+        let new_request = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         fn_009e16c0(e, Ptr::new(new_request));
         e.set(this, H::eAvoidState, 3);
-        let new_request = e.call(NIPOINTER_GET, &args![holder]).u32();
+        let new_request = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         let mover = mover_of(e, this);
         e.call(MOVER_REQUEST_PATH, &args![mover, new_request]);
         let mover_state = e.get(Ptr::<ActorMover>::new(mover), ActorMover::eState);
@@ -1726,7 +1750,7 @@ fn no_path_turn(e: &mut Engine, this: Ptr<H>, seconds: f32, immobile: bool, bloc
     let direction = block.byte_add(0x3c);
     let actor = e.get(this, H::pActor);
     let mover = mover_of(e, this);
-    e.call(DEFAULT_CONSTRUCT, &args![target]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, target));
     if !e
         .call(MOVER_GET_LOOK_AT_POINT, &args![mover, target])
         .bool()
@@ -1902,7 +1926,7 @@ pub fn detailed_actor_path_handler_update_while_player_waits(
                 heading = e.call(REQUEST_FLOAT_8C, &args![request]).f64() as f32;
             } else if e.call(MOVER_FACE_TARGET_POINT, &args![mover]).bool() {
                 let target = first;
-                e.call(DEFAULT_CONSTRUCT, &args![target]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, target));
                 e.call(MOVER_GET_LOOK_AT_POINT, &args![mover, target]);
                 let tx = e.mem.u32(target.addr());
                 let ty = e.mem.u32(target.addr() + 4);
@@ -1982,7 +2006,7 @@ pub fn detailed_actor_path_handler_handle_door_opening(e: &mut Engine, this: Ptr
                 }
                 let request = request_of(e, this);
                 if !e.call(REQUEST_BYTE_98, &args![request]).bool() {
-                    let id = e.call(FORM_DWORD_C, &args![door]).u32();
+                    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, door));
                     if detailed_actor_path_handler_is_door_in_path(e, this, id) {
                         let actor = e.get(this, H::pActor);
                         if e.call(REFERENCE_ACTIVATE, &args![door, actor, 0u32, 0u32, 1u32])
@@ -2041,7 +2065,11 @@ fn door_triangle_flag(
     .bool()
     {
         let index = e.mem.u16(triangle.addr()) as u32;
-        let navmesh = e.call(NIPOINTER_GET, &args![navmesh_holder]).u32();
+        let navmesh = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, navmesh_holder)
+        );
         let found = e.call(NAVMESH_GET_TRIANGLE, &args![navmesh, index]).u32();
         if found != 0 {
             let flag = e.call(TRIANGLE_HAS_FLAG, &args![found, 0x1000u32]).u8();
@@ -2115,8 +2143,8 @@ pub fn detailed_actor_path_handler_is_door_in_path(
             let location = block.byte_add(0x24);
             let navmesh_holder = block.byte_add(0x4c);
             let triangle = block.byte_add(0x50);
-            e.call(DEFAULT_CONSTRUCT, &args![start]);
-            e.call(DEFAULT_CONSTRUCT, &args![end]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, start));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, end));
             let path = path_of(e, this);
             e.call(PATH_POINT_AT, &args![path, x87_quiet(t), start]);
             let path = path_of(e, this);
@@ -2304,9 +2332,9 @@ pub fn detailed_actor_path_handler_compute_approximate_location(
     }
     e.with_stack(4, |e, holder| {
         e.call(NIPOINTER_COPY, &args![holder, this.addr() + H::spPath.off]);
-        let path = e.call(NIPOINTER_GET, &args![holder]).u32();
+        let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         let has_nodes = path != 0 && {
-            let path = e.call(NIPOINTER_GET, &args![holder]).u32();
+            let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
             e.call(PATH_NODE_COUNT, &args![path]).u32() != 0
         };
         if has_nodes {
@@ -2319,7 +2347,7 @@ pub fn detailed_actor_path_handler_compute_approximate_location(
             };
             let distance = (speed as f64 * seconds as f64) as f32;
             let spline = fld(e, this.addr() + H::fCurrentSplineT.off);
-            let path = e.call(NIPOINTER_GET, &args![holder]).u32();
+            let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
             e.call(
                 PATH_LOCATION_AFTER,
                 &args![path, result, spline, x87_quiet(distance)],
@@ -2400,7 +2428,7 @@ pub fn fn_009e2aa0(e: &mut Engine, this: Ptr<H>, seconds: f32) -> bool {
         e.with_stack(0x18, |e, block| {
             let point = block;
             let projected = block.byte_add(0x0c);
-            e.call(DEFAULT_CONSTRUCT, &args![point]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
             let target_angle = if e.call(MOVER_FACE_TARGET_POINT, &args![mover]).bool() {
                 e.call(MOVER_GET_LOOK_AT_POINT, &args![mover, point]);
                 let location = actor_location(e, this);
@@ -2608,7 +2636,7 @@ pub fn detailed_actor_path_handler_compute_path_passes_through_players_area(
         if holder == 0 {
             continue;
         }
-        let reference = e.call(NIPOINTER_GET, &args![holder]).u32();
+        let reference = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         if reference == 0 {
             continue;
         }
@@ -2695,11 +2723,11 @@ pub fn detailed_actor_path_handler_handle_previous_path_transition(
             let from = previous.addr() + H::ActorAvoidList.off;
             let to = this.addr() + H::ActorAvoidList.off;
             loop {
-                let list = e.call(DEFAULT_CONSTRUCT, &args![from]).u32();
+                let list = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, from));
                 if e.mem.u32(list) == 0 {
                     break;
                 }
-                let item = e.call(DEFAULT_CONSTRUCT, &args![from]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, from));
                 e.call(LIST_PUSH_FRONT, &args![to, item]);
                 e.call(LIST_POP_FRONT, &args![from]);
             }
@@ -2785,7 +2813,7 @@ pub fn fn_009e3560(e: &mut Engine, this: Ptr<H>, _unused_1: u32) {
             if tether_z as f64 >= position_z as f64 - height && position_z > tether_z {
                 e.mem.set_f32(point.addr() + 8, 0.0);
             }
-            e.call(DEFAULT_CONSTRUCT, &args![matrix]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
             e.call(POINT_NORMALIZE, &args![point]);
             let minus_one = fld(e, MINUS_ONE_FLOAT);
             e.call(FLOAT_CLAMP, &args![point.addr() + 8, minus_one, 1.0f32]);
@@ -2840,7 +2868,7 @@ pub fn fn_009e3560(e: &mut Engine, this: Ptr<H>, _unused_1: u32) {
         let heading = actor_heading(e, this);
         let facing = (heading + offset as f64) as f32;
         let turn = (angle as f64 - facing as f64) as f32;
-        e.call(DEFAULT_CONSTRUCT, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         fn_009e1640(e, matrix, x87_quiet(turn));
         let result = e
             .call(
@@ -2996,7 +3024,7 @@ pub fn detailed_actor_path_handler_update_tether_position(
     e.with_stack(16, |e, block| {
         let point = block;
         let parameter = block.byte_add(12);
-        e.call(DEFAULT_CONSTRUCT, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         let spline = fld(e, this.addr() + H::fCurrentSplineT.off);
         let (amount, forward) = if distance as f64 >= double(e, ZERO_DOUBLE) {
             (x87_quiet(distance), 1u32)
@@ -3033,7 +3061,7 @@ fn tether_measures(e: &mut Engine, this: Ptr<H>, block: Ptr, first: bool) -> (f3
     if first {
         let location = actor_location(e, this);
         e.call(POINT_SUBTRACT, &args![tether, to_tether, location]);
-        e.call(DEFAULT_CONSTRUCT, &args![ahead]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, ahead));
     }
     let parameter = (e.get(this, H::fCurrentSplineT) as f64 + double(e, SPLINE_STEP)) as f32;
     let path = path_of(e, this);
@@ -3047,8 +3075,20 @@ fn tether_measures(e: &mut Engine, this: Ptr<H>, block: Ptr, first: bool) -> (f3
         copy_point(e, to_tether.addr(), result);
     }
     e.mem.set_f32(to_tether.addr() + 8, 0.0);
-    let along = e.call(POINT_DOT, &args![direction, to_tether]).f64() as f32;
-    let ahead_dot = e.call(POINT_DOT, &args![ahead, to_tether]).f64() as f32;
+    let along = typed_call!(
+        leaf::FAMILY,
+        0x004b_6190,
+        leaf::point3_dot(e, direction, to_tether)
+    )
+    .into_ret()
+    .f64() as f32;
+    let ahead_dot = typed_call!(
+        leaf::FAMILY,
+        0x004b_6190,
+        leaf::point3_dot(e, ahead, to_tether)
+    )
+    .into_ret()
+    .f64() as f32;
     let distance = e.call(POINT_LENGTH_SQUARED_XY, &args![to_tether]).f64() as f32;
     (along, ahead_dot, distance)
 }
@@ -3111,7 +3151,7 @@ pub fn fn_009e3d50(e: &mut Engine, this: Ptr<H>, _unused_1: u32) {
     e.with_stack(0x54, |e, block| {
         let direction = block;
         let matrix = block.byte_add(0x30);
-        e.call(DEFAULT_CONSTRUCT, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         let heading = actor_heading(e, this) as f32;
         fn_009e1640(e, matrix, heading);
         e.call(MATRIX_TIMES_POINT, &args![matrix, direction, delta]);
@@ -3214,7 +3254,7 @@ pub fn detailed_actor_path_handler_compute_heading_and_looking(
             e.with_stack(0x18, |e, block| {
                 let point = block;
                 let vector = block.byte_add(0x0c);
-                e.call(DEFAULT_CONSTRUCT, &args![point]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
                 let parameter = fld(e, this.addr() + H::fIgnoreInitialRotationTetherParam.off);
                 let path = path_of(e, this);
                 e.call(PATH_POINT_AT, &args![path, parameter, point]);
@@ -3238,7 +3278,7 @@ pub fn detailed_actor_path_handler_compute_heading_and_looking(
             let projected = block.byte_add(0x24);
             let vector = block.byte_add(0x30);
             let mut looking = 0.0f32;
-            e.call(DEFAULT_CONSTRUCT, &args![target]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, target));
             let mover = mover_of(e, this);
             e.call(MOVER_GET_LOOK_AT_POINT, &args![mover, target]);
             e.call(FIRING_LOCATION, &args![firing, actor]);
@@ -3275,7 +3315,7 @@ pub fn detailed_actor_path_handler_compute_heading_and_looking(
         let heading = e.with_stack(0x18, |e, block| {
             let point = block;
             let vector = block.byte_add(0x0c);
-            e.call(DEFAULT_CONSTRUCT, &args![point]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
             let has_nodes = path_of(e, this) != 0 && {
                 let path = path_of(e, this);
                 e.call(PATH_NODE_COUNT, &args![path]).u32() != 0
@@ -3524,15 +3564,24 @@ fn mark_avoid_nodes(e: &mut Engine, this: Ptr<H>) {
             {
                 e.call(AVOID_NODE_ARRAY_CONSTRUCT, &args![nodes]);
                 let index = e.mem.u16(triangle.addr()) as u32;
-                let navmesh = e.call(NIPOINTER_GET, &args![navmesh_holder]).u32();
+                let navmesh = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, navmesh_holder)
+                );
                 e.call(NAVMESH_STATIC_AVOID_NODES, &args![navmesh, index, nodes]);
                 let mut none_near = true;
                 if !e.call(ARRAY_IS_EMPTY, &args![nodes]).bool() {
                     let mut i = 0u32;
-                    while i < e.call(ARRAY_SIZE, &args![nodes]).u32() {
-                        let slot = e.call(ARRAY_ELEMENT, &args![nodes, i]).u32();
+                    while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, nodes)) {
+                        let slot = typed_call!(
+                            leaf::FAMILY,
+                            0x0087_7a30,
+                            leaf::array_element(e, nodes, i)
+                        );
                         let node = e.mem.u32(slot);
-                        let point = e.call(DEFAULT_CONSTRUCT, &args![node]).u32();
+                        let point =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                         let offset = e
                             .call(POINT_SUBTRACT, &args![point, difference, tether])
                             .u32();
@@ -3558,7 +3607,11 @@ fn mark_avoid_nodes(e: &mut Engine, this: Ptr<H>) {
                 if none_near {
                     let request = request_of(e, this);
                     let radius = e.call(FLOAT_AT_68, &args![request]).f64() as f32;
-                    let navmesh = e.call(NIPOINTER_GET, &args![navmesh_holder]).u32();
+                    let navmesh = typed_call!(
+                        leaf::FAMILY,
+                        0x0055_9450,
+                        leaf::word_at_0(e, navmesh_holder)
+                    );
                     e.call(
                         NAVMESH_ADD_AVOID_NODE,
                         &args![navmesh, tether, index, radius, 1.0f32],
@@ -3607,16 +3660,28 @@ pub fn fn_009e4cf0(e: &mut Engine, this: Ptr<H>, seconds: f32) -> bool {
             e.call(POINT_LENGTH_SQUARED_XY, &args![tether_from_last]);
             e.call(POINT_LENGTH_XY, &args![tether_from_last]);
             e.call(POINT_LENGTH_SQUARED_XY, &args![tether_from_here]);
-            let moved_squared = e.call(POINT_DOT, &args![moved, moved]).f64();
+            let moved_squared =
+                typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, moved, moved))
+                    .into_ret()
+                    .f64();
             let expected = e.get(this, H::fLastFrameMinMoveDelta) as f64;
             expected * expected * double(e, EIGHTH) > moved_squared
         } else {
             e.call(POINT_LENGTH_SQUARED, &args![tether_from_last]);
             e.call(POINT_LENGTH, &args![tether_from_last]);
             e.call(POINT_LENGTH_SQUARED, &args![tether_from_here]);
-            let moved_squared = e.call(POINT_DOT, &args![moved, moved]).f64();
+            let moved_squared =
+                typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, moved, moved))
+                    .into_ret()
+                    .f64();
             let last_delta = this.addr() + H::LastFrameMinMoveDelta.off;
-            let expected = e.call(POINT_DOT, &args![last_delta, last_delta]).f64();
+            let expected = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, last_delta, last_delta)
+            )
+            .into_ret()
+            .f64();
             expected * double(e, EIGHTH) > moved_squared
         };
         if short {
@@ -3694,7 +3759,7 @@ pub fn fn_009e54a0(e: &mut Engine) -> bool {
     e.call(ARRAY_SET_SIZE, &args![CANDIDATES, count]);
     e.set_global(CANDIDATES_SIZE, 0u32);
     while node != 0 {
-        let item = e.call(DEFAULT_CONSTRUCT, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let actor = e.mem.u32(item);
         if actor != 0 {
             let process = e.vcall(actor, ACTOR_SLOT_PROCESS, &[]).u32();
@@ -3717,7 +3782,7 @@ pub fn fn_009e54a0(e: &mut Engine) -> bool {
                 }
             }
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     true
 }
@@ -3728,7 +3793,7 @@ pub fn fn_009e54a0(e: &mut Engine) -> bool {
 /// +0x18 and its slot 0x280 index the table `011a3ff0` to the value 6, the
 /// reference of its slot 0x128 if that answers slot 0x100; null otherwise.
 pub fn fn_009e55e0(e: &mut Engine, actor: Ptr) -> u32 {
-    let object = e.call(ACTOR_PROCESS, &args![actor]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     if object == 0 {
         return 0;
     }
@@ -3753,7 +3818,7 @@ pub fn fn_009e55e0(e: &mut Engine, actor: Ptr) -> u32 {
 /// The moving direction of an actor: its move delta (`008b3d50`) rotated
 /// by its heading, into `result`.
 fn actor_moving_direction(e: &mut Engine, actor: u32, matrix: Ptr, result: Ptr) -> u32 {
-    e.call(DEFAULT_CONSTRUCT, &args![matrix]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
     let heading = e.vcall(actor, ACTOR_SLOT_GET_HEADING, &args![0u32]).f64() as f32;
     fn_009e1640(e, matrix, heading);
     let delta = e.call(ACTOR_MOVE_DELTA, &args![actor]).u32();
@@ -3790,7 +3855,7 @@ pub fn fn_009e5690(
         let to_other = block.byte_add(0x94);
         let to_other_unit = block.byte_add(0xa0);
         let pair = block.byte_add(0xac);
-        e.call(DEFAULT_CONSTRUCT, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         let heading = e
             .vcall(actor.addr(), ACTOR_SLOT_GET_HEADING, &args![0u32])
             .f64() as f32;
@@ -3814,7 +3879,11 @@ pub fn fn_009e5690(
         fn_009e54a0(e);
         let mut i = 0u32;
         while i < e.global::<u32>(CANDIDATES_SIZE) {
-            let slot = e.call(ARRAY_ELEMENT, &args![CANDIDATES, i]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, CANDIDATES, i)
+            );
             let other = e.mem.u32(slot);
             i += 1;
             if other == actor.addr() {
@@ -3847,7 +3916,13 @@ pub fn fn_009e5690(
                 e.call(POINT_SUBTRACT_ASSIGN, &args![to_other, position]);
                 copy_point(e, to_other_unit.addr(), to_other.addr());
                 e.call(POINT_NORMALIZE, &args![to_other_unit]);
-                let ahead = e.call(POINT_DOT, &args![to_other_unit, direction]).f64();
+                let ahead = typed_call!(
+                    leaf::FAMILY,
+                    0x004b_6190,
+                    leaf::point3_dot(e, to_other_unit, direction)
+                )
+                .into_ret()
+                .f64();
                 if ahead < double(e, ZERO_DOUBLE) {
                     continue;
                 }
@@ -3957,9 +4032,9 @@ fn add_avoid_nodes(e: &mut Engine, this: Ptr<H>, nodes: u32, block: Ptr) {
     let difference = block;
     let actor_block = block.byte_add(0x10);
     while node != 0 {
-        let item = e.call(DEFAULT_CONSTRUCT, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let other = e.mem.u32(item);
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         let mut near_factor = 1.0f32;
         let actor_location_now = actor_location(e, this);
         let other_location = e.vcall(other, ACTOR_SLOT_LOCATION, &[]).u32();
@@ -4039,9 +4114,11 @@ pub fn fn_009e5ae0(e: &mut Engine, this: Ptr<H>, seconds: f32) -> u32 {
         e.call(AVOID_ARRAY_CONSTRUCT, &args![found]);
         copy_point(e, delta.addr(), this.addr() + H::MoveDelta.off);
         if e.get(this, H::eAvoidState) == 2 {
-            let point = e
-                .call(POINT_CONSTRUCT, &args![up, 0.0f32, 1.0f32, 0.0f32])
-                .u32();
+            let point = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, up, 0.0f32, 1.0f32, 0.0f32)
+            );
             copy_point(e, delta.addr(), point);
         }
         let request = request_of(e, this);
@@ -4055,7 +4132,7 @@ pub fn fn_009e5ae0(e: &mut Engine, this: Ptr<H>, seconds: f32) -> u32 {
         let mut must_wait = false;
         let mut player_in_way = false;
         let mut i = 0u32;
-        while i < e.call(ARRAY_SIZE, &args![found]).u32() {
+        while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, found)) {
             let item = e.call(ARRAY_ELEMENT_8, &args![found, i]).u32();
             let other = e.mem.u32(item);
             let item = e.call(ARRAY_ELEMENT_8, &args![found, i]).u32();
@@ -4186,9 +4263,10 @@ pub fn fn_009e5ae0(e: &mut Engine, this: Ptr<H>, seconds: f32) -> u32 {
                 } else {
                     0
                 };
-                let count = e.call(ARRAY_SIZE, &args![in_way]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, in_way));
                 for j in 0..count {
-                    let slot = e.call(ARRAY_ELEMENT, &args![in_way, j]).u32();
+                    let slot =
+                        typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, in_way, j));
                     e.call(
                         LIST_PUSH_FRONT,
                         &args![this.addr() + H::ActorAvoidList.off, slot],
@@ -4233,7 +4311,11 @@ pub fn fn_009e6870(
     node_type: u32,
 ) -> Ptr {
     copy_point(e, this.addr(), point.addr());
-    e.call(DEFAULT_CONSTRUCT, &args![this.addr() + 0x0c]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0x0c)
+    );
     e.mem.set_f32(this.addr() + 0x18, x87_quiet(radius));
     e.mem.set_f32(this.addr() + 0x1c, x87_quiet(weight));
     e.mem.set_u32(this.addr() + 0x20, node_type);
@@ -4280,7 +4362,7 @@ pub fn fn_009e6900(
         let difference = block.byte_add(0x0c);
         let key = block.byte_add(0x18);
         let ratio = block.byte_add(0x1c);
-        e.call(DEFAULT_CONSTRUCT, &args![offset]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, offset));
         e.mem.set_f32(value_out.addr(), 0.0);
         if !handler.is_null() {
             let avoid = e.get(handler, H::eAvoidState);
@@ -4322,15 +4404,15 @@ pub fn fn_009e6900(
         {
             return false;
         }
-        let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let engaged = if process != 0 {
-            let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             e.vcall(process, PROCESS_SLOT_278, &[]).u32()
         } else {
             0
         };
         if engaged != 0 && e.call(DWORD_AT_8, &args![engaged]).u32() == other.addr() {
-            let first = e.call(NIPOINTER_GET, &args![engaged]).u32();
+            let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, engaged));
             if e.call(SIGNED_BYTE_AT_20, &args![first]).u32() != 1 {
                 return false;
             }
@@ -4343,7 +4425,13 @@ pub fn fn_009e6900(
         let remaining = e
             .call(FLOAT_MAX_OF, &args![x87_quiet(remaining), 0.0f32])
             .f64() as f32;
-        let dot = e.call(POINT_DOT, &args![offset, direction]).f64() as f32;
+        let dot = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, offset, direction)
+        )
+        .into_ret()
+        .f64() as f32;
         let hit = threshold <= dot || close;
         if !hit {
             return false;
@@ -4499,19 +4587,19 @@ pub fn detailed_actor_path_handler_set_wait_for_updated_path(
         e.set(this, H::eState, STATE_AT_END);
         copy_point(e, start.addr(), tether);
         let mut use_heading = true;
-        e.call(DEFAULT_CONSTRUCT, &args![ahead]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, ahead));
         let parameter = (e.get(this, H::fCurrentSplineT) as f64 + double(e, SPLINE_STEP)) as f32;
         let path = path_of(e, this);
         e.call(PATH_POINT_AT, &args![path, parameter, ahead]);
         e.call(POINT_SUBTRACT_ASSIGN, &args![ahead, tether]);
         let heading = e.call(Z_ANGLE_FROM_VECTOR, &args![ahead]).f64() as f32;
         let list = this.addr() + H::ActorAvoidList.off;
-        if !e.call(LIST_IS_EMPTY, &args![list]).bool() {
+        if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
             let mut node = list;
             while node != 0 {
-                let item = e.call(DEFAULT_CONSTRUCT, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let other = e.mem.u32(item);
-                node = e.call(LIST_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 let radius = e.call(ACTOR_GET_RADIUS, &args![other]).f64() as f32;
                 let other_location = e.vcall(other, ACTOR_SLOT_LOCATION, &[]).u32();
                 let location = actor_location(e, this);
@@ -4600,7 +4688,7 @@ fn avoid_nodes_for_actor(
     {
         let source = e.call(CONTROLLER_HK_POSITION, &args![controller]).u32();
         e.call(COPY_16_BYTES, &args![havok, source]);
-        e.call(DEFAULT_CONSTRUCT, &args![converted]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, converted));
         e.call(HK_VECTOR_TO_POINT, &args![converted, havok]);
         let x = fld(e, converted.addr());
         e.mem.set_f32(position.addr(), x);
@@ -4686,7 +4774,7 @@ pub fn fn_009e71b0(e: &mut Engine, actor: Ptr, request: Ptr, handler: Ptr<H>) {
                 e.call(REQUEST_SET_AVOID_NODES, &args![request, nodes]);
             }
             let mut i = 0u32;
-            while i < e.call(ARRAY_SIZE, &args![found]).u32() {
+            while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, found)) {
                 let item = e.call(ARRAY_ELEMENT_8, &args![found, i]).u32();
                 let other = e.mem.u32(item);
                 e.mem.set_u32(slot.addr(), other);
@@ -4889,7 +4977,13 @@ pub fn fn_009e77d0(e: &mut Engine, this: Ptr<H>, start_distance: f32) {
         let location = actor_location(e, this);
         copy_point(e, here.addr(), location);
         e.call(POINT_SUBTRACT, &args![tether, to_tether, here]);
-        let side = e.call(POINT_DOT, &args![to_tether, along]).f64() as f32;
+        let side = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, to_tether, along)
+        )
+        .into_ret()
+        .f64() as f32;
         let behind = (side as f64) < double(e, ZERO_DOUBLE);
         let length = e.get(this, H::fPathLength);
         let step = (double(e, FIVE) / length as f64) as f32;
@@ -4897,8 +4991,8 @@ pub fn fn_009e77d0(e: &mut Engine, this: Ptr<H>, start_distance: f32) {
         let mut best_distance = fld(e, FLOAT_MAX);
         let mut best_parameter = 0.0f32;
         let mut best_index = 0u32;
-        e.call(DEFAULT_CONSTRUCT, &args![candidate]);
-        e.call(DEFAULT_CONSTRUCT, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, candidate));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         let mut found = false;
         for k in 0..4i32 {
             let distance =
@@ -4918,7 +5012,13 @@ pub fn fn_009e77d0(e: &mut Engine, this: Ptr<H>, start_distance: f32) {
                 .u32();
             copy_point(e, candidate.addr(), result);
             e.mem.set_f32(candidate.addr() + 8, 0.0);
-            let dot = e.call(POINT_DOT, &args![candidate, along]).f64() as f32;
+            let dot = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, candidate, along)
+            )
+            .into_ret()
+            .f64() as f32;
             let distance_squared = e.call(POINT_LENGTH_SQUARED_XY, &args![candidate]).f64() as f32;
             let crossing = if behind {
                 dot as f64 > double(e, ZERO_DOUBLE)
@@ -5056,8 +5156,8 @@ pub fn detailed_actor_path_handler_check_goal_reached(e: &mut Engine, this: Ptr<
         let result = block.byte_add(0x24);
         let along = block.byte_add(0x30);
         let to_actor = block.byte_add(0x3c);
-        e.call(DEFAULT_CONSTRUCT, &args![goal]);
-        e.call(DEFAULT_CONSTRUCT, &args![difference]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, goal));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, difference));
         let path = path_of(e, this);
         let mut node = None;
         if !e.call(PATH_BYTE_40, &args![path]).bool() {
@@ -5105,7 +5205,13 @@ pub fn detailed_actor_path_handler_check_goal_reached(e: &mut Engine, this: Ptr<
                 let location = actor_location(e, this);
                 e.call(POINT_SUBTRACT, &args![tether, to_actor, location]);
                 e.mem.set_f32(to_actor.addr() + 8, 0.0);
-                let dot = e.call(POINT_DOT, &args![along, to_actor]).f64() as f32;
+                let dot = typed_call!(
+                    leaf::FAMILY,
+                    0x004b_6190,
+                    leaf::point3_dot(e, along, to_actor)
+                )
+                .into_ret()
+                .f64() as f32;
                 if dot as f64 >= double(e, ZERO_DOUBLE)
                     && e.get(this, H::fAvoidanceDetectionValue) as f64 == double(e, ZERO_DOUBLE)
                     && e.get(this, H::fBlockTime) as f64 == double(e, ZERO_DOUBLE)
@@ -5171,7 +5277,7 @@ fn check_goal_while_updating_end(e: &mut Engine, this: Ptr<H>) -> u32 {
         let offset = block;
         let copy = block.byte_add(0x0c);
         let result = block.byte_add(0x18);
-        e.call(DEFAULT_CONSTRUCT, &args![offset]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, offset));
         let index = e.get(this, H::iCurrentNodeIndex);
         let path = path_of(e, this);
         let count = e.call(PATH_NODE_COUNT, &args![path]).u32();
@@ -5254,7 +5360,11 @@ pub fn detailed_actor_path_handler_handle_deleted_reference(
     }
     let mut index = 0u32;
     while index < e.global::<u32>(CANDIDATES_SIZE) {
-        let slot = e.call(ARRAY_ELEMENT, &args![CANDIDATES, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, CANDIDATES, index)
+        );
         if e.mem.u32(slot) == reference.addr() {
             fn_009e98d0(e, Ptr::new(CANDIDATES), index);
             e.call(ARRAY_COMPACT, &args![CANDIDATES]);
@@ -5275,7 +5385,7 @@ pub fn detailed_actor_path_handler_handle_deleted_reference(
         e.mem.set_u32(item.addr(), reference.addr());
         e.call(LIST_REMOVE, &args![list, item]);
     });
-    if e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         fn_009e68c0(e, this);
     }
 }
@@ -5534,13 +5644,13 @@ pub fn detailed_actor_path_handler_save_game(e: &mut Engine, this: Ptr<H>, buffe
     let start = e.call(SAVE_START_VARIABLE_SIZED, &args![buffer]).u32();
     let mut node = this.addr() + H::ActorAvoidList.off;
     while node != 0 {
-        let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let actor = e.mem.u32(item);
         if actor != 0 {
             e.call(SAVE_FORM_ID, &args![buffer, actor, 0u32]);
             count += 1;
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SAVE_VARIABLE_SIZED, &args![buffer, count, start]);
 }
@@ -5612,8 +5722,8 @@ pub fn detailed_actor_path_handler_init_load_game(e: &mut Engine, this: Ptr<H>, 
     e.set(this, H::pCurrentDoor, Ptr::new(door));
     let mut node = this.addr() + H::ActorAvoidList.off;
     let mut previous = 0u32;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let id = e.mem.u32(item);
         let remove = if id == 0 {
             true
@@ -5631,11 +5741,11 @@ pub fn detailed_actor_path_handler_init_load_game(e: &mut Engine, this: Ptr<H>, 
         };
         if !remove {
             previous = node;
-            node = e.call(LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         } else if previous != 0 {
-            let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.call(LIST_REMOVE, &args![previous, item]);
-            node = e.call(LIST_NEXT, &args![previous]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
         } else {
             e.call(LIST_POP_FRONT, &args![node]);
         }

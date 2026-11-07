@@ -59,7 +59,7 @@ pub fn fn_006270f0(e: &mut Engine, this: Ptr<LoadedAreaBound>) {
 /// `LoadedAreaBound::WarpActor` (Xbox PDB): finds and applies a warp point.
 pub fn loaded_area_bound_warp_actor(e: &mut Engine, this: Ptr<LoadedAreaBound>, actor: Ptr) {
     e.with_stack(12, |e, point| {
-        e.call(0x0068_15c0, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         // The pending `point` push belongs to FindWarpLocation: slot 0x1f4
         // has no stack arguments.
         let actor_point = e.vcall(actor.addr(), 0x1f4, &[]).u32();
@@ -119,7 +119,7 @@ pub fn loaded_area_bound_find_warp_location(
         e.mem.set_u32(auxiliary, 0);
         let cell = e.get(this, LoadedAreaBound::pCurrentCell);
         let eligible = !actor.is_null() && e.vcall(actor.addr(), 0x100, &[]).bool();
-        e.call(0x0068_15c0, &args![normal]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, normal));
         copy_point(e, candidate, requested.addr());
         let mut valid = false;
         if !actor.is_null() {
@@ -175,12 +175,16 @@ pub fn loaded_area_bound_find_warp_location(
             }
         }
         if valid {
-            e.call(0x0068_15c0, &args![shape]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, shape));
             e.call(0x004a_3e00, &args![shape, out]);
             e.call(0x0043_7c10, &args![transform]);
             e.call(0x0062_95a0, &args![transform]);
             for (offset, addend) in [(0x10, 0x10), (0x1c, 0)] {
-                let body = e.call(0x0055_9450, &args![this.addr() + offset]).u32();
+                let body = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, this.addr() + offset)
+                );
                 let body = e.call(0x0062_0b80, &args![body]).u32();
                 let body = e.call(0x0098_4230, &args![body]).u32();
                 e.call(0x0062_9560, &args![transform, body + addend]);

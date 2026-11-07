@@ -79,9 +79,11 @@ const LOAD_FORM_BUFFER_SET_BYTE: u32 = 0x008a_8150;
 const LOAD_FORM_BUFFER_GET_VERSION: u32 = 0x008a_81c0;
 /// `0084e3a0` (thiscall on the load form buffer, no stack words): the size
 /// `00866570` passes to `Initialize`.
+#[cfg(test)]
 const LOAD_FORM_BUFFER_SIZE: u32 = 0x0084_e3a0;
 /// `00726070` (thiscall on the load form buffer, no stack words): the data
 /// `00866570` passes to `Initialize`.
+#[cfg(test)]
 const LOAD_FORM_BUFFER_DATA: u32 = 0x0072_6070;
 
 fn buffer(e: &Engine, this: Ptr<BGSUnloadedFormBuffer>) -> u32 {
@@ -278,8 +280,8 @@ pub fn bgs_unloaded_form_buffer_create_load_form_buffer(
 pub fn fn_00866570(e: &mut Engine, this: Ptr<BGSUnloadedFormBuffer>, load: u32) {
     let version = e.call(LOAD_FORM_BUFFER_GET_VERSION, &args![load]).u8();
     let form_type = fn_008665b0(e, Ptr::new(load));
-    let size = e.call(LOAD_FORM_BUFFER_SIZE, &args![load]).u32();
-    let data = e.call(LOAD_FORM_BUFFER_DATA, &args![load]).u32();
+    let size = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, load));
+    let data = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, load));
     bgs_unloaded_form_buffer_initialize(e, this, data, size, form_type, version);
 }
 

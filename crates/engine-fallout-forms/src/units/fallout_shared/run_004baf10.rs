@@ -31,6 +31,7 @@ const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 /// Smart pointer release (`0045cec0`): drops the reference held, if any.
 const POINTER_RELEASE: u32 = 0x0045_cec0;
 /// Smart pointer read (`00559450`): the pointer held.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// Default constructor of a 12-byte point, also used as the element
 /// constructor of the point arrays (`006815c0`: returns `this`).
@@ -40,6 +41,7 @@ const COLOR_CONSTRUCT: u32 = 0x0041_4430;
 /// `NiFrustum::NiFrustum` (engine map; `00a71b70`, one stack word).
 const FRUSTUM_CONSTRUCT: u32 = 0x00a7_1b70;
 /// Number of cells per side of the grid (`0084e3a0`: the word at `+0x0c`).
+#[cfg(test)]
 const GRID_SIDE: u32 = 0x0084_e3a0;
 /// Reads the byte at `+0` of the object at `0x011c75a4`'s `00408d60` result
 /// (`004bc400`): whether the offscreen mask can be built.
@@ -49,6 +51,7 @@ const MASK_BUILD_ENABLED: u32 = 0x004b_c400;
 const POINT2_CONSTRUCT: u32 = 0x0045_2dc0;
 /// `00416870` (`thiscall` on a caller-provided 12-byte object, three
 /// floats): writes the three floats into it and returns it.
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// Stores the two words (`004bc420`, `cdecl`) into the globals at
 /// `0x011fd874`/`0x011fd878` (as floats).
@@ -244,7 +247,7 @@ fn copied_float_bits(value: f32) -> u32 {
 }
 
 fn pointer_get(e: &mut Engine, slot: u32) -> u32 {
-    e.call(POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 fn pointer_assign(e: &mut Engine, slot: u32, value: u32) {
@@ -288,12 +291,11 @@ fn copy_words(e: &mut Engine, destination: u32, source: u32, words: u32) {
 /// Builds a point with `00416870` in the scratch object and stores its three
 /// words at `destination`.
 fn store_point3(e: &mut Engine, scratch: u32, destination: u32, x: f32, y: f32, z: f32) {
-    let point = e
-        .call(
-            POINT3_CONSTRUCT,
-            &args![scratch, x.to_bits(), y.to_bits(), z.to_bits()],
-        )
-        .u32();
+    let point = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, scratch, x.to_bits(), y.to_bits(), z.to_bits())
+    );
     copy_words(e, destination, point, 3);
 }
 
@@ -366,12 +368,16 @@ pub fn fn_004baf10(e: &mut Engine, this: Ptr) {
     }
     e.call(FRUSTUM_CONSTRUCT, &args![at(ebp, FRUSTUM), 0u32]);
     e.call(POINTER_FROM, &args![at(ebp, POINTER_F), 0u32]);
-    e.call(POINT_DEFAULT, &args![at(ebp, POSITION_X)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, at(ebp, POSITION_X))
+    );
     e.call(
         COLOR_CONSTRUCT,
         &args![at(ebp, SAVED_COLOUR), 0u32, 0u32, 0u32, 0u32],
     );
-    let count = e.call(GRID_SIDE, &args![this]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let mut everything_default = true;
     let mut no_cell_state = true;
     e.mem.set_u8(MASK_STATE_FLAG, 0);
@@ -382,7 +388,7 @@ pub fn fn_004baf10(e: &mut Engine, this: Ptr) {
     }
 
     // The grid's size in world units and its corner.
-    let side = e.call(GRID_SIDE, &args![this]).u32();
+    let side = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let size = ((side << 12) as f64) as f32;
     let two = e.global::<f64>(TWO);
     let corner = (e.global::<f64>(CENTRE_2048) - size as f64 / two) as f32;
@@ -677,17 +683,17 @@ fn render_mask(e: &mut Engine, this: u32, ebp: u32) {
 /// `__thiscall`, three stack words (`RET 0xc`).
 pub fn fn_004bc1f0(e: &mut Engine, this: Ptr, x: f32, y: f32, z: f32) {
     let scratch = e.mem.alloc(12);
-    let point = e
-        .call(
-            POINT3_CONSTRUCT,
-            &args![
-                scratch,
-                copied_float_bits(x),
-                copied_float_bits(y),
-                copied_float_bits(z)
-            ],
+    let point = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(
+            e,
+            scratch,
+            copied_float_bits(x),
+            copied_float_bits(y),
+            copied_float_bits(z)
         )
-        .u32();
+    );
     copy_words(e, this.addr() + 0x58, point, 3);
     e.mem.free(scratch);
 }
@@ -697,7 +703,11 @@ pub fn fn_004bc1f0(e: &mut Engine, this: Ptr, x: f32, y: f32, z: f32) {
 /// index 0 gives its address) and, when that entry is not null, returns what
 /// `005585e0` makes of it; otherwise 0. `__thiscall`, no stack words.
 pub fn fn_004bc240(e: &mut Engine, this: Ptr) -> u32 {
-    let entry = e.call(0x0087_7a30, &args![this.addr() + 0x1c, 0u32]).u32();
+    let entry = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, this.addr() + 0x1c, 0u32)
+    );
     let element = e.mem.u32(entry);
     if element == 0 {
         return 0;

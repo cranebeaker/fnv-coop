@@ -65,6 +65,7 @@ pub fn fn_009b4d40(e: &mut Engine, this: Ptr) -> bool {
 }
 
 /// `00559450` (unnamed): `thiscall`, returns the word at `+0`.
+#[cfg(test)]
 const READ_FIRST_WORD: u32 = 0x0055_9450;
 /// `004181e0` (unnamed, `extradatalist.cpp` per the engine map): `thiscall`; a word (the
 /// projectile's shooter, as `009c2c80` and the other callers here use it).
@@ -72,11 +73,13 @@ const SHOOTER: u32 = 0x0041_81e0;
 /// `009c2c80` (unnamed, `projectile.cpp`): `cdecl`, four words; a `bool`.
 const IMPACT_ALLOWED: u32 = 0x009c_2c80;
 /// `008256d0` (unnamed): `thiscall`; whether the list node is empty.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (unnamed): `thiscall`, returns `this` (a list node's item slot; also the
 /// no-op constructor the code runs on point and matrix locals).
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (unnamed): `thiscall`; the next list node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `Projectile::AddImpact` (`009bf5a0`, Xbox PDB): `thiscall`, six words (`RET 0x18`).
 const ADD_IMPACT: u32 = 0x009b_f5a0;
@@ -126,6 +129,7 @@ const SHOOTER_TEST_005DE080: u32 = 0x005d_e080;
 /// `009bda10` (unnamed, `projectile.cpp`): `thiscall`, no stack words.
 const PROJECTILE_INITIALIZE: u32 = 0x009b_da10;
 /// `00440d80` (unnamed, `modelloader.cpp`): `thiscall`; a `bool`.
+#[cfg(test)]
 const IS_DISABLED: u32 = 0x0044_0d80;
 /// `00885bd0` (unnamed, `actor.cpp`): `thiscall`; a float in `ST0` (the projectile's age,
 /// as the comparisons here use it).
@@ -160,6 +164,7 @@ const SETTING_FLOAT: u32 = 0x0040_3e20;
 const SETTING_011CEE0C: u32 = 0x011c_ee0c;
 const SETTING_011CF534: u32 = 0x011c_f534;
 /// `0084e3a0` (unnamed): `thiscall`; a word.
+#[cfg(test)]
 const PROJECTILE_FORM: u32 = 0x0084_e3a0;
 /// The object (`0x011c3f2c`) whose `00469860` (`thiscall`, `RET 4`) is asked.
 const DATA_HANDLER: u32 = 0x011c_3f2c;
@@ -176,6 +181,7 @@ const CHECK_EXPLOSION: u32 = 0x009c_3190;
 const PLAYER: u32 = 0x011d_ea3c;
 /// The array (`0x011f2250`) whose count (`0044ddc0`) is compared with 4.
 const COUNTED_ARRAY: u32 = 0x011f_2250;
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 /// `bhkCollisionObject::GetbhkCollisionObject` (`0043b610`, Xbox PDB): `cdecl`, one word.
 const GET_COLLISION_OBJECT: u32 = 0x0043_b610;
@@ -239,6 +245,7 @@ const TWO_FLOAT: u32 = 0x0101_62c0;
 /// `00525340` (unnamed, `tesobjectweap.cpp`): `cdecl`, one word; normalizes the point.
 const NORMALIZE: u32 = 0x0052_5340;
 /// `NiPoint3::Dot` (`004b6190`, Xbox PDB): `thiscall`, one word (`RET 4`); `ST0`.
+#[cfg(test)]
 const DOT: u32 = 0x004b_6190;
 /// `004a3760` (unnamed, `bgsdecalmanager.cpp`): `cdecl` (out point, float, point): the
 /// point times the float.
@@ -384,15 +391,15 @@ pub fn fn_009b36f0(e: &mut Engine, this: Ptr) -> bool {
         let filter = at(0x158);
         let ends = at(0x198);
         e.call(RAY_CONSTRUCT, &args![ray]);
-        e.call(NODE_ITEM, &args![position]);
-        e.call(NODE_ITEM, &args![direction]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
         let source_position = e.vcall(p, 0x1f4, &[]).u32();
         let words = e.mem.bytes(source_position, 0xc);
         e.mem.write(position, &words);
-        e.call(NODE_ITEM, &args![rotation]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
         let facing = e.vcall(p, 0x2bc, &args![0u32]).f64();
         e.call(MATRIX_ROTATION, &args![rotation, x87_store32(facing)]);
-        e.call(NODE_ITEM, &args![looking]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, looking));
         let look = e.call(GET_LOOKING, &args![this]).f64();
         e.call(MAKE_X_ROTATION, &args![looking, x87_store32(look)]);
         let product = e
@@ -430,9 +437,9 @@ pub fn fn_009b36f0(e: &mut Engine, this: Ptr) -> bool {
         }
         if fn_009b3cb0(e, this) != 0 {
             let ignored = fn_009b3cb0(e, this);
-            if e.call(ARRAY_COUNT, &args![ignored]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, ignored)) != 0 {
                 let ignored = fn_009b3cb0(e, this);
-                let count = e.call(ARRAY_COUNT, &args![ignored]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, ignored));
                 e.call(RAY_SET_IGNORED, &args![ray, count]);
             }
         }
@@ -533,7 +540,11 @@ pub fn fn_009b36f0(e: &mut Engine, this: Ptr) -> bool {
 // Translated from 009b3cb0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed in the engine map (`ECX` only): the word at `+0x11c` (`00559450`).
 pub fn fn_009b3cb0(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(READ_FIRST_WORD, &args![this.addr() + 0x11c]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x11c)
+    )
 }
 
 // Translated from 009b3cd0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -561,8 +572,13 @@ pub fn fn_009b3cd0(
         return false;
     }
     let mut node = p + 0x88;
-    while node != 0 && e.call(LIST_IS_EMPTY, &args![node]).u8() == 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            == 0
+    {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(slot);
         if target == e.mem.u32(entry) {
             if target != 0 && e.vcall(target, 0x100, &[]).u8() != 0 {
@@ -570,7 +586,7 @@ pub fn fn_009b3cd0(
             }
             return true;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(
         ADD_IMPACT,
@@ -744,7 +760,11 @@ pub fn fn_009b40d0(e: &mut Engine, this: Ptr) {
 /// moves to that reference's position (`00575830`). Then `Projectile::CheckExplosion`.
 pub fn fn_009b41b0(e: &mut Engine, this: Ptr, time: f32) {
     let p = this.addr();
-    if e.call(IS_DISABLED, &args![this]).u8() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this))
+        .into_ret()
+        .u8()
+        != 0
+    {
         return;
     }
     let one = f64::from_bits(e.mem.u64(ONE));
@@ -815,7 +835,7 @@ pub fn fn_009b41b0(e: &mut Engine, this: Ptr, time: f32) {
         let age = e.call(AGE, &args![this]).f64();
         // `FCOMPP` of the limit against the age, `TEST AH,0x5; JP`: on only when below.
         if x87_load32(limit) < age {
-            let form = e.call(PROJECTILE_FORM, &args![this]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let handler = e.mem.u32(DATA_HANDLER);
             if e.call(DATA_HANDLER_TEST, &args![handler, form]).u8() != 0 {
                 e.call(PROJECTILE_EXPIRE, &args![this]);
@@ -862,7 +882,7 @@ pub fn fn_009b4460(
     sixth: u32,
 ) -> bool {
     let p = this.addr();
-    if e.call(ARRAY_COUNT, &args![COUNTED_ARRAY]).u32() == 4 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, COUNTED_ARRAY)) == 4 {
         let node = e.vcall(p, 0x1d0, &[]).u32();
         let collision = e.call(GET_COLLISION_OBJECT, &args![node]).u32();
         if collision != 0 {
@@ -874,7 +894,7 @@ pub fn fn_009b4460(
                     let word = e.call(BODY_WORD, &args![body]).u32();
                     e.mem.set_u32(word_slot, word);
                     if e.call(BODY_TEST, &args![word_slot]).u8() != 0 {
-                        e.call(NODE_ITEM, &args![vector]);
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
                         let mut factor = x87_quiet_bits(e.mem.u32(SCALE_FLOAT));
                         let player = e.mem.u32(PLAYER);
                         let owner = player + 0xa4;
@@ -895,7 +915,15 @@ pub fn fn_009b4460(
             }
         }
     }
-    if e.call(LIST_IS_EMPTY, &args![p + 0x88]).u8() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, p + 0x88)
+    )
+    .into_ret()
+    .u8()
+        == 0
+    {
         return false;
     }
     let shooter = e.call(SHOOTER, &args![this]).u32();
@@ -981,11 +1009,19 @@ pub fn fn_009b4700(e: &mut Engine, this: Ptr, first: u32, flag: u8) -> u8 {
 /// (`TESHavokUtilities::AddVelocity` with 1). Returns true.
 pub fn fn_009b4740(e: &mut Engine, this: Ptr) -> bool {
     let p = this.addr();
-    if e.call(LIST_IS_EMPTY, &args![p + 0x88]).u8() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, p + 0x88)
+    )
+    .into_ret()
+    .u8()
+        != 0
+    {
         return true;
     }
     let node = e.vcall(p, 0x1d0, &[]).u32();
-    let slot = e.call(NODE_ITEM, &args![p + 0x88]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p + 0x88));
     let impact = e.mem.u32(slot);
     let pause_owner = e.mem.u32(PAUSE_OWNER);
     if e.call(IS_PAUSED, &args![pause_owner]).u8() != 0 {
@@ -1015,14 +1051,22 @@ pub fn fn_009b4740(e: &mut Engine, this: Ptr) -> bool {
             let value = e.mem.u32(ZERO_POINT + 4 * word);
             e.mem.set_u32(velocity + 4 * word, value);
         }
-        e.call(NODE_ITEM, &args![reflected]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, reflected));
         let rotate = e.call(WORLD_ROTATE, &args![node]).u32();
         e.call(MATRIX_COLUMN, &args![rotate, 1u32, reflected]);
         let minus_one = x87_quiet_bits(e.mem.u32(MINUS_ONE));
         e.call(SCALE_BY, &args![reflected, minus_one]);
         e.call(NORMALIZE, &args![reflected]);
         e.call(NORMALIZE, &args![impact + 0x10]);
-        let dot = x87_store32(e.call(DOT, &args![impact + 0x10, reflected]).f64());
+        let dot = x87_store32(
+            typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, impact + 0x10, reflected)
+            )
+            .into_ret()
+            .f64(),
+        );
         let along = e
             .call(
                 FLOAT_TIMES_POINT,
@@ -1084,7 +1128,7 @@ pub fn fn_009b4950(e: &mut Engine, this: Ptr, contact: u32) {
             0
         };
         let node = if owner != 0 {
-            e.call(ARRAY_COUNT, &args![owner]).u32()
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, owner))
         } else {
             0
         };
@@ -1113,7 +1157,7 @@ pub fn fn_009b4950(e: &mut Engine, this: Ptr, contact: u32) {
         if first_reference != 0 && e.vcall(first_reference, 0x224, &[]).u8() != 0 {
             hit = second_reference;
             let shape = e.mem.u32(contact + 0x10);
-            let from = e.call(NODE_ITEM, &args![shape]).u32();
+            let from = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, shape));
             e.call(COPY_POINT, &args![one, from]);
             let shape = e.mem.u32(contact + 0x10);
             let from = e.call(MEMBER_AT_10, &args![shape]).u32();
@@ -1123,7 +1167,7 @@ pub fn fn_009b4950(e: &mut Engine, this: Ptr, contact: u32) {
             let collidable = e.mem.u32(contact + 0x4);
             word_a = e.call(COLLIDABLE_WORD, &args![collidable]).u32();
             let collidable = e.mem.u32(contact + 0x4);
-            word_b = e.call(NODE_NEXT, &args![collidable]).u32();
+            word_b = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, collidable));
         } else if second_reference != 0 && e.vcall(second_reference, 0x224, &[]).u8() != 0 {
             hit = first_reference;
             let shape = e.mem.u32(contact + 0x10);
@@ -1135,7 +1179,7 @@ pub fn fn_009b4950(e: &mut Engine, this: Ptr, contact: u32) {
             let collidable = e.mem.u32(contact);
             word_a = e.call(COLLIDABLE_WORD, &args![collidable]).u32();
             let collidable = e.mem.u32(contact);
-            word_b = e.call(NODE_NEXT, &args![collidable]).u32();
+            word_b = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, collidable));
         }
         e.vcall(
             this.addr(),

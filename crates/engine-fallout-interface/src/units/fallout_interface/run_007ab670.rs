@@ -15,6 +15,7 @@ const PLAYER_NAME_ENTRY_MENU_VTABLE: u32 = 0x0107_57fc;
 /// The player (`PlayerCharacter *`, `011dea3c`).
 const PLAYER: u32 = 0x011d_ea3c;
 /// `BGSSaveFormBuffer::GetForm` (engine map name for the folded getter `007af430`).
+#[cfg(test)]
 const GET_FORM_007AF430: u32 = 0x007a_f430;
 /// `__RTDynamicCast` (`00ec43fb`, `cdecl`, five words) from `01183108` to `01183a1c`.
 const DYNAMIC_CAST: u32 = 0x00ec_43fb;
@@ -58,7 +59,7 @@ pub fn fn_007ab690(e: &mut Engine, this: Ptr) -> Ptr {
     e.mem.set_u32(this.addr(), PLAYER_NAME_ENTRY_MENU_VTABLE);
     let player = e.mem.u32(PLAYER);
     let form = if player != 0 {
-        let base = e.call(GET_FORM_007AF430, &args![player]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
         e.call(
             DYNAMIC_CAST,
             &args![base, 0u32, CAST_SOURCE_01183108, CAST_TARGET_01183A1C, 0u32],

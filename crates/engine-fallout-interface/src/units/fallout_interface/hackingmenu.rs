@@ -192,8 +192,10 @@ const ROW_ARRAY_DELETE: u32 = 0x0070_21b0;
 const GRID_ROW_CONSTRUCTOR: u32 = 0x0096_a2d0;
 const GRID_ROW_DESTRUCTOR: u32 = 0x0070_2220;
 /// The word at +0 of an object (a grid row's `ucData`, a grid's `pData`).
+#[cfg(test)]
 const WORD_AT_ZERO: u32 = 0x0055_9450;
 /// The word at +4 of an object (a menu's `pMenu` tile).
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 /// The larger of two unsigned integers (cdecl, two words).
 const MAX_OF_TWO: u32 = 0x0040_3940;
@@ -222,6 +224,7 @@ const TILE_GET_STRING: u32 = 0x00a0_11f0;
 const TILE_GET_VALUE: u32 = 0x00a0_0f30;
 const TILE_GET_VALUE_Q: u32 = 0x00a0_0e90;
 /// A tile's parent (`this` only).
+#[cfg(test)]
 const TILE_PARENT: u32 = 0x0045_cd60;
 /// A tile's screen position (`this` only; ST0).
 const TILE_SCREEN_X: u32 = 0x00a0_13d0;
@@ -585,7 +588,7 @@ pub fn hacking_menu_close(e: &mut Engine) {
     }
     e.call(PLAY_SHUTDOWN_SOUND, &args![]);
     let fade = e.global::<u32>(CLOSE_FADE);
-    let tile = e.call(WORD_AT_FOUR, &args![me_hacking(e)]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me_hacking(e)));
     e.call(
         TILE_SET_FLOAT,
         &args![tile, 0xfc1u32, x87_quiet_bits(fade), 1u32],
@@ -595,7 +598,7 @@ pub fn hacking_menu_close(e: &mut Engine) {
         let manager = e.global::<u32>(INTERFACE_MANAGER);
         let reference = e.call(MANAGER_TERMINAL_REFERENCE, &args![manager]).u32();
         let left = e.call(CLOSE_COMPARE_REFERENCE, &args![reference]).u32();
-        let tile = e.call(WORD_AT_FOUR, &args![me_hacking(e)]).u32();
+        let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me_hacking(e)));
         let right = e.call(CLOSE_COMPARE_TILE, &args![tile]).u32();
         if left == right {
             let manager = e.global::<u32>(INTERFACE_MANAGER);
@@ -609,7 +612,7 @@ pub fn hacking_menu_close(e: &mut Engine) {
             e.call(RENDERED_TERMINAL_FADE_OUT, &args![terminal]);
         }
     }
-    let tile = e.call(WORD_AT_FOUR, &args![me_hacking(e)]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me_hacking(e)));
     e.call(TILE_SET_INT, &args![tile, 0x1772u32, 1u32]);
     e.call(MENU_START_FADE_OUT, &args![me_hacking(e)]);
     let now = e.call(GAME_TIME, &args![]).u32();
@@ -683,11 +686,11 @@ pub fn fn_0076af90(e: &mut Engine, this: Ptr, result: Ptr, order: Ptr, size: u8)
                 let row_index = e.mem.u8(order.addr().wrapping_add(i as u32));
                 let rows = e.mem.u32(this.addr());
                 let source_row = rows.wrapping_add(8 * u32::from(row_index));
-                let source = e.call(WORD_AT_ZERO, &args![source_row]).u32();
+                let source = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, source_row));
                 let column = e.mem.u8(order.addr().wrapping_add(j as u32));
-                let target_rows = e.call(WORD_AT_ZERO, &args![grid]).u32();
+                let target_rows = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, grid));
                 let target_row = target_rows.wrapping_add(8 * i as u32);
-                let target = e.call(WORD_AT_ZERO, &args![target_row]).u32();
+                let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, target_row));
                 let value = e.mem.u8(source.wrapping_add(u32::from(column)));
                 e.mem.set_u8(target.wrapping_add(j as u32), value);
             }
@@ -859,7 +862,7 @@ pub fn hacking_menu_terminal_io_terminal_io(
     if y >= 0 {
         let tile = e.mem.u32(base + 0x2c);
         e.call(TILE_SET_INT, &args![tile, TRAIT_Y, y]);
-        let menu_tile = e.call(WORD_AT_FOUR, &args![me_hacking(e)]).u32();
+        let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me_hacking(e)));
         let left = e.call(TILE_GET_FLOAT, &args![menu_tile, 0x1007u32]).f64();
         let x = ftol(e, left);
         let prompt = e.mem.u32(base + 0x30);
@@ -1033,7 +1036,7 @@ pub fn hacking_menu_get_char_hit(e: &mut Engine, this: Ptr<HackingMenu>) -> i32 
 /// Unnamed in the engine map: whether `value` differs from the word at +0
 /// of `this` (`00559450`).
 pub fn fn_0076a3b0(e: &mut Engine, this: Ptr, value: u32) -> bool {
-    value != e.call(WORD_AT_ZERO, &args![this]).u32()
+    value != typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this))
 }
 
 // Translated from 0076a510 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1097,12 +1100,12 @@ pub fn hacking_menu_update_cursor_pos(e: &mut Engine, this: Ptr<HackingMenu>) {
     let mut tile = hacking_tile(e, base, 5);
     while tile != 0 {
         let cursor = hacking_tile(e, base, 4);
-        if tile == e.call(TILE_PARENT, &args![cursor]).u32() {
+        if tile == typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, cursor)) {
             break;
         }
         let value = e.call(TILE_GET_FLOAT, &args![tile, TRAIT_X]).f64();
         x = ftol(e, value).wrapping_add(x);
-        tile = e.call(TILE_PARENT, &args![tile]).u32();
+        tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
     }
     let cursor = hacking_tile(e, base, 4);
     e.call(
@@ -1284,6 +1287,7 @@ const GUESS_BLOCK_TEMPLATE: u32 = 0x0107_2b90;
 const GUESS_BLOCK_FORMAT: u32 = 0x0107_2b88;
 /// A pointer list's element count (`this` only) and its tail insertion
 /// (`this`, address of the element).
+#[cfg(test)]
 const POINTER_LIST_COUNT: u32 = 0x0044_ddc0;
 const POINTER_LIST_ADD_TAIL: u32 = 0x004e_d8c0;
 /// `BSStringT<char>`'s constructor, destructor and `sprintf` (cdecl:
@@ -1320,7 +1324,7 @@ pub fn hacking_menu_flash_cursor(e: &mut Engine, this: Ptr<HackingMenu>) {
         e.set_global(FLASH_PERIOD, x87_store32(period));
     }
     if e.get(this, HackingMenu::eStage) == 4 {
-        let menu_tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+        let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         if e.call(TILE_IS_TRUE, &args![menu_tile, 0x1006u32]).bool() {
             return;
         }
@@ -1377,17 +1381,17 @@ pub fn hacking_menu_update_scrolling_cursor(e: &mut Engine, this: Ptr<HackingMen
     let top = e.call(TILE_GET_FLOAT, &args![text_tile, TRAIT_Y]).f64();
     let mut y = ftol(e, top);
     let text_tile = e.mem.u32(line.addr() + 0x2c);
-    let mut tile = e.call(TILE_PARENT, &args![text_tile]).u32();
+    let mut tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, text_tile));
     while tile != 0 {
         let cursor = hacking_tile(e, base, 4);
-        if tile == e.call(TILE_PARENT, &args![cursor]).u32() {
+        if tile == typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, cursor)) {
             break;
         }
         let value = e.call(TILE_GET_FLOAT, &args![tile, TRAIT_X]).f64();
         x = ftol(e, value).wrapping_add(x);
         let value = e.call(TILE_GET_FLOAT, &args![tile, TRAIT_Y]).f64();
         y = ftol(e, value).wrapping_add(y);
-        tile = e.call(TILE_PARENT, &args![tile]).u32();
+        tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
     }
     let cursor = hacking_tile(e, base, 4);
     e.call(TILE_SET_INT, &args![cursor, TRAIT_X, x]);
@@ -1412,7 +1416,11 @@ pub fn hacking_menu_make_guess_block(e: &mut Engine, this: Ptr<HackingMenu>) {
             &args![menu, header, GUESS_BLOCK_TEMPLATE, 0u32],
         )
         .u32();
-    let count = e.call(POINTER_LIST_COUNT, &args![base + GUESS_TILES]).u32();
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, base + GUESS_TILES)
+    );
     e.call(TILE_SET_INT_FROM_VALUE, &args![tile, 0xfacu32, count]);
     e.with_stack(8, |e, slot| {
         e.mem.set_u32(slot.addr(), tile);
@@ -1420,7 +1428,11 @@ pub fn hacking_menu_make_guess_block(e: &mut Engine, this: Ptr<HackingMenu>) {
     });
     e.with_stack(8, |e, text| {
         e.call(STRING_CONSTRUCTOR, &args![text]);
-        let count = e.call(POINTER_LIST_COUNT, &args![base + GUESS_TILES]).u32();
+        let count = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, base + GUESS_TILES)
+        );
         // 0076ade6: `00700300` takes no stack word (plain RET); the pushed count is
         // the last word of the cdecl sprintf (ADD ESP,0x10; the format at 01072b88
         // is "%s_%d").
@@ -1429,7 +1441,7 @@ pub fn hacking_menu_make_guess_block(e: &mut Engine, this: Ptr<HackingMenu>) {
             STRING_SPRINTF,
             &args![text, GUESS_BLOCK_FORMAT, value, count],
         );
-        let characters = e.call(WORD_AT_ZERO, &args![text]).u32();
+        let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         e.call(TILE_SET_TEXT, &args![tile, characters]);
         e.call(STRING_DESTRUCTOR, &args![text]);
     });
@@ -1504,7 +1516,7 @@ pub fn hacking_menu_scroll_log(e: &mut Engine, this: Ptr<HackingMenu>, count: u3
     let base = this.addr();
     let list = base + LOG_TILES;
     e.with_stack(4, |e, node| {
-        let head = e.call(WORD_AT_ZERO, &args![list]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
         e.mem.set_u32(node.addr(), head);
         while e.mem.u32(node.addr()) != 0 {
             let element = e.call(POINTER_LIST_NEXT, &args![list, node]).u32();
@@ -1600,12 +1612,12 @@ pub fn hacking_menu_do_idle(e: &mut Engine, this: Ptr<HackingMenu>) {
                 let mut tile = hacking_tile(e, base, 5);
                 while tile != 0 {
                     let cursor = hacking_tile(e, base, 4);
-                    if tile == e.call(TILE_PARENT, &args![cursor]).u32() {
+                    if tile == typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, cursor)) {
                         break;
                     }
                     let value = e.call(TILE_GET_FLOAT, &args![tile, TRAIT_Y]).f64();
                     y = ftol(e, value).wrapping_add(y);
-                    tile = e.call(TILE_PARENT, &args![tile]).u32();
+                    tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
                 }
                 let cursor = hacking_tile(e, base, 4);
                 e.call(TILE_SET_INT, &args![cursor, TRAIT_Y, y]);
@@ -1622,7 +1634,7 @@ pub fn hacking_menu_do_idle(e: &mut Engine, this: Ptr<HackingMenu>) {
             if e.mem.u32(manager.wrapping_add(0xcc)) != 0 {
                 let manager = e.global::<u32>(INTERFACE_MANAGER);
                 let selected = e.mem.u32(manager.wrapping_add(0xcc));
-                let parent = e.call(TILE_PARENT, &args![selected]).u32();
+                let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, selected));
                 if parent == hacking_tile(e, base, 2) {
                     fn_00769b50(e, this);
                 }
@@ -1760,6 +1772,7 @@ pub fn hacking_menu_do_intro(e: &mut Engine, this: Ptr<HackingMenu>) {
 
 /// Answers `this` (`006815c0`, `thiscall`, no arguments; the code uses it
 /// on a list node).
+#[cfg(test)]
 const IDENTITY: u32 = 0x0068_15c0;
 /// The string comparison the dud removal uses (cdecl: two strings; 0 when
 /// equal).
@@ -1789,10 +1802,10 @@ pub fn fn_0076a730(e: &mut Engine, this: Ptr<HackingMenu>) {
             if left == 0 {
                 break;
             }
-            node = e.call(WORD_AT_FOUR, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let password = e.get(this, HackingMenu::pPassword);
-        let item = e.call(IDENTITY, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let word = e.mem.u32(item);
         if e.call(STRING_COMPARE, &args![word, password]).i32() != 0 {
             break (index, node);
@@ -1854,10 +1867,10 @@ pub fn fn_0076a730(e: &mut Engine, this: Ptr<HackingMenu>) {
     }
     let positions = e.get(this, HackingMenu::iBufferPos);
     e.mem.set_u32(positions.wrapping_add(4 * i), 0x198);
-    let item = e.call(IDENTITY, &args![node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     let word = e.mem.u32(item);
     e.call(OPERATOR_DELETE, &args![word]);
-    let item = e.call(IDENTITY, &args![node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.call(WORD_LIST_REMOVE, &args![base + WORD_LIST, item]);
     let count = e.get(this, HackingMenu::iWordsHave);
     e.set(this, HackingMenu::iWordsHave, count.wrapping_sub(1));
@@ -1876,8 +1889,8 @@ pub fn fn_0076a730(e: &mut Engine, this: Ptr<HackingMenu>) {
 pub fn fn_00769520(e: &mut Engine, this: Ptr<HackingMenu>, grid: Ptr) -> u32 {
     let mut smallest = 0xffu8;
     let mut i = 0u32;
-    while i < e.call(WORD_AT_FOUR, &args![grid]).u32() {
-        let rows = e.call(WORD_AT_ZERO, &args![grid]).u32();
+    while i < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, grid)) {
+        let rows = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, grid));
         let largest = fn_0076ae90(e, Ptr::new(rows.wrapping_add(8 * i)));
         if largest < smallest {
             smallest = largest;
@@ -1890,17 +1903,17 @@ pub fn fn_00769520(e: &mut Engine, this: Ptr<HackingMenu>, grid: Ptr) -> u32 {
     if smallest <= 2 {
         return u32::from(smallest) + 1;
     }
-    let mut best = e.call(WORD_AT_FOUR, &args![grid]).u32();
+    let mut best = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, grid));
     let mut row = 0u32;
-    while row < e.call(WORD_AT_FOUR, &args![grid]).u32() {
-        let rows = e.call(WORD_AT_ZERO, &args![grid]).u32();
+    while row < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, grid)) {
+        let rows = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, grid));
         let largest = fn_0076ae90(e, Ptr::new(rows.wrapping_add(8 * row)));
         if largest == smallest {
             let mut deepest = 0u32;
             let mut value = 0u32;
-            while value < e.call(WORD_AT_FOUR, &args![grid]).u32() {
+            while value < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, grid)) {
                 deepest = e.with_stack(0x20, |e, positions| {
-                    let rows = e.call(WORD_AT_ZERO, &args![grid]).u32();
+                    let rows = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, grid));
                     let count = fn_0076ae30(
                         e,
                         Ptr::new(rows.wrapping_add(8 * row)),
@@ -1945,6 +1958,7 @@ const SECOND_COLUMN_OFFSET: u32 = 0x0107_29c0;
 const SOUNDS_TO_PLAY: u32 = 0x011d_9604;
 /// The sound list's next node (`thiscall`), its clear and its add
 /// (`thiscall`: address of the handle).
+#[cfg(test)]
 const SOUND_LIST_NEXT: u32 = 0x0084_e3a0;
 const SOUND_LIST_CLEAR: u32 = 0x0076_b7a0;
 const SOUND_LIST_ADD: u32 = 0x0076_b6a0;
@@ -2016,14 +2030,14 @@ pub fn fn_00769b50(e: &mut Engine, this: Ptr<HackingMenu>) {
         {
             break;
         }
-        node = e.call(WORD_AT_FOUR, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         k += 1;
     }
     e.with_stack(0x20, |e, buffer| {
         e.call(MEMSET, &args![buffer, 0u32, 0x20u32]);
         if node != 0 {
             let length = e.get(this, HackingMenu::iWordLength);
-            let item = e.call(IDENTITY, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let word = e.mem.u32(item);
             e.call(MEMCPY, &args![buffer, word, length]);
         } else {
@@ -2054,13 +2068,13 @@ pub fn fn_00769b50(e: &mut Engine, this: Ptr<HackingMenu>) {
             );
             let mut sound = SOUNDS_TO_PLAY;
             while sound != 0 {
-                let handle = e.call(IDENTITY, &args![sound]).u32();
+                let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, sound));
                 if !fn_0076a3b0(e, Ptr::new(handle), u32::MAX) {
                     break;
                 }
-                let handle = e.call(IDENTITY, &args![sound]).u32();
+                let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, sound));
                 e.call(SOUND_HANDLE_RELEASE, &args![handle]);
-                sound = e.call(SOUND_LIST_NEXT, &args![sound]).u32();
+                sound = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
             }
             e.call(SOUND_LIST_CLEAR, &args![SOUNDS_TO_PLAY]);
             let mut left = e.call(STRLEN, &args![buffer]).u32();
@@ -2213,8 +2227,6 @@ const STRING_SET: u32 = 0x0043_8390;
 /// `FileFinder::GetFile_ov2` (Xbox PDB, cdecl: path, mode, buffer size,
 /// flags).
 const FILE_FINDER_GET_FILE: u32 = 0x00af_df20;
-/// `Error` (Xbox PDB, cdecl: format, words).
-const ERROR_MESSAGE: u32 = 0x0040_fbe0;
 
 // Translated from 00768070 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `HackingMenu::Prepare` (Xbox PDB): chooses `count` words of
@@ -2257,7 +2269,7 @@ fn prepare_words(e: &mut Engine, this: Ptr<HackingMenu>, count: u32, path: Ptr, 
         return;
     }
     e.call(STRING_SET, &args![path, WORD_FILE]);
-    let name = e.call(WORD_AT_ZERO, &args![path]).u32();
+    let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, path));
     let file = e
         .call(
             FILE_FINDER_GET_FILE,
@@ -2265,7 +2277,7 @@ fn prepare_words(e: &mut Engine, this: Ptr<HackingMenu>, count: u32, path: Ptr, 
         )
         .u32();
     if file == 0 || !e.vcall(file, 0x20, &args![0u32, 0u32]).bool() {
-        let name = e.call(WORD_AT_ZERO, &args![path]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, path));
         e.call(PRINT_MESSAGE, &args![0x12u32, WORD_FILE_MESSAGE, name]);
         hacking_menu_close(e);
         return;
@@ -2298,7 +2310,7 @@ fn prepare_words(e: &mut Engine, this: Ptr<HackingMenu>, count: u32, path: Ptr, 
             fn_007687b0(e, candidates);
             let mut node = candidates.addr();
             while e.get(this, HackingMenu::iWordsHave) < count && node != 0 {
-                let item = e.call(IDENTITY, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let word = e.mem.u32(item);
                 if word == 0 {
                     break;
@@ -2308,7 +2320,8 @@ fn prepare_words(e: &mut Engine, this: Ptr<HackingMenu>, count: u32, path: Ptr, 
                     e.call(MEMSET, &args![shared, 0u32, 8u32]);
                     let mut other = words;
                     while accepted && other != 0 {
-                        let item = e.call(IDENTITY, &args![other]).u32();
+                        let item =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
                         let taken = e.mem.u32(item);
                         if taken == 0 {
                             break;
@@ -2327,7 +2340,7 @@ fn prepare_words(e: &mut Engine, this: Ptr<HackingMenu>, count: u32, path: Ptr, 
                         } else {
                             accepted = true;
                         }
-                        other = e.call(WORD_AT_FOUR, &args![other]).u32();
+                        other = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other));
                     }
                     accepted
                 });
@@ -2336,7 +2349,7 @@ fn prepare_words(e: &mut Engine, this: Ptr<HackingMenu>, count: u32, path: Ptr, 
                     let have = e.get(this, HackingMenu::iWordsHave);
                     e.set(this, HackingMenu::iWordsHave, have.wrapping_add(1));
                 }
-                node = e.call(WORD_AT_FOUR, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             if e.get(this, HackingMenu::iWordsHave) == count {
                 break;
@@ -2361,48 +2374,50 @@ fn prepare_words(e: &mut Engine, this: Ptr<HackingMenu>, count: u32, path: Ptr, 
     let pick = e.call(RANDOM_BELOW, &args![have]).u32();
     let mut node = words;
     for _ in 0..pick {
-        node = e.call(WORD_AT_FOUR, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
-    let item = e.call(IDENTITY, &args![node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     let password = e.mem.u32(item);
     e.set(this, HackingMenu::pPassword, password);
-    e.call(ERROR_MESSAGE, &args![PASSWORD_MESSAGE, password]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words PASSWORD_MESSAGE, password);
     e.with_stack(8, |e, grid| {
         let have = e.get(this, HackingMenu::iWordsHave);
         fn_00768810(e, grid, have);
         let mut row = 0u32;
         let mut first = words;
         while first != 0 {
-            let item = e.call(IDENTITY, &args![first]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first));
             if e.mem.u32(item) == 0 {
                 break;
             }
             let mut column = 0u32;
             let mut second = words;
             while second != 0 {
-                let item = e.call(IDENTITY, &args![second]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
                 if e.mem.u32(item) == 0 {
                     break;
                 }
                 let shared = if first == second {
                     0xff
                 } else {
-                    let item = e.call(IDENTITY, &args![second]).u32();
+                    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
                     let b = e.mem.u32(item);
-                    let item = e.call(IDENTITY, &args![first]).u32();
+                    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first));
                     let a = e.mem.u32(item);
                     hacking_menu_common_positions(e, Ptr::new(base), a, b)
                 };
-                let rows = e.call(WORD_AT_ZERO, &args![grid]).u32();
-                let data = e
-                    .call(WORD_AT_ZERO, &args![rows.wrapping_add(8 * row)])
-                    .u32();
+                let rows = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, grid));
+                let data = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, rows.wrapping_add(8 * row))
+                );
                 e.mem.set_u8(data.wrapping_add(column), shared as u8);
                 column += 1;
-                second = e.call(WORD_AT_FOUR, &args![second]).u32();
+                second = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, second));
             }
             row += 1;
-            first = e.call(WORD_AT_FOUR, &args![first]).u32();
+            first = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, first));
         }
         let guesses = fn_00769520(e, this, grid);
         e.set(this, HackingMenu::iNumGuesses, guesses);
@@ -2537,7 +2552,7 @@ fn make_password_file_body(e: &mut Engine, this: Ptr<HackingMenu>, text: Ptr) {
         .wrapping_add(e.get(this, HackingMenu::iYStart));
     let line = new_terminal_line(
         e,
-        |e| e.call(WORD_AT_ZERO, &args![text]).u32(),
+        |e| typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text)),
         header,
         PROMPT_TEMPLATE,
         y,
@@ -2612,7 +2627,7 @@ fn place_words(e: &mut Engine, this: Ptr<HackingMenu>, buffer: u32, garbage_coun
         let mut placed = 0u32;
         let mut failures = 0u32;
         while node != 0 && failures < 0x64 {
-            let item = e.call(IDENTITY, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item) == 0 {
                 break;
             }
@@ -2637,13 +2652,13 @@ fn place_words(e: &mut Engine, this: Ptr<HackingMenu>, buffer: u32, garbage_coun
             }
             if free {
                 let length = e.get(this, HackingMenu::iWordLength);
-                let item = e.call(IDENTITY, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let word = e.mem.u32(item);
                 e.call(MEMCPY, &args![buffer.wrapping_add(start), word, length]);
                 let positions = e.get(this, HackingMenu::iBufferPos);
                 e.mem.set_u32(positions.wrapping_add(4 * placed), start);
                 placed += 1;
-                node = e.call(WORD_AT_FOUR, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 failures = 0;
             } else {
                 failures += 1;
@@ -2658,17 +2673,17 @@ fn place_words(e: &mut Engine, this: Ptr<HackingMenu>, buffer: u32, garbage_coun
         }
         e.call(PRINT_MESSAGE, &args![WORDS_DO_NOT_FIT_MESSAGE]);
         loop {
-            let item = e.call(IDENTITY, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item) == 0 {
                 break;
             }
-            let item = e.call(IDENTITY, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.get(this, HackingMenu::pPassword) == e.mem.u32(item) {
-                let item = e.call(IDENTITY, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let word = e.mem.u32(item);
                 e.set(this, HackingMenu::pPassword, word);
             }
-            let item = e.call(IDENTITY, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let word = e.mem.u32(item);
             e.call(OPERATOR_DELETE, &args![word]);
             e.call(SIMPLE_LIST_REMOVE_HEAD, &args![node]);
@@ -2681,10 +2696,10 @@ fn place_words(e: &mut Engine, this: Ptr<HackingMenu>, buffer: u32, garbage_coun
         }
         let mut other = base + WORD_LIST;
         while other != 0 {
-            if e.call(WORD_AT_FOUR, &args![other]).u32() == node {
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other)) == node {
                 e.call(NODE_CLEAR_LINK, &args![other, 0u32]);
             }
-            other = e.call(WORD_AT_FOUR, &args![other]).u32();
+            other = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other));
         }
     }
 }
@@ -2720,7 +2735,7 @@ fn write_file_lines(
         let file = hacking_tile(e, base, 2);
         let line = new_terminal_line(
             e,
-            |e| e.call(WORD_AT_ZERO, &args![text]).u32(),
+            |e| typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text)),
             file,
             FILE_LINE_TEMPLATE,
             -1,
@@ -3003,7 +3018,11 @@ fn scroll_log_strings(
 ) {
     e.with_stack(4 * slots, |e, pointers| {
         for i in 0..slots {
-            let characters = e.call(WORD_AT_ZERO, &args![strings + 8 * i]).u32();
+            let characters = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, strings + 8 * i)
+            );
             e.mem.set_u32(pointers.addr() + 4 * i, characters);
         }
         hacking_menu_scroll_log(e, this, count, pointers);
@@ -3073,7 +3092,10 @@ pub fn hacking_menu_do_click(e: &mut Engine, this: Ptr<HackingMenu>, id: i32, ti
         2 => {}
         _ => return,
     }
-    if tile == 0 || e.call(TILE_PARENT, &args![tile]).u32() != hacking_tile(e, base, 2) {
+    if tile == 0
+        || typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile))
+            != hacking_tile(e, base, 2)
+    {
         return;
     }
     e.call(ANIMATING_TEXT_FORCE_FINISH, &args![base + ENTRY_TEXT]);
@@ -3120,8 +3142,11 @@ pub fn hacking_menu_do_click(e: &mut Engine, this: Ptr<HackingMenu>, id: i32, ti
                 e.set(this, HackingMenu::iNumGuesses, total);
                 e.set(this, HackingMenu::bUsedReset, true);
                 add_used_bonus(e, this, tile);
-                while e.call(POINTER_LIST_COUNT, &args![base + GUESS_TILES]).u32()
-                    < e.get(this, HackingMenu::iTotGuesses)
+                while typed_call!(
+                    leaf::FAMILY,
+                    0x0044_ddc0,
+                    leaf::word_at_8(e, base + GUESS_TILES)
+                ) < e.get(this, HackingMenu::iTotGuesses)
                 {
                     hacking_menu_make_guess_block(e, this);
                 }
@@ -3227,7 +3252,7 @@ pub fn hacking_menu_do_click(e: &mut Engine, this: Ptr<HackingMenu>, id: i32, ti
         let label = e.call(SETTING_STRING, &args![GUESSES_SETTING]).u32();
         let guesses = e.get(this, HackingMenu::iNumGuesses);
         e.call(STRING_SPRINTF, &args![text, GUESSES_FORMAT, guesses, label]);
-        let characters = e.call(WORD_AT_ZERO, &args![text]).u32();
+        let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         let third = e.mem.u32(base + IO_LINES + 8);
         e.call(ANIMATING_TEXT_RESET_BUFFER, &args![third, characters]);
         let third = e.mem.u32(base + IO_LINES + 8);
@@ -3246,6 +3271,7 @@ const TILE_GET_MAXIMUM_DEPTH: u32 = 0x00a0_1530;
 const SYSTEM_COLOR_GET_COLOR: u32 = 0x0071_9060;
 /// `BGSSaveFormBuffer::GetForm` (Xbox PDB name of the shared body;
 /// `thiscall` on the terminal reference).
+#[cfg(test)]
 const REFERENCE_FORM: u32 = 0x007a_f430;
 /// The test on that form that switches the system colour to white
 /// (`00757e80`, `computersmenu.cpp`).
@@ -3345,7 +3371,7 @@ pub fn hacking_menu_create(e: &mut Engine, reference: u32) -> u32 {
     // 00765c0b: `00718b60` takes no word; the pushed 3 and colour are the two words of
     // `00719060` (RET 8).
     e.call(SYSTEM_COLOR_GET_COLOR, &args![colors, 3u32, SAVE_COLOR]);
-    let form = e.call(REFERENCE_FORM, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if e.call(FORM_WANTS_WHITE, &args![form]).bool() {
         e.with_stack(0x10, |e, color| {
             let one = 1.0f32.to_bits();
@@ -3373,7 +3399,7 @@ pub fn hacking_menu_create(e: &mut Engine, reference: u32) -> u32 {
             return finish_hacking_create(e, reference, root, menu, depth);
         }
     }
-    if menu != 0 && e.call(WORD_AT_FOUR, &args![menu]).u32() != 0 {
+    if menu != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
         delete_object(e, menu);
     }
     0
@@ -3411,7 +3437,7 @@ fn finish_hacking_create(e: &mut Engine, reference: u32, root: u32, menu: u32, d
         e.call(TILE_SET_STRING, &args![tile, TRAIT_STRING, text, 1u32]);
     }
     let form = if reference != 0 {
-        e.call(REFERENCE_FORM, &args![reference]).u32()
+        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
     } else {
         0
     };

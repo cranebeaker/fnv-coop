@@ -67,6 +67,7 @@ const ACTOR_TRIGGER_PAIN: u32 = 0x008a_7d50;
 /// The object at `011dea10` and `008d8520` (`thiscall`): the word at its +0x68 (the
 /// engine map's name, `MiddleHighProcess::GetSavedAcquireObject`, is folded code).
 const OBJECT_011DEA10: u32 = 0x011d_ea10;
+#[cfg(test)]
 const WORD_68: u32 = 0x008d_8520;
 /// `0044edb0` and `00825c00` (`thiscall`): the words at +0x10 and +0x14.
 const WORD_10: u32 = 0x0044_edb0;
@@ -98,11 +99,14 @@ const SPELL_TYPE: u32 = 0x0055_b980;
 /// List helpers (`thiscall`): empty test (`008256d0`), clear (`00470470`), deleting
 /// destructor (`004702f0`, one word), node construction (`00470440`, one word: the
 /// address of the item), item slot (`006815c0`) and next node (`00726070`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 const LIST_CLEAR: u32 = 0x0047_0470;
 const LIST_DELETE: u32 = 0x0047_02f0;
 const LIST_NODE_CONSTRUCT: u32 = 0x0047_0440;
+#[cfg(test)]
 const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The `MagicShaderHitEffect` constructor (`0081f580`; `thiscall`, three words:
 /// reference, shader, float) and the float it gets (`01012054`).
@@ -301,7 +305,7 @@ pub fn sun_damage_effect_update(e: &mut Engine, this: Ptr, seconds: f32) {
         e.set_global::<u32>(PAIN_TIMER, left);
     }
     let holder: u32 = e.global(OBJECT_011DEA10);
-    let object = e.call(WORD_68, &args![holder]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, holder));
     let _unused_value = blended_water_value(e, object);
 }
 
@@ -331,7 +335,7 @@ pub fn fn_00829e00(e: &mut Engine, this: Ptr, on: u8) {
     }
     if on != 0 {
         let list = e.mem.u32(base + HIT_EFFECTS);
-        if list != 0 && !e.call(LIST_IS_EMPTY, &args![list]).bool() {
+        if list != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
             return;
         }
         if e.mem.u32(base + HIT_EFFECTS) != 0 {
@@ -377,12 +381,12 @@ pub fn fn_00829e00(e: &mut Engine, this: Ptr, on: u8) {
         return;
     }
     let mut node = e.mem.u32(base + HIT_EFFECTS);
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let hit_effect = e.mem.u32(slot);
         e.call(HIT_EFFECT_SET_24, &args![hit_effect, 1u32]);
         e.call(HIT_EFFECT_SET_18, &args![hit_effect, 0u32]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let list = e.mem.u32(base + HIT_EFFECTS);
     e.call(LIST_CLEAR, &args![list]);
@@ -458,7 +462,7 @@ pub fn fn_0082a1b0(e: &mut Engine, this: Ptr) -> f64 {
         return 0.0;
     }
     let holder: u32 = e.global(OBJECT_011DEA10);
-    let object = e.call(WORD_68, &args![holder]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, holder));
     let first = x87_store32(e.call(INPUT_00966A20, &args![object]).f64());
     let second = x87_store32(e.call(INPUT_00595EA0, &args![object]).f64());
     let third = x87_store32(e.call(INPUT_00596030, &args![object]).f64());

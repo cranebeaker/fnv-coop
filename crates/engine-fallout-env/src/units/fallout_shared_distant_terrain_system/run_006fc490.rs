@@ -14,6 +14,7 @@ use crate::prelude::*;
 use super::bgsterrainmanager::BGSTerrainManager;
 
 /// `NiPointer` dereference (`*this`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer::operator=(pointer)` for a smart pointer at `this`: stores the
 /// argument, releasing the old and retaining the new object; returns `this`.
@@ -153,19 +154,23 @@ pub fn fn_006fc490(
         let global_object = e.global::<u32>(GLOBAL_OBJECT_011DEA10);
         let field_10 = e.call(OBJECT_FIELD_10, &args![global_object]).u32();
         e.call(POINTER_SET, &args![base + 8, field_10]);
-        if e.call(POINTER_GET, &args![base + 8]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 8)) != 0 {
             let global_object = e.global::<u32>(GLOBAL_OBJECT_011DEA10);
             let field_14 = e.call(OBJECT_FIELD_14, &args![global_object]).u32();
             e.call(POINTER_SET, &args![base + 0xc, field_14]);
-            let first = e.call(POINTER_GET, &args![base + 8]).u32();
+            let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 8));
             e.call(OBJECT_CALL_00546780, &args![first, 1u32]);
-            let again = e.call(POINTER_GET, &args![base + 8]).u32();
+            let again = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 8));
             let second = e.call(OBJECT_FIELD_18, &args![again]).u32();
             e.call(OBJECT_CALL_00546780, &args![second, 1u32]);
         }
         e.set(this, BGSTerrainManager::bNeedsImmediateUpdate, false);
-        if e.call(POINTER_GET, &args![SMART_POINTER_011D86A8]).u32() == 0
-            && e.call(POINTER_GET, &args![base + 8]).u32() != 0
+        if typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, SMART_POINTER_011D86A8)
+        ) == 0
+            && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 8)) != 0
         {
             attach_new_node(e, SMART_POINTER_011D86A8, base);
             attach_new_node(e, SMART_POINTER_011D8690, base);
@@ -186,8 +191,8 @@ fn attach_new_node(e: &mut Engine, slot: u32, manager: u32) {
         0
     };
     e.call(POINTER_SET, &args![slot, node]);
-    let parent = e.call(POINTER_GET, &args![manager + 8]).u32();
-    let child = e.call(POINTER_GET, &args![slot]).u32();
+    let parent = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, manager + 8));
+    let child = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     e.vcall(parent, 0xdc, &args![child, 1u32]);
 }
 

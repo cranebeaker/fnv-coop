@@ -42,11 +42,13 @@ const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 /// The `NiPointer` destructor `0045cec0` (`thiscall`).
 const POINTER_DESTRUCTOR: u32 = 0x0045_cec0;
 /// `00559450` (`thiscall`): the object a `NiPointer` holds.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// The sub-buffer constructor `0044dee0` and destructor `00435b20` (`thiscall`).
 const SUB_BUFFER_CONSTRUCTOR: u32 = 0x0044_dee0;
 const SUB_BUFFER_DESTRUCTOR: u32 = 0x0043_5b20;
 /// `0044ddc0` (`thiscall`): the word at +8 (the active effect's `pSpell`).
+#[cfg(test)]
 const EFFECT_ITEM_0044DDC0: u32 = 0x0044_ddc0;
 /// `MagicItem::GetAVEffect` (engine map, `0040a300`, `thiscall`, one word).
 const GET_AV_EFFECT: u32 = 0x0040_a300;
@@ -129,7 +131,7 @@ pub fn magic_model_hit_effect_constructor(
     e.call(POINTER_ASSIGN, &args![base + 0x34, 0u32]);
     e.set(this, MagicModelHitEffect::b3rdPerson, 0);
     e.set(this, MagicModelHitEffect::pFilename, 0);
-    let item = e.call(EFFECT_ITEM_0044DDC0, &args![effect]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, effect));
     let av_effect = e.call(GET_AV_EFFECT, &args![item, 0u32]).u32();
     let object = av_effect.wrapping_add(0x18);
     let name = e.vcall(object, 0x14, &args![]).u32();
@@ -152,11 +154,11 @@ pub fn magic_model_hit_effect_constructor(
 pub fn magic_model_hit_effect_destructor(e: &mut Engine, this: Ptr<MagicModelHitEffect>) {
     let base = this.addr();
     e.mem.set_u32(base, MAGIC_MODEL_HIT_EFFECT_VTABLE);
-    if e.call(POINTER_GET, &args![base + 0x30]).u32() != 0 {
-        let object = e.call(POINTER_GET, &args![base + 0x30]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x30)) != 0 {
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x30));
         let parent = e.call(WORD_18_009611E0, &args![object]).u32();
         if parent != 0 {
-            let object = e.call(POINTER_GET, &args![base + 0x30]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x30));
             e.vcall(parent, 0xe8, &args![object]);
         }
         e.call(POINTER_ASSIGN, &args![base + 0x30, 0u32]);
@@ -265,7 +267,7 @@ pub fn magic_model_hit_effect_init(e: &mut Engine, this: Ptr<MagicModelHitEffect
     let loader = e.mem.u32(MODEL_LOADER);
     let name = e.get(this, MagicModelHitEffect::pFilename);
     e.call(RELEASE_MODEL, &args![loader, name, 0u32, 1u32]);
-    if e.call(POINTER_GET, &args![base + 0x30]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x30)) == 0 {
         return false;
     }
     let target = e.get(this, MagicModelHitEffect::pTarget);
@@ -273,7 +275,7 @@ pub fn magic_model_hit_effect_init(e: &mut Engine, this: Ptr<MagicModelHitEffect
         return false;
     }
     e.vcall(base, 0xcc, &args![]);
-    let object = e.call(POINTER_GET, &args![base + 0x30]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x30));
     e.call(PROCESS_SELECTIVE_UPDATE, &args![object]);
     let milliseconds = e.call(TIME_00825C00, &args![TIMER_011F6394]).u32();
     let thousand = f64::from_bits(e.mem.u64(THOUSAND));
@@ -283,10 +285,10 @@ pub fn magic_model_hit_effect_init(e: &mut Engine, this: Ptr<MagicModelHitEffect
             UPDATE_BLOCK_0043D410,
             &args![block, x87_quiet_bits(seconds), 1u32, 0u32],
         );
-        let object = e.call(POINTER_GET, &args![base + 0x30]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x30));
         e.call(UPDATE_00A59C60, &args![object, block]);
     });
-    let object = e.call(POINTER_GET, &args![base + 0x30]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x30));
     let root = e.call(MODEL_ROOT_0043B230, &args![object]).u32();
     let manager = e
         .call(
@@ -380,9 +382,12 @@ const SEQUENCE_STATE_0059BB30: u32 = 0x0059_bb30;
 /// `00440460` / `0043fa80` (`thiscall`, one word: set a translation /
 /// rotation).
 const PLAYER_NODE_00950BB0: u32 = 0x0095_0bb0;
+#[cfg(test)]
 const BASE_FORM_007AF430: u32 = 0x007a_f430;
 const FORM_TYPE_00401170: u32 = 0x0040_1170;
+#[cfg(test)]
 const WORLD_BOUND: u32 = 0x0043_d450;
+#[cfg(test)]
 const SELF_006815C0: u32 = 0x0068_15c0;
 const POSITION_0045BB80: u32 = 0x0045_bb80;
 const ROTATION_006A9540: u32 = 0x006a_9540;
@@ -409,6 +414,7 @@ const CONTROLLER_LOAD_BUFFER: u32 = 0x0056_4010;
 /// `008d8520`: the actor's process), `__RTDynamicCast` (`00ec43fb`) with
 /// `0118a6b8` (`BaseProcess`) to `0118c64c` (`MiddleHighProcess`), and
 /// `00453700` (`thiscall`: a `float` in `ST0`).
+#[cfg(test)]
 const PROCESS_OF: u32 = 0x008d_8520;
 const DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const TYPE_BASE_PROCESS: u32 = 0x0118_a6b8;
@@ -430,6 +436,7 @@ const SET_POSITION_00600AB0: u32 = 0x0060_0ab0;
 /// `0084e3a0` (`thiscall`: an object's word the code takes as its form
 /// id or effect item) and `ModelLoader::QueueModel` (engine map, `00444040`,
 /// seven words).
+#[cfg(test)]
 const OBJECT_ID_0084E3A0: u32 = 0x0084_e3a0;
 const QUEUE_MODEL: u32 = 0x0044_4040;
 /// `operator new` (`00401000`), `00401460` (`cdecl`: copy), `00403d30`
@@ -467,10 +474,10 @@ const LOAD_FORM_BUFFER_0081DB60: u32 = 0x0081_db60;
 /// `011f36ac`), or 0 without an object.
 fn object_controller_manager(e: &mut Engine, this: Ptr<MagicModelHitEffect>) -> u32 {
     let holder = this.addr().wrapping_add(OBJECT);
-    if e.call(POINTER_GET, &args![holder]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) == 0 {
         return 0;
     }
-    let object = e.call(POINTER_GET, &args![holder]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
     let root = e.call(MODEL_ROOT_0043B230, &args![object]).u32();
     e.call(
         CONTROLLER_MANAGER_00653270,
@@ -491,7 +498,7 @@ fn actor_animation_time(e: &mut Engine, reference: u32, required: u32) -> u32 {
         0
     };
     if actor != 0 && required != 0 {
-        let process = e.call(PROCESS_OF, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let process = e
             .call(
                 DYNAMIC_CAST,
@@ -532,12 +539,12 @@ fn biped_time(e: &mut Engine, buffer: u32, slot: u32) -> u32 {
 /// +0x14 for the path) with `ModelLoader::QueueModel(path, 5, 0, 0, 1, 0, 0)`
 /// when it has one.
 fn queue_effect_model(e: &mut Engine, effect: u32) {
-    let item = e.call(OBJECT_ID_0084E3A0, &args![effect]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
     let setting = e.call(WORD_14_00825C00, &args![item]).u32();
     if e.vcall(setting.wrapping_add(0x18), 0x14, &[]).u32() == 0 {
         return;
     }
-    let item = e.call(OBJECT_ID_0084E3A0, &args![effect]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
     let setting = e.call(WORD_14_00825C00, &args![item]).u32();
     let path = e.vcall(setting.wrapping_add(0x18), 0x14, &[]).u32();
     let loader = e.mem.u32(MODEL_LOADER);
@@ -616,7 +623,12 @@ pub fn magic_model_hit_effect_update(
     {
         return 0;
     }
-    if e.call(POINTER_GET, &args![base.wrapping_add(OBJECT)]).u32() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(OBJECT))
+    ) != 0
+    {
         e.vcall(base, 0xcc, &[]);
         let manager = object_controller_manager(e, this);
         if manager != 0 {
@@ -674,14 +686,18 @@ pub fn magic_model_hit_effect_update_position(e: &mut Engine, this: Ptr<MagicMod
         let target = e.get(this, MagicModelHitEffect::pTarget);
         e.vcall(target, 0x1d0, &[]).u32()
     };
-    let object = e.call(POINTER_GET, &args![base.wrapping_add(OBJECT)]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(OBJECT))
+    );
     e.call(MAGIC_HIT_EFFECT_0081BC70, &args![base, object]);
     if node == 0 {
         return;
     }
     e.with_stack(0xc, |e, point| {
         let point = point.addr();
-        e.call(SELF_006815C0, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         let target = e.get(this, MagicModelHitEffect::pTarget);
         let knocked = e.vcall(target, 0x100, &[]).bool() && {
             let target = e.get(this, MagicModelHitEffect::pTarget);
@@ -733,14 +749,15 @@ pub fn magic_model_hit_effect_update_position(e: &mut Engine, this: Ptr<MagicMod
             }
         } else {
             let target = e.get(this, MagicModelHitEffect::pTarget);
-            let bound = e.call(BASE_FORM_007AF430, &args![target]).u32() != 0 && {
-                let target = e.get(this, MagicModelHitEffect::pTarget);
-                let form = e.call(BASE_FORM_007AF430, &args![target]).u32();
-                e.call(FORM_TYPE_00401170, &args![form]).u32() == 0x1c
-            };
+            let bound = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target)) != 0
+                && {
+                    let target = e.get(this, MagicModelHitEffect::pTarget);
+                    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target));
+                    e.call(FORM_TYPE_00401170, &args![form]).u32() == 0x1c
+                };
             if bound {
-                let sphere = e.call(WORLD_BOUND, &args![node]).u32();
-                let centre = e.call(SELF_006815C0, &args![sphere]).u32();
+                let sphere = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
+                let centre = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, sphere));
                 copy(e, centre);
                 let position = e.call(POSITION_0045BB80, &args![node]).u32();
                 let z = x87_quiet_bits(e.mem.u32(position.wrapping_add(8)));
@@ -751,11 +768,11 @@ pub fn magic_model_hit_effect_update_position(e: &mut Engine, this: Ptr<MagicMod
             }
         }
         let holder = base.wrapping_add(OBJECT);
-        if e.call(POINTER_GET, &args![holder]).u32() != 0 {
-            let object = e.call(POINTER_GET, &args![holder]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) != 0 {
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
             e.call(SET_TRANSLATE_00440460, &args![object, point]);
             let rotation = e.call(ROTATION_006A9540, &args![node]).u32();
-            let object = e.call(POINTER_GET, &args![holder]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
             e.call(SET_ROTATE_0043FA80, &args![object, rotation]);
         }
     });
@@ -871,7 +888,7 @@ pub fn magic_model_hit_effect_finish_init_load_game(
     );
     let old = e.get(this, MagicModelHitEffect::pFilename);
     if effect != 0 {
-        let item = e.call(OBJECT_ID_0084E3A0, &args![effect]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
         let setting = e.call(WORD_14_00825C00, &args![item]).u32();
         let path = e.vcall(setting.wrapping_add(0x18), 0x14, &[]).u32();
         e.set(this, MagicModelHitEffect::pFilename, path);
@@ -894,7 +911,11 @@ pub fn magic_model_hit_effect_finish_init_load_game(
     let manager = object_controller_manager(e, this);
     if manager != 0 {
         let time = actor_animation_time(e, reference, effect);
-        let object = e.call(POINTER_GET, &args![base.wrapping_add(OBJECT)]).u32();
+        let object = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(OBJECT))
+        );
         e.call(
             CONTROLLER_LOAD,
             &args![manager, object, x87_quiet_bits(time)],
@@ -954,7 +975,7 @@ pub fn magic_model_hit_effect_save_game_ov2(e: &mut Engine, this: Ptr<MagicModel
         let id = frame.addr().wrapping_add(4);
         let length = frame.addr().wrapping_add(3);
         let target = e.get(this, MagicModelHitEffect::pTarget);
-        let value = e.call(OBJECT_ID_0084E3A0, &args![target]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, target));
         e.mem.set_u32(id, value);
         let save_load = e.mem.u32(SAVE_LOAD_GAME);
         e.call(SAVE_NUMERIC_ID, &args![save_load, id, 4u32]);
@@ -1047,13 +1068,13 @@ pub fn magic_model_hit_effect_save_game_ov3(
     e.call(SAVE_STRING, &args![buffer, name, 0u32]);
     let manager = object_controller_manager(e, this);
     let start = e.call(START_VARIABLE_SIZED_VALUE, &args![buffer]).u32();
-    let before = e.call(OBJECT_ID_0084E3A0, &args![buffer]).u32();
+    let before = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, buffer));
     if manager != 0 {
         biped_time(e, buffer, 8);
         let minus_one = x87_quiet_bits(e.global::<u32>(MINUS_ONE));
         e.call(SAVE_CONTROLLER_MANAGER, &args![manager, buffer, minus_one]);
     }
-    let after = e.call(OBJECT_ID_0084E3A0, &args![buffer]).u32();
+    let after = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, buffer));
     e.call(
         SAVE_VARIABLE_SIZED_VALUE,
         &args![buffer, after.wrapping_sub(before), start],
@@ -1108,7 +1129,7 @@ pub fn magic_model_hit_effect_finish_load_game(
     e.set(this, MagicModelHitEffect::fAge, x87_quiet_bits(age));
     e.set(this, MagicModelHitEffect::bFinished, finished);
     let sub_buffer = base.wrapping_add(SUB_BUFFER);
-    if e.call(POINTER_GET, &args![sub_buffer]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, sub_buffer)) != 0 {
         let manager = object_controller_manager(e, this);
         if manager != 0 {
             let time = x87_quiet_bits(biped_time(e, buffer, 0xc));

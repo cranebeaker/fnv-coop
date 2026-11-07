@@ -26,8 +26,10 @@ const USE_SAVE_GAME_BLOCKS: u32 = 0x0086_2110;
 /// The first entry of the effect-setting list [`fn_00408c30`] walks.
 const SETTING_LIST: u32 = 0x011c_3400;
 /// `006815c0` (`ECX` = entry): the address of the entry's item word.
+#[cfg(test)]
 const ITEM_ADDRESS_006815C0: u32 = 0x0068_15c0;
 /// `00726070` (`ECX` = entry): the next entry.
+#[cfg(test)]
 const NEXT_ENTRY_00726070: u32 = 0x0072_6070;
 /// `00403e60` (`effectitem.cpp` in the engine map; `ECX`, one stack word: a mask), `AL`.
 const HAS_FLAG_00403E60: u32 = 0x0040_3e60;
@@ -39,6 +41,7 @@ const CURRENT_FORM_004FD3E0: u32 = 0x004f_d3e0;
 /// `004839c0` (`cdecl`, one word): the form of a form id.
 const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// `Error` (engine map, `0040fbe0`, `cdecl`, variadic).
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 /// `"GetSaveSize(): %-5i for form %08X %s with flags %08X ending at line %i in file %s"`.
 const FORMAT_WITH_FORM: u32 = 0x0101_2cb0;
@@ -68,7 +71,7 @@ pub fn fn_00408c30(e: &mut Engine) -> u32 {
     size = size.wrapping_add(4);
     let mut entry = SETTING_LIST;
     while entry != 0 {
-        let item_address = e.call(ITEM_ADDRESS_006815C0, &args![entry]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, entry));
         let item = e.mem.u32(item_address);
         if item == 0 {
             break;
@@ -76,7 +79,7 @@ pub fn fn_00408c30(e: &mut Engine) -> u32 {
         if e.call(HAS_FLAG_00403E60, &args![item, 0x0020_0000u32]).u8() != 0 {
             size = size.wrapping_add(4);
         }
-        entry = e.call(NEXT_ENTRY_00726070, &args![entry]).u32();
+        entry = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
     }
     let text = fn_00408d60(e, Ptr::new(DEBUG_TEXT_OWNER));
     if e.mem.u8(text.addr()) != 0 {
@@ -88,23 +91,9 @@ pub fn fn_00408c30(e: &mut Engine) -> u32 {
             let found = e.call(LOOKUP_FORM, &args![id]).u32();
             let flags = e.mem.u32(form.wrapping_add(5));
             let name = e.vcall(found, 0x130, &args![]).u32();
-            e.call(
-                ERROR,
-                &args![
-                    FORMAT_WITH_FORM,
-                    reported,
-                    id,
-                    name,
-                    flags,
-                    0x77u32,
-                    SOURCE_FILE
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words FORMAT_WITH_FORM, reported, id, name, flags, 0x77u32, SOURCE_FILE);
         } else {
-            e.call(
-                ERROR,
-                &args![FORMAT_WITHOUT_FORM, reported, 0x77u32, SOURCE_FILE],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words FORMAT_WITHOUT_FORM, reported, 0x77u32, SOURCE_FILE);
         }
     }
     size

@@ -54,7 +54,7 @@ fn parity(status: u8, mask: u8) -> bool {
 /// (`0052ce20`) and y (`004f5d90`) set from the source's +0 and +4 (each a
 /// `FLD`/`FSTP` copy). Answers `this`.
 pub fn fn_004f7030(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
-    e.call(TRIVIAL_CONSTRUCT, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     let x = x87_quiet_bits(e.mem.u32(source.addr()));
     e.call(POINT_SET_X, &args![this, x]);
     let y = x87_quiet_bits(e.mem.u32(source.addr().wrapping_add(4)));
@@ -67,7 +67,7 @@ pub fn fn_004f7030(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
 /// `RET 8`): `006815c0`, then `0052ce20` and `004f5d90` with the two floats
 /// (`FLD`/`FSTP` copies). Answers `this`.
 pub fn fn_004f7070(e: &mut Engine, this: Ptr, x: f32, y: f32) -> Ptr {
-    e.call(TRIVIAL_CONSTRUCT, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     e.call(POINT_SET_X, &args![this, x87_quiet_bits(x.to_bits())]);
     e.call(POINT_SET_Y, &args![this, x87_quiet_bits(y.to_bits())]);
     this
@@ -191,8 +191,16 @@ pub fn fn_004f7310(e: &mut Engine, p0: Ptr, p1: Ptr, p2: Ptr, p3: Ptr) -> bool {
 pub fn fn_004f7680(e: &mut Engine, this: Ptr, kind: u8) -> Ptr {
     let base = this.addr();
     e.call(SIMPLE_LIST_CONSTRUCT, &args![this]);
-    e.call(TRIVIAL_CONSTRUCT, &args![base.wrapping_add(0x10)]);
-    e.call(TRIVIAL_CONSTRUCT, &args![base.wrapping_add(0x18)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base.wrapping_add(0x10))
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base.wrapping_add(0x18))
+    );
     e.mem.set_u8(base.wrapping_add(0xc), kind);
     e.mem.set_u32(base.wrapping_add(0x20), 0x400);
     e.mem.set_u32(base.wrapping_add(0x24), 0);
@@ -243,8 +251,10 @@ const ADD_CHUNK_WORD: u32 = 0x0048_5910;
 /// `TESForm::AddChunkArray_ov2` (`00485710`, cdecl: chunk, data, count).
 const ADD_CHUNK_ARRAY: u32 = 0x0048_5710;
 /// `008256d0` (`thiscall`): the end-of-list test on a node.
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `00726070` (`thiscall`): the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The array constructor helper (`00401050`, `stdcall`: array, element
 /// size, count, constructor).
@@ -384,7 +394,7 @@ pub fn fn_004f77c0(e: &mut Engine, this: Ptr) {
     let index = e.mem.u32(this.addr() + 0x20);
     e.call(ADD_CHUNK_WORD, &args![CHUNK_RPLI, index]);
     let mut node = this.addr();
-    if e.call(NODE_IS_EMPTY, &args![node]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         return;
     }
     let mut count = 0u32;
@@ -392,12 +402,12 @@ pub fn fn_004f77c0(e: &mut Engine, this: Ptr) {
     let mut capacity = 0x400u32;
     let mut array = allocate_points(e, capacity << 3);
     while node != 0 {
-        if e.call(NODE_IS_EMPTY, &args![node]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             break;
         }
-        let item_address = e.call(TRIVIAL_CONSTRUCT, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
-        let point = e.call(TRIVIAL_CONSTRUCT, &args![item]).u32();
+        let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, item));
         let x = e.mem.u32(point);
         let y = e.mem.u32(point.wrapping_add(4));
         let slot = array.wrapping_add(count.wrapping_mul(8));
@@ -412,7 +422,7 @@ pub fn fn_004f77c0(e: &mut Engine, this: Ptr) {
             e.call(COPY_BYTES, &args![array, old, count << 3]);
             e.call(FREE, &args![old]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if count != 0 {
         e.call(ADD_CHUNK_ARRAY, &args![CHUNK_RPLD, array, count << 1]);

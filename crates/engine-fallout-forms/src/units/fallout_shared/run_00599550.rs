@@ -38,7 +38,9 @@ const TRACK_RESET: u32 = 0x0059_7850;
 const TRACKS: [u32; 6] = [0x48, 0x58, 0x68, 0x78, 0x88, 0x98];
 /// The list helpers on a node: its item's slot (`006815c0`) and the next
 /// node (`00726070`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 
 // Translated from 00599b30 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -166,32 +168,32 @@ pub fn fn_0059a030(e: &mut Engine, kind: u32, effects: u32, value: f32) -> f32 {
     };
     let mut node = effects;
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect = e.mem.u32(slot);
-        let operation = e.call(0x0045_cd60, &args![effect]).u32();
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let operation = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, effect));
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if operation == 1 {
             e.call(0x005a_e3d0, &args![copy, slot]);
         } else {
             e.call(0x0090_5820, &args![copy, slot]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let mut node = copy;
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect = e.mem.u32(slot);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         let effect_kind = e.call(0x0059_bb30, &args![effect]).u32();
-        let operation = e.call(0x0045_cd60, &args![effect]).u32();
+        let operation = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, effect));
         let amount = x87_store32(e.call(0x0075_9450, &args![effect]).f64());
         if effect_kind != kind {
             continue;
@@ -224,6 +226,7 @@ const COMPARE_COMPONENTS: u32 = 0x0048_5270;
 /// A track's string: its text (`00559450`), set (`004037f0`: text,
 /// length), copy (`004047f0`), compare (`BSStringT<char>::StrCmp`,
 /// `00408a80`) and destructor (`007d9ec0`).
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 const STRING_SET: u32 = 0x0040_37f0;
 const STRING_COPY: u32 = 0x0040_47f0;
@@ -322,7 +325,7 @@ pub fn fn_00599550(e: &mut Engine, this: Ptr, source: u32) {
 pub fn fn_00599700(e: &mut Engine, this: Ptr, text: u32, lengths: u32, volume: f32, other: f32) {
     let base = this.addr();
     track_on_stack(e, text, lengths, volume, other, |e, track| {
-        let name = e.call(STRING_TEXT, &args![track]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, track));
         e.call(STRING_SET, &args![this, name, 0u32]);
         let value = x87_quiet_bits(e.mem.u32(track + 8));
         e.mem.set_u32(base + 8, value);
@@ -430,7 +433,7 @@ pub fn fn_00599a50(
                 return true;
             }
         }
-        let name = e.call(STRING_TEXT, &args![track]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, track));
         let order = e.call(STRING_COMPARE, &args![this, name, 0u32]).u32();
         e.call(STRING_DESTROY, &args![track]);
         order == 0

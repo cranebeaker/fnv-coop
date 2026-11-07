@@ -9,6 +9,7 @@ use crate::prelude::*;
 const POINTER_CONSTRUCTOR: u32 = 0x0063_3c90;
 const POINTER_DESTRUCTOR: u32 = 0x0045_cec0;
 /// `00559450`: answers the pointer an `NiPointer` holds (`thiscall`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// The lock pair around the map walks (`00652140` takes it; `00652160` tries and answers
 /// whether it got it; `00652190` releases it); no arguments.
@@ -26,6 +27,7 @@ const MAP_REMOVE: u32 = 0x0040_5430;
 /// (`0065c3a0`), all `thiscall` on the entry's model.
 const SIZE_OF_KIND_0: u32 = 0x0065_c110;
 const SIZE_OF_KIND_1: u32 = 0x0065_c490;
+#[cfg(test)]
 const REFERENCE_COUNT: u32 = 0x0072_6070;
 const TRY_UNLOAD: u32 = 0x0065_c090;
 const UPDATE_ENTRY: u32 = 0x0065_c3a0;
@@ -45,8 +47,12 @@ pub fn fn_00650910(e: &mut Engine, this: Ptr, kind: u32) -> u32 {
 /// The model behind a map entry's value: `00559450` on the value holder, then on the
 /// holder at `+8` of what it answers.
 fn entry_model(e: &mut Engine, value: Ptr) -> u32 {
-    let entry = e.call(POINTER_GET, &args![value]).u32();
-    e.call(POINTER_GET, &args![entry.wrapping_add(8)]).u32()
+    let entry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, value));
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, entry.wrapping_add(8))
+    )
 }
 
 // Translated from 00650930 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -117,12 +123,12 @@ pub fn fn_00650a30(e: &mut Engine, this: Ptr, wait: u8) {
             while e.mem.u32(position.addr()) != 0 {
                 e.call(MAP_NEXT, &args![map, position, key, value]);
                 let model = entry_model(e, value);
-                if e.call(REFERENCE_COUNT, &args![model]).u32() == 1 {
+                if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, model)) == 1 {
                     let removed = e.mem.u32(key.addr());
                     e.call(MAP_REMOVE, &args![map, removed]);
                     continue;
                 }
-                if e.call(POINTER_GET, &args![value]).u32() == 0 {
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, value)) == 0 {
                     continue;
                 }
                 if entry_model(e, value) == 0 {
@@ -161,7 +167,11 @@ pub fn fn_00650ba0(e: &mut Engine, this: Ptr, model: u32) {
             } else {
                 SIZE_OF_KIND_1
             };
-            let holder = e.call(POINTER_GET, &args![model.wrapping_add(8)]).u32();
+            let holder = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, model.wrapping_add(8))
+            );
             if e.call(size_function, &args![holder]).u32() != 0 {
                 continue;
             }
@@ -234,19 +244,19 @@ pub fn fn_00650cb0(e: &mut Engine, this: Ptr, kind: u32, model: u32) {
             if size == 0 {
                 continue;
             }
-            if e.call(POINTER_GET, &args![best]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, best)) == 0 {
                 e.call(POINTER_ASSIGN, &args![best, value]);
             } else {
-                let entry = e.call(POINTER_GET, &args![value]).u32();
+                let entry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, value));
                 let age = now.wrapping_sub(e.mem.u32(entry.wrapping_add(0xc)));
-                let kept = e.call(POINTER_GET, &args![best]).u32();
+                let kept = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, best));
                 let kept_age = now.wrapping_sub(e.mem.u32(kept.wrapping_add(0xc)));
                 if age > kept_age {
                     e.call(POINTER_ASSIGN, &args![best, value]);
                 }
             }
         }
-        if e.call(POINTER_GET, &args![best]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, best)) != 0 {
             match kind {
                 0 => {
                     let model = entry_model(e, best);

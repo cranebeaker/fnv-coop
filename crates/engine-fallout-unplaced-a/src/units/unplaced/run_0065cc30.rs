@@ -8,6 +8,7 @@ use crate::prelude::*;
 /// arguments).
 const INDEX_FAILURE: u32 = 0x00ec_7c56;
 /// Callees of the container functions, by address (all `thiscall`).
+#[cfg(test)]
 const CONSTRUCT_ALLOCATOR: u32 = 0x0068_15c0;
 const CONTAINER_INIT: u32 = 0x0065_d3a0;
 const RESERVE_EIGHT_BYTE: u32 = 0x0065_d7e0;
@@ -35,7 +36,7 @@ fn iterator(e: &mut Engine, getter: u32, this: Ptr) -> (u32, u32) {
 fn construct(e: &mut Engine, this: Ptr, reserve: u32) -> Ptr {
     e.with_stack(4, |e, word| {
         e.mem.set_u32(word.addr(), this.addr());
-        e.call(CONSTRUCT_ALLOCATOR, &args![word]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, word));
         let allocator = e.mem.u32(word.addr());
         e.call(CONTAINER_INIT, &args![this, allocator]);
     });

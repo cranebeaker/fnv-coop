@@ -14,6 +14,7 @@ pub fn fn_00620110(e: &mut Engine, this: Ptr) {
 
 /// `00726070` (unnamed in the engine map): `thiscall`; the dword at `this + 4` (a list's first
 /// node).
+#[cfg(test)]
 const LIST_FIRST_NODE: u32 = 0x0072_6070;
 /// `00620180` (`run_00620180.rs`): `thiscall`; the node after a node of the zone target list.
 const ZONE_TARGET_NEXT: u32 = 0x0062_0180;
@@ -35,7 +36,7 @@ pub fn bgs_zone_target_listener_remove_target(e: &mut Engine, this: Ptr, target:
     if target.is_null() {
         return;
     }
-    let mut node = e.call(LIST_FIRST_NODE, &args![this]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     while node != 0 {
         let next = e.call(ZONE_TARGET_NEXT, &args![node]).u32();
         e.call(ZONE_TARGET_NODE_REMOVE, &args![this, node, target]);
@@ -192,9 +193,11 @@ pub fn fn_0061fea0(e: &mut Engine, this: Ptr) {
 /// `UMSFreeVirtualProcessorRoot::SchedulerProxy` is not its body). `thiscall`, plain `RET`.
 /// Asks `00726070` on `this + 0x10` and answers its result minus 0x10, or null when it is null.
 pub fn fn_0061fef0(e: &mut Engine, this: Ptr) -> u32 {
-    let step = e
-        .call(LIST_FIRST_NODE, &args![this.addr().wrapping_add(0x10)])
-        .u32();
+    let step = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this.addr().wrapping_add(0x10))
+    );
     if step == 0 {
         0
     } else {

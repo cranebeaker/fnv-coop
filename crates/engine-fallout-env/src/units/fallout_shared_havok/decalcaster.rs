@@ -29,6 +29,7 @@ const FILTER_SET_LAYER: u32 = 0x004a_39f0;
 const FILTER_SET_SOURCE: u32 = 0x0059_ce80;
 /// `00559450` (unnamed in the engine map): `thiscall`, plain `RET`, no stack words: answers
 /// what a smart pointer or a small word holds.
+#[cfg(test)]
 const HOLDER_GET: u32 = 0x0055_9450;
 /// `004ae750` (unnamed in the engine map): `thiscall`, plain `RET`: the pointer a smart pointer
 /// holds.
@@ -53,6 +54,7 @@ const MEMBER_A_SETUP: u32 = 0x0062_1290;
 /// `004a3e00` (unnamed in the engine map): cdecl, destination and source.
 const COPY_RECORD: u32 = 0x004a_3e00;
 /// `006815c0` (unnamed in the engine map): `thiscall`, plain `RET`.
+#[cfg(test)]
 const MEMBER_SETUP: u32 = 0x0068_15c0;
 /// `00c9eba0` (unnamed in the engine map): `thiscall`, four stack words.
 const CAST_THROUGH_HOLDER: u32 = 0x00c9_eba0;
@@ -63,10 +65,12 @@ const RESULT_BYTE: u32 = 0x0056_09f0;
 /// `00460140` (unnamed in the engine map): `thiscall`, plain `RET`.
 const LIST_OF: u32 = 0x0046_0140;
 /// `00726070` (unnamed in the engine map): `thiscall`, plain `RET`; the dword at `this + 4`.
+#[cfg(test)]
 const LIST_LINK: u32 = 0x0072_6070;
 /// `006219f0` (unnamed in the engine map): `thiscall`, `RET 4`.
 const RECORD_CONSUME: u32 = 0x0062_19f0;
 /// `0044ddc0` (unnamed in the engine map): `thiscall`, no stack words.
+#[cfg(test)]
 const NODE_KEY: u32 = 0x0044_ddc0;
 /// `00cabb00` (Ghidra names it `hkColor::rgbFromChars`, unconfirmed): cdecl, four words.
 const COLOR_FROM_BYTES: u32 = 0x00ca_bb00;
@@ -124,7 +128,7 @@ pub fn decal_caster_init(e: &mut Engine, this: Ptr, radius: f32, source: u32) {
         e.call(FILTER_CONSTRUCT, &args![filter, 0u32]);
         e.call(FILTER_SET_LAYER, &args![filter, 0x27u32]);
         e.call(FILTER_SET_SOURCE, &args![filter, source]);
-        let info = e.call(HOLDER_GET, &args![filter]).u32();
+        let info = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, filter));
         e.mem.set_u32(record, info);
         let shape_pointer = e.call(POINTER_GET, &args![shape]).u32();
         e.mem.set_u32(record.wrapping_add(4), shape_pointer);
@@ -138,7 +142,7 @@ pub fn decal_caster_init(e: &mut Engine, this: Ptr, radius: f32, source: u32) {
         };
         let holder = this.addr().wrapping_add(PHANTOM_OFFSET);
         e.call(POINTER_ASSIGN, &args![holder, phantom]);
-        let held = e.call(HOLDER_GET, &args![holder]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         fn_00622f20(e, Ptr::new(held), NAME_STRING);
         e.call(
             SET_MULTI_LAYER_COLLISION,
@@ -172,7 +176,7 @@ pub fn fn_00622f60(e: &mut Engine, this: Ptr, value: u32) {
 /// `00726070` says on its result (the exe leaves that value in `EAX`).
 pub fn fn_00623070(e: &mut Engine, this: Ptr) -> u32 {
     let list = e.call(LIST_OF, &args![this]).u32();
-    e.call(LIST_LINK, &args![list]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list))
 }
 
 // Translated from 00622f80 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -199,12 +203,12 @@ pub fn fn_00622f80(e: &mut Engine, this: Ptr, first: u32, second: u32, value: f3
         e.call(CASTER_RESET, &args![this, 0u32]);
         e.vcall(this.addr(), 8, &args![]);
         let holder = this.addr().wrapping_add(PHANTOM_OFFSET);
-        if e.call(HOLDER_GET, &args![holder]).u32() != 0 {
-            e.call(MEMBER_SETUP, &args![first_record]);
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) != 0 {
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first_record));
             e.call(MEMBER_A_SETUP, &args![second_record]);
             e.call(COPY_RECORD, &args![first_record, first]);
             e.call(COPY_RECORD, &args![second_record, second]);
-            let held = e.call(HOLDER_GET, &args![holder]).u32();
+            let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
             e.call(
                 CAST_THROUGH_HOLDER,
                 &args![held, first_record, second_record, this, 0u32],
@@ -225,11 +229,11 @@ pub fn fn_00622f80(e: &mut Engine, this: Ptr, first: u32, second: u32, value: f3
 /// `00623150` (with `second`) on the held object.
 pub fn fn_00623090(e: &mut Engine, this: Ptr, first: u32, second: Ptr) {
     let holder = this.addr().wrapping_add(PHANTOM_OFFSET);
-    if e.call(HOLDER_GET, &args![holder]).u32() != 0 {
-        let held = e.call(HOLDER_GET, &args![holder]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) != 0 {
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         fn_006230f0(e, Ptr::new(held), first);
         e.vcall(second.addr(), 8, &args![]);
-        let held = e.call(HOLDER_GET, &args![holder]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         fn_00623150(e, Ptr::new(held), second.addr());
     }
 }
@@ -243,7 +247,7 @@ pub fn fn_006230f0(e: &mut Engine, this: Ptr, source: u32) {
     // The record at `EBP-0x20`, `EBP` on a 16-byte boundary (`AND ESP,0xfffffff0`, `SUB ESP,0x20`).
     e.with_stack(0x20 + 0x10, |e, raw| {
         let record = ((raw.addr() + 0x20 + 0xf) & !0xf) - 0x20;
-        e.call(MEMBER_SETUP, &args![record]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, record));
         let copied = e.call(COPY_RECORD, &args![record, source]).u32();
         e.call(RECORD_CONSUME, &args![this, copied]);
     });
@@ -255,7 +259,7 @@ pub fn fn_006230f0(e: &mut Engine, this: Ptr, source: u32) {
 /// vtable slot `+0x44` with `target` and 0, bracketed by `00a29680` on `this`.
 pub fn fn_00623150(e: &mut Engine, this: Ptr, target: u32) {
     let held = e.call(POINTER_GET, &args![this]).u32();
-    if held != 0 && e.call(NODE_KEY, &args![held]).u32() != 0 {
+    if held != 0 && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, held)) != 0 {
         e.call(POINTER_SCOPE, &args![this]);
         e.vcall(held, 0x44, &args![target, 0u32]);
         e.call(POINTER_SCOPE, &args![this]);
@@ -270,14 +274,16 @@ pub fn fn_00623150(e: &mut Engine, this: Ptr, target: u32) {
 /// `00c68e30` on `target`.
 pub fn decal_caster_add(e: &mut Engine, this: Ptr, target: u32) {
     let holder = this.addr().wrapping_add(PHANTOM_OFFSET);
-    if e.call(HOLDER_GET, &args![holder]).u32() != 0 && fn_00623230(e, this) != target {
-        let held = e.call(HOLDER_GET, &args![holder]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) != 0
+        && fn_00623230(e, this) != target
+    {
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         e.vcall(held, 0x9c, &args![target]);
         if target != 0 {
             let color = e
                 .call(COLOR_FROM_BYTES, &args![0xffu32, 0x10u32, 0x10u32, 0x19u32])
                 .u32();
-            let held = e.call(HOLDER_GET, &args![holder]).u32();
+            let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
             e.call(SET_DEBUG_COLOR, &args![target, held, color]);
         }
     }
@@ -290,8 +296,8 @@ pub fn decal_caster_add(e: &mut Engine, this: Ptr, target: u32) {
 pub fn fn_00623230(e: &mut Engine, this: Ptr) -> u32 {
     let holder = this.addr().wrapping_add(PHANTOM_OFFSET);
     let mut answer = 0;
-    if e.call(HOLDER_GET, &args![holder]).u32() != 0 {
-        let held = e.call(HOLDER_GET, &args![holder]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) != 0 {
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         let value = e.vcall(held, 0x94, &args![]).u32();
         answer = e.call(FIRST_OF, &args![value]).u32();
     }
@@ -304,8 +310,8 @@ pub fn fn_00623230(e: &mut Engine, this: Ptr) -> u32 {
 /// (`004a3e90`, the answer in `ST0`) and hands it, as a `float`, to `00621b20` on the owner.
 pub fn fn_00623310(e: &mut Engine, this: Ptr, value: f32) {
     let holder = this.addr().wrapping_add(PHANTOM_OFFSET);
-    if e.call(HOLDER_GET, &args![holder]).u32() != 0 {
-        let held = e.call(HOLDER_GET, &args![holder]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) != 0 {
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         let owner = e.call(OWNER_OF, &args![held]).u32();
         if owner != 0 {
             let converted = e.call(CONVERT_VALUE, &args![x87_quiet(value)]).f64();

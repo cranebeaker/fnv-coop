@@ -18,6 +18,7 @@ const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// virtual slot `0x130`, or 0.
 const FORM_NAME_LENGTH: u32 = 0x0047_4cb0;
 /// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `005b5e40` (`cdecl` format, ...): the log print.
 const PRINT: u32 = 0x005b_5e40;
@@ -83,7 +84,7 @@ pub fn bgs_repair_item_list_init_item(e: &mut Engine, this: Ptr<BGSRepairItemLis
             let name = e.vcall(owner.addr(), NAME_SLOT, &[]).u32();
             e.call(PRINT, &args![MESSAGE_OWNER_NAME, adjusted, name]);
         } else {
-            let owner_id = e.call(FORM_ID, &args![owner]).u32();
+            let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             e.call(PRINT, &args![MESSAGE_OWNER_ID, adjusted, owner_id]);
         }
     }
@@ -94,6 +95,7 @@ const ADD_CHUNK_WORD: u32 = 0x0048_5910;
 /// The `REPL` chunk signature, as the word the exe pushes.
 const SIG_REPL: u32 = 0x4c50_4552;
 /// The list getter (`00726070`, the word at +4).
+#[cfg(test)]
 const GET_LIST: u32 = 0x0072_6070;
 /// The list setter (`006ecd40`, the word at +4; the engine map's name
 /// `CombatProcedureAttackMelee::Initialize` is a folded body).
@@ -124,7 +126,7 @@ fn cast_component(e: &mut Engine, other: Ptr) -> u32 {
 pub fn bgs_repair_item_list_save(e: &mut Engine, this: Ptr<BGSRepairItemList>) {
     let list = e.get(this, BGSRepairItemList::pListForm);
     if list != 0 {
-        let id = e.call(FORM_ID, &args![list]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, list));
         e.call(ADD_CHUNK_WORD, &args![SIG_REPL, id]);
     }
 }
@@ -139,7 +141,7 @@ pub fn bgs_repair_item_list_copy_component(
 ) {
     let source = cast_component(e, other);
     if source != 0 {
-        let list = e.call(GET_LIST, &args![source]).u32();
+        let list = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source));
         e.call(SET_LIST, &args![this, list]);
     }
 }
@@ -157,8 +159,8 @@ pub fn bgs_repair_item_list_compare_component(
     if source == 0 {
         return true;
     }
-    let theirs = e.call(GET_LIST, &args![source]).u32();
-    theirs != e.call(GET_LIST, &args![this]).u32()
+    let theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source));
+    theirs != typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this))
 }
 
 /// This unit's translated functions, by exe address.

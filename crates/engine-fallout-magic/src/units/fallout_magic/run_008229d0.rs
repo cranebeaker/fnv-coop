@@ -34,8 +34,11 @@ const MAGIC_TARGET_VTABLE: u32 = 0x0107_bc28;
 /// The list node helpers the destructor calls (each `thiscall`, no stack words): whether a
 /// node is empty (`008256d0`: its item and next both 0), the node's item slot (`006815c0`:
 /// the node itself) and the next node (`00726070`: the word at +4).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The free `00401030` (`cdecl`, one word).
 const FREE: u32 = 0x0040_1030;
@@ -54,13 +57,13 @@ pub fn fn_00822a80(e: &mut Engine, this: Ptr) {
     e.mem.set_u32(this.addr(), MAGIC_TARGET_VTABLE);
     let list = this.byte_add(8);
     let mut node = list.addr();
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         if item != 0 {
             e.call(FREE, &args![item]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(LIST_CLEAR, &args![list]);
     e.call(LIST_DESTRUCT, &args![list]);

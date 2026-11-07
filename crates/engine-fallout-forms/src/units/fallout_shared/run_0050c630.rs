@@ -36,7 +36,11 @@ pub fn fn_0050c6c0(e: &mut Engine, this: Ptr) -> Ptr {
     e.mem.set_u32(base + 0x84, 0x0102_8e4c);
     e.mem.set_u32(base + 0x8c, 0x0102_8e2c);
     e.mem.set_u32(base + 0x94, 0x0102_8e18);
-    e.call(0x0041_6870, &args![base + 0xbc, 0.0f32, 0.0f32, 0.0f32]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, base + 0xbc, 0.0f32, 0.0f32, 0.0f32)
+    );
     e.call(0x004f_15a0, &args![this, 0x1e]);
     e.call(0x0050_c990, &args![this]);
     this

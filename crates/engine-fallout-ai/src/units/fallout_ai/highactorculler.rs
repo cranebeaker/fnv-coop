@@ -22,9 +22,12 @@ use crate::prelude::*;
 /// `AL`) and the cull (`008d6f10`, with 1).
 const OBJECT_NODE: u32 = 0x0043_fcd0;
 const IS_SKIPPED: u32 = 0x0055_2470;
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
+#[cfg(test)]
 const BOUND_CENTER: u32 = 0x0068_15c0;
 const BOUND_RADIUS: u32 = 0x0084_d030;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const SET_SPHERE_RADIUS: u32 = 0x0081_9a50;
 const GAME: u32 = 0x011d_ea10;
@@ -35,6 +38,7 @@ const WORLDSPACE_LIST: u32 = 0x0066_98d0;
 const LIST_FIRST: u32 = 0x0041_3f40;
 const ITERATOR_STEP: u32 = 0x0057_cbe0;
 const ITEM_KIND: u32 = 0x008d_6f30;
+#[cfg(test)]
 const CULLING_CAMERA: u32 = 0x0084_e3a0;
 const CAMERA_POSITION: u32 = 0x0045_bb80;
 const VISIBLE_AGAINST_OCCLUDERS: u32 = 0x00c4_7150;
@@ -63,16 +67,16 @@ pub fn high_actor_culler_operate(e: &mut Engine, this: Ptr, object: Ptr) {
     }
     e.with_stack(0x10, |e, bound| {
         let bound = bound.addr();
-        let world = e.call(GET_WORLD_BOUND, &args![actor]).u32();
+        let world = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, actor));
         for i in 0..4 {
             let value = e.mem.u32(world + 4 * i);
             e.mem.set_u32(bound + 4 * i, value);
         }
-        let sphere = e.call(POINTER_GET, &args![culler + 0xa0]).u32();
-        let center = e.call(BOUND_CENTER, &args![bound]).u32();
+        let sphere = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, culler + 0xa0));
+        let center = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
         e.vcall(sphere, 0xb8, &args![center]);
         let radius = x87_store32(e.call(BOUND_RADIUS, &args![bound]).f64());
-        let sphere = e.call(POINTER_GET, &args![culler + 0xa0]).u32();
+        let sphere = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, culler + 0xa0));
         e.call(SET_SPHERE_RADIUS, &args![sphere, radius]);
     });
     let game = e.global::<u32>(GAME);
@@ -96,7 +100,7 @@ pub fn high_actor_culler_operate(e: &mut Engine, this: Ptr, object: Ptr) {
     let first = e.call(LIST_FIRST, &args![list]).u32();
     e.with_stack(4, |e, cursor| {
         let cursor = cursor.addr();
-        let start = e.call(POINTER_GET, &args![first]).u32();
+        let start = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
         e.mem.set_u32(cursor, start);
         while e.mem.u32(cursor) != 0 {
             let slot = e.call(ITERATOR_STEP, &args![first, cursor]).u32();
@@ -104,14 +108,15 @@ pub fn high_actor_culler_operate(e: &mut Engine, this: Ptr, object: Ptr) {
             if item == 0 || e.call(ITEM_KIND, &args![item]).u32() != 1 {
                 continue;
             }
-            let camera = e.call(CULLING_CAMERA, &args![culler + 8]).u32();
+            let camera = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, culler + 8));
             let position = e.call(CAMERA_POSITION, &args![camera]).u32();
             let point = [
                 e.mem.u32(position),
                 e.mem.u32(position + 4),
                 e.mem.u32(position + 8),
             ];
-            let bound_node = e.call(POINTER_GET, &args![culler + 0x98]).u32();
+            let bound_node =
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, culler + 0x98));
             let visible = e
                 .call(
                     VISIBLE_AGAINST_OCCLUDERS,

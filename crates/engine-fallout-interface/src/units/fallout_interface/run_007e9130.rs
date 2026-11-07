@@ -14,6 +14,7 @@ const FADER_MANAGER: u32 = 0x011d_8804;
 const REMOVE_FADER: u32 = 0x0070_10e0;
 const VATS_007F6920: u32 = 0x007f_6920;
 const STATIC_011DB0D4: u32 = 0x011d_b0d4;
+#[cfg(test)]
 const SECOND_WORD_00726070: u32 = 0x0072_6070;
 const MEMBER_DESTRUCT_009CA4C0: u32 = 0x009c_a4c0;
 const MEMBER_DESTRUCT_00723820: u32 = 0x0072_3820;
@@ -32,7 +33,7 @@ pub fn fn_007e9130(e: &mut Engine, this: Ptr) {
     e.call(REMOVE_FADER, &args![fader, 0u32, 0u32]);
     e.call(VATS_007F6920, &args![]);
     let holder = e.global::<u32>(STATIC_011DB0D4);
-    let object = e.call(SECOND_WORD_00726070, &args![holder]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, holder));
     if object != 0 {
         e.vcall(object, 0, &args![1u32]);
     }

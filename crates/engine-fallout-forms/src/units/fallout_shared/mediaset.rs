@@ -86,7 +86,7 @@ fn resolve_sound(e: &mut Engine, this: Ptr, offset: u32) {
         .u32();
     e.mem.set_u32(base + offset, sound);
     if e.mem.u32(base + offset) == 0 {
-        let form_id = e.call(0x0084_e3a0, &args![this]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let name = e.vcall(base, 0x130, &args![]).u32();
         e.call(WARNING, &args![MISSING_SOUND_FORMAT, id, name, form_id]);
     }
@@ -210,8 +210,10 @@ const ADD_CHUNK_ARRAY: u32 = 0x0048_56f0;
 /// A string's length (`004048e0`, `thiscall`) and its characters
 /// (`00559450`, `thiscall`: the word at `this`).
 const STRING_LENGTH: u32 = 0x0040_48e0;
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 /// `0084e3a0` (`thiscall`): a form's id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 
 // Translated from 005991b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -232,7 +234,7 @@ pub fn media_set_save(e: &mut Engine, this: Ptr) {
         let name = base + offset;
         if e.call(STRING_LENGTH, &args![name]).u32() != 0 {
             let length = e.call(STRING_LENGTH, &args![name]).u32();
-            let text = e.call(STRING_TEXT, &args![name]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
             e.call(ADD_CHUNK_ARRAY, &args![tag, text, length.wrapping_add(1)]);
         }
     }
@@ -251,7 +253,7 @@ pub fn media_set_save(e: &mut Engine, this: Ptr) {
     for (tag, offset) in [(chunk(b"HNAM"), 0xbcu32), (chunk(b"INAM"), 0xc0)] {
         let form = e.mem.u32(base + offset);
         if form != 0 {
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(ADD_CHUNK_WORD, &args![tag, id]);
         }
     }

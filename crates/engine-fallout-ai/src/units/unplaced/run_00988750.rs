@@ -19,6 +19,7 @@ use crate::units::fallout_ai::combatgroup::{CombatGroup, CombatTarget};
 use crate::units::fallout_ai::highprocess::DetectionState;
 
 /// `0044ddc0`: a `BSSimpleArray`'s size (thiscall).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `0098ebc0` (engine map: `combatgroup.cpp`): the address of element `i`
 /// of `SearchLocations`.
@@ -40,6 +41,7 @@ const LOAD_FLOAT: u32 = 0x006a_7f50;
 /// for an actor, or null.
 const TARGET_FOR: u32 = 0x0098_65d0;
 /// `0084e3a0`: the word at +0x0C of a `BGSWorldLocation`.
+#[cfg(test)]
 const LOCATION_WORD_3: u32 = 0x0084_e3a0;
 /// `0097ede0` (engine map: `BGSWorldLocation::CheckSpace`): run on each
 /// fresh 16-byte location local before use.
@@ -50,6 +52,7 @@ const MEMBER_COUNT: u32 = 0x0099_0890;
 const MEMBER_ACTOR: u32 = 0x0090_3600;
 /// `008d8520`: `MiddleHighProcess::GetSavedAcquireObject` (engine map), as
 /// called here: the actor's process.
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// Process slot +0x504: the `DetectionState` about an actor (two words:
 /// the actor, 0), or null.
@@ -141,11 +144,11 @@ const FLOAT_TEMP: u32 = 0x78;
 // Translated from 00988750 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The size of `SearchLocations` (+0x110).
 pub fn fn_00988750(e: &mut Engine, this: Ptr<CombatGroup>) -> u32 {
-    e.call(
-        ARRAY_SIZE,
-        &args![this.addr() + CombatGroup::SEARCH_LOCATIONS],
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + CombatGroup::SEARCH_LOCATIONS)
     )
-    .u32()
 }
 
 // Translated from 00988770 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -280,7 +283,7 @@ pub fn fn_009887b0(
             let state = if actor.is_null() {
                 0
             } else {
-                let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 e.vcall(process, SLOT_DETECTION_STATE, &args![target, 0u32])
                     .u32()
             };
@@ -316,7 +319,11 @@ fn update_target(
     let mut best_level: i32 = -100;
     let mut max_event_level: i32 = -100;
     let detected_location = base + CombatTarget::LAST_DETECTED_LOCATION;
-    let track_newest = e.call(LOCATION_WORD_3, &args![detected_location]).u32() == 0;
+    let track_newest = typed_call!(
+        leaf::FAMILY,
+        0x0084_e3a0,
+        leaf::word_at_c(e, detected_location)
+    ) == 0;
     let mut best_actor = 0u32;
     e.mem.set_u8(base + 0x65, 0);
     e.mem.set_u8(base + 0x64, 0);
@@ -327,7 +334,7 @@ fn update_target(
 
     for i in 0..count {
         let member = e.call(MEMBER_ACTOR, &args![this, i]).u32();
-        let process = e.call(ACTOR_PROCESS, &args![member]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, member));
         let mut state = e
             .vcall(process, SLOT_DETECTION_STATE, &args![target, 0u32])
             .u32();
@@ -508,7 +515,7 @@ fn update_target(
 
     let threshold = setting(e, LEVEL_SETTING);
     if (threshold as f64) < max_event_level as f64 && e.call(IS_SEARCHING, &args![this]).bool() {
-        let process = e.call(ACTOR_PROCESS, &args![target]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
         let event = e.vcall(process, SLOT_DETECTION_EVENT, &args![target]).u32();
         if event == 0 {
             return;

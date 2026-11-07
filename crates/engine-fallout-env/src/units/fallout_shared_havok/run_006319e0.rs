@@ -33,6 +33,7 @@ layout! {
 }
 
 /// `*this` (`MOV EAX,[ECX]`), the `NiPointer` getter.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer` assignment (`0066b0d0`, takes the new pointer) and the plain
 /// initializer that only stores it and adds a reference (`00633c90`).
@@ -127,7 +128,7 @@ pub fn fn_00631ab0(e: &mut Engine, this: Ptr<ViewCaster>, radius: f32, group: u3
         e.call(FILTER_SET_LAYER, &args![filter, 0x28u32]);
         e.call(FILTER_SET_GROUP, &args![filter, group]);
         e.set(this, ViewCaster::iGroup, group);
-        let filter_word = e.call(POINTER_GET, &args![filter]).u32();
+        let filter_word = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, filter));
         e.mem.set_u32(cinfo, filter_word);
         let shape_word = e.call(SHAPE_WORD, &args![sphere]).u32();
         e.mem.set_u32(cinfo + 4, shape_word);
@@ -153,11 +154,11 @@ pub fn fn_00631ab0(e: &mut Engine, this: Ptr<ViewCaster>, radius: f32, group: u3
 /// `+0xc4`).
 pub fn fn_00631c50(e: &mut Engine, this: Ptr<ViewCaster>, group: u32) {
     e.with_stack(4, |e, word| {
-        let phantom = e.call(POINTER_GET, &args![this]).u32();
+        let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         e.call(WRITE_FILTER_WORD, &args![phantom, word]);
         e.call(FILTER_SET_GROUP, &args![word, group]);
         e.set(this, ViewCaster::iGroup, group);
-        let phantom = e.call(POINTER_GET, &args![this]).u32();
+        let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         let filter_word = e.mem.u32(word.addr());
         e.call(APPLY_FILTER_WORD, &args![phantom, filter_word]);
     });
@@ -176,14 +177,14 @@ pub fn fn_00631ca0(e: &mut Engine, this: Ptr<ViewCaster>, world: u32) {
             SCOPE_BEGIN,
             &args![scope, 0x10u32, 1u32, VIEW_CASTER_FILE, 0x74u32],
         );
-        if e.call(POINTER_GET, &args![this]).u32() != 0 {
-            let phantom = e.call(POINTER_GET, &args![this]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) != 0 {
+            let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
             e.vcall(phantom, PHANTOM_SLOT_9C, &args![world]);
             if world != 0 {
                 let color = e
                     .call(RGB_FROM_CHARS, &args![0x58u32, 0xadu32, 0x56u32, 0x19u32])
                     .u32();
-                let phantom = e.call(POINTER_GET, &args![this]).u32();
+                let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
                 e.call(SET_DEBUG_OBJECT_COLOR, &args![world, phantom, color]);
             }
         }
@@ -206,6 +207,7 @@ const CAN_RUN: u32 = 0x004f_1540;
 const COLLECTOR_CONSTRUCT: u32 = 0x0062_0ff0;
 const COLLECTOR_DESTRUCT: u32 = 0x0062_11b0;
 const HITS_ARRAY: u32 = 0x0046_0140;
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0072_6070;
 const ARRAY_AT: u32 = 0x0080_7770;
 const COLLECTOR_HAS_HITS: u32 = 0x0062_1210;
@@ -219,6 +221,7 @@ const VECTOR_FROM: u32 = 0x0043_9e90;
 const VECTOR4_ASSIGN: u32 = 0x004a_3e00;
 const CAST_INPUT_SET_END: u32 = 0x004a_3f10;
 /// 16-byte vector default constructor (`006815c0`, returns `this`).
+#[cfg(test)]
 const VECTOR4_CONSTRUCT: u32 = 0x0068_15c0;
 /// Constructor of the cast input (`00621290`).
 const CAST_INPUT_CONSTRUCT: u32 = 0x0062_1290;
@@ -255,6 +258,7 @@ const REFERENCE_FOR_AV_OBJECT: u32 = 0x0056_f930;
 /// `TESObjectREFR` getter `007af430` is compared with (`011ca240`).
 const SKIPPED_REFERENCE: u32 = 0x011d_ea3c;
 const COMPARED_FORM: u32 = 0x011c_a240;
+#[cfg(test)]
 const OBJECT_FORM: u32 = 0x007a_f430;
 /// Walks of the scene graph: `00456610(node)` test and `009611e0(node)` parent.
 const NODE_TEST: u32 = 0x0045_6610;
@@ -275,6 +279,7 @@ const FORM_TEST: u32 = 0x0046_f070;
 const ACTOR_SLOT_100: u32 = 0x100;
 const ACTOR_SLOT_1D0: u32 = 0x1d0;
 const ACTOR_SLOT_4BC: u32 = 0x4bc;
+#[cfg(test)]
 const SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 const CHAR_CONTROLLER: u32 = 0x0093_06d0;
 /// Transform and ray-test helpers.
@@ -393,7 +398,7 @@ fn pick(
     e.set_global(LAST_GROUND_VALUE, 0u32);
     let mut result = 0u32;
     let runs = e.call(CAN_RUN, &args![this]).bool()
-        && e.call(POINTER_GET, &args![this]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) != 0
         && e.call(GET_WORLD, &args![this]).u32() != 0;
     if runs {
         e.call(COLLECTOR_CONSTRUCT, &args![collector]);
@@ -412,9 +417,9 @@ fn pick(
         fn_00632d20(e, Ptr::new(picker), 0);
         e.call(PICK_SET_FLAG, &args![picker, 1u32]);
         e.set_global(STEP_NUMBER, 0xdadu32);
-        e.call(VECTOR4_CONSTRUCT, &args![origin4]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin4));
         e.call(VECTOR4_ASSIGN, &args![origin4, start]);
-        e.call(VECTOR4_CONSTRUCT, &args![target4]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, target4));
         e.call(VECTOR4_ASSIGN, &args![target4, far_point]);
         e.mem.set_u8(at(0x431), 0);
         e.call(CAST_INPUT_CONSTRUCT, &args![cast_input]);
@@ -424,7 +429,7 @@ fn pick(
         e.mem.set_u32(at(0x450), radius);
         e.call(CAST_INPUT_SET_END, &args![cast_input, target4]);
         fn_00632df0(e, Ptr::new(this));
-        let phantom = e.call(POINTER_GET, &args![this]).u32();
+        let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         e.call(
             PHANTOM_CAST,
             &args![phantom, origin4, cast_input, collector, 0u32],
@@ -460,7 +465,9 @@ fn pick(
             let mut index = 0i32;
             loop {
                 let hits = e.call(HITS_ARRAY, &args![collector]).u32();
-                let total = e.call(ARRAY_COUNT, &args![hits]).i32();
+                let total = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, hits))
+                    .into_ret()
+                    .i32();
                 if index >= total {
                     break;
                 }
@@ -501,15 +508,19 @@ fn pick(
                     e.call(FILTER_CONSTRUCT, &args![at(0x530), type_value]);
                     let type_code = e.call(TYPE_CODE, &args![at(0x530)]).i32();
                     if type_code == 1 {
-                        let target = e.call(POINTER_GET, &args![collidable]).u32();
+                        let target =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, collidable));
                         if target != 0 && e.call(TARGET_CODE, &args![target]).i32() == 10 {
                             interesting = true;
                         }
                     } else if type_code > 3 && type_code <= 6 {
                         interesting = true;
                     }
-                    if e.call(OBJECT_FORM, &args![current_reference]).u32()
-                        == e.mem.u32(COMPARED_FORM)
+                    if typed_call!(
+                        leaf::FAMILY,
+                        0x007a_f430,
+                        leaf::word_at_20(e, current_reference)
+                    ) == e.mem.u32(COMPARED_FORM)
                     {
                         interesting = true;
                     }
@@ -520,9 +531,11 @@ fn pick(
                         if group_count < e.mem.i32(limit) {
                             group_count += 1;
                             fn_00632ca0(e, Ptr::new(ray_start));
-                            let holder = e.call(POINTER_GET, &args![this]).u32();
+                            let holder =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
                             let word = e.call(WRITE_FILTER_WORD, &args![holder, at(0x574)]).u32();
-                            let filter_word = e.call(POINTER_GET, &args![word]).u32();
+                            let filter_word =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, word));
                             e.mem.set_u32(at(0x550), filter_word);
                             let body_transform = e.call(BODY_TRANSFORM, &args![group]).u32();
                             fn_00632b40(e, Ptr::new(transform), Ptr::new(body_transform));
@@ -536,7 +549,11 @@ fn pick(
                             );
                             e.call(RAY_RESULT_CONSTRUCT, &args![ray_result]);
                             e.call(RAY_RESULT_PREPARE, &args![ray_result]);
-                            let shape = e.call(POINTER_GET, &args![collidable]).u32();
+                            let shape = typed_call!(
+                                leaf::FAMILY,
+                                0x0055_9450,
+                                leaf::word_at_0(e, collidable)
+                            );
                             fn_00632c30(
                                 e,
                                 Ptr::new(shape),
@@ -591,9 +608,11 @@ fn pick(
                             }
                             29 => {
                                 if e.vcall(current_reference, ACTOR_SLOT_100, &args![]).bool() {
-                                    let process = e
-                                        .call(SAVED_ACQUIRE_OBJECT, &args![current_reference])
-                                        .u32();
+                                    let process = typed_call!(
+                                        leaf::FAMILY,
+                                        0x008d_8520,
+                                        leaf::word_at_68(e, current_reference)
+                                    );
                                     let controller =
                                         e.call(CHAR_CONTROLLER, &args![current_reference]).u32();
                                     if process != 0
@@ -615,17 +634,18 @@ fn pick(
                     if counts && rays_enabled != 0 && world != 0 {
                         // Vector from the start to the hit, and the length
                         // measured along the direction.
-                        e.call(VECTOR4_CONSTRUCT, &args![delta]);
-                        let hit_point = e.call(VECTOR4_CONSTRUCT, &args![hit]).u32();
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, delta));
+                        let hit_point =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, hit));
                         e.call(VECTOR_SUBTRACT, &args![delta, hit_point, origin4]);
-                        e.call(VECTOR4_CONSTRUCT, &args![direction4]);
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction4));
                         e.call(VECTOR_SUBTRACT, &args![direction4, target4, origin4]);
                         e.call(VECTOR_NORMALIZE, &args![direction4]);
                         let along = e
                             .call(VECTOR_PROJECT, &args![direction4, projected, delta])
                             .u32();
                         e.call(VECTOR_ASSIGN_FROM, &args![direction4, along]);
-                        e.call(VECTOR4_CONSTRUCT, &args![offset]);
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, offset));
                         e.call(VECTOR_SUBTRACT, &args![offset, delta, direction4]);
                         let length_source = e
                             .call(VECTOR_LENGTH_SOURCE, &args![offset, at(0x680)])
@@ -648,20 +668,31 @@ fn pick(
                             } else {
                                 ray_count += 1;
                                 e.call(RAY_INPUT_CONSTRUCT, &args![ray_input]);
-                                let holder = e.call(POINTER_GET, &args![this]).u32();
+                                let holder = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0055_9450,
+                                    leaf::word_at_0(e, this)
+                                );
                                 let word_pointer =
                                     e.call(WRITE_FILTER_WORD, &args![holder, at(0x754)]).u32();
                                 let word = e.mem.u32(word_pointer);
                                 e.call(RAY_INPUT_SET_FILTER, &args![ray_input, word]);
                                 e.call(RAY_INPUT_SET_START, &args![ray_input, origin4]);
-                                let hit_point = e.call(VECTOR4_CONSTRUCT, &args![hit]).u32();
+                                let hit_point =
+                                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, hit));
                                 e.call(RAY_INPUT_SET_END, &args![ray_input, hit_point]);
                                 e.call(RAY_COLLECTOR_CONSTRUCT, &args![ray_collector]);
                                 e.call(RAY_INPUT_SET_COLLECTOR, &args![ray_input, ray_collector]);
                                 e.vcall(world, WORLD_CAST_RAY_SLOT, &args![ray_input]);
                                 if fn_00632ce0(e, Ptr::new(ray_input)) == 0 {
                                     let hits = e.call(HITS_ARRAY, &args![ray_collector]).u32();
-                                    let ray_hits = e.call(ARRAY_COUNT, &args![hits]).i32();
+                                    let ray_hits = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0072_6070,
+                                        leaf::word_at_4(e, hits)
+                                    )
+                                    .into_ret()
+                                    .i32();
                                     if ray_hits < 1 {
                                         ground_reference = current_reference;
                                         let source = e
@@ -750,15 +781,19 @@ fn pick(
         if rays_enabled != 0 {
             let mut allowed = true;
             if result != 0 {
-                let form = e.call(OBJECT_FORM, &args![result]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, result));
                 if form != 0 {
                     allowed = false;
-                    let form = e.call(OBJECT_FORM, &args![result]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, result));
                     let kind = e.call(FORM_TYPE, &args![form]).u32().wrapping_sub(0x1e);
                     if kind <= 7 {
                         match kind {
                             0 => {
-                                let form = e.call(OBJECT_FORM, &args![result]).u32();
+                                let form = typed_call!(
+                                    leaf::FAMILY,
+                                    0x007a_f430,
+                                    leaf::word_at_20(e, result)
+                                );
                                 if !e.call(FORM_TEST, &args![form]).bool() {
                                     allowed = true;
                                 }
@@ -795,7 +830,11 @@ pub fn fn_00632b40(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
     e.with_stack(0x50, |e, frame| {
         let ebp = frame.addr() + 0x50;
         e.call(0x0056_df00, &args![this]);
-        e.call(0x0068_15c0, &args![this.byte_add(0x30)]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.byte_add(0x30))
+        );
         for row in 0..4u32 {
             let source_row = e.call(0x004b_4cf0, &args![source, row]).u32();
             e.call(0x004a_3c90, &args![ebp - 0x20 - 0x10 * row, source_row]);
@@ -833,8 +872,12 @@ pub fn fn_00632c60(e: &mut Engine, this: Ptr, out: Ptr) -> Ptr {
 /// words at `+0x20` and `+0x24`. Returns `this`. (The engine map's library
 /// name, `_String_val<>`, is a wrong match.)
 pub fn fn_00632ca0(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(0x0068_15c0, &args![this]);
-    e.call(0x0068_15c0, &args![this.byte_add(0x10)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(0x10))
+    );
     e.mem.set_u32(this.addr() + 0x20, 0);
     e.mem.set_u32(this.addr() + 0x24, 0);
     this

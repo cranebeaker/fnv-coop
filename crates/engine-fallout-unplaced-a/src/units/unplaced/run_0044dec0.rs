@@ -48,6 +48,7 @@ pub fn fn_0044ed20(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 }
 
 /// The empty function `0040fbe0` (no arguments; the engine map's `Error`).
+#[cfg(test)]
 const EMPTY_HOOK: u32 = 0x0040_fbe0;
 /// `operator new(size)` (cdecl).
 const OPERATOR_NEW: u32 = 0x0040_1000;
@@ -56,6 +57,7 @@ const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// `thiscall` getter on an object (no arguments), compared by the
 /// lookup loops of `0044e550` and `0044ea60` (and read by `0044e170`); the
 /// engine map names it nothing.
+#[cfg(test)]
 const OBJECT_KEY: u32 = 0x0055_9450;
 /// The release that ends `0044e550`, `0044ea60` and `0044eb80`
 /// (`thiscall` on `this`, no arguments).
@@ -203,7 +205,7 @@ pub fn fn_0044e170(e: &mut Engine, this: Ptr, keep_empty: bool) {
             &args![scope, 6u32, 1u32, 0x0101_73f8u32, 0x115u32],
         );
         let old = e.mem.u32(this.addr() + 0x14);
-        let key = e.call(OBJECT_KEY, &args![old]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, old));
         let object = e.mem.u32(this.addr() + 0x14);
         if object != 0 {
             fn_0044ed20(e, Ptr::new(object), 1);
@@ -351,7 +353,7 @@ pub fn fn_0044e4f0(e: &mut Engine, this: Ptr, node: Ptr) {
     let count = e.mem.u32(this.addr() + 0xc).wrapping_add(1);
     e.mem.set_u32(this.addr() + 0xc, count);
     let owner = e.mem.u32(this.addr());
-    let limit = e.call(0x0084_e3a0, &args![owner]).u32();
+    let limit = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
     if e.mem.u32(this.addr() + 0xc) == limit {
         e.call(0x0044_eed0, &args![this]);
     }
@@ -369,7 +371,7 @@ pub fn fn_0044e4f0(e: &mut Engine, this: Ptr, node: Ptr) {
 /// with `00529000` on `this`.
 pub fn fn_0044e550(e: &mut Engine, this: Ptr, key: u32, argument: u32, holder: Ptr) -> bool {
     let mut found = false;
-    e.call(EMPTY_HOOK, &[]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     e.with_stack(4, |e, local| {
         e.call(LOCAL_CONSTRUCT, &args![local, 0u32, 0u32]);
         loop {
@@ -386,8 +388,8 @@ pub fn fn_0044e550(e: &mut Engine, this: Ptr, key: u32, argument: u32, holder: P
             e.call(LOCAL_ASSIGN, &args![local, pointer]);
             fn_0044e010(e, local, false);
             let entry = e.mem.u32(this.addr() + 0x10);
-            let entry_key = e.call(OBJECT_KEY, &args![entry]).u32();
-            let local_key = e.call(OBJECT_KEY, &args![local]).u32();
+            let entry_key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
+            let local_key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local));
             if entry_key != local_key {
                 continue;
             }
@@ -428,12 +430,12 @@ pub fn fn_0044ea60(e: &mut Engine, this: Ptr, key: u32, argument: u32, out: Ptr)
         let pointer = fn_0044dec0(e, link);
         let slot = e.mem.u32(this.addr() + 8);
         e.mem.set_u32(slot, pointer);
-        e.call(EMPTY_HOOK, &[]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
         let pointer = fn_0044dec0(e, link);
         e.call(LOCAL_CONSTRUCT, &args![local, 0u32, pointer]);
         let entry = e.mem.u32(this.addr() + 0x10);
-        let entry_key = e.call(OBJECT_KEY, &args![entry]).u32();
-        let local_key = e.call(OBJECT_KEY, &args![local]).u32();
+        let entry_key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
+        let local_key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local));
         if entry_key != local_key {
             continue;
         }
@@ -449,7 +451,7 @@ pub fn fn_0044ea60(e: &mut Engine, this: Ptr, key: u32, argument: u32, out: Ptr)
         let value = e.mem.u32(pointer + 4);
         e.mem.set_u32(out.addr(), value);
         found = true;
-        e.call(EMPTY_HOOK, &[]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
         let pointer = fn_0044df00(e, link);
         if !fn_0044df20(e, Ptr::new(pointer)) {
             break;
@@ -483,7 +485,7 @@ fn fn_0044eb80_side(
     let pointer = fn_0044df00(e, link);
     let value = e.mem.u32(pointer + 4);
     e.mem.set_u32(out.addr(), value);
-    e.call(EMPTY_HOOK, &[]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     let pointer = fn_0044df00(e, link);
     if fn_0044df20(e, Ptr::new(pointer)) {
         e.mem.set_u32(out.addr(), 0);
@@ -602,7 +604,7 @@ pub fn fn_0044e480(
 /// `holder` (`0092c820`) and answers true, unless the node's flag is set by then, in which
 /// case it clears `holder` (`006f74f0` with 0) and starts over. Ends with `00529000`.
 pub fn fn_0044e680(e: &mut Engine, this: Ptr, key: u32, argument: Ptr, holder: Ptr) -> bool {
-    e.call(EMPTY_HOOK, &[]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     let found = loop {
         let word = e.mem.u32(argument.addr());
         let began = e.call(LOOP_BEGIN, &args![this, key, word]).u8() != 0;
@@ -665,12 +667,12 @@ pub fn fn_0044e820(e: &mut Engine, this: Ptr, key: u32, value: Ptr) -> bool {
             let node = fn_0044dec0(e, node_link);
             let hazard = e.mem.u32(base + 8);
             e.mem.set_u32(hazard, node);
-            e.call(EMPTY_HOOK, &[]);
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
             let node = fn_0044dec0(e, node_link);
             copy_local(e, start_copy, node);
             let link = e.mem.u32(base + 0x10);
-            let link_key = e.call(OBJECT_KEY, &args![link]).u32();
-            if link_key != e.call(OBJECT_KEY, &args![start_copy]).u32() {
+            let link_key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, link));
+            if link_key != typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, start_copy)) {
                 continue;
             }
             loop {
@@ -683,10 +685,17 @@ pub fn fn_0044e820(e: &mut Engine, this: Ptr, key: u32, value: Ptr) -> bool {
                 let next = fn_0044dec0(e, next_link);
                 let hazard = e.mem.u32(base + 4);
                 e.mem.set_u32(hazard, next);
-                e.call(EMPTY_HOOK, &[]);
-                let next_key = e.call(OBJECT_KEY, &args![next_link]).u32();
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
+                let next_key =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, next_link));
                 let node = fn_0044df00(e, node_link);
-                if next_key != e.call(OBJECT_KEY, &args![node.wrapping_add(8)]).u32() {
+                if next_key
+                    != typed_call!(
+                        leaf::FAMILY,
+                        0x0055_9450,
+                        leaf::word_at_0(e, node.wrapping_add(8))
+                    )
+                {
                     break;
                 }
                 let node = fn_0044dec0(e, node_link);
@@ -694,8 +703,9 @@ pub fn fn_0044e820(e: &mut Engine, this: Ptr, key: u32, value: Ptr) -> bool {
                 let node = fn_0044dec0(e, node_link);
                 copy_local(e, node_copy, node);
                 let link = e.mem.u32(base + 0x10);
-                let link_key = e.call(OBJECT_KEY, &args![link]).u32();
-                if link_key != e.call(OBJECT_KEY, &args![node_copy]).u32() {
+                let link_key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, link));
+                if link_key != typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node_copy))
+                {
                     break;
                 }
                 if !fn_0044dff0(e, next_link) {
@@ -707,12 +717,14 @@ pub fn fn_0044e820(e: &mut Engine, this: Ptr, key: u32, value: Ptr) -> bool {
                     let node = fn_0044dec0(e, node_link);
                     let hazard = e.mem.u32(base + 0xc);
                     e.mem.set_u32(hazard, node);
-                    e.call(EMPTY_HOOK, &[]);
+                    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
                 } else {
                     let next = fn_0044dec0(e, next_link);
                     copy_local(e, next_copy, next);
-                    let node_copy_key = e.call(OBJECT_KEY, &args![node_copy]).u32();
-                    let next_copy_key = e.call(OBJECT_KEY, &args![next_copy]).u32();
+                    let node_copy_key =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node_copy));
+                    let next_copy_key =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, next_copy));
                     let link = e.mem.u32(base + 0x10);
                     let unlinked = e
                         .call(
@@ -731,7 +743,7 @@ pub fn fn_0044e820(e: &mut Engine, this: Ptr, key: u32, value: Ptr) -> bool {
                 let next = fn_0044dec0(e, next_link);
                 let hazard = e.mem.u32(base + 8);
                 e.mem.set_u32(hazard, next);
-                e.call(EMPTY_HOOK, &[]);
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
             }
         }
     })

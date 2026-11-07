@@ -51,6 +51,7 @@ const CAST_TARGET_TYPE: u32 = 0x0118_6a18;
 /// `TESIdleForm::CheckIdleFile` (`005ff280`).
 const CHECK_IDLE_FILE: u32 = 0x005f_f280;
 /// `0084e3a0`: the word at +0xc (`TESForm::iFormID` on a form).
+#[cfg(test)]
 const WORD_AT_0C: u32 = 0x0084_e3a0;
 /// The forms' vtable slot (byte offset) whose answer the warnings print as
 /// `%s`.
@@ -231,7 +232,8 @@ pub fn bgs_idle_collection_init_item(e: &mut Engine, this: Ptr<BGSIdleCollection
                     let slot = idle_slot(e, this, index);
                     e.mem.set_u32(slot, idle);
                 } else {
-                    let owner_id = e.call(WORD_AT_0C, &args![owner]).u32();
+                    let owner_id =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
                     let owner_name = e.vcall(owner.addr(), NAME_SLOT, &args![]).u32();
                     let idle_name = e.vcall(idle, NAME_SLOT, &args![]).u32();
                     e.call(
@@ -242,7 +244,7 @@ pub fn bgs_idle_collection_init_item(e: &mut Engine, this: Ptr<BGSIdleCollection
                     index = index.wrapping_sub(1);
                 }
             } else {
-                let owner_id = e.call(WORD_AT_0C, &args![owner]).u32();
+                let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
                 let owner_name = e.vcall(owner.addr(), NAME_SLOT, &args![]).u32();
                 let form_id = e.mem.u32(id.addr());
                 e.call(
@@ -305,7 +307,7 @@ pub fn bgs_idle_collection_get_idles_for_actor(
     }
     let mut capacity = 0;
     if !array.is_null() {
-        capacity = e.call(WORD_AT_0C, &args![array]).u32();
+        capacity = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array));
     }
     e.with_stack(4, |e, element| {
         let mut index: i32 = 0;
@@ -467,7 +469,7 @@ pub fn bgs_idle_collection_save(e: &mut Engine, this: Ptr<BGSIdleCollection>) {
             let slot = idle_slot(e, this, index);
             let idle = e.mem.u32(slot);
             let id = if idle != 0 {
-                e.call(WORD_AT_0C, &args![idle]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, idle))
             } else {
                 0
             };

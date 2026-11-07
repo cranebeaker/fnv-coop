@@ -105,6 +105,7 @@ const LOCK_DATA_CONSTRUCT_FROM_ACTOR: u32 = 0x0050_2670;
 /// `00502630` (`thiscall`, `RET 4`): copies lock data.
 const LOCK_DATA_ASSIGN: u32 = 0x0050_2630;
 /// `006815c0` (`thiscall`): run on the center point before it is set.
+#[cfg(test)]
 const POINT_PREPARE: u32 = 0x0068_15c0;
 /// The `NiPointer` constructor (`006b37b0`, `thiscall`, `RET 4`) and
 /// destructor (`006b37e0`) of the avoid-node array pointer.
@@ -115,8 +116,10 @@ const SAVE_DATA: u32 = 0x0086_5e50;
 /// `BGSSaveGameBuffer::SaveVariableSizedValue` (engine map), `thiscall`.
 const SAVE_VARIABLE_SIZED_VALUE: u32 = 0x0086_5f60;
 /// `00559450` (`thiscall`): the word at `this` (the pointed-to array).
+#[cfg(test)]
 const WORD_AT: u32 = 0x0055_9450;
 /// `0044ddc0` (`thiscall`): the word at `this` (here the array's size).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `006a1400` (`thiscall`, `RET 4`): the array element at an index.
 const ARRAY_ELEMENT: u32 = 0x006a_1400;
@@ -195,7 +198,7 @@ fn pathing_request_construct_members(e: &mut Engine, this: Ptr) {
     e.call(LOCATION_CONSTRUCT, &args![base + 0xc]);
     e.call(LOCATION_CONSTRUCT, &args![base + 0x34]);
     e.call(LOCK_DATA_CONSTRUCT, &args![base + 0x5c]);
-    e.call(POINT_PREPARE, &args![base + 0x7c]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x7c));
     e.call(AVOID_POINTER_CONSTRUCT, &args![base + 0x94, 0u32]);
 }
 
@@ -430,16 +433,16 @@ pub fn pathing_request_save_game(e: &mut Engine, this: Ptr, buffer: u32) {
     ] {
         e.call(SAVE_DATA, &args![buffer, base + offset, size, 0u32]);
     }
-    let count = if e.call(WORD_AT, &args![base + 0x94]).u32() != 0 {
-        let array = e.call(WORD_AT, &args![base + 0x94]).u32();
-        e.call(ARRAY_SIZE, &args![array]).u32()
+    let count = if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x94)) != 0 {
+        let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x94));
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
     } else {
         0
     };
     e.call(SAVE_VARIABLE_SIZED_VALUE, &args![buffer, count]);
     let mut index = 0u32;
     while index < count {
-        let array = e.call(WORD_AT, &args![base + 0x94]).u32();
+        let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x94));
         let node = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
         e.call(AVOID_NODE_SAVE, &args![node, buffer]);
         index = index.wrapping_add(1);
@@ -814,11 +817,13 @@ pub fn pathing_request_load_game(e: &mut Engine, this: Ptr, buffer: u32) {
             Ptr::NULL
         };
         e.call(AVOID_POINTER_ASSIGN, &args![base + 0x94, array]);
-        let array = e.call(WORD_AT, &args![base + 0x94]).ptr();
+        let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x94))
+            .into_ret()
+            .ptr();
         fn_006e3ad0(e, array, count, 1);
         let mut index = 0u32;
         while index < count {
-            let array = e.call(WORD_AT, &args![base + 0x94]).u32();
+            let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x94));
             let node = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
             e.call(AVOID_NODE_LOAD, &args![node, buffer]);
             index = index.wrapping_add(1);

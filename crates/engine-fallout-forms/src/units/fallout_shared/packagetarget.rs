@@ -30,8 +30,10 @@ const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const CAST_SOURCE_TYPE: u32 = 0x0118_3028;
 const CAST_TARGET_TYPE: u32 = 0x0118_41cc;
 /// Form id getter (`this` = form; returns `iFormID`, +0x0C).
+#[cfg(test)]
 const FORM_GET_FORM_ID: u32 = 0x0084_e3a0;
 /// Getter of the word at +8 of the object it is called on.
+#[cfg(test)]
 const GET_VALUE: u32 = 0x0044_ddc0;
 /// The matching setter (one argument).
 const SET_VALUE: u32 = 0x0040_3550;
@@ -229,7 +231,7 @@ pub fn package_target_copy(e: &mut Engine, this: Ptr<PackageTarget>, source: Ptr
     fn_00680140(e, this, object);
     let object_type = package_target_get_targ_object_type(e, source);
     fn_00680170(e, this, object_type);
-    let value = e.call(GET_VALUE, &args![source]).u32();
+    let value = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, source));
     e.call(SET_VALUE, &args![this, value]);
     let radius = e.call(GET_ACQUIRE_RADIUS, &args![source]).f32();
     e.call(SET_ACQUIRE_RADIUS, &args![this, radius]);
@@ -260,8 +262,8 @@ pub fn package_target_compare(
     {
         return 1;
     }
-    let own_value = e.call(GET_VALUE, &args![this]).u32();
-    let other_value = e.call(GET_VALUE, &args![other]).u32();
+    let own_value = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
+    let other_value = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other));
     if own_value != other_value {
         return 1;
     }
@@ -292,7 +294,7 @@ pub fn package_target_save(e: &mut Engine, this: Ptr<PackageTarget>, record: u32
         if targ_type < 2 {
             let form = e.get(this, PackageTarget::pRefOrObj);
             if form != 0 {
-                let form_id = e.call(FORM_GET_FORM_ID, &args![form]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 e.mem.set_u32(chunk.addr() + 4, form_id);
             }
         } else if targ_type == 2 {
@@ -320,7 +322,7 @@ fn report_missing(e: &mut Engine, owner: u32, form_id: u32, messages: [u32; 3]) 
         let name = e.vcall(owner, OWNER_NAME_SLOT, &args![]).u32();
         e.call(PRINT_LINE, &args![messages[0], form_id, name]);
     } else {
-        let owner_id = e.call(FORM_GET_FORM_ID, &args![owner]).u32();
+        let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
         e.call(PRINT_LINE, &args![messages[1], form_id, owner_id]);
     }
 }
@@ -401,7 +403,7 @@ pub fn fn_00680590(e: &mut Engine, this: Ptr<PackageTarget>) {
         let mut form_id = 0u32;
         let form = e.get(this, PackageTarget::pRefOrObj);
         if form != 0 {
-            form_id = e.call(FORM_GET_FORM_ID, &args![form]).u32();
+            form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         }
         e.with_stack(4, |e, id| {
             e.mem.set_u32(id.addr(), form_id);

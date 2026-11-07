@@ -200,11 +200,15 @@ const TYPE_011861DC: u32 = 0x0118_61dc;
 const MENU_VALID_0073AF60: u32 = 0x0073_af60;
 /// The word at +0 (`00559450`), the word at +4 (`00726070`), the word at +8 (`0044ddc0`, the
 /// array's size), the address of a node's item (`006815c0`).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
+#[cfg(test)]
 const WORD_AT_EIGHT: u32 = 0x0044_ddc0;
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// The array's element address (`00877a30`, index) and a fixed string's text (`0043b1b0`).
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 const FIXED_STRING_TEXT: u32 = 0x0043_b1b0;
 /// A setting's float address (`00403e20`), its string (`00403df0`) and its other string
@@ -220,6 +224,7 @@ const LOCAL_TRANSLATE: u32 = 0x0043_c490;
 const SET_LOCAL_TRANSLATE: u32 = 0x0044_0460;
 const UPDATE_DATA_CONSTRUCT: u32 = 0x0043_d410;
 const NODE_UPDATE: u32 = 0x00a5_9c60;
+#[cfg(test)]
 const WORLD_BOUND: u32 = 0x0043_d450;
 const TILE_NODE_0056C7F0: u32 = 0x0056_c7f0;
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
@@ -317,6 +322,7 @@ const ROOT_UPDATE_00A29680: u32 = 0x00a2_9680;
 /// The vector constructor iterator (`00401050`: block, size, count, constructor), `NiPoint3`
 /// (`00416870`: x, y, z) and `NiPoint2` (`00452dc0`: u, v) constructors.
 const VECTOR_CONSTRUCTOR: u32 = 0x0040_1050;
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 const POINT2_CONSTRUCT: u32 = 0x0045_2dc0;
 /// `NiFixedString` from text (`00438170`), its destructor (`004381b0`) and assignment
@@ -388,7 +394,7 @@ const TRAIT_0X1004: u32 = 0x1004;
 const TRAIT_0X1772: u32 = 0x1772;
 
 fn first_word(e: &mut Engine, object: u32) -> u32 {
-    e.call(FIRST_WORD, &args![object]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object))
 }
 
 /// The scroll root node (`spScrollRoot`'s object).
@@ -405,12 +411,11 @@ fn show_next_background(e: &mut Engine, this: Ptr<CreditsMenu>) {
         CreditsMenu::uiBackgroundIndexCounter,
         index.wrapping_add(1),
     );
-    let element = e
-        .call(
-            ARRAY_ELEMENT,
-            &args![this.addr().wrapping_add(BACKGROUNDS), index],
-        )
-        .u32();
+    let element = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, this.addr().wrapping_add(BACKGROUNDS), index)
+    );
     let name = e.call(FIXED_STRING_TEXT, &args![element]).u32();
     let tile = e.get(this, CreditsMenu::pBackgroundTile);
     e.call(TILE_SET_STRING, &args![tile, TRAIT_IMAGE, name, 1u32]);
@@ -519,7 +524,7 @@ pub fn credits_menu_create(e: &mut Engine) -> bool {
         e.call(TILE_SET_INT, &args![tile, TRAIT_0X1004, u32::from(flag)]);
         credits_menu_init_credits_root(e, this);
         let backgrounds = credits.wrapping_add(BACKGROUNDS);
-        if e.call(WORD_AT_EIGHT, &args![backgrounds]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, backgrounds)) != 0 {
             let total = f64::from(e.get(this, CreditsMenu::uiCreditsTotalHeight));
             let root = scroll_root(e, this);
             let translate = e.call(LOCAL_TRANSLATE, &args![root]).u32();
@@ -529,7 +534,7 @@ pub fn credits_menu_create(e: &mut Engine) -> bool {
                 .call(SETTING_FLOAT_ADDRESS, &args![SETTING_SCROLL_SPEED])
                 .u32();
             let time = x87_div(distance, x87_m32(e.mem.u32(speed)));
-            let count = e.call(WORD_AT_EIGHT, &args![backgrounds]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, backgrounds));
             let interval = x87_store32(x87_div(time, f64::from(count)));
             e.set(
                 this,
@@ -545,7 +550,7 @@ pub fn credits_menu_create(e: &mut Engine) -> bool {
             );
             show_next_background(e, this);
         } else if (e.global::<u8>(FLAG_011D947C) != 0
-            || e.call(WORD_AT_EIGHT, &args![backgrounds]).u32() == 0)
+            || typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, backgrounds)) == 0)
             && e.get(this, CreditsMenu::pBackgroundTile) != 0
         {
             let background = e.get(this, CreditsMenu::pBackgroundTile);
@@ -575,7 +580,10 @@ pub fn credits_menu_create(e: &mut Engine) -> bool {
         }
         return true;
     }
-    if menu != 0 && e.call(WORD_AT_FOUR, &args![menu]).u32() != 0 && menu != 0 {
+    if menu != 0
+        && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0
+        && menu != 0
+    {
         e.vcall(menu, 0, &args![1u32]);
     }
     false
@@ -648,11 +656,11 @@ pub fn credits_menu_close(e: &mut Engine) {
                     let saves = e.global::<u32>(SAVE_LOAD_MANAGER);
                     let mut node = first_word(e, saves);
                     while node != 0 {
-                        let slot = e.call(NODE_ITEM, &args![node]).u32();
+                        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                         if e.mem.u32(slot) == 0 {
                             break;
                         }
-                        let slot = e.call(NODE_ITEM, &args![node]).u32();
+                        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                         let entry = e.mem.u32(slot);
                         e.set_global(OFFERED_ENTRY_011D9474, entry);
                         let entry = e.global::<u32>(OFFERED_ENTRY_011D9474);
@@ -690,7 +698,7 @@ pub fn credits_menu_close(e: &mut Engine) {
                                 }
                             }
                         }
-                        node = e.call(WORD_AT_FOUR, &args![node]).u32();
+                        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                     }
                 }
             }
@@ -755,7 +763,7 @@ pub fn credits_menu_do_idle(e: &mut Engine, this: Ptr<CreditsMenu>) {
         return;
     }
     let backgrounds = this.addr().wrapping_add(BACKGROUNDS);
-    if e.call(WORD_AT_EIGHT, &args![backgrounds]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, backgrounds)) != 0 {
         let elapsed = e.call(FLOAT_AT_0XC, &args![FRAME_TIMER]).f64();
         let timer = e.get(this, CreditsMenu::fBackgroundSwapTimer).to_bits();
         let timer = x87_store32(x87_sub(x87_m32(timer), elapsed));
@@ -768,7 +776,7 @@ pub fn credits_menu_do_idle(e: &mut Engine, this: Ptr<CreditsMenu>) {
         // `FCOMP; TEST AH,5; JP`: on only when the timer is below 0.
         if x87_m32(timer) < e.global::<f64>(ZERO)
             && e.get(this, CreditsMenu::uiBackgroundIndexCounter)
-                < e.call(WORD_AT_EIGHT, &args![backgrounds]).u32()
+                < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, backgrounds))
         {
             show_next_background(e, this);
             let interval =
@@ -802,7 +810,7 @@ pub fn credits_menu_do_idle(e: &mut Engine, this: Ptr<CreditsMenu>) {
     });
     update_node(e, |e| scroll_root(e, this));
     let root = scroll_root(e, this);
-    let bound = e.call(WORLD_BOUND, &args![root]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, root));
     let radius = e.call(FLOAT_AT_0XC, &args![bound]).f64();
     let reach = x87_store32(x87_add(radius, radius));
     // `FCOMPP; TEST AH,5; JP`: closes only when `reach < height`.
@@ -1135,12 +1143,11 @@ pub fn credits_menu_init_credits_root(e: &mut Engine, this: Ptr<CreditsMenu>) {
         e.call(POINTER_ASSIGN, &args![base.wrapping_add(0x30), node]);
         e.with_stack(0xc, |e, point| {
             let z = x87_quiet_bits(e.global::<u32>(ROOT_Z_01072438));
-            let made = e
-                .call(
-                    POINT3_CONSTRUCT,
-                    &args![point, 0.0f32.to_bits(), 0.0f32.to_bits(), z],
-                )
-                .u32();
+            let made = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, point, 0.0f32.to_bits(), 0.0f32.to_bits(), z)
+            );
             let root = scroll_root(e, this);
             e.call(SET_LOCAL_TRANSLATE, &args![root, made]);
         });
@@ -1330,7 +1337,11 @@ pub fn credits_menu_create_image(
         .enumerate()
     {
         e.with_stack(0xc, |e, point| {
-            let made = e.call(POINT3_CONSTRUCT, &args![point, x, y, z]).u32();
+            let made = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, point, x, y, z)
+            );
             copy_words(e, made, vertices.wrapping_add(0xc * i as u32), 3);
         });
     }

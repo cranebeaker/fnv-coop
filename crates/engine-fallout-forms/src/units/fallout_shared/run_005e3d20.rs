@@ -82,7 +82,7 @@ pub fn fn_005e3d80(e: &mut Engine, this: Ptr, file: Ptr) {
         let form = resolve_form_id(e, file, id, TYPE_BGS_EXPLOSION);
         e.mem.set_u32(this.addr() + 0x6c, form);
     }
-    let id = e.call(0x008d_8520, &args![this]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
     if id != 0 {
         let form = resolve_form_id(e, file, id, TYPE_BGS_DEBRIS);
         e.mem.set_u32(this.addr() + 0x68, form);

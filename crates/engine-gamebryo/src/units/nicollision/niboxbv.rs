@@ -1032,6 +1032,7 @@ pub fn fn_00ea7730(
 
 /// `NiPoint3::Dot` (engine map, `004b6190`; `thiscall` on one point, the
 /// other point's address; `RET 4`; ST0).
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 /// `004b3800` (`thiscall` on a point `p`; out, `q`; `RET 8`): `p x q` into
 /// `out`.
@@ -1225,7 +1226,13 @@ pub fn fn_00ea0ad0(
                 axis_separated(e, r, d0, above, |e| rounded(project_b(e, 0, t1)))
             } else {
                 axis_separated(e, r, d0, above, |e| {
-                    e.call(POINT_DOT, &args![axis_b(j), t1_copy]).f64()
+                    typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, axis_b(j), t1_copy)
+                    )
+                    .into_ret()
+                    .f64()
                 })
             };
             if separated {
@@ -1359,8 +1366,11 @@ pub fn fn_00ea0ad0(
         // products with `V`, and for each axis `L` the test of
         // `|L . N|` against the radii.
         e.call(POINT_CROSS_004B3800, &args![v_copy, block, t_copy]);
-        let dot_call =
-            |e: &mut Engine, this: u32, other: u32| e.call(POINT_DOT, &args![this, other]).f64();
+        let dot_call = |e: &mut Engine, this: u32, other: u32| {
+            typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, this, other))
+                .into_ret()
+                .f64()
+        };
         let abs_rounded_value = |value: f64| rounded(value.abs());
         // `a`'s axes.
         let n1 = rounded(dot_call(e, v_copy, a1));
@@ -1692,8 +1702,17 @@ pub fn fn_00ea2190(
                 }
                 _ => {
                     product(e, 2, e2_copy);
-                    let d2 = e.call(POINT_DOT, &args![l_copy, d_copy]).f64();
-                    let w2 = e.call(POINT_DOT, &args![l_copy, w_at]).f64();
+                    let d2 = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, l_copy, d_copy)
+                    )
+                    .into_ret()
+                    .f64();
+                    let w2 =
+                        typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, l_copy, w_at))
+                            .into_ret()
+                            .f64();
                     (rounded(d2), rounded(w2))
                 }
             };
@@ -2210,10 +2229,22 @@ fn find_edge(e: &mut Engine, s: &BoxFind, edge: &EdgeCase) -> bool {
         }
         let [(p0, _, _), (p1, _, _)] = edge.a_terms;
         let q = x87_add(x87_mul(ka[p0], c[p0][j]), x87_mul(ka[p1], c[p1][j]));
-        let dot_b = e.call(POINT_DOT, &args![b_axis(j), f + FIND_D_POINT]).f64();
+        let dot_b = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, b_axis(j), f + FIND_D_POINT)
+        )
+        .into_ret()
+        .f64();
         let r1 = rounded(x87_sub(q, dot_b));
         let r1c = x87_mul(r1, c[i][j]);
-        let dot_a = e.call(POINT_DOT, &args![a_axis(i), f + FIND_D_POINT]).f64();
+        let dot_a = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, a_axis(i), f + FIND_D_POINT)
+        )
+        .into_ret()
+        .f64();
         let [(s0, _, _), (s1, _, _)] = edge.b_terms;
         let sum = x87_add(
             x87_add(x87_add(dot_a, r1c), x87_mul(kb[s0], c[i][s0])),
@@ -9041,7 +9072,12 @@ pub fn fn_00ea3d60(
                     e.mem.set_u32(esp, ecx); // 00ea610c
                     e.mem.set_u32(esp.wrapping_add(0x000000d0), edx); // 00ea610d
                     e.mem.set_u32(esp.wrapping_add(0x000000d4), eax); // 00ea6114
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9053,7 +9089,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, edx); // 00ea612e
                     ecx = esp.wrapping_add(0x00000138); // 00ea612f
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9065,7 +9106,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, eax); // 00ea6149
                     ecx = esp.wrapping_add(0x00000138); // 00ea614a
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9077,7 +9123,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, ecx); // 00ea6164
                     ecx = esp.wrapping_add(0x00000138); // 00ea6165
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9134,7 +9185,12 @@ pub fn fn_00ea3d60(
                     e.mem
                         .set_u64(esp.wrapping_add(0x00000034), x.st(0).to_bits());
                     x.pop(); // 00ea61c1
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9404,7 +9460,12 @@ pub fn fn_00ea3d60(
                     e.mem.set_u32(esp, eax); // 00ea633c
                     ecx = eax; // 00ea633d
                     e.mem.set_u32(esp.wrapping_add(0x000000e0), edx); // 00ea633f
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9416,7 +9477,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, ecx); // 00ea6359
                     ecx = esp.wrapping_add(0x00000120); // 00ea635a
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9428,7 +9494,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, edx); // 00ea6371
                     ecx = esp.wrapping_add(0x00000120); // 00ea6372
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9440,7 +9511,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, eax); // 00ea638c
                     ecx = esp.wrapping_add(0x00000120); // 00ea638d
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9493,7 +9569,12 @@ pub fn fn_00ea3d60(
                     x.set(0, x.st(0));
                     x.pop(); // 00ea63df
                     ecx = esp.wrapping_add(0x00000120); // 00ea63e1
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9784,7 +9865,12 @@ pub fn fn_00ea3d60(
                     e.mem.set_u32(esp, ecx); // 00ea65b5
                     e.mem.set_u32(esp.wrapping_add(0x000000e8), edx); // 00ea65b6
                     e.mem.set_u32(esp.wrapping_add(0x000000ec), eax); // 00ea65bd
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9796,7 +9882,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, edx); // 00ea65d4
                     ecx = esp.wrapping_add(0x0000006c); // 00ea65d5
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9808,7 +9899,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, eax); // 00ea65e9
                     ecx = esp.wrapping_add(0x0000006c); // 00ea65ea
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9820,7 +9916,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, ecx); // 00ea6601
                     ecx = esp.wrapping_add(0x0000006c); // 00ea6602
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -9873,7 +9974,12 @@ pub fn fn_00ea3d60(
                     x.set(0, x.st(0));
                     x.pop(); // 00ea6651
                     ecx = esp.wrapping_add(0x0000006c); // 00ea6653
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10050,7 +10156,12 @@ pub fn fn_00ea3d60(
                     e.mem.set_u32(esp, eax); // 00ea6749
                     ecx = esp.wrapping_add(0x00000114); // 00ea674a
                     e.mem.set_u32(esp.wrapping_add(0x000000d4), edx); // 00ea6751
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10061,7 +10172,12 @@ pub fn fn_00ea3d60(
                     ecx = esp.wrapping_add(0x00000110); // 00ea6764
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, ecx); // 00ea676b
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10073,7 +10189,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, edx); // 00ea677f
                     ecx = esp.wrapping_add(0x00000114); // 00ea6780
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10085,7 +10206,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, eax); // 00ea679a
                     ecx = esp.wrapping_add(0x00000114); // 00ea679b
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10142,7 +10268,12 @@ pub fn fn_00ea3d60(
                     e.mem
                         .set_u64(esp.wrapping_add(0x00000034), x.st(0).to_bits());
                     x.pop(); // 00ea67f7
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10408,7 +10539,12 @@ pub fn fn_00ea3d60(
                     ecx = esp.wrapping_add(0x0000012c); // 00ea6970
                     e.mem.set_u32(esp.wrapping_add(0x000000dc), edx); // 00ea6977
                     e.mem.set_u32(esp.wrapping_add(0x000000e0), eax); // 00ea697e
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10420,7 +10556,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, edx); // 00ea6998
                     ecx = edx; // 00ea6999
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10432,7 +10573,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, eax); // 00ea69ab
                     ecx = esp.wrapping_add(0x0000012c); // 00ea69ac
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10444,7 +10590,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, ecx); // 00ea69c6
                     ecx = esp.wrapping_add(0x0000012c); // 00ea69c7
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10497,7 +10648,12 @@ pub fn fn_00ea3d60(
                     x.set(0, x.st(0));
                     x.pop(); // 00ea6a16
                     ecx = esp.wrapping_add(0x0000012c); // 00ea6a18
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10870,7 +11026,12 @@ pub fn fn_00ea3d60(
                     ecx = esp.wrapping_add(0x00000054); // 00ea6c6e
                     e.mem.set_u32(esp.wrapping_add(0x000000e8), edx); // 00ea6c72
                     e.mem.set_u32(esp.wrapping_add(0x000000ec), eax); // 00ea6c79
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10882,7 +11043,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, edx); // 00ea6c90
                     ecx = edx; // 00ea6c91
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10894,7 +11060,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, eax); // 00ea6ca3
                     ecx = esp.wrapping_add(0x00000054); // 00ea6ca4
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10906,7 +11077,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, ecx); // 00ea6cbb
                     ecx = esp.wrapping_add(0x00000054); // 00ea6cbc
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -10959,7 +11135,12 @@ pub fn fn_00ea3d60(
                     x.set(0, x.st(0));
                     x.pop(); // 00ea6d0b
                     ecx = esp.wrapping_add(0x00000054); // 00ea6d0d
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11136,7 +11317,12 @@ pub fn fn_00ea3d60(
                     e.mem.set_u32(esp, eax); // 00ea6e03
                     ecx = esp.wrapping_add(0x00000144); // 00ea6e04
                     e.mem.set_u32(esp.wrapping_add(0x000000d4), edx); // 00ea6e0b
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11148,7 +11334,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, ecx); // 00ea6e25
                     ecx = esp.wrapping_add(0x00000144); // 00ea6e26
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11160,7 +11351,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, edx); // 00ea6e40
                     ecx = edx; // 00ea6e41
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11172,7 +11368,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, eax); // 00ea6e56
                     ecx = esp.wrapping_add(0x00000144); // 00ea6e57
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11229,7 +11430,12 @@ pub fn fn_00ea3d60(
                     e.mem
                         .set_u64(esp.wrapping_add(0x00000034), x.st(0).to_bits());
                     x.pop(); // 00ea6eb3
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11498,7 +11704,12 @@ pub fn fn_00ea3d60(
                     ecx = esp.wrapping_add(0x00000040); // 00ea702c
                     e.mem.set_u32(esp.wrapping_add(0x000000dc), edx); // 00ea7030
                     e.mem.set_u32(esp.wrapping_add(0x000000e0), eax); // 00ea7037
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11510,7 +11721,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, edx); // 00ea7051
                     ecx = esp.wrapping_add(0x00000040); // 00ea7052
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11522,7 +11738,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, eax); // 00ea7066
                     ecx = eax; // 00ea7067
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11534,7 +11755,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, ecx); // 00ea707c
                     ecx = esp.wrapping_add(0x00000040); // 00ea707d
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11587,7 +11813,12 @@ pub fn fn_00ea3d60(
                     x.set(0, x.st(0));
                     x.pop(); // 00ea70c9
                     ecx = esp.wrapping_add(0x00000040); // 00ea70cb
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11958,7 +12189,12 @@ pub fn fn_00ea3d60(
                     ecx = esp.wrapping_add(0x00000060); // 00ea7320
                     e.mem.set_u32(esp.wrapping_add(0x000000e8), edx); // 00ea7324
                     e.mem.set_u32(esp.wrapping_add(0x000000ec), eax); // 00ea732b
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11970,7 +12206,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, edx); // 00ea7342
                     ecx = esp.wrapping_add(0x00000060); // 00ea7343
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11982,7 +12223,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, eax); // 00ea7357
                     ecx = eax; // 00ea7358
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -11994,7 +12240,12 @@ pub fn fn_00ea3d60(
                     esp = esp.wrapping_sub(4);
                     e.mem.set_u32(esp, ecx); // 00ea736d
                     ecx = esp.wrapping_add(0x00000060); // 00ea736e
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);
@@ -12047,7 +12298,12 @@ pub fn fn_00ea3d60(
                     x.set(0, x.st(0));
                     x.pop(); // 00ea73bd
                     ecx = esp.wrapping_add(0x00000060); // 00ea73bf
-                    let r = e.call(0x004b_6190, &[ecx, e.mem.u32(esp.wrapping_add(0))]);
+                    let r = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, ecx, e.mem.u32(esp.wrapping_add(0)))
+                    )
+                    .into_ret();
                     eax = r.eax;
                     edx = r.edx;
                     esp = esp.wrapping_add(4);

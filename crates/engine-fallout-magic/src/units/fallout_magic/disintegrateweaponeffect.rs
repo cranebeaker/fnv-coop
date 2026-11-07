@@ -17,6 +17,7 @@ const MAGIC_TARGET_GET_TARGET_AS_ACTOR: u32 = 0x0082_2b40;
 const EFFECT_TARGET_0059BB30: u32 = 0x0059_bb30;
 /// `008d8520` (thiscall on an actor; the map's name `MiddleHighProcess::GetSavedAcquireObject`
 /// may come from folded code): the object whose slot +0x148 gives the weapon here.
+#[cfg(test)]
 const ACTOR_OBJECT_008D8520: u32 = 0x008d_8520;
 /// `00495460` (thiscall on the effect, returns `ST0`; unnamed): its magnitude.
 const EFFECT_MAGNITUDE_00495460: u32 = 0x0049_5460;
@@ -71,7 +72,7 @@ pub fn disintegrate_weapon_effect_start(e: &mut Engine, this: Ptr) {
     if actor == 0 {
         return;
     }
-    let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     let weapon = e.vcall(object, 0x148, &[]).u32();
     if weapon != 0 {
         let magnitude = x87_store32(e.call(EFFECT_MAGNITUDE_00495460, &args![this]).f64());

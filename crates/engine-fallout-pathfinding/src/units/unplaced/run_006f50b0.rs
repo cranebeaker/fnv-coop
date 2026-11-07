@@ -67,6 +67,7 @@ const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 /// `006f74f0`: `NiPointer<QueuedFile>::operator=` (engine map).
 const TASK_POINTER_ASSIGN: u32 = 0x006f_74f0;
 /// `00559450`: reads the first word of an object (a `NiPointer`'s value).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `00404eb0` / `00404ee0`: a memory-context scope guard (pushed with a
 /// context, a flag, a source file and a line) and its destructor.
@@ -193,8 +194,8 @@ pub fn fn_006f5160(
         e.mem.set_u8(base + BLOCK_DETACH_FLAG, 0);
         e.mem.set_u32(base + BLOCK_DETACH_COUNT, 0);
 
-        let first = e.call(FIRST_WORD, &args![node]).u32();
-        let node_value = e.call(FIRST_WORD, &args![first]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
+        let node_value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
         let block = e.call(ALLOCATE, &args![0x58u32]).u32();
         let task = if block == 0 {
             0
@@ -217,7 +218,11 @@ pub fn fn_006f5160(
         };
         e.call(TASK_POINTER_ASSIGN, &args![base + BLOCK_LOAD_TASK, task]);
         e.mem.set_u32(base + BLOCK_DETACH_COUNT, 0);
-        let task = e.call(FIRST_WORD, &args![base + BLOCK_LOAD_TASK]).u32();
+        let task = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + BLOCK_LOAD_TASK)
+        );
         e.vcall(task, SLOT_TASK_QUEUE, &args![]);
         e.call(SCOPE_END, &args![scope]);
     });
@@ -228,9 +233,9 @@ pub fn fn_006f5160(
 /// detaches the scene node held by the pointer at `pointer`.
 fn detach_from_node(e: &mut Engine, base: u32, pointer: u32) {
     let node = e.mem.u32(base + BLOCK_NODE);
-    let node_value = e.call(FIRST_WORD, &args![node]).u32();
+    let node_value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
     let owner = e.call(NODE_OWNER, &args![node_value]).u32();
-    let child = e.call(FIRST_WORD, &args![pointer]).u32();
+    let child = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.vcall(owner, SLOT_DETACH_CHILD, &args![child]);
 }
 
@@ -250,25 +255,40 @@ fn decrement_attached_blocks(e: &mut Engine) {
 pub fn fn_006f5370(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     e.call(BLOCK_DETACH, &args![this]);
-    let has_scene_node = e.call(FIRST_WORD, &args![base + BLOCK_SCENE_NODE]).u32() != 0;
-    if has_scene_node || e.call(FIRST_WORD, &args![base + BLOCK_MESH]).u32() != 0 {
+    let has_scene_node = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base + BLOCK_SCENE_NODE)
+    ) != 0;
+    if has_scene_node
+        || typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + BLOCK_MESH)
+        ) != 0
+    {
         decrement_attached_blocks(e);
         detach_from_node(e, base, base + BLOCK_SCENE_NODE);
         detach_from_node(e, base, base + BLOCK_MESH);
     }
-    if e.call(FIRST_WORD, &args![base + BLOCK_NODE_STINGER]).u32() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base + BLOCK_NODE_STINGER)
+    ) != 0
+    {
         decrement_attached_blocks(e);
         detach_from_node(e, base, base + BLOCK_NODE_STINGER);
     }
     for off in [BLOCK_LOAD_TASK, BLOCK_LOAD_TASK_STINGER] {
-        if e.call(FIRST_WORD, &args![base + off]).u32() != 0 {
-            let task = e.call(FIRST_WORD, &args![base + off]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + off)) != 0 {
+            let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + off));
             let manager: u32 = e.global(TASK_MANAGER);
             e.call(CANCEL_TASK, &args![manager, task, 0u32]);
         }
     }
     for off in [BLOCK_SCENE_NODE, BLOCK_NODE_STINGER] {
-        let node = e.call(FIRST_WORD, &args![base + off]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + off));
         e.call(RELEASE_NODE, &args![node]);
     }
     e.call(TASK_POINTER_ASSIGN, &args![base + BLOCK_LOAD_TASK, 0u32]);

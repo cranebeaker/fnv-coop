@@ -47,6 +47,7 @@ const OBJECT_TEST: u32 = 0x0042_ce10;
 /// `00877a30` (`thiscall`, one word: an index): the address of that group's
 /// pointer.
 const GROUP_COUNT: u32 = 0x0065_8930;
+#[cfg(test)]
 const GROUP_SLOT: u32 = 0x0087_7a30;
 /// `CombatGroup::IsTarget` (Xbox PDB name of `009865b0`; `thiscall`, one
 /// word: the actor).
@@ -79,7 +80,7 @@ fn setting_bits(e: &mut Engine, setting: u32) -> u32 {
 
 /// The group pointer at index `i` of the manager's groups.
 fn group_at(e: &mut Engine, this: Ptr, i: u32) -> u32 {
-    let slot = e.call(GROUP_SLOT, &args![this, i]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, this, i));
     e.mem.u32(slot)
 }
 
@@ -325,10 +326,10 @@ pub fn combat_manager_save_game(e: &mut Engine, this: Ptr, buffer: Ptr) {
         while i < e.call(GROUP_COUNT, &args![this]).u32() {
             let group = group_at(e, this, i);
             if group != 0 {
-                let first = e.call(0x0055_9450, &args![group]).u32();
+                let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, group));
                 e.mem.set_u32(f + 0x10, first);
                 e.call(0x0086_5e50, &args![buffer, f + 0x10, 4u32, 0u32]);
-                let second = e.call(0x0072_6070, &args![group]).u32();
+                let second = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, group));
                 e.mem.set_u32(f + 0x14, second);
                 e.call(0x0086_5e50, &args![buffer, f + 0x14, 4u32, 0u32]);
                 e.call(0x0098_de90, &args![group, buffer]);
@@ -586,6 +587,7 @@ const CONTROLLER_CONSTRUCT: u32 = 0x0097_d3a0;
 const CONTROLLER_GROUP: u32 = 0x004f_b070;
 /// `00559450` (`thiscall`): a number the group answers (used as a bit index into the actor
 /// map's 64-bit masks).
+#[cfg(test)]
 const GROUP_NUMBER: u32 = 0x0055_9450;
 /// `__allshl` (`00ec7810`): the 64-bit value (two words) shifted left by the count (third word).
 const SHIFT_LEFT_64: u32 = 0x00ec_7810;
@@ -907,7 +909,7 @@ pub fn combat_manager_split_player_combat_group(e: &mut Engine, this: Ptr, targe
                     i = i.wrapping_sub(1);
                 } else {
                     let name = actor_name(e, member);
-                    let id = e.call(0x0084_e3a0, &args![member]).u32();
+                    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, member));
                     e.call(DEBUG_PRINT, &args![TEAMMATE_NOT_MOVED_FORMAT, name, id]);
                 }
             }
@@ -1010,7 +1012,7 @@ pub fn fn_00992480(e: &mut Engine, this: Ptr, actor: Ptr, other: Ptr) {
     if actor == other {
         return;
     }
-    let process = e.call(0x008d_8520, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     let mut object = e.vcall(process, 0x22c, &[]).u32();
     if object == 0 || e.call(0x0041_ca90, &args![object]).u32() != 0x18 {
         e.vcall(actor.addr(), 0x40c, &[]);
@@ -1129,7 +1131,7 @@ pub fn fn_009929e0(e: &mut Engine, this: Ptr, actor: Ptr) {
 /// The bit of `group` as `00992a50` and `00992b00` build it: the `int` `1 << n` (`SHL`, the
 /// count taken modulo 32) for `n` = `00559450(group)`, sign-extended to 64 bits (`CDQ`).
 fn group_bit_shifted(e: &mut Engine, group: u32) -> u64 {
-    let n = e.call(GROUP_NUMBER, &args![group]).u32();
+    let n = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, group));
     let low = 1u32.wrapping_shl(n);
     low as i32 as i64 as u64
 }
@@ -1280,7 +1282,7 @@ pub fn fn_00992ba0(
     let radius_squared = x87_store32(x87_mul(x87_load32(radius_bits), x87_m32(radius_bits)));
     let mut mask = 0u64;
     if group != 0 {
-        let shift = e.call(GROUP_NUMBER, &args![group]).u32();
+        let shift = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, group));
         mask = e.call(SHIFT_LEFT_64, &args![1u64, shift]).u64();
     }
     // The frame: position +0, key +4, value +8 (two words), the actor's point +0x10, the
@@ -1313,8 +1315,8 @@ pub fn fn_00992ba0(
             // cannot be null at this point.
             if key != 0
                 && (e.vcall(key, 0x22c, &args![0u32]).bool()
-                    || e.call(0x0044_0da0, &args![key]).bool()
-                    || e.call(0x0044_0d80, &args![key]).bool())
+                    || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, key))
+                    || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, key)))
             {
                 continue;
             }

@@ -53,8 +53,10 @@ const FORM_TYPE_SPEAKER_SOURCE: u32 = 0x16;
 /// The form type `GetArmorRatingUpper` requires of the worn item's form.
 const FORM_TYPE_ARMOR: u32 = 0x18;
 /// Reads `[this + 0x20]` (a reference's base form).
+#[cfg(test)]
 const REF_GET_BASE_FORM: u32 = 0x007a_f430;
 /// Reads `[this + 0x08]` of the object in ECX (the worn `ItemChange`'s item).
+#[cfg(test)]
 const OBJECT_GET_FIELD_08: u32 = 0x0044_ddc0;
 /// The name of a form (cdecl, one form argument; a fixed string for null).
 const FORM_GET_FULL_NAME: u32 = 0x0048_2720;
@@ -79,6 +81,7 @@ const WATER_FORM_GET_DANGEROUS: u32 = 0x0058_0060;
 
 /// The actor's middle-high process, or null (the engine map names this body
 /// `MiddleHighProcess::GetSavedAcquireObject` because of folded code).
+#[cfg(test)]
 const ACTOR_GET_PROCESS: u32 = 0x008d_8520;
 /// `actor.cpp`: the result of virtual `+0x770` of the actor's process, or
 /// null without a process.
@@ -347,14 +350,18 @@ pub fn script_get_armor_rating_upper_condition_function(
                 .ptr::<()>();
             if !worn.is_null() {
                 let mut armor = Ptr::<()>::NULL;
-                if !e
-                    .call(OBJECT_GET_FIELD_08, &args![worn])
+                if !typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, worn))
+                    .into_ret()
                     .ptr::<()>()
                     .is_null()
                 {
-                    let form = e.call(OBJECT_GET_FIELD_08, &args![worn]).ptr::<()>();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, worn))
+                        .into_ret()
+                        .ptr::<()>();
                     if e.call(FORM_GET_TYPE, &args![form]).u32() == FORM_TYPE_ARMOR {
-                        armor = e.call(OBJECT_GET_FIELD_08, &args![worn]).ptr::<()>();
+                        armor = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, worn))
+                            .into_ret()
+                            .ptr::<()>();
                     }
                 }
                 if !armor.is_null() {
@@ -385,7 +392,9 @@ pub fn fn_005a2e20(e: &mut Engine, reference: Ptr, form: Ptr, _param2: u32, resu
     let mut owner = form;
     if owner.is_null() {
         let player = e.global::<u32>(PLAYER);
-        owner = e.call(REF_GET_BASE_FORM, &args![player]).ptr();
+        owner = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player))
+            .into_ret()
+            .ptr();
     }
     if !reference.is_null() && !owner.is_null() {
         let list = e.call(REF_GET_EXTRA_DATA_LIST, &args![reference]).u32();
@@ -631,7 +640,7 @@ pub fn script_is_actor_victim_condition_function(
     let actor = actor_of(e, reference);
     set_result(e, result, 0.0);
     if !actor.is_null() && e.vcall(actor.addr(), VSLOT_ACTOR_TEST_218, &args![]).bool() {
-        let base = e.call(REF_GET_BASE_FORM, &args![actor]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
         let tls = e.tls();
         if base != 0 && base == e.mem.u32(tls + TLS_CRIME_VICTIM) {
             set_result(e, result, 1.0);
@@ -658,12 +667,12 @@ pub fn fn_005a3570(
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
     if !actor.is_null()
-        && !e
-            .call(ACTOR_GET_PROCESS, &args![actor])
+        && !typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+            .into_ret()
             .ptr::<()>()
             .is_null()
     {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         if e.vcall(process, VSLOT_PROCESS_TEST_60, &args![]).bool() {
             set_result(e, result, 1.0);
         }
@@ -925,12 +934,12 @@ pub fn fn_005a3a30(
         && e.vcall(reference.addr(), VSLOT_ACTOR_TEST_22C, &args![0u32])
             .bool()
         && e.vcall(reference.addr(), VSLOT_IS_ACTOR, &args![]).bool()
-        && !e
-            .call(ACTOR_GET_PROCESS, &args![reference])
+        && !typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference))
+            .into_ret()
             .ptr::<()>()
             .is_null()
     {
-        let process = e.call(ACTOR_GET_PROCESS, &args![reference]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference));
         let value = e.vcall(process, VSLOT_PROCESS_FLOAT_69C, &args![]).f32();
         let zero: f64 = e.global(DOUBLE_ZERO);
         if value as f64 > zero {
@@ -990,9 +999,9 @@ pub fn script_is_player_action_active_condition_function(
 pub fn fn_005a3b90(e: &mut Engine, reference: Ptr, value: u32, _param2: u32, result: Ptr) -> bool {
     set_result(e, result, 0.0);
     if !reference.is_null() {
-        let base = e.call(REF_GET_BASE_FORM, &args![reference]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         if e.call(FORM_GET_TYPE, &args![base]).u32() == FORM_TYPE_SPEAKER_SOURCE {
-            let base = e.call(REF_GET_BASE_FORM, &args![reference]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             if e.call(FORM_GET_FIELD_90, &args![base]).u32() == value {
                 set_result(e, result, 1.0);
             }
@@ -1350,7 +1359,7 @@ pub fn script_get_killer_object_condition_function(
 ) -> bool {
     let actor = actor_of(e, reference);
     if !actor.is_null() {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         if process != 0
             && e.vcall(actor.addr(), VSLOT_ACTOR_TEST_22C, &args![0u32])
                 .bool()
@@ -1534,7 +1543,11 @@ pub fn fn_005a42b0(
 // Translated from 005a4320 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Calls `0044ddc0` on `this + 8` and returns its result.
 pub fn fn_005a4320(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(OBJECT_GET_FIELD_08, &args![this.addr() + 8]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + 8)
+    )
 }
 
 // Translated from 005a4340 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1549,8 +1562,8 @@ pub fn fn_005a4340(
 ) -> bool {
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
-    if !actor.is_null() && e.call(ACTOR_GET_PROCESS, &args![actor]).u32() != 0 {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+    if !actor.is_null() && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let value = e.vcall(process, VSLOT_PROCESS_BYTE_388, &args![]).u32() & 0xff;
         set_result(e, result, value as f64);
     }
@@ -1591,7 +1604,7 @@ pub fn script_get_is_object_type_condition_function(
     result: Ptr,
 ) -> bool {
     set_result(e, result, 0.0);
-    let base = e.call(REF_GET_BASE_FORM, &args![reference]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let form_type = e.call(FORM_GET_TYPE, &args![base]).u32();
     if form_type == param1 {
         set_result(e, result, 1.0);
@@ -1763,7 +1776,7 @@ pub fn script_is_last_played_idle_condition_function(
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
     if !actor.is_null() {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let idle = e.vcall(process, VSLOT_PROCESS_LAST_IDLE, &args![]).u32();
         if idle == param1 {
             set_result(e, result, 1.0);
@@ -1849,7 +1862,7 @@ pub fn script_get_actor_crime_player_enemy_condition_function(
         if e.call(EXTRA_LIST_GET_PLAYER_CRIME_LIST, &args![list]).u32() != 0 {
             let list = e.call(REF_GET_EXTRA_DATA_LIST, &args![actor]).u32();
             let crimes = e.call(EXTRA_LIST_GET_PLAYER_CRIME_LIST, &args![list]).u32();
-            if !e.call(LIST_NODE_IS_EMPTY, &args![crimes]).bool() {
+            if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, crimes)) {
                 set_result(e, result, 1.0);
             }
         }
@@ -2132,10 +2145,10 @@ pub fn script_get_aggro_radius_violated_condition_function(
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
     if !actor.is_null() {
-        if e.call(ACTOR_GET_PROCESS, &args![actor]).u32() != 0 {
-            let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if e.vcall(process, VSLOT_PROCESS_AGGRO_OBJECT, &args![]).u32() != 0 {
-                let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 let object = e.vcall(process, VSLOT_PROCESS_AGGRO_OBJECT, &args![]).u32();
                 if e.call(AGGRO_GET_STATE, &args![object]).u32() == AGGRO_STATE_VIOLATED {
                     set_result(e, result, 1.0);
@@ -2316,14 +2329,14 @@ pub fn script_get_radiation_level_condition_function(
         return true;
     }
     set_result(e, result, 0.0);
-    if !e
-        .call(ACTOR_GET_PROCESS, &args![actor])
+    if !typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+        .into_ret()
         .ptr::<()>()
         .is_null()
     {
-        let first = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
-        let second = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
-        let third = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+        let second = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+        let third = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let a = e.vcall(third, VSLOT_PROCESS_RADIATION_A, &args![]).f32() as f64;
         let b = e.vcall(second, VSLOT_PROCESS_RADIATION_B, &args![]).f32() as f64;
         let c = e.vcall(first, VSLOT_PROCESS_RADIATION_C, &args![]).f32() as f64;
@@ -2380,16 +2393,16 @@ pub fn script_get_weapon_health_perc_condition_function(
 ) -> bool {
     let actor = actor_of(e, reference);
     if !actor.is_null()
-        && !e
-            .call(ACTOR_GET_PROCESS, &args![actor])
+        && !typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+            .into_ret()
             .ptr::<()>()
             .is_null()
     {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let item = e.vcall(process, VSLOT_PROCESS_WEAPON_ITEM, &args![]).u32();
         let mut found = false;
         if item != 0 {
-            let field = e.call(OBJECT_GET_FIELD_08, &args![item]).u32();
+            let field = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             if field != e.global::<u32>(WEAPON_COMPARE_GLOBAL) {
                 let health = e
                     .call(ITEM_CHANGE_GET_ITEM_HEALTH, &args![item, 1u32])
@@ -2424,12 +2437,12 @@ pub fn script_is_greeting_player_condition_function(
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
     if !actor.is_null()
-        && !e
-            .call(ACTOR_GET_PROCESS, &args![actor])
+        && !typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+            .into_ret()
             .ptr::<()>()
             .is_null()
     {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         if e.vcall(process, VSLOT_PROCESS_TEST_30C, &args![]).bool() {
             let world = e.call(REF_GET_PARENT_WORLD_SIMPLE, &args![actor]).u32();
             if world == e.global::<u32>(PLAYER) {

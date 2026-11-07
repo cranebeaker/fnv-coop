@@ -19,6 +19,7 @@ const CLONE: u32 = 0x00a5_d680;
 /// `0066b0d0` (`thiscall`, `RET 4`): stores the node in the holder at +0xc.
 const SET_NODE: u32 = 0x0066_b0d0;
 /// `00559450` (`thiscall`, no stack word): the node held at +0xc.
+#[cfg(test)]
 const GET_NODE: u32 = 0x0055_9450;
 /// `0062bc10` (`cdecl`, one word; engine map `TESHavokUtilities::RemoveHavokFromSceneGraph`).
 const REMOVE_HAVOK: u32 = 0x0062_bc10;
@@ -86,27 +87,27 @@ pub fn fn_009baf50(e: &mut Engine, this: Ptr, placement: u32) {
             e.call(SET_NODE, &args![holder, clone]);
         }
     }
-    if e.call(GET_NODE, &args![holder]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) == 0 {
         return;
     }
-    let node = e.call(GET_NODE, &args![holder]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
     e.call(REMOVE_HAVOK, &args![node]);
     e.call(POSITION_3D, &args![this, placement]);
     e.call(AFTER_POSITION, &args![this]);
-    let node = e.call(GET_NODE, &args![holder]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
     e.call(START_ANIMATIONS, &args![node]);
-    let node = e.call(GET_NODE, &args![holder]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
     e.call(UPDATE_PROPERTIES, &args![node]);
     let time = e.global::<u32>(GAME_TIME);
     let step: f64 = e.global(TIME_STEP);
     let start = x87_store32(x87_sub(x87_load32(time), step));
     e.with_stack(0xc, |e, local| {
         e.call(MAKE_UPDATE, &args![local, start, 1u32, 0u32]);
-        let node = e.call(GET_NODE, &args![holder]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         e.call(NODE_UPDATE, &args![node, local]);
         let time = x87_quiet_bits(e.global::<u32>(GAME_TIME));
         e.mem.set_u32(local.addr(), time);
-        let node = e.call(GET_NODE, &args![holder]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         e.call(NODE_UPDATE, &args![node, local]);
     });
 }

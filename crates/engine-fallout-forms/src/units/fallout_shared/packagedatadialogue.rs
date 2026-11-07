@@ -46,6 +46,7 @@ const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// `TESForm::__AddChunkData` (Xbox PDB), cdecl: chunk type, data, size.
 const ADD_CHUNK_DATA: u32 = 0x0048_5990;
 /// Returns the form ID of the form it is called on (`ECX`).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// Returns a byte flag from a global (`011c54ba`); when it is set the
 /// chunk is byte-swapped before and after it is written.
@@ -346,7 +347,7 @@ pub fn tes_dialogue_package_data_init_item(
         let topic = topic_from_form_id(e, resolved_id);
         e.set(this, TESDialoguePackageData::ptopic, topic);
         if topic.is_null() && resolved_id != 0 {
-            let owner_id = e.call(GET_FORM_ID, &args![owner]).u32();
+            let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             let name = e.vcall(owner.addr(), 0x130, &args![]).u32();
             e.call(
                 LOG_FORMAT,
@@ -380,7 +381,7 @@ pub fn tes_dialogue_package_data_save(e: &mut Engine, this: Ptr<TESDialoguePacka
         e.mem.set_f32(base + 0x0c, distance);
         let topic = e.get(this, TESDialoguePackageData::ptopic);
         if !topic.is_null() {
-            let form_id = e.call(GET_FORM_ID, &args![topic]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, topic));
             e.mem.set_u32(base + 4, form_id);
         }
         if e.call(CHUNK_SWAP_FLAG, &args![]).bool() {

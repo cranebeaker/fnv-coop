@@ -37,7 +37,7 @@ pub fn tes_object_stat_init_item(e: &mut Engine, this: Ptr) {
             .u32();
         e.mem.set_u32(base + 0x54, sound);
         if e.mem.u32(base + 0x54) == 0 {
-            let form_id = e.call(0x0084_e3a0, &args![this]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(base, 0x130, &args![]).u32();
             e.call(0x005b_5e40, &args![0x0102_bbb0u32, id, name, form_id]);
         }

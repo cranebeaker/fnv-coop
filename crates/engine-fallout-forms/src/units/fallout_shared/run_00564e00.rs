@@ -12,8 +12,10 @@ use crate::prelude::*;
 
 /// The pointer at `+0x20` (`007af430`; the engine map names the body
 /// `BGSSaveFormBuffer::GetForm`, which may belong to other folded code).
+#[cfg(test)]
 const RELATED_OBJECT: u32 = 0x007a_f430;
 /// The word at `+8` of the object (`0044ddc0`).
+#[cfg(test)]
 const GET_FLAGS: u32 = 0x0044_ddc0;
 /// Stores the word at `+8` of the object (`00403550`, one stack word).
 const SET_FLAGS: u32 = 0x0040_3550;
@@ -39,6 +41,7 @@ const ALLOCATE: u32 = 0x0040_1000;
 const SET_EXTRA_FLAGS: u32 = 0x0041_fd00;
 /// The word at `+0x0c` of an extra data (`0084e3a0`), which these
 /// functions use as its flags.
+#[cfg(test)]
 const GET_EXTRA_FLAGS: u32 = 0x0084_e3a0;
 /// The type number of the extra data these functions handle.
 const EXTRA_TYPE: u32 = 0x92;
@@ -48,8 +51,10 @@ const EXTRA_TYPE: u32 = 0x92;
 /// word at `+8` (`00564e40`). `__fastcall`, no stack words.
 pub fn fn_00564e00(e: &mut Engine, this: Ptr) -> bool {
     let mut result = false;
-    if e.call(RELATED_OBJECT, &args![this]).u32() != 0 {
-        let related = e.call(RELATED_OBJECT, &args![this]).ptr::<()>();
+    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this)) != 0 {
+        let related = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this))
+            .into_ret()
+            .ptr::<()>();
         if fn_00564e40(e, related) {
             result = true;
         }
@@ -69,12 +74,14 @@ pub fn fn_00564e40(e: &mut Engine, this: Ptr) -> bool {
 /// word at `+8` (`00564e40`).
 /// `__fastcall`.
 pub fn fn_00564e60(e: &mut Engine, this: Ptr) -> bool {
-    let flags = e.call(GET_FLAGS, &args![this]).u32();
+    let flags = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     if flags & 0x8000 != 0 {
         return true;
     }
-    if e.call(RELATED_OBJECT, &args![this]).u32() != 0 {
-        let related = e.call(RELATED_OBJECT, &args![this]).ptr::<()>();
+    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this)) != 0 {
+        let related = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this))
+            .into_ret()
+            .ptr::<()>();
         if fn_00564e40(e, related) {
             return true;
         }
@@ -86,7 +93,7 @@ pub fn fn_00564e60(e: &mut Engine, this: Ptr) -> bool {
 /// Sets (`set` non-zero) or clears bit `0x8000` of the word at `+8` of the
 /// object and stores it back (`00403550`). `__thiscall`, one stack word (a byte).
 pub fn fn_00564eb0(e: &mut Engine, this: Ptr, set: u8) {
-    let mut flags = e.call(GET_FLAGS, &args![this]).u32();
+    let mut flags = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     if set != 0 {
         flags |= 0x8000;
     } else {
@@ -101,7 +108,7 @@ pub fn fn_00564eb0(e: &mut Engine, this: Ptr, set: u8) {
 pub fn fn_00564f00(e: &mut Engine, this: Ptr) -> bool {
     let extra = e.call(FIND_EXTRA, &args![this, EXTRA_TYPE]).u32();
     if extra != 0 {
-        let flags = e.call(GET_EXTRA_FLAGS, &args![extra]).u32();
+        let flags = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, extra));
         if flags & 2 != 0 {
             return true;
         }
@@ -130,7 +137,7 @@ pub fn fn_00564f40(e: &mut Engine, this: Ptr, set: u8) {
         extra = e.call(ADD_EXTRA, &args![list, created]).u32();
     }
     if extra != 0 {
-        let mut flags = e.call(GET_EXTRA_FLAGS, &args![extra]).u32();
+        let mut flags = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, extra));
         if set != 0 {
             flags |= 2;
         } else {

@@ -15,6 +15,7 @@
 use crate::prelude::*;
 
 /// `NiPointer` dereference (`*this`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// The `NiPointer(pointer)` constructor: stores the argument and retains it.
 const POINTER_CONSTRUCT: u32 = 0x0063_3c90;
@@ -94,8 +95,8 @@ pub fn fn_006fa210(e: &mut Engine, this: Ptr, node: Ptr, extra: u32, x: i16, y: 
             &args![guard, 0x23u32, 1u32, SOURCE_FILE_STRING, 0x30u32],
         );
         e.mem.set_u32(base, node.addr());
-        let manager = e.call(POINTER_GET, &args![node]).u32();
-        let world = e.call(POINTER_GET, &args![manager]).u32();
+        let manager = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
+        let world = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, manager));
         let storage = e.call(ALLOCATE, &args![0x60u32]).u32();
         let task = if storage != 0 {
             e.call(
@@ -107,7 +108,7 @@ pub fn fn_006fa210(e: &mut Engine, this: Ptr, node: Ptr, extra: u32, x: i16, y: 
             0
         };
         e.call(LOAD_TASK_POINTER_SET, &args![base + 0x24, task]);
-        let task = e.call(POINTER_GET, &args![base + 0x24]).u32();
+        let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x24));
         e.vcall(task, 0x20, &[]);
         e.mem.set_u8(base + 0x28, 0);
         e.mem.set_u8(base + 0x29, 0);
@@ -139,33 +140,33 @@ pub fn fn_006fa210(e: &mut Engine, this: Ptr, node: Ptr, extra: u32, x: i16, y: 
 // Translation incomplete: 006fa420 - SEH exception unwinding (FS:[0] frame) is unsupported.
 pub fn fn_006fa420(e: &mut Engine, this: Ptr) {
     let base = this.addr();
-    if e.call(POINTER_GET, &args![base + 4]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 4)) != 0 {
         e.call(CHUNK_LIST_REMOVE, &args![this]);
     }
-    if e.call(POINTER_GET, &args![base + 4]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 4)) != 0 {
         let count = e.global::<u32>(CHUNK_COUNT);
         e.set_global(CHUNK_COUNT, count.wrapping_sub(1));
-        if e.call(POINTER_GET, &args![base + 0x10]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x10)) != 0 {
             let node = e.mem.u32(base);
-            let manager = e.call(POINTER_GET, &args![node]).u32();
+            let manager = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
             let object = e.call(GLOBAL_OBJECT_GETTER, &args![manager]).u32();
-            let sp_node = e.call(POINTER_GET, &args![base + 0x10]).u32();
+            let sp_node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x10));
             e.vcall(object, 0xe8, &args![sp_node]);
         } else {
             let node = e.mem.u32(base);
-            let manager = e.call(POINTER_GET, &args![node]).u32();
+            let manager = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
             let object = e.call(GLOBAL_OBJECT_GETTER, &args![manager]).u32();
-            let mesh = e.call(POINTER_GET, &args![base + 4]).u32();
+            let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 4));
             e.vcall(object, 0xe8, &args![mesh]);
         }
-    } else if e.call(POINTER_GET, &args![base + 0x24]).u32() != 0 {
-        let task = e.call(POINTER_GET, &args![base + 0x24]).u32();
+    } else if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x24)) != 0 {
+        let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x24));
         let manager = e.global::<u32>(TASK_MANAGER);
         e.call(TASK_MANAGER_CANCEL, &args![manager, task, 0u32]);
     }
     e.call(CHUNK_CALL_006FB3D0, &args![this, 0u32]);
     for offset in [0x10, 0x14, 0x18] {
-        let pointer = e.call(POINTER_GET, &args![base + offset]).u32();
+        let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + offset));
         e.call(OBJECT_RELEASE, &args![pointer]);
     }
     e.call(LOAD_TASK_POINTER_SET, &args![base + 0x24, 0u32]);

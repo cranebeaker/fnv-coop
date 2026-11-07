@@ -5,10 +5,13 @@
 use crate::prelude::*;
 
 /// `008256d0` (thiscall on a list node): whether the list is empty.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (thiscall on a list node): the address of the node's item word.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (thiscall on a list node): the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `0063f7b0` (thiscall on a list node): removes the node's item.
 const NODE_REMOVE: u32 = 0x0063_f7b0;
@@ -40,17 +43,17 @@ const CHUNK_NIFT: u32 = 0x5446_494e;
 /// compare `00404dc0` gives 0): false for an empty list or a null name.
 pub fn fn_00489f20(e: &mut Engine, this: Ptr, name: u32) -> bool {
     let list = this.addr() + 4;
-    if e.call(LIST_IS_EMPTY, &args![list]).bool() || name == 0 {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) || name == 0 {
         return false;
     }
     let mut node = list;
     while node != 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let text = e.mem.u32(item);
         if text != 0 && e.call(0x0040_4dc0, &args![text, name]).u32() == 0 {
             return true;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }
@@ -79,8 +82,8 @@ pub fn tes_model_list_add_nif_file(e: &mut Engine, this: Ptr, name: u32) {
 /// (`0048a010`).
 pub fn tes_model_list_clear_data_component(e: &mut Engine, this: Ptr) {
     let list = this.addr() + 4;
-    while !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-        let item = e.call(NODE_ITEM, &args![list]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let name = e.mem.u32(item);
         e.call(NODE_REMOVE, &args![list]);
         e.call(FREE, &args![name]);
@@ -144,12 +147,12 @@ pub fn tes_model_list_copy_component(e: &mut Engine, this: Ptr, other: u32) {
     e.vcall(this.addr(), 0x4, &[]);
     let mut node = source + 4;
     while node != 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let name = e.mem.u32(item);
         if name != 0 {
             tes_model_list_add_nif_file(e, this, name);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let textures = e.call(0x0048_d150, &args![source]).u32();
     fn_0048a2c0(e, Ptr::new(this.addr() + 0xc), textures);
@@ -204,10 +207,10 @@ pub fn fn_0048a0d0(e: &mut Engine, this: Ptr, owner: u32, file: Ptr) {
     while index < e.mem.u32(base) {
         let mut name = 0u32;
         if node != 0 {
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             name = e.mem.u32(item);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         let entry = new_texture_entry(e);
         let array = e.mem.u32(base + 4);
         e.mem
@@ -290,24 +293,24 @@ const STRICMP: u32 = 0x0040_4dc0;
 /// the texture lists (+0x0C) with `texture_chunk`.
 pub fn tes_model_list_save(e: &mut Engine, this: Ptr, chunk: u32, texture_chunk: u32) {
     let list = this.addr() + 4;
-    if !e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         let mut size = 1u32;
         let mut node = list;
         while node != 0 {
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let name = e.mem.u32(item);
             if name != 0 {
                 let length = e.call(STRLEN, &args![name]).u32();
                 size = size.wrapping_add(length).wrapping_add(1);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let buffer = e.call(ALLOCATE, &args![size]).u32();
         let mut out = buffer;
         let mut room = size;
         node = list;
         while node != 0 {
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let name = e.mem.u32(item);
             if name != 0 {
                 e.call(STRCPY_S, &args![out, room, name]);
@@ -315,7 +318,7 @@ pub fn tes_model_list_save(e: &mut Engine, this: Ptr, chunk: u32, texture_chunk:
                 out = out.wrapping_add(step);
                 room = room.wrapping_sub(step);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         e.mem.set_u8(out, 0);
         e.call(ADD_CHUNK_ARRAY, &args![chunk, buffer, size]);
@@ -348,9 +351,9 @@ pub fn tes_model_list_compare_component(e: &mut Engine, this: Ptr, other: u32) -
     let mut mine = this.addr() + 4;
     let mut theirs = source + 4;
     while mine != 0 && theirs != 0 {
-        let item = e.call(NODE_ITEM, &args![mine]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
         let a = e.mem.u32(item);
-        let item = e.call(NODE_ITEM, &args![theirs]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         let b = e.mem.u32(item);
         if (a == 0 && b != 0) || (a != 0 && b == 0) {
             return true;
@@ -358,8 +361,8 @@ pub fn tes_model_list_compare_component(e: &mut Engine, this: Ptr, other: u32) -
         if a != 0 && b != 0 && e.call(STRICMP, &args![a, b]).u32() != 0 {
             return true;
         }
-        mine = e.call(NODE_NEXT, &args![mine]).u32();
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
     }
     mine != 0 || theirs != 0
 }

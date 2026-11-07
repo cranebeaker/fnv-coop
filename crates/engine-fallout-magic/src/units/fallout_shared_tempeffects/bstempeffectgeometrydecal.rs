@@ -67,6 +67,7 @@ pub fn fn_006885d0(_e: &mut Engine, _this: Ptr) -> u32 {
 }
 
 /// The word getter `00559450` (`thiscall`: the word at `+0`).
+#[cfg(test)]
 const WORD_AT_0_00559450: u32 = 0x0055_9450;
 /// The global `fn_00683a60` answers (`011f5b04`).
 const GLOBAL_011F5B04: u32 = 0x011f_5b04;
@@ -105,8 +106,11 @@ pub fn ni_point3_dot(e: &mut Engine, this: Ptr, other: u32) -> f32 {
 /// Unnamed in the engine map: the word at `+0x1c` (through the getter `00559450` on
 /// `this + 0x1c`).
 pub fn fn_006838b0(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(WORD_AT_0_00559450, &args![this.addr().wrapping_add(0x1c)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(0x1c))
+    )
 }
 
 // Translated from 00683a60 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -249,6 +253,7 @@ const COLOR_COMPONENT_00560D30: u32 = 0x0056_0d30;
 /// words at +0x24 and +0x20 of the object they are given.
 const WORD_AT_8_004A8AE0: u32 = 0x004a_8ae0;
 const WORD_AT_24_0059BB30: u32 = 0x0059_bb30;
+#[cfg(test)]
 const WORD_AT_20_007AF430: u32 = 0x007a_f430;
 /// `00a855f0` (`thiscall`, `RET 0x20`): the eight-word set-up the
 /// [`fn_00687d40`] forwarder hands its words to.
@@ -259,6 +264,7 @@ const POINTER_AT_30_004A8A90: u32 = 0x004a_8a90;
 /// initialize).
 const GEOMETRY_TEST_0043FAD0: u32 = 0x0043_fad0;
 /// `00726070` (no stack word): an answer of the node compared with 1.
+#[cfg(test)]
 const NODE_ANSWER_00726070: u32 = 0x0072_6070;
 /// The skin object's slot (+0x8C) whose byte answer selects the skinned
 /// build of the decal.
@@ -299,6 +305,7 @@ const LOOKUP_FORM_004839C0: u32 = 0x0048_39c0;
 /// The form's text slot (+0x130) the reports print.
 const SLOT_FORM_TEXT: u32 = 0x130;
 /// `Error` (`0040fbe0`, engine map; cdecl, a format and its words).
+#[cfg(test)]
 const ERROR_REPORT: u32 = 0x0040_fbe0;
 /// `005b5e40` (cdecl, a format and its words): prints a warning.
 const PRINT_WARNING_005B5E40: u32 = 0x005b_5e40;
@@ -364,8 +371,8 @@ pub fn fn_00683900(
     for offset in [0x1cu32, 0x2c, 0x30, 0x34] {
         e.call(POINTER_CONSTRUCT_00633C90, &args![base + offset, 0u32]);
     }
-    e.call(LOCAL_INIT_006815C0, &args![base + 0x38]);
-    e.call(LOCAL_INIT_006815C0, &args![base + 0x44]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x38));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x44));
     e.set(this, BSTempEffectGeometryDecal::bFinished, 0);
     e.call(POINTER_SET_0066B0D0, &args![base + 0x1c, 0u32]);
     e.set(this, BSTempEffectGeometryDecal::pOldIndex, 0);
@@ -558,7 +565,7 @@ pub fn fn_00685e60(e: &mut Engine, this: Ptr, first: u32, second: u32) {
 pub fn fn_00687d40(e: &mut Engine, this: Ptr, source: u32, a: u32, b: u32, c: u32, d: u32, f: u32) {
     let count = e.call(WORD_AT_8_004A8AE0, &args![source]).u16();
     let second = e.call(WORD_AT_24_0059BB30, &args![source]).u32();
-    let first = e.call(WORD_AT_20_007AF430, &args![source]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, source));
     e.call(
         SKIN_SETUP_00A855F0,
         &args![this, first, second, u32::from(count), a, b, c, d, f],
@@ -621,16 +628,17 @@ pub fn fn_006884c0(e: &mut Engine, this: Ptr, skin_data: u32, root: u32, bones: 
 /// cleared.
 pub fn bs_temp_effect_geometry_decal_initialize(e: &mut Engine, this: Ptr) {
     let base = this.addr();
-    let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
     if e.call(GEOMETRY_TEST_0043FAD0, &args![target]).u32() == 0 {
         return;
     }
     if e.mem.u8(base + 0x14) == 0 {
-        let parent = e.call(WORD_AT_0_00559450, &args![base + 0x30]).u32();
-        if e.call(NODE_ANSWER_00726070, &args![parent]).u32() > 1 {
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
-            if e.call(NODE_ANSWER_00726070, &args![target]).u32() > 1 {
-                let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+        let parent = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x30));
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, parent)) > 1 {
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, target)) > 1 {
+                let target =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
                 let skin = fn_00688730(e, Ptr::new(target));
                 if skin != 0 && e.vcall(skin, SLOT_SKIN_TEST, &args![]).u8() != 0 {
                     fn_00683c10(e, this);
@@ -649,10 +657,19 @@ pub fn bs_temp_effect_geometry_decal_initialize(e: &mut Engine, this: Ptr) {
 /// Unnamed: the skin object of a geometry: when its pointer at +0xB8 holds
 /// an object, that object's +0x30 object (`004a8a90`), else 0.
 pub fn fn_00688730(e: &mut Engine, this: Ptr) -> u32 {
-    if e.call(WORD_AT_0_00559450, &args![this.addr() + 0xb8]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xb8)
+    ) == 0
+    {
         return 0;
     }
-    let held = e.call(WORD_AT_0_00559450, &args![this.addr() + 0xb8]).u32();
+    let held = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xb8)
+    );
     e.call(POINTER_AT_30_004A8A90, &args![held]).u32()
 }
 
@@ -667,12 +684,12 @@ pub fn fn_00688730(e: &mut Engine, this: Ptr) -> u32 {
 pub fn fn_00688770(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     e.mem.set_u32(base, GEOMETRY_DECAL_VTABLE);
-    if e.call(WORD_AT_0_00559450, &args![base + 0x1c]).u32() != 0 {
-        let geometry = e.call(WORD_AT_0_00559450, &args![base + 0x1c]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c)) != 0 {
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
         if e.call(PARENT_009611E0, &args![geometry]).u32() != 0 {
-            let geometry = e.call(WORD_AT_0_00559450, &args![base + 0x1c]).u32();
+            let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
             let parent = e.call(PARENT_009611E0, &args![geometry]).u32();
-            let geometry = e.call(WORD_AT_0_00559450, &args![base + 0x1c]).u32();
+            let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
             e.vcall(parent, SLOT_DETACH_CHILD, &args![geometry]);
         }
         e.call(POINTER_SET_0066B0D0, &args![base + 0x1c, 0u32]);
@@ -724,23 +741,26 @@ pub fn bs_temp_effect_geometry_decal_update(e: &mut Engine, this: Ptr, seconds: 
         return alive;
     }
     let mut parent = 0;
-    if e.call(WORD_AT_0_00559450, &args![base + 0x34]).u32() != 0 {
-        let decal_parent = e.call(WORD_AT_0_00559450, &args![base + 0x34]).u32();
-        let geometry = e.call(WORD_AT_0_00559450, &args![base + 0x1c]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x34)) != 0 {
+        let decal_parent = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x34));
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
         e.vcall(decal_parent, SLOT_DETACH_CHILD, &args![geometry]);
-        let decal_parent = e.call(WORD_AT_0_00559450, &args![base + 0x34]).u32();
+        let decal_parent = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x34));
         if e.call(PARENT_009611E0, &args![decal_parent]).u32() != 0 {
-            let decal_parent = e.call(WORD_AT_0_00559450, &args![base + 0x34]).u32();
+            let decal_parent =
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x34));
             parent = e.call(PARENT_009611E0, &args![decal_parent]).u32();
             e.call(PARENT_NOTIFY_004EE4F0, &args![parent, this]);
         }
     }
     if parent != 0 {
-        let decal_parent = e.call(WORD_AT_0_00559450, &args![base + 0x34]).u32();
+        let decal_parent = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x34));
         if e.call(NODE_TEST_00453470, &args![decal_parent]).u32() == 0 {
-            let decal_parent = e.call(WORD_AT_0_00559450, &args![base + 0x34]).u32();
+            let decal_parent =
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x34));
             let grand_parent = e.call(PARENT_009611E0, &args![decal_parent]).u32();
-            let decal_parent = e.call(WORD_AT_0_00559450, &args![base + 0x34]).u32();
+            let decal_parent =
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x34));
             e.vcall(grand_parent, SLOT_DETACH_CHILD, &args![decal_parent]);
             let count = e.global::<u32>(DECAL_COUNT_011C57F0).wrapping_sub(1);
             e.set_global(DECAL_COUNT_011C57F0, count);
@@ -778,12 +798,9 @@ pub(crate) fn save_report(
         let flags = e.mem.u32(record + 5);
         let text = e.vcall(form, SLOT_FORM_TEXT, &args![]).u32();
         let id = e.mem.u32(record);
-        e.call(
-            ERROR_REPORT,
-            &args![with_form, size, id, text, flags, line, file],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words with_form, size, id, text, flags, line, file);
     } else {
-        e.call(ERROR_REPORT, &args![plain, size, line, file]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words plain, size, line, file);
     }
 }
 
@@ -1012,6 +1029,7 @@ const BONE_COUNT_008041A0: u32 = 0x0080_41a0;
 const ROOT_0048D150: u32 = 0x0048_d150;
 const SKIN_DATA_CONSTRUCT_00A854C0: u32 = 0x00a8_54c0;
 const BONES_00825C00: u32 = 0x0082_5c00;
+#[cfg(test)]
 const LIST_COUNT_0044DDC0: u32 = 0x0044_ddc0;
 const SKIN_ROOT_0044EDB0: u32 = 0x0044_edb0;
 const SET_PARTITION_004ADDC0: u32 = 0x004a_ddc0;
@@ -1117,7 +1135,11 @@ pub fn fn_00687d90(
                 TEXTURE_SET_SLOT_90,
                 &args![0u32, texture_pointer],
             );
-            let texture = e.call(WORD_AT_0_00559450, &args![texture_pointer]).u32();
+            let texture = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, texture_pointer)
+            );
             if e.call(IS_KIND_0043B300, &args![KIND_011F444C, texture])
                 .u8()
                 != 0
@@ -1154,7 +1176,7 @@ pub fn fn_00687d90(
             }
             let mut count: u32 = 0;
             if list != 0 {
-                count = e.call(LIST_COUNT_0044DDC0, &args![list]).u32();
+                count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list));
             } else {
                 let mut bit: u32 = 2;
                 for number in 0..0xfu32 {
@@ -1230,29 +1252,29 @@ pub fn fn_00687d90(
                     }
                 }
             }
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
             let translation = e.call(TRANSLATION_0043C490, &args![target]).u32();
             e.call(SET_TRANSLATE_00440460, &args![shape, translation]);
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
             let rotation = e.call(ROTATION_006A9540, &args![target]).u32();
             e.call(SET_ROTATE_0043FA80, &args![shape, rotation]);
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
             let scale = e.call(SCALE_009CDAE0, &args![target]).f64();
             e.call(SET_SCALE_00440490, &args![shape, x87_store32(scale)]);
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
             let position = e.call(WORLD_POSITION_0045BB80, &args![target]).u32();
             e.call(SET_WORLD_POSITION_004F00E0, &args![shape, position]);
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
             let transform = e.call(WORLD_TRANSFORM_00461130, &args![target]).u32();
             fn_00688430(e, Ptr::new(shape), transform);
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
             let value = e.call(VALUE_008D01E0, &args![target]).f64();
             e.call(SET_FLOAT_006427A0, &args![shape, x87_store32(value)]);
             e.vcall(shape, SHAPE_SLOT_BC, &args![]);
             e.call(UPDATE_PROPERTIES_00A5A040, &args![shape]);
             e.call(PREPARE_OBJECT, &args![shape, 0u32, 0u32]);
             e.call(POINTER_SET_0066B0D0, &args![base + 0x1c, shape]);
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
             e.mem.set_u32(base + 0x20, target);
             e.call(POINTER_DESTRUCT_0045CEC0, &args![texture_pointer]);
         });
@@ -1271,6 +1293,7 @@ const MATRIX_MULTIPLY_0043F8D0: u32 = 0x0043_f8d0;
 const SET_TRANSLATION_004578C0: u32 = 0x0045_78c0;
 const BONE_DATA_008D6F30: u32 = 0x008d_6f30;
 const PARTITION_FLAGS_009E32D0: u32 = 0x009e_32d0;
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 const FILL_MEMORY_00403D30: u32 = 0x0040_3d30;
 const EH_VECTOR_CONSTRUCT_00EC782F: u32 = 0x00ec_782f;
@@ -1376,7 +1399,7 @@ pub fn fn_00685ef0(e: &mut Engine, this: Ptr) {
     // The frame below EBP: `local(n)` is EBP - n.
     e.with_stack(0x3c0, |e, frame| {
         let local = |offset: u32| frame.addr() + 0x3c0 - offset;
-        let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
         let skin = e.call(GEOMETRY_TEST_0043FAD0, &args![target]).u32();
         if e.call(IS_KIND_0045BAD0, &args![DISMEMBER_SKIN_INSTANCE_RTTI, skin])
             .u8()
@@ -1386,14 +1409,14 @@ pub fn fn_00685ef0(e: &mut Engine, this: Ptr) {
         }
         let dismember = skin;
         let controller = e.call(FIRST_CONTROLLER_0043B230, &args![skin]).u32();
-        let part_count = e.call(LIST_COUNT_0044DDC0, &args![controller]).u32();
+        let part_count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, controller));
         // The decal's projection: m1 (EBP-0x54) from the vector's rotation
         // and the decal's rotation, the target's inverse rotation
         // (EBP-0x17C), the vector in the target's space (EBP-0xC4), the
         // target's transform with the origin as translation (EBP-0x144).
         let projection = local(0x54);
-        e.call(LOCAL_INIT_006815C0, &args![projection]);
-        let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, projection));
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
         let world = e.call(WORLD_TRANSFORM_00461130, &args![target]).u32();
         for i in 0..9 {
             let word = e.mem.u32(world + 4 * i);
@@ -1401,7 +1424,7 @@ pub fn fn_00685ef0(e: &mut Engine, this: Ptr) {
         }
         e.call(MATRIX_INVERSE_004B45B0, &args![local(0xfc), local(0x17c)]);
         let vector = local(0xc4);
-        e.call(LOCAL_INIT_006815C0, &args![vector]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
         let moved = e
             .call(
                 MATRIX_TIMES_POINT_004B4500,
@@ -1410,7 +1433,7 @@ pub fn fn_00685ef0(e: &mut Engine, this: Ptr) {
             .u32();
         copy_point(e, moved, vector);
         let spin = local(0x80);
-        e.call(LOCAL_INIT_006815C0, &args![spin]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, spin));
         let rotation = x87_quiet_bits(e.mem.u32(base + 0x54));
         e.call(MATRIX_ANGLE_004A0C90, &args![spin, rotation]);
         let facing = e
@@ -1431,7 +1454,7 @@ pub fn fn_00685ef0(e: &mut Engine, this: Ptr) {
             let word = e.mem.u32(product + 4 * i);
             e.mem.set_u32(projection + 4 * i, word);
         }
-        let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
         let world = e.call(WORLD_TRANSFORM_00461130, &args![target]).u32();
         let transform = local(0x144);
         for i in 0..13 {
@@ -1447,14 +1470,14 @@ pub fn fn_00685ef0(e: &mut Engine, this: Ptr) {
         if source_bones == 0 || e.mem.u32(source_bones + 0x44) == 0 {
             return;
         }
-        let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
         let data = e.call(GEOMETRY_DATA_005495F0, &args![target]).u32();
         let vertex_count = u32::from(e.call(VERTEX_COUNT_004A8AE0, &args![data]).u16());
         let mut kept_triangles: u16 = 0;
         let mut any = false;
         let mut used: u32 = 0;
         let controller = e.call(FIRST_CONTROLLER_0043B230, &args![skin]).u32();
-        let parts = e.call(FORM_ID_0084E3A0, &args![controller]).u32();
+        let parts = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, controller));
         // The exe computes the first partition's strip flag here; it is
         // set again for each partition before it is read.
         let _ = e.mem.u16(parts + 0x22);
@@ -1517,7 +1540,7 @@ pub fn fn_00685ef0(e: &mut Engine, this: Ptr) {
         let projected = allocate_points(e, vertex_count);
         let positions = allocate_points(e, vertex_count);
         let normals = allocate_points(e, vertex_count);
-        let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
         let data = e.call(GEOMETRY_DATA_005495F0, &args![target]).u32();
         fn_00687d40(e, Ptr::new(skin), data, positions, normals, 0, 0, 0xc);
         let skin_object = e.call(SKIN_DATA_OF_005585E0, &args![skin]).u32();
@@ -1553,8 +1576,8 @@ pub fn fn_00685ef0(e: &mut Engine, this: Ptr) {
         copy_point(e, vector, local_vector);
         let point = local(0x28);
         let normal = local(0x8c);
-        e.call(LOCAL_INIT_006815C0, &args![point]);
-        e.call(LOCAL_INIT_006815C0, &args![normal]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, normal));
         let outer = local(0x1bc);
         let inner = local(0x1b0);
         let half: f64 = e.global(HALF_DOUBLE);
@@ -1815,10 +1838,11 @@ pub fn fn_00685ef0(e: &mut Engine, this: Ptr) {
                 COPY_MEMORY_00401460,
                 &args![triangles_copy, out_triangles, u32::from(out_count) << 1],
             );
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
             let data = e.call(GEOMETRY_DATA_005495F0, &args![target]).u32();
-            let source_positions = e.call(WORD_AT_20_007AF430, &args![data]).u32();
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+            let source_positions =
+                typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data));
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
             let data = e.call(GEOMETRY_DATA_005495F0, &args![target]).u32();
             // The exe also takes the source's +0x24 array and never reads it.
             e.call(WORD_AT_24_0059BB30, &args![data]);
@@ -1880,7 +1904,7 @@ pub fn fn_00685ef0(e: &mut Engine, this: Ptr) {
                 e.call(OPERATOR_DELETE, &args![old]);
                 bone += 1;
             }
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
             let (list, list_parts) = if partition != 0 {
                 (partition, part_list)
             } else {
@@ -1966,7 +1990,7 @@ pub fn fn_00683c10(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     e.with_stack(0x320, |e, frame| {
         let local = |offset: u32| frame.addr() + 0x320 - offset;
-        let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
         let skin = e.call(GEOMETRY_TEST_0043FAD0, &args![target]).u32();
         if e.call(IS_KIND_0045BAD0, &args![DISMEMBER_SKIN_INSTANCE_RTTI, skin])
             .u8()
@@ -1976,10 +2000,10 @@ pub fn fn_00683c10(e: &mut Engine, this: Ptr) {
         }
         let dismember = skin;
         let controller = e.call(FIRST_CONTROLLER_0043B230, &args![skin]).u32();
-        let part_count = e.call(LIST_COUNT_0044DDC0, &args![controller]).u32();
+        let part_count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, controller));
         let projection = local(0x84);
-        e.call(LOCAL_INIT_006815C0, &args![projection]);
-        let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, projection));
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
         let world = e.call(WORLD_TRANSFORM_00461130, &args![target]).u32();
         for i in 0..9 {
             let word = e.mem.u32(world + 4 * i);
@@ -1987,7 +2011,7 @@ pub fn fn_00683c10(e: &mut Engine, this: Ptr) {
         }
         e.call(MATRIX_INVERSE_004B45B0, &args![local(0x138), local(0x1bc)]);
         let vector = local(0x108);
-        e.call(LOCAL_INIT_006815C0, &args![vector]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
         let moved = e
             .call(
                 MATRIX_TIMES_POINT_004B4500,
@@ -1996,7 +2020,7 @@ pub fn fn_00683c10(e: &mut Engine, this: Ptr) {
             .u32();
         copy_point(e, moved, vector);
         let spin = local(0xbc);
-        e.call(LOCAL_INIT_006815C0, &args![spin]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, spin));
         let rotation = x87_quiet_bits(e.mem.u32(base + 0x54));
         e.call(MATRIX_ANGLE_004A0C90, &args![spin, rotation]);
         let facing = e
@@ -2017,7 +2041,7 @@ pub fn fn_00683c10(e: &mut Engine, this: Ptr) {
             let word = e.mem.u32(product + 4 * i);
             e.mem.set_u32(projection + 4 * i, word);
         }
-        let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
         let world = e.call(WORLD_TRANSFORM_00461130, &args![target]).u32();
         let transform = local(0x184);
         for i in 0..13 {
@@ -2043,7 +2067,7 @@ pub fn fn_00683c10(e: &mut Engine, this: Ptr) {
         ] {
             e.call(STREAM_CONSTRUCT_00534550, &args![stream]);
         }
-        let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
         let data = e.call(GEOMETRY_DATA_005495F0, &args![target]).u32();
         let partition_data = e.call(SKIN_PARTITION_DATA_004A8A90, &args![data]).u32();
         let skin_object = e.call(SKIN_DATA_OF_005585E0, &args![skin]).u32();
@@ -2055,7 +2079,7 @@ pub fn fn_00683c10(e: &mut Engine, this: Ptr) {
                 .u16(),
         );
         let geometry_data = |e: &mut Engine| {
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
             e.call(GEOMETRY_DATA_005495F0, &args![target]).u32()
         };
         let data = geometry_data(e);
@@ -2074,7 +2098,7 @@ pub fn fn_00683c10(e: &mut Engine, this: Ptr) {
         let mut any = false;
         let mut used: u32 = 0;
         let controller = e.call(FIRST_CONTROLLER_0043B230, &args![skin]).u32();
-        let parts = e.call(FORM_ID_0084E3A0, &args![controller]).u32();
+        let parts = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, controller));
         let strips = e.mem.u16(parts + 0x22) != 0;
         let mut index: i32 = 0;
         while index < part_count as i32 {
@@ -2192,8 +2216,8 @@ pub fn fn_00683c10(e: &mut Engine, this: Ptr) {
         copy_point(e, vector, local_vector);
         let point = local(0x50);
         let normal = local(0xcc);
-        e.call(LOCAL_INIT_006815C0, &args![point]);
-        e.call(LOCAL_INIT_006815C0, &args![normal]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, normal));
         let outer = local(0x1fc);
         let inner = local(0x1f0);
         let half: f64 = e.global(HALF_DOUBLE);
@@ -2509,8 +2533,8 @@ pub fn fn_00683c10(e: &mut Engine, this: Ptr) {
             let second = local(0x2a0);
             let mut v: i32 = 0;
             while v < vertex_count as i32 {
-                e.call(LOCAL_INIT_006815C0, &args![position]);
-                e.call(LOCAL_INIT_006815C0, &args![second]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
                 let remapped = e.mem.u32(remap + (v as u32) * 4);
                 if remapped != 0xffff_ffff {
                     e.call(
@@ -2548,7 +2572,7 @@ pub fn fn_00683c10(e: &mut Engine, this: Ptr) {
                 e.call(OPERATOR_DELETE, &args![old]);
                 bone += 1;
             }
-            let target = e.call(WORD_AT_0_00559450, &args![base + 0x2c]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x2c));
             let (list, list_parts) = if partition != 0 {
                 (partition, part_list)
             } else {

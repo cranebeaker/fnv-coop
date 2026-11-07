@@ -254,6 +254,7 @@ const PLAYER: u32 = 0x011d_ea3c;
 /// `011de7b8`), the produce part's chance for that answer (`00508d90`,
 /// `thiscall`, one word, answers a byte) and the random word `00487f50`.
 const REFERENCE_00508D70: u32 = 0x0050_8d70;
+#[cfg(test)]
 const PRODUCE_INGREDIENT: u32 = 0x0072_6070;
 const SEASON_OWNER: u32 = 0x011d_e7b8;
 const SEASON_00867CA0: u32 = 0x0086_7ca0;
@@ -294,6 +295,7 @@ const SETTING_TEXT: u32 = 0x0040_3df0;
 const SETTING_PICKED: u32 = 0x011c_856c;
 const SETTING_NOTHING: u32 = 0x011c_8590;
 const STRING_PRINT: u32 = 0x0040_6f60;
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 const SHOW_MESSAGE: u32 = 0x0070_52f0;
 const MESSAGE_TIME: u32 = 0x0101_62c0;
@@ -357,7 +359,7 @@ pub fn tes_flora_activate(
     let produce = this.addr().wrapping_sub(0xc);
     let mut picked = false;
     if e.call(REFERENCE_00508D70, &args![reference]).u8() == 0
-        && e.call(PRODUCE_INGREDIENT, &args![produce]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, produce)) != 0
     {
         let season = e.call(SEASON_00867CA0, &args![SEASON_OWNER]).u32();
         let chance = e.call(PRODUCE_CHANCE, &args![produce, season]).u8();
@@ -366,7 +368,7 @@ pub fn tes_flora_activate(
         }
     }
     if picked {
-        let ingredient = e.call(PRODUCE_INGREDIENT, &args![produce]).u32();
+        let ingredient = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, produce));
         let script = e.call(GET_FORM_SCRIPT, &args![ingredient]).u32();
         if script != 0 {
             let block = e.call(ALLOCATE, &args![0x20u32]).u32();
@@ -407,7 +409,7 @@ pub fn tes_flora_activate(
                     .u32();
                 let format = e.call(SETTING_TEXT, &args![SETTING_PICKED]).u32();
                 e.call(STRING_PRINT, &args![message, format, name]);
-                let text = e.call(STRING_TEXT, &args![message]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, message));
                 show_message(e, text);
                 e.call(SOUND_HANDLE_CTOR, &args![handle]);
                 let audio = e.call(AUDIO_INSTANCE, &args![]).u32();

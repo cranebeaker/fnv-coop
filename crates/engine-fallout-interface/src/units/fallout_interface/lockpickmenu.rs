@@ -142,7 +142,9 @@ const GET_SOUND_HANDLE_BY_NAME: u32 = 0x00ad_7550;
 const SOUND_PLAY: u32 = 0x00ad_8830;
 const SOUND_FADE_OUT: u32 = 0x00ad_8da0;
 /// The node list helpers: the node itself and its object.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const POINTER_CONSTRUCT: u32 = 0x0063_3c90;
@@ -153,6 +155,7 @@ const INTERFACE_OBJECT: u32 = 0x004b_7210;
 /// cdecl (): whether a gamepad drives the menus (`004b71d0`).
 const USING_GAMEPAD: u32 = 0x004b_71d0;
 /// thiscall on the interface object: its root tile (`0045cd60`).
+#[cfg(test)]
 const INTERFACE_ROOT_TILE: u32 = 0x0045_cd60;
 const TILE_READER: u32 = 0x0058_6150;
 const TILE_READ_FILE: u32 = 0x00a0_1b00;
@@ -176,6 +179,7 @@ const MENU_START_FADE_OUT: u32 = 0x00a1_d910;
 const MENU_RENDER_TEMPLATE: u32 = 0x00a1_ddb0;
 /// thiscall on a tile: the menu (+0x3c) `RenderTemplate` runs on (`00639b40`).
 const TILE_MENU_3C: u32 = 0x0063_9b40;
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// thiscall on the tile list (`+4` of a tile), `(&iterator)`: the item and the next node (`0057cbe0`).
 const TILE_LIST_NEXT: u32 = 0x0057_cbe0;
@@ -212,6 +216,7 @@ const NODE_SET_TRANSLATE_XYZ: u32 = 0x004b_c1f0;
 const NI_ALLOCATE: u32 = 0x00aa_13e0;
 const NI_NODE_CONSTRUCT: u32 = 0x00a5_ecb0;
 const NODE_CHILD: u32 = 0x0043_b4a0;
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0041_6870;
 const MATRIX_MAKE_X_ROTATION: u32 = 0x0052_4ac0;
 const MATRIX_MAKE_Y_ROTATION: u32 = 0x0043_f850;
@@ -236,6 +241,7 @@ const DEACTIVATE_ALL: u32 = 0x0048_fef0;
 /// thiscall (sequence, 2): sets the sequence's cycle type (`007408d0`).
 const SEQUENCE_SET_CYCLE: u32 = 0x0074_08d0;
 const START_ANIMATIONS: u32 = 0x00a6_d2d0;
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 const BOUND_RADIUS: u32 = 0x0084_d030;
 const ADD_LIGHTS_FROM_NODE: u32 = 0x00b5_ca70;
@@ -310,6 +316,7 @@ const BASE_IS_EVIL_47D7C0: u32 = 0x0047_d7c0;
 const ALIGNMENT_FOR_KARMA: u32 = 0x0047_e040;
 const REWARD_KARMA: u32 = 0x0094_fd30;
 const UNLOCK: u32 = 0x0056_92a0;
+#[cfg(test)]
 const SAVE_FORM_LINK: u32 = 0x007a_f430;
 const CONTAINER_MENU_75B6E0: u32 = 0x0075_b6e0;
 const ACTIVATE: u32 = 0x0057_3170;
@@ -415,7 +422,7 @@ fn tile_at(e: &Engine, base: u32, index: u32) -> u32 {
 }
 
 fn lock_model(e: &mut Engine) -> u32 {
-    e.call(POINTER_GET, &args![LOCK_MODEL]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, LOCK_MODEL))
 }
 
 fn lock_model_child(e: &mut Engine, index: u32) -> u32 {
@@ -500,8 +507,16 @@ pub fn lock_pick_menu_lock_pick_menu(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
     e.call(MENU_CONSTRUCT, &args![base]);
     e.mem.set_u32(base, LOCK_PICK_MENU_VTABLE);
-    e.call(NODE_ITEM, &args![base + PICK_ROTATE]);
-    e.call(NODE_ITEM, &args![base + PICK_TRANSLATE]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base + PICK_ROTATE)
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base + PICK_TRANSLATE)
+    );
     let value = e
         .call(ADD_USER_TRAIT, &args![VALUE_TRAIT_NAME, 0xffff_ffffu32])
         .u32();
@@ -650,7 +665,7 @@ pub fn lock_pick_menu_create(e: &mut Engine, target: u32, level: u32, flag: u32)
         }
     }
     let menu: u32 = e.global(LOCK_PICK_MENU_ME);
-    if menu != 0 && e.call(LIST_NODE_NEXT, &args![menu]).u32() != 0 {
+    if menu != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
         let menu: u32 = e.global(LOCK_PICK_MENU_ME);
         if menu != 0 {
             e.vcall(menu, 0, &args![1u32]);
@@ -675,7 +690,7 @@ fn create_contents(e: &mut Engine, root: u32, target: u32, level: u32, flag: u32
     e.mem.set_u32(menu + LOCK_LEVEL, level);
     let trait_id = e.call(TILE_TEXT_TO_TRAIT, &args![TRAIT_NAME_74438]).u32();
     let menu = me(e);
-    let tile = e.call(LIST_NODE_NEXT, &args![menu]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
     e.call(TILE_SET_VALUE, &args![tile, trait_id, flag & 0xff]);
     e.with_stack(0x40, |e, text| {
         let menu = me(e);
@@ -850,9 +865,11 @@ pub fn lock_pick_menu_prepare_3d_elements(e: &mut Engine, this: Ptr) {
     }
     e.with_stack(0xc, |e, point| {
         let depth = quiet_global(e, PICK_DEPTH);
-        let made = e
-            .call(POINT_CONSTRUCT, &args![point, 0u32, 0u32, depth])
-            .u32();
+        let made = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, 0u32, 0u32, depth)
+        );
         for word in 0..3 {
             let value = e.mem.u32(made + 4 * word);
             e.mem.set_u32(base + PICK_TRANSLATE + 4 * word, value);
@@ -874,8 +891,8 @@ pub fn lock_pick_menu_prepare_3d_elements(e: &mut Engine, this: Ptr) {
     e.with_stack(0x24, |e, tilt| {
         e.with_stack(0x24, |e, turn| {
             e.with_stack(0x24, |e, product| {
-                e.call(NODE_ITEM, &args![tilt]);
-                e.call(NODE_ITEM, &args![turn]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, tilt));
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, turn));
                 let angle = quiet_global(e, LOCK_TILT);
                 e.call(MATRIX_MAKE_X_ROTATION, &args![tilt, angle]);
                 let angle = quiet_global(e, LOCK_TILT);
@@ -949,7 +966,7 @@ pub fn lock_pick_menu_prepare_3d_elements(e: &mut Engine, this: Ptr) {
     let node = lock_model(e);
     e.vcall(root, NODE_SLOT_ATTACH_CHILD, &args![node, 1u32]);
     let node = lock_model(e);
-    let bound = e.call(GET_WORLD_BOUND, &args![node]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
     let radius = e.call(BOUND_RADIUS, &args![bound]).f64();
     let factor: f64 = e.global(LIGHT_RADIUS_FACTOR);
     let radius = x87_store32(x87_mul(radius, factor));
@@ -980,14 +997,14 @@ pub fn fn_0078e7c0(e: &mut Engine) {
     let scene = e.call(SCENE_OBJECT, &args![]).u32();
     let culling = e.call(CULLING_PROCESS, &args![scene]).u32();
     e.call(CULLING_SET_C4F270, &args![culling, 1u32]);
-    let camera = e.call(POINTER_GET, &args![CAMERA]).u32();
+    let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, CAMERA));
     let fov = quiet_global(e, RENDER_FOV);
     e.call(CAMERA_SET_FOV_709D50, &args![camera, fov]);
     let interface = e.call(INTERFACE_OBJECT, &args![]).u32();
     let texture = e.call(RENDERED_TEXTURE_7FD640, &args![interface]).u32();
     e.with_stack(4, |e, held| {
         e.call(POINTER_CONSTRUCT, &args![held, texture]);
-        let target = e.call(POINTER_GET, &args![held]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held));
         e.call(CULLING_SET_TARGET, &args![culling, target]);
         let source = if camera != 0 {
             camera
@@ -996,7 +1013,7 @@ pub fn fn_0078e7c0(e: &mut Engine) {
         };
         let root = e.call(SCENE_ROOT, &args![1u32]).u32();
         e.call(ACCUMULATE_SCENE, &args![source, root, culling]);
-        let target = e.call(POINTER_GET, &args![held]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held));
         e.call(RENDER_SCENE_B6C0D0, &args![source, target, 0u32]);
         e.call(CULLING_SET_TARGET, &args![culling, 0u32]);
         e.call(POINTER_ASSIGN, &args![held, 0u32]);
@@ -1087,18 +1104,22 @@ pub fn lock_pick_menu_create_3d_camera(e: &mut Engine, _this: Ptr) -> u32 {
     });
     e.with_stack(0xc, |e, up| {
         e.with_stack(0xc, |e, point| {
-            let up = e
-                .call(
-                    POINT_CONSTRUCT,
-                    &args![up, 0.0f32.to_bits(), 0.0f32.to_bits(), 1.0f32.to_bits()],
+            let up = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, up, 0.0f32.to_bits(), 0.0f32.to_bits(), 1.0f32.to_bits())
+            );
+            let point = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(
+                    e,
+                    point,
+                    0.0f32.to_bits(),
+                    0.0f32.to_bits(),
+                    1.0f32.to_bits()
                 )
-                .u32();
-            let point = e
-                .call(
-                    POINT_CONSTRUCT,
-                    &args![point, 0.0f32.to_bits(), 0.0f32.to_bits(), 1.0f32.to_bits()],
-                )
-                .u32();
+            );
             e.call(CAMERA_LOOK_AT, &args![camera, point, up]);
         });
     });
@@ -1239,7 +1260,7 @@ fn tutorial_seen(e: &mut Engine) -> bool {
 fn set_root_alpha(e: &mut Engine) {
     let alpha = quiet_global(e, ENTER_ALPHA);
     let interface = e.call(INTERFACE_OBJECT, &args![]).u32();
-    let root = e.call(INTERFACE_ROOT_TILE, &args![interface]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interface));
     e.call(TILE_SET_FLOAT, &args![root, 0xfa9u32, alpha, 1u32]);
 }
 
@@ -1596,9 +1617,9 @@ fn open_lock(e: &mut Engine, base: u32) {
         e.mem.set_u8(player + 0x20c, 1);
     }
     let target = e.mem.u32(base + LOCK_TARGET);
-    if e.call(SAVE_FORM_LINK, &args![target]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target)) != 0 {
         let target = e.mem.u32(base + LOCK_TARGET);
-        let linked = e.call(SAVE_FORM_LINK, &args![target]).u32();
+        let linked = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target));
         if e.call(FORM_TYPE, &args![linked]).u32() == 0x1b {
             e.call(CONTAINER_MENU_75B6E0, &args![1u32]);
         }
@@ -1845,7 +1866,7 @@ fn idle_closing(e: &mut Engine, idle: &Idle) {
     set_root_alpha(e);
     let interface = e.call(INTERFACE_OBJECT, &args![]).u32();
     e.call(INTERFACE_UPDATE_718930, &args![interface, 1u32]);
-    let tile = e.call(LIST_NODE_NEXT, &args![base]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base));
     e.call(TILE_SET_VALUE, &args![tile, 0x1772u32, 1u32]);
     e.call(MENU_START_FADE_OUT, &args![base]);
 }
@@ -1869,7 +1890,7 @@ pub fn lock_pick_menu_do_enter(e: &mut Engine, _this: Ptr, id: u32, _tile: u32) 
         return;
     }
     let interface = e.call(INTERFACE_OBJECT, &args![]).u32();
-    let root = e.call(INTERFACE_ROOT_TILE, &args![interface]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interface));
     e.call(
         TILE_SET_FLOAT,
         &args![root, 0xfa9u32, 0.0f32.to_bits(), 1u32],
@@ -1987,7 +2008,7 @@ fn copy_colour(e: &mut Engine, base: u32, source: u32) {
 fn inside_sweet_spot(e: &mut Engine, base: u32, distance: u32) {
     e.with_stack(4, |e, iterator| {
         let spot = tile_at(e, base, 14);
-        let first = e.call(POINTER_GET, &args![spot + 4]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, spot + 4));
         e.mem.set_u32(iterator.addr(), first);
         let spot = tile_at(e, base, 14);
         let mut best = x87_store32(tile_value(e, spot, 0xfb1));
@@ -2047,7 +2068,7 @@ pub fn lock_pick_menu_rotate_lockpick_model(e: &mut Engine, this: Ptr, position:
     let base = this.addr();
     e.with_stack(0x24, |e, rotation| {
         let rotation = rotation.addr();
-        e.call(NODE_ITEM, &args![rotation]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
         let pick = lock_model_child(e, 1);
         e.with_stack(0xc, |e, data| {
             update_data(e, data.addr(), 0.0f32.to_bits(), 0, 0);
@@ -2062,9 +2083,11 @@ pub fn lock_pick_menu_rotate_lockpick_model(e: &mut Engine, this: Ptr, position:
                     locals + 0x3c,
                 );
                 let depth = quiet_global(e, PICK_START_Z);
-                let centre = e
-                    .call(POINT_CONSTRUCT, &args![centre, 0u32, 0u32, depth])
-                    .u32();
+                let centre = typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, centre, 0u32, 0u32, depth)
+                );
                 let first = e
                     .call(POINT_OP_4A0BD0, &args![base + PICK_TRANSLATE, negated])
                     .u32();
@@ -2234,7 +2257,7 @@ pub fn lock_pick_menu_create_sweet_spot(e: &mut Engine, this: Ptr) {
             for (width, tile_index) in [(SWEET_SPOT_WIDTH_A, 4u32), (SWEET_SPOT_WIDTH_B, 7)] {
                 let value: u32 = e.global(width);
                 e.call(STRING_FORMAT, &args![text, INTEGER_FORMAT, value]);
-                let shown = e.call(POINTER_GET, &args![text]).u32();
+                let shown = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                 let tile = tile_at(e, base, tile_index);
                 e.call(TILE_SET_STRING, &args![tile, 0xfc4u32, shown, 1u32]);
             }
@@ -2268,7 +2291,8 @@ pub fn lock_pick_menu_create_sweet_spot(e: &mut Engine, this: Ptr) {
                 let steps = steps.addr();
                 let (difference, scaled, sum) = (steps, steps + 0x10, steps + 0x20);
                 for ring in 0..6u32 {
-                    let menu_tile = e.call(LIST_NODE_NEXT, &args![base]).u32();
+                    let menu_tile =
+                        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base));
                     let menu = e.call(TILE_MENU_3C, &args![menu_tile]).u32();
                     let spot = tile_at(e, base, 14);
                     let made = e
@@ -2366,7 +2390,7 @@ pub fn lock_pick_menu_do_leave(e: &mut Engine, _this: Ptr, id: u32, _tile: u32) 
     }
     let alpha = quiet_field(e, ENTER_ALPHA);
     let interface = e.call(INTERFACE_OBJECT, &args![]).u32();
-    let root = e.call(INTERFACE_ROOT_TILE, &args![interface]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interface));
     e.call(TILE_SET_FLOAT, &args![root, 0xfa9u32, alpha, 1u32]);
 }
 
@@ -2426,7 +2450,7 @@ fn widen_settings(e: &mut Engine, base: u32, low: u32, high: u32, step: i32, fra
 /// text `0xfc4` of the tile at `tile_field`.
 fn show_width(e: &mut Engine, text: Ptr, tile_field: u32, width: u32) {
     e.call(STRING_FORMAT, &args![text, INTEGER_FORMAT, width]);
-    let shown = e.call(POINTER_GET, &args![text]).u32();
+    let shown = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
     let tile = e.mem.u32(tile_field);
     e.call(TILE_SET_STRING, &args![tile, 0xfc4u32, shown, 1u32]);
 }

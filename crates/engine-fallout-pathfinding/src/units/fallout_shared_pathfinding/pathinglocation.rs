@@ -108,6 +108,7 @@ const PLAYER_CHARACTER: u32 = 0x011d_ea3c;
 
 // Callees outside this file.
 /// `NiPoint3`'s constructor (`ECX` is returned, nothing is written).
+#[cfg(test)]
 const NI_POINT3_CONSTRUCT: u32 = 0x0068_15c0;
 /// `TESObjectREFR` helpers: the parent cell (`008d6f30`) and
 /// `GetWorldSpace` (`00575d70`).
@@ -165,13 +166,16 @@ const NAV_MESH_FIND_TRIANGLE: u32 = 0x0069_6a50;
 const NAV_MESH_FIND_CLOSEST_TRIANGLE: u32 = 0x0069_6cf0;
 const NAV_MESH_GET_CENTER: u32 = 0x0055_8220;
 const NAV_MESH_FIND_INTERSECTING_EDGE: u32 = 0x0069_8160;
+#[cfg(test)]
 const FORM_TEST_FIRST: u32 = 0x0044_0d80;
+#[cfg(test)]
 const FORM_TEST_SECOND: u32 = 0x0044_0da0;
 const CELL_IS_KIND: u32 = 0x0045_0ff0;
 /// `NiPointer<NavMesh>`: construct, release, `operator*`, and the test that
 /// it holds a mesh (`00458b50`, which calls `operator*`).
 const NI_POINTER_CONSTRUCT: u32 = 0x0042_fb00;
 const NI_POINTER_RELEASE: u32 = 0x0042_fa40;
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 const NI_POINTER_HAS_MESH: u32 = 0x0045_8b50;
 /// `TES` height query: `0045cbc0(position, cell)` leaves the ground height
@@ -195,8 +199,10 @@ const FTOL: u32 = 0x00ec_62c0;
 /// with a comparison function (`00719b20(array, &value, start,
 /// compare)`) and construct/destroy a plain array (`005e0510`,
 /// `005e0540`).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 const ARRAY_ELEMENT: u32 = 0x006a_7ad0;
+#[cfg(test)]
 const LOCAL_ARRAY_ELEMENT: u32 = 0x0087_7a30;
 const ARRAY_ADD: u32 = 0x007c_b2e0;
 const ARRAY_COPY_TO: u32 = 0x006e_5330;
@@ -293,11 +299,15 @@ fn copy_point(e: &mut Engine, destination: u32, source: u32) {
 /// construction.
 fn start_construction(e: &mut Engine, this: Ptr<PathingLocation>) {
     e.mem.set_u32(this.addr(), VTABLE);
-    e.call(NI_POINT3_CONSTRUCT, &args![position(this)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, position(this))
+    );
 }
 
 fn array_count(e: &mut Engine, array: u32) -> u32 {
-    e.call(ARRAY_COUNT, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 /// The pointer stored at `index` of the array of navmesh infos at `array`.
@@ -309,7 +319,11 @@ fn array_pointer(e: &mut Engine, array: u32, index: u32) -> u32 {
 /// The same for the arrays inside a navmesh info and the ones the functions
 /// build on their stack.
 fn stack_array_pointer(e: &mut Engine, array: u32, index: u32) -> u32 {
-    let element = e.call(LOCAL_ARRAY_ELEMENT, &args![array, index]).u32();
+    let element = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    );
     e.mem.u32(element)
 }
 
@@ -326,7 +340,7 @@ fn with_mesh_pointer<R>(e: &mut Engine, body: impl FnOnce(&mut Engine, u32) -> R
 
 /// The mesh in the `NiPointer` at `slot`.
 fn pointed_mesh(e: &mut Engine, slot: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// The triangle of `position` in the mesh held by `slot` (`00696a50`).
@@ -644,7 +658,11 @@ pub fn path_location_path_location_ov8(
         );
         let cell = e.mem.u32(out.addr());
         let world_space = e.mem.u32(out.addr() + 4);
-        let point = e.call(NI_POINT3_CONSTRUCT, &args![world_location]).u32();
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, world_location)
+        );
         path_location_setup_data(e, this, point, cell, world_space);
     });
     this
@@ -919,7 +937,7 @@ pub fn path_location_resolve_nav_mesh_info(
                         return false;
                     }
                     let mesh = pointed_mesh(e, slot);
-                    if e.call(FORM_TEST_SECOND, &args![mesh]).bool() {
+                    if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, mesh)) {
                         return false;
                     }
                     let triangle = find_triangle(e, slot, position(this), arg);
@@ -1287,7 +1305,7 @@ pub fn fn_006de250(e: &mut Engine, this: Ptr<PathingLocation>) -> bool {
                 let drop = with_mesh_pointer(e, |e, slot| {
                     if e.call(INFO_LOAD_NAV_MESH, &args![candidate, slot]).bool() {
                         let mesh = pointed_mesh(e, slot);
-                        e.call(FORM_TEST_FIRST, &args![mesh]).bool()
+                        typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, mesh))
                     } else {
                         false
                     }
@@ -1601,7 +1619,7 @@ pub fn path_location_save_game(e: &mut Engine, this: Ptr<PathingLocation>, buffe
     let info = word(e, this, NAV_MESH);
     let id = if info != 0 {
         // `NavMeshInfo::NavMeshID` (Xbox PDB) +0x00, read by `00559450`.
-        e.call(NI_POINTER_GET, &args![info]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info))
     } else {
         0
     };

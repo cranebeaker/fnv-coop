@@ -113,12 +113,16 @@ const NAV_MESH_POINTERS_ADD: u32 = 0x0042_f850;
 /// `NiRefObject` destructor body (`00496910`).
 const REF_OBJECT_DESTRUCT: u32 = 0x0049_6910;
 /// `0044ddc0` (`thiscall`): a `BSSimpleArray`'s size (the word at +8).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `00877a30` (`thiscall`, `RET 4`): the address of word element `i`.
+#[cfg(test)]
 const WORD_ELEMENT: u32 = 0x0087_7a30;
 /// `00559450` (`thiscall`): the word at `this` (an `NiPointer`'s target).
+#[cfg(test)]
 const WORD_AT: u32 = 0x0055_9450;
 /// `0084e3a0` (`thiscall`): a navmesh's key in the offset map.
+#[cfg(test)]
 const NAV_MESH_KEY: u32 = 0x0084_e3a0;
 /// `00558200` (`thiscall`): a navmesh's triangle count (the size of its
 /// array at +0x38).
@@ -166,6 +170,7 @@ const FIRST_PROPERTY_SET: u32 = 0x0049_ed90;
 /// `NiMaterialProperty::NiMaterialProperty` (engine map), 0x4C bytes.
 const MATERIAL_PROPERTY_CONSTRUCT: u32 = 0x00a7_5650;
 /// `00416870` (`thiscall`, `RET 0xC`): an `NiColor` from three floats.
+#[cfg(test)]
 const COLOR_CONSTRUCT: u32 = 0x0041_6870;
 /// `004bc450` (`thiscall`, `RET 4`): the material's colour from an `NiColor`.
 const MATERIAL_SET_COLOR: u32 = 0x004b_c450;
@@ -276,18 +281,30 @@ pub fn fn_006e1470(e: &mut Engine, this: Ptr<PathingLOSMap>) {
 pub fn fn_006e1500(e: &mut Engine, this: Ptr<PathingLOSMap>, nav_meshes: Ptr) -> bool {
     e.set(this, PathingLOSMap::iTotalTriangleCount, 0);
     let mut i = 0u32;
-    while i < e.call(ARRAY_SIZE, &args![nav_meshes]).u32() {
+    while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, nav_meshes)) {
         let offset = e.get(this, PathingLOSMap::iTotalTriangleCount);
-        let slot = e.call(WORD_ELEMENT, &args![nav_meshes, i]).u32();
-        let mesh = e.call(WORD_AT, &args![slot]).u32();
-        let key = e.call(NAV_MESH_KEY, &args![mesh]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, nav_meshes, i)
+        );
+        let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
+        let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, mesh));
         e.call(MAP_SET_AT, &args![this.byte_add(8), key, offset]);
-        let slot = e.call(WORD_ELEMENT, &args![nav_meshes, i]).u32();
-        let mesh = e.call(WORD_AT, &args![slot]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, nav_meshes, i)
+        );
+        let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         let count = e.call(NAV_MESH_TRIANGLE_COUNT, &args![mesh]).u32();
         let total = count.wrapping_add(e.get(this, PathingLOSMap::iTotalTriangleCount));
         e.set(this, PathingLOSMap::iTotalTriangleCount, total);
-        let slot = e.call(WORD_ELEMENT, &args![nav_meshes, i]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, nav_meshes, i)
+        );
         e.call(
             NAV_MESH_POINTERS_ADD,
             &args![this.byte_add(LOS_MAP_NAV_MESHES), slot],
@@ -356,12 +373,16 @@ pub fn fn_006e1670(
     let mut i = 0u32;
     let offset_slot = e.mem.alloc(4);
     loop {
-        if i >= e.call(ARRAY_SIZE, &args![nav_meshes]).u32() {
+        if i >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, nav_meshes)) {
             break;
         }
-        let slot = e.call(WORD_ELEMENT, &args![nav_meshes, i]).u32();
-        let mesh = e.call(WORD_AT, &args![slot]).u32();
-        let key = e.call(NAV_MESH_KEY, &args![mesh]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, nav_meshes, i)
+        );
+        let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
+        let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, mesh));
         if !e
             .call(MAP_GET_AT, &args![this.byte_add(8), key, offset_slot])
             .bool()
@@ -379,9 +400,11 @@ pub fn fn_006e1670(
     e.mem.free(offset_slot);
     e.mem
         .set_u16(triangle.addr(), index.wrapping_sub(previous) as u16);
-    let slot = e
-        .call(WORD_ELEMENT, &args![nav_meshes, i.wrapping_sub(1)])
-        .u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, nav_meshes, i.wrapping_sub(1))
+    );
     e.call(NI_POINTER_ASSIGN, &args![nav_mesh, slot]);
     true
 }
@@ -452,7 +475,7 @@ pub fn fn_006e1800(e: &mut Engine, this: Ptr<PathingLOSMap>) -> u32 {
         0
     };
     e.call(NI_POINTER_FROM, &args![first, property]);
-    let target = e.call(WORD_AT, &args![first]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
     e.call(FIRST_PROPERTY_SET, &args![target, 1u32]);
     let block = e.call(NI_ALLOCATE, &args![0x4cu32]).u32();
     let property = if block != 0 {
@@ -462,17 +485,19 @@ pub fn fn_006e1800(e: &mut Engine, this: Ptr<PathingLOSMap>) -> u32 {
     };
     e.call(NI_POINTER_FROM, &args![material, property]);
     let one = 1.0f32.to_bits();
-    let color = e
-        .call(COLOR_CONSTRUCT, &args![local(0xd0), one, one, one])
-        .u32();
-    let target = e.call(WORD_AT, &args![material]).u32();
+    let color = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, local(0xd0), one, one, one)
+    );
+    let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, material));
     e.call(MATERIAL_SET_COLOR, &args![target, color]);
     let alpha = pushed_float(e, ALPHA);
-    let target = e.call(WORD_AT, &args![material]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, material));
     e.call(MATERIAL_SET_ALPHA, &args![target, alpha]);
-    let target = e.call(WORD_AT, &args![first]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
     e.call(ATTACH_PROPERTY, &args![node, target]);
-    let target = e.call(WORD_AT, &args![material]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, material));
     e.call(ATTACH_PROPERTY, &args![node, target]);
 
     // The highest and lowest scores (signed bytes; 0x7F is "no score").
@@ -523,7 +548,7 @@ pub fn fn_006e1800(e: &mut Engine, this: Ptr<PathingLOSMap>) -> u32 {
             &args![points, 0xcu32, 3u32, POINT_CONSTRUCT],
         );
         let triangle_index = u32::from(e.mem.u16(triangle_slot));
-        let mesh = e.call(WORD_AT, &args![mesh_pointer]).u32();
+        let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh_pointer));
         let triangle = e
             .call(NAV_MESH_TRIANGLE, &args![mesh, triangle_index])
             .u32();
@@ -531,7 +556,7 @@ pub fn fn_006e1800(e: &mut Engine, this: Ptr<PathingLOSMap>) -> u32 {
             let raise: f64 = e.global(VERTEX_RAISE);
             for k in 0..3u32 {
                 let vertex = e.call(TRIANGLE_VERTEX, &args![triangle, k]).u32() & 0xffff;
-                let mesh = e.call(WORD_AT, &args![mesh_pointer]).u32();
+                let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh_pointer));
                 let position = e.call(NAV_MESH_VERTEX, &args![mesh, vertex]).u32();
                 let point = points + 0xc * k;
                 for w in 0..3 {
@@ -549,7 +574,7 @@ pub fn fn_006e1800(e: &mut Engine, this: Ptr<PathingLOSMap>) -> u32 {
             words.push(1);
             let made = e.call(MAKE_TRIANGLE, &words).u32();
             e.call(NI_POINTER_FROM, &args![geometry, made]);
-            let child = e.call(WORD_AT, &args![geometry]).u32();
+            let child = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, geometry));
             e.vcall(node, ATTACH_CHILD_SLOT, &args![child, 1u32]);
             e.call(NI_POINTER_RELEASE, &args![geometry]);
         }

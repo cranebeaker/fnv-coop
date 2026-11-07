@@ -230,6 +230,7 @@ const INTERFACE_MANAGER: u32 = 0x004b_7210;
 /// Cdecl, no arguments: `AL`.
 const FLAG_004B71D0: u32 = 0x004b_71d0;
 /// Thiscall: the word at +0x28.
+#[cfg(test)]
 const WORD_AT_28: u32 = 0x0045_cd60;
 /// Thiscall: the word at +0x174.
 const WORD_AT_174: u32 = 0x0070_4370;
@@ -295,6 +296,7 @@ const MENU_CONSTRUCT: u32 = 0x00a1_c4a0;
 const MENU_DESTRUCT: u32 = 0x00a1_c520;
 /// Thiscall: the word at +4 (on a list node: the next node; on the menu: the
 /// tile the code reads children of).
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// Thiscall: returns `this` (on a list node: the address of its item).
 const SELF: u32 = 0x0068_15c0;
@@ -303,6 +305,7 @@ const OBJECT_FIELD_00403DF0: u32 = 0x0040_3df0;
 /// Thiscall: the address of the float the object holds (`effectitem.cpp`).
 const OBJECT_VALUE_ADDRESS_00403E20: u32 = 0x0040_3e20;
 /// Thiscall on a string (`BSStringT`): its characters.
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 /// String constructor and destructor (8-byte `BSStringT`), thiscall.
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
@@ -480,6 +483,7 @@ const NOTE_TOPIC_005E9240: u32 = 0x005e_9240;
 /// `BGSNote::GetNoteSpeaker` (engine map), thiscall.
 const NOTE_GET_SPEAKER: u32 = 0x005e_92a0;
 /// Thiscall: the word at +0xC.
+#[cfg(test)]
 const WORD_AT_C: u32 = 0x0084_e3a0;
 /// Thiscall: `this + 0x10`.
 const PLUS_10: u32 = 0x0046_0140;
@@ -530,6 +534,7 @@ const NOTE_FILTER_CALLBACK: u32 = 0x0079_b390;
 const CHALLENGE_LIST_FILTER: u32 = 0x007a_5730;
 const CHALLENGE_FILTER_CALLBACK: u32 = 0x0079_b720;
 /// Thiscall on a 12-byte point (x, y, z), `RET 0xC`: the point.
+#[cfg(test)]
 const POINT_SET_00416870: u32 = 0x0041_6870;
 /// Thiscall on a point (result, float), `RET 8`: the result (`tesland.cpp`).
 const POINT_SCALE_0053D280: u32 = 0x0053_d280;
@@ -729,7 +734,7 @@ pub fn map_menu_map_menu(e: &mut Engine, this: Ptr<MapMenu>) -> Ptr<MapMenu> {
     e.call(LIST_CONSTRUCT, &args![base + 0xd8]);
     e.call(LIST_CONSTRUCT, &args![base + 0xe0]);
     for offset in [0xe8u32, 0xf0, 0xfc, 0x120] {
-        e.call(SELF, &args![base + offset]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + offset));
     }
     fn_007a1c90(e, Ptr::new(base + 0x130));
     fn_007a27f0(e, Ptr::new(base + 0x160));
@@ -854,7 +859,7 @@ pub fn map_menu_create(e: &mut Engine) -> u32 {
     let menu = map_menu(e);
     if menu == 0 || e.vcall(menu, 0x34, &args![]).u32() != 0x3ff {
         let menu = map_menu(e);
-        if menu != 0 && e.call(WORD_AT_4, &args![menu]).u32() != 0 {
+        if menu != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
             let menu = map_menu(e);
             if menu != 0 {
                 e.vcall(menu, 0, &args![1u32]);
@@ -1071,7 +1076,8 @@ pub fn map_menu_do_click(e: &mut Engine, this: Ptr<MapMenu>, id: i32, tile: u32)
             if !e.call(FLAG_00709D40, &args![]).bool() && id != 0x20 && id != 0x21 {
                 let alpha = float_constant(e, FULL_ALPHA_FLOAT);
                 let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
-                let pipboy_tile = e.call(WORD_AT_28, &args![interface]).u32();
+                let pipboy_tile =
+                    typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interface));
                 e.call(TILE_SET_FLOAT, &args![pipboy_tile, 0xfa9u32, alpha, 1u32]);
             }
             let tile_13 = map_tile(e, base, 13);
@@ -1131,7 +1137,7 @@ fn do_click_current_page(e: &mut Engine, this: Ptr<MapMenu>) {
                     [(0xfb1u32, 0xfa1u32, 0u32), (0xfb0, 0xfa2, 4)]
                 {
                     let map = e.get(this, MapMenu::pMapTile);
-                    let owner = e.call(WORD_AT_28, &args![map]).u32();
+                    let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, map));
                     let size = e.call(TILE_GET_FLOAT, &args![owner, size_trait]).f64();
                     let two: f64 = e.global(TWO_DOUBLE);
                     let half = x87_div(size, two);
@@ -1211,7 +1217,7 @@ fn set_player_marker(e: &mut Engine, this: Ptr<MapMenu>) {
             [(0xfb0u32, 0xfa2u32), (0xfb1, 0xfa1)].iter().enumerate()
         {
             let map = e.get(this, MapMenu::pMapTile);
-            let owner = e.call(WORD_AT_28, &args![map]).u32();
+            let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, map));
             let size = e.call(TILE_GET_FLOAT, &args![owner, *size_trait]).f64();
             let two: f64 = e.global(TWO_DOUBLE);
             let half = x87_div(size, two);
@@ -1220,9 +1226,11 @@ fn set_player_marker(e: &mut Engine, this: Ptr<MapMenu>) {
             coords[i] = x87_quiet_bits(x87_store32(x87_sub(half, offset)));
         }
         e.with_stack(0xc, |e, point| {
-            let result = e
-                .call(POINT_SET_00416870, &args![point, coords[1], coords[0], z])
-                .u32();
+            let result = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, point, coords[1], coords[0], z)
+            );
             copy_point(e, position, result);
         });
     } else {
@@ -1232,7 +1240,11 @@ fn set_player_marker(e: &mut Engine, this: Ptr<MapMenu>) {
         let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
         let x = x87_store32(e.call(CURSOR_X_007697F0, &args![interface]).f64());
         e.with_stack(0xc, |e, point| {
-            let result = e.call(POINT_SET_00416870, &args![point, x, y, z]).u32();
+            let result = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, point, x, y, z)
+            );
             copy_point(e, position, result);
         });
         let map = e.get(this, MapMenu::pMapTile);
@@ -1421,7 +1433,7 @@ fn play_note(e: &mut Engine, this: Ptr<MapMenu>, note: u32, handle: u32) {
         && e.call(NOTE_SOUND_005E9100, &args![note]).u32() != 0
     {
         let sound = e.call(NOTE_SOUND_005E9100, &args![note]).u32();
-        let sound_id = e.call(WORD_AT_C, &args![sound]).u32();
+        let sound_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         e.with_stack(0xc, |e, temp| {
             let audio = e.call(AUDIO_INSTANCE, &args![]).u32();
             let found = e
@@ -1481,15 +1493,15 @@ fn run_note_conversation(e: &mut Engine, this: Ptr<MapMenu>, note: u32, handle: 
         loop {
             let item = e.call(GET_CURRENT_RESPONSE, &args![conversation]).u32();
             let response = e.call(GET_CURRENT_RESPONSE, &args![item]).u32();
-            let text = e.call(SELF, &args![response]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, response));
             e.call(SUBTITLES_ADD_007A1AC0, &args![base + 0xa8, text]);
             let item = e.call(GET_CURRENT_RESPONSE, &args![conversation]).u32();
-            let info = e.call(WORD_AT_C, &args![item]).u32();
+            let info = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
             e.call(TOPIC_INFO_RUN_RESULT, &args![info, 0u32, speaker]);
             let item = e.call(GET_CURRENT_RESPONSE, &args![conversation]).u32();
             let response = e.call(GET_CURRENT_RESPONSE, &args![item]).u32();
             let file = e.call(PLUS_10, &args![response]).u32();
-            let file_name = e.call(STRING_TEXT, &args![file]).u32();
+            let file_name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, file));
             e.with_stack(0xc, |e, temp| {
                 let audio = e.call(AUDIO_INSTANCE, &args![]).u32();
                 let found = e
@@ -1505,7 +1517,7 @@ fn run_note_conversation(e: &mut Engine, this: Ptr<MapMenu>, note: u32, handle: 
             e.call(SOUND_SET_VOLUME, &args![handle, volume]);
             e.call(SOUND_LIST_ADD_TAIL, &args![base + 0x98, handle]);
             let item = e.call(GET_CURRENT_RESPONSE, &args![conversation]).u32();
-            let info = e.call(WORD_AT_C, &args![item]).u32();
+            let info = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
             e.call(TOPIC_INFO_RUN_RESULT, &args![info, 1u32, speaker]);
             e.set(this, MapMenu::bSoundsLoading, 1);
             let item = e.call(GET_CURRENT_RESPONSE, &args![conversation]).u32();
@@ -1582,7 +1594,7 @@ fn offer_fast_travel(e: &mut Engine, this: Ptr<MapMenu>, id: i32, tile: u32) {
     let mut index = 0i32;
     let mut node = base + 0xd8;
     while node != 0 {
-        let item = e.call(SELF, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             break;
         }
@@ -1596,11 +1608,11 @@ fn offer_fast_travel(e: &mut Engine, this: Ptr<MapMenu>, id: i32, tile: u32) {
         if value.partial_cmp(&wanted).map_or(true, |o| o.is_lt()) {
             break;
         }
-        let item = e.call(SELF, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let marker = e.mem.u32(item);
         e.set(this, MapMenu::pFastTravelMarker, marker);
         index = index.wrapping_add(1);
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let marker = e.get(this, MapMenu::pFastTravelMarker);
     let data = e.call(REFR_GET_MAP_MARKER_DATA, &args![marker]).u32();
@@ -1673,12 +1685,12 @@ pub fn map_menu_do_idle(e: &mut Engine, this: Ptr<MapMenu>) {
         && e.get(this, MapMenu::pCurrentSound) != 0
         && {
             let sound = e.get(this, MapMenu::pCurrentSound);
-            let handle = e.call(SELF, &args![sound]).u32();
+            let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, sound));
             e.call(SOUND_IS_PLAYING, &args![handle]).bool()
         };
     if paused {
         let sound = e.get(this, MapMenu::pCurrentSound);
-        let handle = e.call(SELF, &args![sound]).u32();
+        let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, sound));
         e.call(SOUND_PAUSE, &args![handle]);
         e.mem.set_u8(SOUND_PAUSED_011DA36F, 1);
         let now = e.call(TIMER_NOW, &args![TIMER_011F6394]).u32();
@@ -1689,7 +1701,7 @@ pub fn map_menu_do_idle(e: &mut Engine, this: Ptr<MapMenu>) {
         && e.mem.u8(SOUND_PAUSED_011DA36F) != 0
     {
         let sound = e.get(this, MapMenu::pCurrentSound);
-        let handle = e.call(SELF, &args![sound]).u32();
+        let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, sound));
         e.call(SOUND_PLAY, &args![handle, 0u32]);
         e.mem.set_u8(SOUND_PAUSED_011DA36F, 0);
         let now = e.call(TIMER_NOW, &args![TIMER_011F6394]).u32();
@@ -1779,7 +1791,7 @@ pub fn map_menu_do_idle(e: &mut Engine, this: Ptr<MapMenu>) {
     {
         let alpha = float_constant(e, FULL_ALPHA_FLOAT);
         let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
-        let pipboy_tile = e.call(WORD_AT_28, &args![interface]).u32();
+        let pipboy_tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interface));
         e.call(TILE_SET_FLOAT, &args![pipboy_tile, 0xfa9u32, alpha, 1u32]);
         e.mem.set_u8(FADED_011DA408, 1);
     }
@@ -1798,13 +1810,13 @@ fn idle_show_position(e: &mut Engine, this: Ptr<MapMenu>) {
     let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
     let cursor_x = e.call(CURSOR_X_007697F0, &args![interface]).f64();
     let tile_6 = map_tile(e, base, 6);
-    let owner = e.call(WORD_AT_28, &args![tile_6]).u32();
+    let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile_6));
     let left = e.call(TILE_GETTER_00A013D0, &args![owner]).f64();
     let mut x = x87_store32(x87_sub(cursor_x, left));
     let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
     let cursor_y = e.call(CURSOR_Y_007983C0, &args![interface]).f64();
     let tile_6 = map_tile(e, base, 6);
-    let owner = e.call(WORD_AT_28, &args![tile_6]).u32();
+    let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile_6));
     let top = e.call(TILE_GETTER_00A01440, &args![owner]).f64();
     let mut y = x87_store32(x87_sub(cursor_y, top));
     let zero: f64 = e.global(ZERO_DOUBLE);
@@ -1817,10 +1829,10 @@ fn idle_show_position(e: &mut Engine, this: Ptr<MapMenu>) {
     let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
     if outside {
         let alpha = float_constant(e, FULL_ALPHA_FLOAT);
-        let pipboy_tile = e.call(WORD_AT_28, &args![interface]).u32();
+        let pipboy_tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interface));
         e.call(TILE_SET_FLOAT, &args![pipboy_tile, 0xfa9u32, alpha, 1u32]);
     } else {
-        let pipboy_tile = e.call(WORD_AT_28, &args![interface]).u32();
+        let pipboy_tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interface));
         e.call(
             TILE_SET_FLOAT,
             &args![pipboy_tile, 0xfa9u32, 0.0f32.to_bits(), 1u32],
@@ -1892,18 +1904,18 @@ pub fn map_menu_update_menu(e: &mut Engine) {
         let date_string = e
             .call(CALENDAR_GET_DATE_STRING, &args![CALENDAR_011DE7B8, date])
             .u32();
-        let date_text = e.call(STRING_TEXT, &args![date_string]).u32();
+        let date_text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, date_string));
         e.call(
             STRING_FORMAT,
             &args![text, DATE_TIME_FORMAT, date_text, hour, minutes],
         );
         e.call(STRING_DESTRUCT, &args![date]);
-        let characters = e.call(STRING_TEXT, &args![text]).u32();
+        let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         let tile_1 = map_tile(e, map_menu(e), 1);
         e.call(TILE_SET_STRING, &args![tile_1, 0xfc4u32, characters, 1u32]);
         let player = e.mem.u32(PLAYER_011DEA3C);
         e.call(PLAYER_MESSAGE_00578870, &args![player, text]);
-        let characters = e.call(STRING_TEXT, &args![text]).u32();
+        let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         let tile_0 = map_tile(e, map_menu(e), 0);
         e.call(TILE_SET_STRING, &args![tile_0, 0xfc4u32, characters, 1u32]);
         let language = e.call(OBJECT_FIELD_00403DF0, &args![0x011c_3cb4u32]).u32();
@@ -1950,7 +1962,7 @@ pub fn map_menu_update_menu(e: &mut Engine) {
             e.call(TILE_SET_STRING, &args![child, 0xfc4u32, name, 1u32]);
             let headline = e.call(OBJECT_FIELD_00403DF0, &args![0x011d_21e4u32]).u32();
             let menu = map_menu(e);
-            let menu_tile = e.call(WORD_AT_4, &args![menu]).u32();
+            let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
             let child = e
                 .call(
                     TILE_GET_CHILD_BY_NAME,
@@ -2331,7 +2343,7 @@ fn list_box_destruct(e: &mut Engine, this: Ptr<ListBox>, kind: ListBoxKind) {
 /// The item word of a list node, reached through `006815c0` as the code
 /// does.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let node = e.call(SELF, &args![node]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(node)
 }
 
@@ -2373,7 +2385,7 @@ fn list_box_remove_all(e: &mut Engine, this: Ptr<ListBox>, kind: ListBoxKind) {
             break;
         }
         let second = e.mem.u32(base + 8);
-        let next = e.call(WORD_AT_4, &args![second]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, second));
         delete_item(e, this, |e| {
             let node = e.mem.u32(base + 8);
             node_item(e, node)
@@ -2854,8 +2866,10 @@ const WORD_POINTER_0043D4D0: u32 = 0x0043_d4d0;
 /// thiscall returning a word).
 const PROCESS_VALUE_0044EDB0: u32 = 0x0044_edb0;
 /// Thiscall, `AL` (`0079be30`).
+#[cfg(test)]
 const FORM_FLAG_00440DA0: u32 = 0x0044_0da0;
 /// `BGSSaveFormBuffer::GetForm` (engine map), thiscall without stack words.
+#[cfg(test)]
 const SAVE_FORM_BUFFER_GET_FORM: u32 = 0x007a_f430;
 /// Cdecl (form, word), `AL`.
 const FORM_FLAG_004FEE60: u32 = 0x004f_ee60;
@@ -3008,10 +3022,10 @@ pub fn fn_0079bc50(e: &mut Engine, object: u32) -> u8 {
 /// `object` is null, when `00440da0` says so, or when `004fee60` says so of
 /// its `007af430` form (with 0); else 0.
 pub fn fn_0079be30(e: &mut Engine, object: u32) -> u8 {
-    if object == 0 || e.call(FORM_FLAG_00440DA0, &args![object]).bool() {
+    if object == 0 || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, object)) {
         return 1;
     }
-    let form = e.call(SAVE_FORM_BUFFER_GET_FORM, &args![object]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, object));
     u8::from(e.call(FORM_FLAG_004FEE60, &args![form, 0u32]).bool())
 }
 
@@ -3307,7 +3321,7 @@ fn list_box_synchronize(e: &mut Engine, this: Ptr<ListBox>, kind: ListBoxKind) {
             let tile = item_tile(e, node);
             e.call(LIST_BOX_INIT_TILE_POSITION, &args![this, tile]);
         }
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     list_box_set_total_list_height(e, this, kind);
     list_box_update_highlight_box_pos(e, this, kind);
@@ -3423,7 +3437,7 @@ fn list_box_get_highlight_target(
                 if equal(f64::from(index), value) {
                     target = item_tile(e, node);
                 }
-                node = e.call(WORD_AT_4, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             if target == 0 || tile_enabled(e, target) {
                 break 'end;
@@ -3645,7 +3659,7 @@ fn list_box_filter(
             let tile = item_tile(e, node);
             e.call(LIST_BOX_INIT_TILE_POSITION, &args![this, tile]);
         }
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let id = e.mem.u32(which.cache);
     let container = e.get(this, ListBox::pContainerRect);
@@ -4186,7 +4200,7 @@ pub fn map_menu_calculate_player_marker_space(
                 }
             }
             e.call(PATHING_LOCATION_DESTRUCT, &args![location]);
-            node = e.call(WORD_AT_4, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
     if found == 0 {
@@ -4225,7 +4239,7 @@ fn centre_cursor_tile(e: &mut Engine) {
         let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
         let cursor_x = e.call(CURSOR_X_007697F0, &args![interface]).f64();
         let tile = map_tile(e, map_menu(e), 6);
-        let owner = e.call(WORD_AT_28, &args![tile]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
         let left = e.call(TILE_GETTER_00A013D0, &args![owner]).f64();
         let x = x87_sub(cursor_x, left);
         let tile = map_tile(e, map_menu(e), 6);
@@ -4236,7 +4250,7 @@ fn centre_cursor_tile(e: &mut Engine) {
         let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
         let cursor_y = f64::from(fn_007983c0(e, Ptr::new(interface)));
         let tile = map_tile(e, map_menu(e), 6);
-        let owner = e.call(WORD_AT_28, &args![tile]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
         let top = e.call(TILE_GETTER_00A01440, &args![owner]).f64();
         let y = x87_sub(cursor_y, top);
         let tile = map_tile(e, map_menu(e), 6);
@@ -4357,10 +4371,10 @@ const AFTER_NOTE_SOUND_007624C0: u32 = 0x0076_24c0;
 fn stop_note_sounds(e: &mut Engine, menu: impl Fn(&Engine) -> u32) {
     let node = e.mem.u32(menu(e) + 0xb8);
     if node != 0 {
-        let handle = e.call(SELF, &args![node]).u32();
+        let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.call(SOUND_IS_PLAYING, &args![handle]).bool() {
             let node = e.mem.u32(menu(e) + 0xb8);
-            let handle = e.call(SELF, &args![node]).u32();
+            let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.call(SOUND_STOP, &args![handle]);
         }
     }
@@ -4451,7 +4465,7 @@ pub fn map_menu_do_enter(e: &mut Engine, this: Ptr<MapMenu>, id: i32, tile: u32)
     match id.wrapping_add(1) as u32 {
         0 => {
             if tile != 0 {
-                let owner = e.call(WORD_AT_28, &args![tile]).u32();
+                let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
                 let scroll_bar = e.call(WORD_AT_14, &args![base + 0x1c0]).u32();
                 if owner == scroll_bar {
                     e.vcall(base, 0x10, &args![0xfu32, 0u32]);
@@ -4606,7 +4620,7 @@ pub fn fn_00799100(e: &mut Engine, _unused_0: u32, objective: u32) {
             let menu = map_menu(e);
             e.mem.set_u32(menu + 0xd0, target);
         }
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -4722,7 +4736,7 @@ fn set_text_scrollbar(e: &mut Engine, data_text: u32, scrollbar: u32, delta: u32
             )
             .u32();
         let height = x87_quiet_bits(e.mem.u32(result + 4));
-        let owner = e.call(WORD_AT_28, &args![data_text]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, data_text));
         let visible = e.call(TILE_GET_FLOAT, &args![owner, 0xfb0u32]).f64();
         let overflow = x87_quiet_bits(x87_store32(x87_sub(x87_m32(height), visible)));
         let overflow = e
@@ -4842,7 +4856,7 @@ pub fn map_menu_do_leave(e: &mut Engine, this: Ptr<MapMenu>, id: i32, tile: u32)
     match id.wrapping_add(1) as u32 {
         0 => {
             if tile != 0 {
-                let owner = e.call(WORD_AT_28, &args![tile]).u32();
+                let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
                 let scroll_bar = e.call(WORD_AT_14, &args![base + 0x1c0]).u32();
                 if owner == scroll_bar {
                     e.vcall(base, 0x14, &args![0xfu32, 0u32]);
@@ -4894,6 +4908,7 @@ const SET_STATS_MENU_VISIBLE: u32 = 0x0070_4c10;
 /// Thiscall on an embedded list (tile 4's +4): its first node (`00559450`),
 /// and the step (address of the node), `RET 4` (`0057cbe0`): the address
 /// of the item.
+#[cfg(test)]
 const LIST_FIRST_00559450: u32 = 0x0055_9450;
 const LIST_STEP_0057CBE0: u32 = 0x0057_cbe0;
 
@@ -5107,7 +5122,8 @@ pub fn map_menu_do_gamepad(
             if e.get(this, MapMenu::iCurrentPage) == 0x21 {
                 e.with_stack(4, |e, node| {
                     let tile_4 = map_tile(e, base, 4);
-                    let first = e.call(LIST_FIRST_00559450, &args![tile_4 + 4]).u32();
+                    let first =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, tile_4 + 4));
                     e.mem.set_u32(node.addr(), first);
                     while e.mem.u32(node.addr()) != 0 {
                         let tile_4 = map_tile(e, base, 4);
@@ -5204,7 +5220,7 @@ pub fn fn_00799dc0(e: &mut Engine, this: Ptr<MapMenu>) {
         let difference = cursor + 0x14;
         e.call(POINT2_SET_00452DC0, &args![cursor, centre_x, centre_y]);
         let map = e.get(this, MapMenu::pMapTile);
-        let first = e.call(LIST_FIRST_00559450, &args![map + 4]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, map + 4));
         e.mem.set_u32(node, first);
         let mut best = x87_quiet_bits(e.mem.u32(LARGEST_VALUE_01016970));
         let mut found = 0u32;
@@ -5340,12 +5356,12 @@ fn show_note_subtitle(e: &mut Engine, this: Ptr<MapMenu>, flag: u32) {
     let z = e.mem.u32(position + 8);
     e.with_stack(0xc, |e, copy| {
         let node = e.get(this, MapMenu::pCurrentSound);
-        let handle = e.call(SELF, &args![node]).u32();
+        let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.call(SOUND_HANDLE_ASSIGN, &args![copy, handle]);
         let element = e
             .call(ARRAY_ELEMENT_006950D0, &args![base + 0xa8, 0u32])
             .u32();
-        let text = e.call(LIST_FIRST_00559450, &args![element]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element));
         let h0 = e.mem.u32(copy.addr());
         let h1 = e.mem.u32(copy.addr() + 4);
         let h2 = e.mem.u32(copy.addr() + 8);
@@ -5393,23 +5409,23 @@ pub fn map_menu_update_playing_sounds(e: &mut Engine, this: Ptr<MapMenu>) {
         let mut count = 0u32;
         let mut node = base + 0x98;
         while node != 0 {
-            let handle = e.call(SELF, &args![node]).u32();
+            let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.call(SOUND_IS_VALID, &args![handle]).bool() {
                 none_valid = false;
                 if e.get(this, MapMenu::pCurrentSound) == 0 {
                     e.set(this, MapMenu::pCurrentSound, node);
                 }
-                let handle = e.call(SELF, &args![node]).u32();
+                let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.call(SOUND_GET_DURATION, &args![handle]).u32() == 0 {
                     all_ready = false;
                 } else {
-                    let handle = e.call(SELF, &args![node]).u32();
+                    let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let duration = e.call(SOUND_GET_DURATION, &args![handle]).u32();
                     total = duration.wrapping_add(total);
                     count = count.wrapping_add(1);
                 }
             }
-            node = e.call(WORD_AT_C, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, node));
         }
         if none_valid {
             map_menu_stop_note_sound(e, this);
@@ -5425,7 +5441,7 @@ pub fn map_menu_update_playing_sounds(e: &mut Engine, this: Ptr<MapMenu>) {
             e.mem
                 .set_u32(base + 0xc0, x87_store32(f64::from(length as i32)));
             let node = e.get(this, MapMenu::pCurrentSound);
-            let handle = e.call(SELF, &args![node]).u32();
+            let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.call(SOUND_PLAY, &args![handle, 0u32]);
             let now = e.call(WORD_AT_14, &args![TIMER_011F6394]).u32();
             e.set(this, MapMenu::iSoundPlayStartTime, now);
@@ -5475,7 +5491,7 @@ pub fn map_menu_update_playing_sounds(e: &mut Engine, this: Ptr<MapMenu>) {
     if node == 0 {
         return;
     }
-    let handle = e.call(SELF, &args![node]).u32();
+    let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     if e.call(SOUND_IS_VALID, &args![handle]).bool() {
         return;
     }
@@ -5484,23 +5500,23 @@ pub fn map_menu_update_playing_sounds(e: &mut Engine, this: Ptr<MapMenu>) {
         e.mem.set_u32(SOUND_WAIT_011DA410, now);
     }
     let node = e.get(this, MapMenu::pCurrentSound);
-    let has_next = e.call(WORD_AT_C, &args![node]).u32() != 0;
+    let has_next = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, node)) != 0;
     let waited = has_next && {
         let now = e.call(WORD_AT_14, &args![TIMER_011F6394]).u32();
         now.wrapping_sub(e.mem.u32(SOUND_WAIT_011DA410)) > 0x1f4
     };
     if waited {
         let node = e.get(this, MapMenu::pCurrentSound);
-        let next = e.call(WORD_AT_C, &args![node]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, node));
         e.set(this, MapMenu::pCurrentSound, next);
-        let handle = e.call(SELF, &args![next]).u32();
+        let handle = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, next));
         e.call(SOUND_PLAY, &args![handle, 0u32]);
         e.mem.set_u32(SOUND_WAIT_011DA410, 0);
         show_note_subtitle(e, this, 1);
         return;
     }
     let node = e.get(this, MapMenu::pCurrentSound);
-    if e.call(WORD_AT_C, &args![node]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, node)) != 0 {
         return;
     }
     let label = e
@@ -5762,13 +5778,13 @@ pub fn fn_0079b390(e: &mut Engine, note: u32) -> u8 {
     if map_menu(e) != 0 && e.mem.u8(map_menu(e) + 0x8c) == 0 {
         let mut node = e.call(NOTE_LIST_004FADC0, &args![note]).u32();
         while node != 0 && node_item(e, node) != 0 {
-            let at = e.call(SELF, &args![node]).u32();
+            let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let player = e.mem.u32(PLAYER_011DEA3C);
             let word = e.call(PLAYER_QUEST_005CBB50, &args![player]).u32();
             if e.mem.u32(at) == word {
                 filtered = 0;
             }
-            node = e.call(WORD_AT_4, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     } else if map_menu(e) != 0 && e.mem.u8(map_menu(e) + 0x8c) != 0 {
         filtered = 0;
@@ -5865,7 +5881,7 @@ pub fn fn_0079b600(e: &mut Engine, this: Ptr<MapMenu>) {
             let dim = e.call(CHALLENGE_STATE_005A6150, &args![challenge]).u32() != 0;
             set_item_alpha(e, tile, dim);
         }
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     list_box_tes_challenge_filter(
         e,
@@ -5942,6 +5958,7 @@ pub fn fn_0079b820(e: &mut Engine, first: u32, second: u32) -> i32 {
 }
 
 /// Thiscall on a quest node: `AL`, the end of the walk (`008256d0`).
+#[cfg(test)]
 const QUEST_NODE_END_008256D0: u32 = 0x0082_56d0;
 /// Thiscall on a quest objective: `AL` (`005a5e70`, the objective is
 /// shown) and its text (`005ec330`).
@@ -6000,7 +6017,7 @@ pub fn map_menu_update_quests(e: &mut Engine, this: Ptr<MapMenu>) {
     let player = e.mem.u32(PLAYER_011DEA3C);
     let mut node = fn_0079bc30(e, Ptr::new(player));
     e.with_stack(4, |e, quest_slot| {
-        while node != 0 && !e.call(QUEST_NODE_END_008256D0, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let objective = node_item(e, node);
             let quest = e.call(PROCESS_VALUE_0044EDB0, &args![objective]).u32();
             e.mem.set_u32(quest_slot.addr(), quest);
@@ -6011,7 +6028,7 @@ pub fn map_menu_update_quests(e: &mut Engine, this: Ptr<MapMenu>) {
                 let objective = node_item(e, node);
                 let tile = fn_007a44e0(e, Ptr::new(base + 0x1c0), objective, text, 0, 0);
                 let width = float_constant(e, OBJECTIVE_WIDTH_FLOAT);
-                let first = e.call(WORD_AT_4, &args![tile + 4]).u32();
+                let first = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, tile + 4));
                 let child = e.call(CHILD_OF_006317A0, &args![tile + 4, first]).u32();
                 let child = e.mem.u32(child);
                 e.call(TILE_SET_FLOAT, &args![child, 0xfbau32, width, 1u32]);
@@ -6049,7 +6066,7 @@ pub fn map_menu_update_quests(e: &mut Engine, this: Ptr<MapMenu>) {
                     }
                 }
             }
-            node = e.call(WORD_AT_4, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
     e.vcall(base + 0x1c0, 0x20, &args![QUESTS_SORT_CALLBACK_0079BC90]);
@@ -6172,16 +6189,16 @@ pub fn map_menu_update_radio_list(e: &mut Engine, this: Ptr<MapMenu>) {
             let name = e.call(STATION_NAME_0055D520, &args![station]).u32();
             e.call(TILE_TEXT_SETTER_00707E10, &args![tile, name]);
             let selected = fn_0079c070(e) != 0 && {
-                let at = e.call(SELF, &args![node]).u32();
+                let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let current = fn_0079c070(e);
                 e.mem.u32(at) == e.mem.u32(current)
             };
             let selected_id = e.mem.u32(TRAIT_SELECTED);
             e.call(TILE_SET_INT, &args![tile, selected_id, u32::from(selected)]);
-            let at = e.call(SELF, &args![node]).u32();
+            let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let reachable = e.call(LIST_CONTAINS_005F65D0, &args![in_range, at]).bool();
             set_item_alpha(e, tile, !reachable);
-            node = e.call(WORD_AT_4, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         list_box_tes_object_refr_filter(
             e,
@@ -6616,13 +6633,13 @@ pub fn map_menu_zoom_map(e: &mut Engine, this: Ptr<MapMenu>, zoom_in: u8, factor
     let two: f64 = e.global(TWO_DOUBLE);
     let point = e.with_stack(8, |e, point| {
         let map = e.get(this, MapMenu::pMapTile);
-        let owner = e.call(WORD_AT_28, &args![map]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, map));
         let height = e.call(TILE_GET_FLOAT, &args![owner, 0xfb0u32]).f64();
         let map = e.get(this, MapMenu::pMapTile);
         let top = e.call(TILE_GET_FLOAT, &args![map, 0xfa2u32]).f64();
         let y = x87_quiet_bits(x87_store32(x87_sub(x87_div(height, two), top)));
         let map = e.get(this, MapMenu::pMapTile);
-        let owner = e.call(WORD_AT_28, &args![map]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, map));
         let width = e.call(TILE_GET_FLOAT, &args![owner, 0xfb1u32]).f64();
         let map = e.get(this, MapMenu::pMapTile);
         let left = e.call(TILE_GET_FLOAT, &args![map, 0xfa1u32]).f64();
@@ -6679,7 +6696,7 @@ pub fn map_menu_zoom_map(e: &mut Engine, this: Ptr<MapMenu>, zoom_in: u8, factor
         (0xfb0, point_y, 0xfef, 0xfa2),
     ] {
         let map = e.get(this, MapMenu::pMapTile);
-        let owner = e.call(WORD_AT_28, &args![map]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, map));
         let size = e.call(TILE_GET_FLOAT, &args![owner, size_id]).f64();
         let centre = x87_sub(x87_div(size, two), x87_m32(along));
         let map = e.get(this, MapMenu::pMapTile);
@@ -6852,7 +6869,7 @@ pub fn map_menu_update_world_map(e: &mut Engine, this: Ptr<MapMenu>) {
         while node != 0 && node_item(e, node) != 0 {
             let marker = node_item(e, node);
             add_world_map_marker(e, this, marker);
-            node = e.call(WORD_AT_4, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         e.call(LIST_REMOVE_ALL, &args![list]);
         if list != 0 {
@@ -6882,7 +6899,7 @@ fn add_world_map_marker(e: &mut Engine, this: Ptr<MapMenu>, marker: u32) {
     }
     let data = e.call(REFR_GET_MAP_MARKER_DATA, &args![marker]).u32();
     if !e.call(MARKER_GET_VISIBLE, &args![data]).bool()
-        || e.call(FORM_FLAG_00440DA0, &args![marker]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, marker))
     {
         return;
     }
@@ -7005,7 +7022,11 @@ fn set_point(e: &mut Engine, x: i32, y: i32) -> [u32; 3] {
     e.with_stack(0xc, |e, point| {
         let x = x87_store32(f64::from(x));
         let y = x87_store32(f64::from(y));
-        e.call(POINT_SET_00416870, &args![point, x, y, 0.0f32.to_bits()]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, x, y, 0.0f32.to_bits())
+        );
         [
             e.mem.u32(point.addr()),
             e.mem.u32(point.addr() + 4),
@@ -7133,7 +7154,7 @@ pub fn map_menu_update_local_map(e: &mut Engine, this: Ptr<MapMenu>) {
             while node != 0 && node_item(e, node) != 0 {
                 let marker = node_item(e, node);
                 add_door_marker(e, this, marker);
-                node = e.call(WORD_AT_4, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
         map_menu_add_map_icons(e, this);
@@ -7155,9 +7176,9 @@ fn map_corner_bits(e: &mut Engine, x: u32, y: u32) -> (u32, u32) {
 /// One reference of `UpdateLocalMap`'s marker list (see there).
 fn add_door_marker(e: &mut Engine, this: Ptr<MapMenu>, reference: u32) {
     let base = this.addr();
-    let object = e.call(SAVE_FORM_BUFFER_GET_FORM, &args![reference]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let door = if e.call(FORM_TYPE, &args![object]).u32() == 0x1c {
-        e.call(SAVE_FORM_BUFFER_GET_FORM, &args![reference]).u32()
+        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
     } else {
         0
     };
@@ -7242,7 +7263,7 @@ fn add_door_marker(e: &mut Engine, this: Ptr<MapMenu>, reference: u32) {
             e.with_stack(8, |e, name| {
                 e.call(STRING_CONSTRUCT, &args![name]);
                 e.call(TELEPORT_GET_CELL_MAP_NAME, &args![teleport, name]);
-                let text = e.call(STRING_TEXT, &args![name]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
                 let name_id = e
                     .call(ADD_USER_TRAIT, &args![LOCATION_NAME_TEXT, 0xffff_ffffu32])
                     .u32();
@@ -7268,6 +7289,7 @@ const PATHING_LOCATION_OF_REFERENCE: u32 = 0x006d_cd70;
 const BUILD_TELEPORT_DOOR_PATH: u32 = 0x006d_4d20;
 /// Thiscall on a `BSSimpleArray`: its size (`0044ddc0`) and its first
 /// element's address (`006cedb0`).
+#[cfg(test)]
 const ARRAY_SIZE_0044DDC0: u32 = 0x0044_ddc0;
 const ARRAY_FIRST_006CEDB0: u32 = 0x006c_edb0;
 /// Thiscall on a cell: its north rotation in `ST0` (`00555ad0`).
@@ -7315,11 +7337,12 @@ fn local_map_player_reference(e: &mut Engine, this: Ptr<MapMenu>) {
         e.call(PATHING_LOCATION_DESTRUCT, &args![path + 0x6c]);
         e.call(PATHING_LOCATION_DESTRUCT, &args![path + 0x44]);
         if found {
-            if e.call(ARRAY_SIZE_0044DDC0, &args![path + 0x10]).u32() > 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, path + 0x10)) > 0 {
                 let first = e.call(ARRAY_FIRST_006CEDB0, &args![path + 0x10]).u32();
                 let door = e.mem.u32(first);
                 let teleport = e.call(REFERENCE_TELEPORT_00568E50, &args![door]).u32();
-                let reference = e.call(STRING_TEXT, &args![teleport]).u32();
+                let reference =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, teleport));
                 e.set(this, MapMenu::pMapPlayerRef, reference);
             }
             if e.get(this, MapMenu::pMapPlayerRef) == 0 {
@@ -7354,9 +7377,10 @@ pub fn map_menu_add_map_icons(e: &mut Engine, this: Ptr<MapMenu>) {
     let half = float_constant(e, HALF_FLOAT);
     let half_again = float_constant(e, HALF_FLOAT);
     let mut point = e.with_stack(0xc, |e, point| {
-        e.call(
-            POINT_SET_00416870,
-            &args![point, half_again, half, 0.0f32.to_bits()],
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, half_again, half, 0.0f32.to_bits())
         );
         [
             e.mem.u32(point.addr()),
@@ -7441,7 +7465,7 @@ pub fn map_menu_add_map_icons(e: &mut Engine, this: Ptr<MapMenu>) {
     let two: f64 = e.global(TWO_DOUBLE);
     for (size_id, along, target) in [(0xfb1u32, point[0], 0xfa1u32), (0xfb0, point[1], 0xfa2)] {
         let map = e.get(this, MapMenu::pMapTile);
-        let owner = e.call(WORD_AT_28, &args![map]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, map));
         let size = e.call(TILE_GET_FLOAT, &args![owner, size_id]).f64();
         let centre = x87_div(size, two);
         let map = e.get(this, MapMenu::pMapTile);
@@ -7629,7 +7653,7 @@ pub fn map_menu_add_quest_markers(e: &mut Engine, this: Ptr<MapMenu>) {
             );
             e.call(VALUE_CALCULATE, &args![value, 0u32]);
         }
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -7807,7 +7831,7 @@ pub fn map_menu_update_companion_markers(e: &mut Engine, this: Ptr<MapMenu>) {
             }
             e.call(TELEPORT_PATH_DESTRUCT, &args![path]);
         });
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -7878,7 +7902,7 @@ pub fn map_menu_add_companion_markers(e: &mut Engine, this: Ptr<MapMenu>) {
             add_companion_marker(e, this, companion, path.addr());
             e.call(TELEPORT_PATH_DESTRUCT, &args![path]);
         });
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -8198,8 +8222,8 @@ pub fn map_menu_get_world_map_tracking_ref(
     if path == 0 {
         return 0;
     }
-    if e.call(ARRAY_SIZE_0044DDC0, &args![path]).u32() == 0
-        && e.call(ARRAY_SIZE_0044DDC0, &args![path + 0x10]).u32() == 0
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, path)) == 0
+        && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, path + 0x10)) == 0
     {
         return 0;
     }
@@ -8208,14 +8232,13 @@ pub fn map_menu_get_world_map_tracking_ref(
     }
     let mut found = false;
     let mut result = 0u32;
-    let mut index = e
-        .call(ARRAY_SIZE_0044DDC0, &args![path])
-        .u32()
-        .wrapping_sub(1) as i32;
+    let mut index =
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, path)).wrapping_sub(1) as i32;
     while !found && index >= 0 {
         let flag = e.call(PATH_SPACE_FLAG_006A1440, &args![path, index]).u32();
         if e.mem.u8(flag) != 0
-            && (index as u32) < e.call(ARRAY_SIZE_0044DDC0, &args![path + 0x10]).u32()
+            && (index as u32)
+                < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, path + 0x10))
         {
             let door = e.call(PATH_DOOR_00558DD0, &args![path + 0x10, index]).u32();
             result = e.mem.u32(door);
@@ -8314,7 +8337,7 @@ fn new_waypoint(e: &mut Engine, this: Ptr<MapMenu>, point: (u32, u32), id: u32) 
 /// The teleport reference of a door (`00568e50`, then `00559450`).
 fn door_destination(e: &mut Engine, door: u32) -> u32 {
     let teleport = e.call(REFERENCE_TELEPORT_00568E50, &args![door]).u32();
-    e.call(STRING_TEXT, &args![teleport]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, teleport))
 }
 
 /// The door at `index` of a teleport path's `Doors` (+0x10).
@@ -8376,7 +8399,7 @@ pub fn map_menu_create_waypoint_path(
             TILE_SET_FLOAT,
             &args![first, 0xfa9u32, 0.0f32.to_bits(), 1u32],
         );
-        let object = e.call(SAVE_FORM_BUFFER_GET_FORM, &args![from]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, from));
         if e.call(FORM_TYPE, &args![object]).u32() == 0x1c {
             let destination = door_destination(e, from);
             if e.call(REFR_GET_INTERIOR, &args![destination]).bool() {
@@ -8385,12 +8408,10 @@ pub fn map_menu_create_waypoint_path(
         }
         list_append(e, list, first);
         let mut start = 0i32;
-        let mut end = e
-            .call(ARRAY_SIZE_0044DDC0, &args![path + 0x10])
-            .u32()
+        let mut end = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, path + 0x10))
             .wrapping_sub(1) as i32;
         let mut index = 0u32;
-        while index < e.call(ARRAY_SIZE_0044DDC0, &args![path + 0x10]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, path + 0x10)) {
             if path_door(e, path, index) == from || {
                 let door = path_door(e, path, index);
                 door_destination(e, door) == from
@@ -8463,7 +8484,10 @@ pub fn map_menu_create_waypoint_path(
         let scale_x = scale(e, 0xfcd);
         let scale_y = scale(e, 0xfce);
         let mut node = list;
-        while node != 0 && node_item(e, node) != 0 && e.call(WORD_AT_4, &args![node]).u32() != 0 {
+        while node != 0
+            && node_item(e, node) != 0
+            && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node)) != 0
+        {
             let tile = node_item(e, node);
             let menu = map_menu(e);
             let line = e
@@ -8497,14 +8521,14 @@ pub fn map_menu_create_waypoint_path(
             let angle = e.call(ATAN2, &args![down, across]).f64();
             let angle = x87_store32(-angle);
             e.call(TILE_SET_FLOAT, &args![line, 0xffau32, angle, 1u32]);
-            let owner = e.call(WORD_AT_28, &args![line]).u32();
+            let owner = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, line));
             if e.call(TILE_IS_TRUE, &args![owner, 0x1004u32]).bool() {
                 e.call(
                     TILE_SET_STRING,
                     &args![line, 0xfccu32, INTERIOR_PATH_TEXTURE, 1u32],
                 );
             }
-            node = e.call(WORD_AT_4, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         e.call(LIST_DESTRUCT, &args![list]);
     });
@@ -8514,11 +8538,11 @@ pub fn map_menu_create_waypoint_path(
 /// read again for each trait as the code does.
 fn node_point_of_next(e: &mut Engine, node: u32) -> (u32, u32) {
     let y_id = e.mem.u32(TRAIT_Y);
-    let next = e.call(WORD_AT_4, &args![node]).u32();
+    let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     let tile = node_item(e, next);
     let y = x87_store32(e.call(TILE_GET_FLOAT, &args![tile, y_id]).f64());
     let x_id = e.mem.u32(TRAIT_X);
-    let next = e.call(WORD_AT_4, &args![node]).u32();
+    let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     let tile = node_item(e, next);
     let x = x87_store32(e.call(TILE_GET_FLOAT, &args![tile, x_id]).f64());
     map_corner_bits(e, x, y)
@@ -8646,7 +8670,11 @@ fn new_array(e: &mut Engine, count: u32, size: u32, constructor: u32) -> u32 {
 /// patterns, its words returned.
 fn point_words(e: &mut Engine, x: u32, y: u32, z: u32) -> [u32; 3] {
     e.with_stack(0xc, |e, point| {
-        let made = e.call(POINT_SET_00416870, &args![point, x, y, z]).u32();
+        let made = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, x, y, z)
+        );
         [e.mem.u32(made), e.mem.u32(made + 4), e.mem.u32(made + 8)]
     })
 }
@@ -8918,7 +8946,11 @@ fn local_map_step(e: &mut Engine, save: u8, locals: [u32; 6]) {
             e.mem.set_u32(uvs + index * 8 + 4, second);
             let world_x = x87_store32(x87_mul(f64::from(down), x87_m32(uv_scale)));
             let world_y = x87_store32(x87_mul(f64::from(across), x87_m32(uv_scale)));
-            e.call(POINT_SET_00416870, &args![world, world_x, world_y, zero]);
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, world, world_x, world_y, zero)
+            );
             e.call(POINT_ADD_0063C8A0, &args![world, corner]);
             let mut alpha = float_constant(e, FOG_ALPHA_FLOAT);
             if e.mem.u8(map_menu(e) + 0x12c) != 0 {
@@ -9013,7 +9045,7 @@ fn local_map_step(e: &mut Engine, save: u8, locals: [u32; 6]) {
     } else {
         0
     };
-    let picture = e.call(STRING_TEXT, &args![texture]).u32();
+    let picture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
     e.call(SET_TILE_TEXTURE, &args![property, picture]);
     e.call(PROPERTY_SET_008CC6D0, &args![property, 0u32]);
     fn_007a1450(e, Ptr::new(property), color);
@@ -9196,7 +9228,7 @@ fn save_local_map_texture(
                 ],
             );
         }
-        let picture = e.call(STRING_TEXT, &args![texture]).u32();
+        let picture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
         let surface = e.call(D3D_TEXTURE_LOCK_RECT, &args![picture]).u32();
         let object = e
             .call(

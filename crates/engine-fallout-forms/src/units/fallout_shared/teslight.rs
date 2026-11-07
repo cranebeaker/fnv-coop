@@ -45,6 +45,7 @@ const MODEL_LOADER: u32 = 0x011c_3b3c;
 /// The `NiPointer` constructor (`00633c90`, `RET 4`), its object
 /// (`00559450`) and its release (`0045cec0`).
 const POINTER_CONSTRUCT: u32 = 0x0063_3c90;
+#[cfg(test)]
 const POINTER_OBJECT: u32 = 0x0055_9450;
 const POINTER_RELEASE: u32 = 0x0045_cec0;
 /// The Gamebryo allocation (`00aa13e0`, cdecl).
@@ -446,7 +447,7 @@ pub fn tes_object_ligh_clone_3d(e: &mut Engine, this: Ptr, reference: u32) -> u3
         e.call(POINTER_CONSTRUCT, &args![empty_at, 0u32]);
         let model = e.vcall(base, 0x174, &args![reference]).u32();
         e.call(POINTER_CONSTRUCT, &args![model_at, model]);
-        if e.call(POINTER_OBJECT, &args![model_at]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model_at)) == 0 {
             e.call(POINTER_RELEASE, &args![model_at]);
             e.call(POINTER_RELEASE, &args![empty_at]);
             return 0;
@@ -455,7 +456,7 @@ pub fn tes_object_ligh_clone_3d(e: &mut Engine, this: Ptr, reference: u32) -> u3
         e.with_stack(size, |e, _buffer| {
             let mut node = 0u32;
             if e.call(MODEL_HAS_NAME, &args![base + 0x3c]).u32() == 0 {
-                let object = e.call(POINTER_OBJECT, &args![model_at]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model_at));
                 node = e.vcall(object, 0x10, &args![]).u32();
                 if node != 0 {
                     let light_name = e.vcall(base, 0x130, &args![]).u32();
@@ -473,7 +474,7 @@ pub fn tes_object_ligh_clone_3d(e: &mut Engine, this: Ptr, reference: u32) -> u3
             }
             e.call(0x004a_d050, &args![process_at, x87_quiet_bits(scale)]);
             if e.call(MODEL_HAS_NAME, &args![base + 0x3c]).u32() != 0 {
-                let object = e.call(POINTER_OBJECT, &args![model_at]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model_at));
                 node = e.call(0x00a5_d2c0, &args![object, process_at]).u32();
             } else if node == 0 {
                 let block = e.call(NI_ALLOCATE, &args![0xe4u32]).u32();
@@ -558,18 +559,24 @@ pub fn fn_0050d6d0(e: &mut Engine, node: u32) -> u32 {
         let result = e.with_stack(4, |e, pointer| {
             e.call(POINTER_CONSTRUCT, &args![pointer, child]);
             let mut result = None;
-            if e.call(POINTER_OBJECT, &args![pointer]).u32() != 0 {
-                let object = e.call(POINTER_OBJECT, &args![pointer]).u32();
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
+                let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                 if e.vcall(object, 0xc, &args![]).u32() != 0 {
-                    let object = e.call(POINTER_OBJECT, &args![pointer]).u32();
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                     found = fn_0050d6d0(e, object);
                     if found != 0 {
                         result = Some(found);
                     }
                 } else {
-                    let object = e.call(POINTER_OBJECT, &args![pointer]).u32();
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                     if e.call(0x0043_b300, &args![0x011f_4a28u32, object]).bool() {
-                        result = Some(e.call(POINTER_OBJECT, &args![pointer]).u32());
+                        result = Some(typed_call!(
+                            leaf::FAMILY,
+                            0x0055_9450,
+                            leaf::word_at_0(e, pointer)
+                        ));
                     }
                 }
             }
@@ -632,7 +639,7 @@ pub fn tes_object_ligh_gen_dynamic(
         return 0;
     }
     if reference != 0 {
-        let form = e.call(0x007a_f430, &args![reference]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let fires = if e.mem.u32(base + 0xa8) & 0x20 != 0 {
             true
         } else if e.call(0x008d_6f30, &args![reference]).u32() == 0 {
@@ -663,7 +670,11 @@ pub fn tes_object_ligh_gen_dynamic(
         let text = frame.byte_add(0x18);
         let name_at = frame.byte_add(0x11c);
         let radius_at = frame.byte_add(0x124);
-        e.call(0x0041_6870, &args![color, 0u32, 0u32, 0u32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, color, 0u32, 0u32, 0u32)
+        );
         let packed = e.mem.u32(base + 0xa4);
         let scale = e.global::<f64>(COLOR_SCALE);
         for (i, byte) in [packed & 0xff, (packed >> 8) & 0xff, (packed >> 16) & 0xff]
@@ -717,9 +728,11 @@ pub fn tes_object_ligh_gen_dynamic(
             radius = x87_store32(e.call(0x0056_8cb0, &args![reference]).f64());
         }
         let pushed = x87_quiet_bits(radius);
-        let vector = e
-            .call(0x0041_6870, &args![radius_at, pushed, pushed, pushed])
-            .u32();
+        let vector = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, radius_at, pushed, pushed, pushed)
+        );
         e.call(0x0050_dd50, &args![light, vector]);
         e.call(0x004b_c2e0, &args![light, color]);
         let mut walk = e.call(0x0043_b230, &args![node]).u32();
@@ -740,7 +753,7 @@ pub fn tes_object_ligh_gen_dynamic(
             false
         } else {
             let list = lit_water(e);
-            e.call(0x0082_56d0, &args![list]).bool()
+            typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list))
         };
         if add {
             let cast = if force {
@@ -794,6 +807,7 @@ const SAVE_DATA: u32 = 0x0048_5e20;
 /// `00485910` (cdecl(chunk, word)): adds a one-word chunk.
 const ADD_CHUNK_WORD: u32 = 0x0048_5910;
 /// The form-id getter (`0084e3a0`, `thiscall`: the word at +0xc).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `__RTDynamicCast` (`00ec43fb`, cdecl, five words) and the type
 /// descriptors `TESForm` (`01183028`) and `TESObjectLIGH` (`01183938`).
@@ -862,7 +876,7 @@ pub fn tes_object_ligh_save(e: &mut Engine, this: Ptr) {
     e.call(ADD_CHUNK_WORD, &args![SIG_FNAM, fade]);
     let sound = e.mem.u32(base + 0xb8);
     if sound != 0 {
-        let id = e.call(FORM_ID, &args![sound]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         e.call(ADD_CHUNK_WORD, &args![SIG_SNAM, id]);
     }
     e.call(CLOSE_FORM, &args![this]);

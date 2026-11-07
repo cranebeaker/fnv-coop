@@ -31,6 +31,7 @@ pub fn fn_00449c50(e: &mut Engine, this: Ptr) {
 
 /// `0044ddc0` (`thiscall`, no stack word): the word at `this` (here the
 /// table's bucket count).
+#[cfg(test)]
 const BUCKET_COUNT: u32 = 0x0044_ddc0;
 
 // Translated from 00449cb0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -49,7 +50,7 @@ pub fn fn_00449cb0(e: &mut Engine, this: Ptr, key: u32) -> u32 {
         hash = (hash << 5).wrapping_add(hash).wrapping_add(c as i32 as u32);
         at = at.wrapping_add(1);
     }
-    let count = e.call(BUCKET_COUNT, &args![this]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     hash % count
 }
 

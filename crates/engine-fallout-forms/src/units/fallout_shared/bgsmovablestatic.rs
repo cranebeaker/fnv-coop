@@ -187,6 +187,7 @@ const FORM_SAVE_DATA: u32 = 0x0048_5e20;
 /// `00485910` (`cdecl`: chunk signature, word): saves a chunk holding one word.
 const ADD_CHUNK_WORD: u32 = 0x0048_5910;
 /// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `this + 0x58`: the sound form (`TESSound*`) saved as `SNAM`.
 const SOUND_OFFSET: u32 = 0x58;
@@ -225,7 +226,7 @@ pub fn bgs_movable_static_save(e: &mut Engine, this: Ptr) {
     }
     let sound = e.mem.u32(base.wrapping_add(SOUND_OFFSET));
     if sound != 0 {
-        let id = e.call(FORM_ID, &args![sound]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         e.call(ADD_CHUNK_WORD, &args![CHUNK_SNAM, id]);
     }
     e.call(FORM_CLOSE_FORM, &args![this]);
@@ -259,6 +260,7 @@ const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const CAST_SOURCE_TYPE: u32 = 0x0118_3028;
 const CAST_TARGET_TYPE: u32 = 0x0118_32fc;
 /// The form's id (`0084e3a0`, thiscall).
+#[cfg(test)]
 const FORM_ID_84E3A0: u32 = 0x0084_e3a0;
 /// The form's virtual slot giving its editor id (no words).
 const SLOT_GET_EDITOR_ID: u32 = 0x130;
@@ -311,7 +313,7 @@ pub fn bgs_movable_static_init_item(e: &mut Engine, this: Ptr) {
                 .u32();
             e.mem.set_u32(base.wrapping_add(LOOPING_SOUND), sound);
             if e.mem.u32(base.wrapping_add(LOOPING_SOUND)) == 0 {
-                let form_id = e.call(FORM_ID_84E3A0, &args![this]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 let name = e.vcall(base, SLOT_GET_EDITOR_ID, &args![]).u32();
                 let id_value = e.mem.u32(id.addr());
                 e.call(

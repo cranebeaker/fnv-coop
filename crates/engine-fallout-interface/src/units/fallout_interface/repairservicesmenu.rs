@@ -53,6 +53,7 @@ const MENU_SET_MENU_TILE: u32 = 0x00a1_dc70;
 const TILE_GET_MAXIMUM_DEPTH: u32 = 0x00a0_1530;
 const MENU_PREP_FOR_VISIBILITY: u32 = 0x00a1_dc20;
 const MENU_START_FADE_OUT: u32 = 0x00a1_d910;
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 const TILE_GET_CHILD_BY_NAME: u32 = 0x00a0_3da0;
 const TILE_GET_CHILD_BY_ID: u32 = 0x00a0_3eb0;
@@ -67,6 +68,7 @@ const LIST_BOX_INITIALIZE: u32 = 0x0075_a0d0;
 const SERVICE_START: u32 = 0x0076_3ff0;
 const SERVICE_END: u32 = 0x0076_40a0;
 const GET_TOPIC: u32 = 0x0061_a2d0;
+#[cfg(test)]
 const REPORT_ERROR_0040FBE0: u32 = 0x0040_fbe0;
 const PRINT_MESSAGE: u32 = 0x005b_5e40;
 /// The list box (`ListBox<ItemChange *>`) helpers: the current item (`007a1910`), the walk
@@ -84,8 +86,11 @@ const GET_WORN: u32 = 0x004b_ddd0;
 const HAS_MOD_EFFECT_ACTIVE: u32 = 0x004b_da70;
 const GET_ICON_ONE: u32 = 0x004b_e200;
 const GET_SCRIPT: u32 = 0x004b_de40;
+#[cfg(test)]
 const ITEM_FORM: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const WORD_AT_ZERO: u32 = 0x0055_9450;
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
 const LIST_ELEMENT_006317A0: u32 = 0x0063_17a0;
 const LIST_APPEND_005AE3D0: u32 = 0x005a_e3d0;
@@ -227,7 +232,7 @@ fn services_tile(e: &Engine, offset: u32) -> u32 {
 
 /// The item word of a list node, reached through `006815c0`.
 fn services_node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_SELF, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -334,7 +339,7 @@ pub fn fn_007b7500(e: &mut Engine, this: Ptr) {
 /// deleted (when it has a tile) and the result is 0.
 pub fn repair_services_menu_create(e: &mut Engine, vendor: u32) -> u32 {
     if vendor == 0 {
-        e.call(REPORT_ERROR_0040FBE0, &args![NULL_VENDOR_TEXT]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words NULL_VENDOR_TEXT);
         return 0;
     }
     let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
@@ -354,7 +359,11 @@ pub fn repair_services_menu_create(e: &mut Engine, vendor: u32) -> u32 {
         }
     }
     if services_me(e) != 0
-        && e.call(WORD_AT_FOUR, &args![services_me(e)]).u32() != 0
+        && typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, services_me(e))
+        ) != 0
         && services_me(e) != 0
     {
         let menu = services_me(e);
@@ -478,7 +487,7 @@ pub fn repair_services_menu_init_func(e: &mut Engine, tile: u32, item: u32) {
     if tile == 0 || item == 0 {
         return;
     }
-    let form = e.call(ITEM_FORM, &args![item]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     let price = e.call(GET_FORM_VALUE, &args![form]).i32();
     let price = x87_store32(f64::from(price));
     let health = x87_store32(e.call(GET_ITEM_HEALTH, &args![item, 1u32]).f64());
@@ -498,12 +507,12 @@ pub fn repair_services_menu_init_func(e: &mut Engine, tile: u32, item: u32) {
     let total = e.mem.u32(menu + REPAIR_ALL_COST).wrapping_add(cost as u32);
     let menu = services_me(e);
     e.mem.set_u32(menu + REPAIR_ALL_COST, total);
-    let index = e.call(WORD_AT_FOUR, &args![tile + 4]).u32();
+    let index = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, tile + 4));
     let target = list_element_tile(e, tile + 4, index);
     e.call(TILE_SET_FLOAT, &args![target, 0xfa9u32, alpha, 1u32]);
     let child = e.call(TILE_GET_CHILD_BY_ID, &args![tile, 0x12u32]).u32();
     e.call(TILE_SET_FLOAT, &args![child, 0xfa9u32, alpha, 1u32]);
-    let index = e.call(WORD_AT_ZERO, &args![tile + 4]).u32();
+    let index = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, tile + 4));
     let target = list_element_tile(e, tile + 4, index);
     e.call(TILE_SET_FLOAT, &args![target, 0xfa9u32, alpha, 1u32]);
     let position = e.call(TILE_GET_FLOAT, &args![tile, 0xfacu32]).f64();
@@ -527,7 +536,7 @@ pub fn repair_services_menu_init_func(e: &mut Engine, tile: u32, item: u32) {
     let can_repair = e.global::<u32>(CAN_REPAIR_TRAIT_011DA7DC);
     e.call(TILE_SET_INT, &args![tile, can_repair, u32::from(full)]);
     if e.call(GET_WORN, &args![item, 0u32]).bool() {
-        let index = e.call(WORD_AT_ZERO, &args![tile + 4]).u32();
+        let index = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, tile + 4));
         let target = list_element_tile(e, tile + 4, index);
         e.call(TILE_SET_INT, &args![target, 0xfa3u32, 1u32]);
     }
@@ -540,7 +549,7 @@ pub fn repair_services_menu_init_func(e: &mut Engine, tile: u32, item: u32) {
 /// `011d018c` times 10; otherwise kept, except armour (type 0x18) whose `004be060` value is
 /// at or below `0.0` and `004be180` value at or below `0.0`.
 pub fn repair_services_menu_filter_func(e: &mut Engine, item: u32) -> bool {
-    let form = e.call(ITEM_FORM, &args![item]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     let biped = e.call(GET_FORM_AS_BIPED_MODEL, &args![form]).u32();
     if form == 0 {
         return true;
@@ -712,7 +721,7 @@ fn vendor_fraction(e: &mut Engine, this: Ptr) -> u32 {
 /// item; a single item's old list is removed from the entry when a stack took it.
 pub fn repair_services_menu_repair_item(e: &mut Engine, this: Ptr, item: u32) {
     let mut fraction = vendor_fraction(e, this);
-    let form = e.call(ITEM_FORM, &args![item]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     let weapon = e
         .call(
             RT_DYNAMIC_CAST,
@@ -726,18 +735,18 @@ pub fn repair_services_menu_repair_item(e: &mut Engine, this: Ptr, item: u32) {
             .i32();
         fraction = x87_store32(x87_mul(f64::from(health), x87_m32(fraction)));
     } else {
-        let form = e.call(ITEM_FORM, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let health = e.call(HEALTH_FORM_GET_FORM_HEALTH, &args![form]).u32();
         fraction = x87_store32(x87_mul(f64::from(health), x87_m32(fraction)));
     }
-    let form = e.call(ITEM_FORM, &args![item]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     let player = e.global::<u32>(PLAYER);
     let changes = e.call(GET_INVENTORY_CHANGES, &args![player]).u32();
     let entry = e
         .call(GET_OBJECT_IN_LIST, &args![changes, form, 1u32, 0u32])
         .u32();
-    let old = if e.call(WORD_AT_ZERO, &args![item]).u32() != 0 {
-        let lists = e.call(WORD_AT_ZERO, &args![item]).u32();
+    let old = if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) != 0 {
+        let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
         services_node_item(e, lists)
     } else {
         0
@@ -761,9 +770,9 @@ pub fn repair_services_menu_repair_item(e: &mut Engine, this: Ptr, item: u32) {
             e.call(EXTRA_SET_COUNT, &args![old, count - 1]);
         }
         let mut stacked = false;
-        let mut node = e.call(WORD_AT_ZERO, &args![entry]).u32();
+        let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
         while node != 0 && services_node_item(e, node) != 0 {
-            let form = e.call(ITEM_FORM, &args![item]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             if e.call(FORM_TYPE, &args![form]).u32() == 0x18
                 && e.call(GET_SCRIPT, &args![item]).u32() != 0
             {
@@ -787,18 +796,18 @@ pub fn repair_services_menu_repair_item(e: &mut Engine, this: Ptr, item: u32) {
                     stacked = true;
                 }
             }
-            node = e.call(WORD_AT_FOUR, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         if !stacked {
             if count > 1 {
-                let lists = e.call(WORD_AT_ZERO, &args![entry]).u32();
+                let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
                 e.call(LIST_APPEND_005AE3D0, &args![lists, new_slot]);
             } else {
                 let old = e.mem.u32(old_slot);
                 e.call(EXTRA_SET_HEALTH, &args![old, x87_quiet_bits(fraction)]);
             }
         } else if count == 1 {
-            let lists = e.call(WORD_AT_ZERO, &args![entry]).u32();
+            let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
             e.call(LIST_REMOVE_00905330, &args![lists, old_slot]);
         }
         if stacked || count == 1 {
@@ -826,12 +835,12 @@ pub fn repair_services_menu_repair_all_func(e: &mut Engine, tile: u32, item: u32
 /// `DoEnter`'s weapon or armour line for the condition `fraction` in the tile at `offset`
 /// (of `this` for a weapon, of `pMe` for armour; `buffer` takes `"--"`).
 fn show_item_line(e: &mut Engine, this: Ptr, item: u32, fraction: u32, offset: u32, buffer: Ptr) {
-    let form = e.call(ITEM_FORM, &args![item]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     if e.call(FORM_TYPE, &args![form]).u32() == 0x28 {
         let title = e.global::<u32>(TITLE_TRAIT_011DA7E0);
         let tile = e.mem.u32(this.addr() + offset);
         services_setting_text(e, tile, title, SETTING_011D2C7C);
-        let form = e.call(ITEM_FORM, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let damage = e
             .call(
                 CALC_WEAPON_DAMAGE_FOR_DISPLAY,
@@ -850,18 +859,18 @@ fn show_item_line(e: &mut Engine, this: Ptr, item: u32, fraction: u32, offset: u
         e.call(TILE_SET_INT, &args![tile, value_trait, whole]);
         return;
     }
-    let form = e.call(ITEM_FORM, &args![item]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     if e.call(FORM_TYPE, &args![form]).u32() != 0x18 {
         return;
     }
-    let form = e.call(ITEM_FORM, &args![item]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     let base = e.call(ARMOR_004BE060, &args![form]).f64();
     let base = e.call(FTOL2, &args![base]).u32();
     let base = x87_store32(
         e.call(CALC_ARMOR_RATING, &args![base, x87_quiet_bits(fraction)])
             .f64(),
     );
-    let form = e.call(ITEM_FORM, &args![item]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     let damaged = e.call(ARMOR_004BE180, &args![form]).f64();
     let damaged = e.call(FTOL2, &args![damaged]).u32();
     let damaged = x87_store32(

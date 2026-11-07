@@ -89,6 +89,7 @@ const INTERFACE_GET_SCREEN_WIDTH: u32 = 0x0070_6e00;
 const INTERFACE_GET_SCREEN_ASPECT_RATIO: u32 = 0x0070_6e70;
 const INTERFACE_SET_NEED_TO_UPDATE: u32 = 0x0070_7930;
 /// `Error` (`0040fbe0`, Xbox PDB name, cdecl with a format).
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 /// `_strcpy_s` (`00ec65a6`), `_strcat_s` (`00ec6bd2`), `strstr`
 /// (`00ec7750`) and `_memset` (`00ec61c0`), cdecl.
@@ -335,7 +336,7 @@ pub fn tile_image_add_to_tes_textures(
                                     e.call(TEXTURE_PALETTE_SET_TEXTURE, &args![made, 0u32]);
                                 }
                             } else {
-                                e.call(ERROR, &args![COULD_NOT_CREATE_TEXTURE, buffer]);
+                                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words COULD_NOT_CREATE_TEXTURE, buffer);
                             }
                             let tls = e.tls();
                             e.mem.set_u32(tls + ALLOCATION_TAG_OFFSET, saved);

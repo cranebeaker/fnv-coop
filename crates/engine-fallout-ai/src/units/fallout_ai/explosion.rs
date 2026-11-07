@@ -219,16 +219,24 @@ pub fn fn_009ac5a0(e: &mut Engine, this: Ptr) {
     }
 
     fn_009b12d0(e, this);
-    let phantom = e.call(0x0055_9450, &args![this.addr() + 0xa0]).u32();
+    let phantom = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xa0)
+    );
     if phantom != 0 {
-        let phantom = e.call(0x0055_9450, &args![this.addr() + 0xa0]).u32();
+        let phantom = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.addr() + 0xa0)
+        );
         e.vcall(phantom, 0xa0, &args![]);
     }
     e.call(0x0066_b0d0, &args![this.addr() + 0xa0, 0u32]);
 
     let targets = this.addr() + 0xa4;
-    while !e.call(0x0082_56d0, &args![targets]).bool() {
-        let value = e.call(0x0068_15c0, &args![targets]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, targets)) {
+        let value = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, targets));
         let record = e.mem.u32(value);
         if record != 0 {
             fn_009ac910(e, Ptr::new(record), 1);
@@ -252,7 +260,7 @@ pub fn fn_009ac5a0(e: &mut Engine, this: Ptr) {
     let process_list_enabled = e.call(0x0040_8d60, &args![0x011c_7ae8u32]).u32();
     if e.mem.u8(process_list_enabled) != 0 {
         let list = 0x011c_7b8c;
-        let mut node = e.call(0x0055_9450, &args![list]).u32();
+        let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
         let mut removed = 0;
         while node != 0 && removed == 0 {
             let next = e.call(0x007b_52d0, &args![list, node]).u32();
@@ -345,7 +353,9 @@ pub fn fn_009ac9c0(
                     });
                 }
             } else if owner == player {
-                let process = e.call(0x008d_8520, &args![player]).ptr::<()>();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player))
+                    .into_ret()
+                    .ptr::<()>();
                 let saved_object = if process.is_null() {
                     0
                 } else {
@@ -354,7 +364,7 @@ pub fn fn_009ac9c0(
                 let entry_value = if saved_object == 0 {
                     0
                 } else {
-                    e.call(0x0044_ddc0, &args![saved_object]).u32()
+                    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, saved_object))
                 };
                 e.with_stack(4, |e, output| {
                     e.mem.set_f32(output.addr(), damage_multiplier);
@@ -621,12 +631,14 @@ pub fn explosion_initialize(e: &mut Engine, this: Ptr) {
         if !scene_mode {
             let actor = e.vcall(this.addr(), 0x168, &args![]).u32();
             if actor != 0 {
-                let process = e.call(0x0055_9450, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, actor));
                 if process != 0 {
-                    let process = e.call(0x0055_9450, &args![actor]).u32();
-                    if e.call(0x008d_8520, &args![process]).u32() != 0 {
-                        let process = e.call(0x0055_9450, &args![actor]).u32();
-                        let saved = e.call(0x008d_8520, &args![process]).u32();
+                    let process = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, actor));
+                    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, process)) != 0 {
+                        let process =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, actor));
+                        let saved =
+                            typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, process));
                         let exploded = fn_009ad610(e, this);
                         let base = e.call(0x0041_81e0, &args![this]).u32();
                         // The exploded reference and 2 were pushed before
@@ -679,7 +691,7 @@ pub fn explosion_initialize(e: &mut Engine, this: Ptr) {
                 let setting = e.call(0x0040_3e20, &args![0x011d_0da4u32]).u32();
                 let effect_radius = ((radius as f64) / e.mem.f32(setting) as f64) as f32;
                 let matrix = Ptr::<()>::new(frame.addr() + 0x54);
-                e.call(0x0068_15c0, &args![matrix]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
                 let heading = quiet_f32(e.call(0x004a_4240, &args![]).f32());
                 e.call(0x004a_0c90, &args![matrix, heading]);
                 // MOVSD.REP captures the by-value matrix before either
@@ -797,7 +809,7 @@ pub fn explosion_init_3d(e: &mut Engine, this: Ptr) {
                 e.vcall(base, 0x130, &args![]).u32()
             };
             let base = e.call(0x0041_81e0, &args![this]).u32();
-            let id = e.call(0x0084_e3a0, &args![base]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, base));
             e.call(0x005b_5e40, &args![0x0108_f16cu32, id, display]);
         }
     }
@@ -814,7 +826,7 @@ pub fn explosion_init_3d(e: &mut Engine, this: Ptr) {
             quiet_f32(f32::from_bits(e.mem.u32(angles + 4))).to_bits(),
             quiet_f32(f32::from_bits(e.mem.u32(angles + 8))).to_bits(),
         ];
-        e.call(0x0068_15c0, &args![rotation]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
         e.call(0x00a5_9780, &args![rotation, xyz[2], xyz[1], xyz[0]]);
         e.call(0x0043_fa80, &args![node, rotation]);
 
@@ -887,7 +899,8 @@ pub fn explosion_init_3d(e: &mut Engine, this: Ptr) {
                 let string = e
                     .call(0x0062_2290, &args![cinfo - 4, 4u32, seed, 0u32])
                     .u32();
-                let string_value = e.call(0x0055_9450, &args![string]).u32();
+                let string_value =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
                 e.call(0x0056_f0f0, &args![cinfo, string_value]);
                 e.call(0x0056_f110, &args![cinfo, shape]);
 
@@ -1121,7 +1134,9 @@ pub fn fn_009ae280(e: &mut Engine, this: Ptr) {
         let text = e
             .call(0x0062_2290, &args![text_object, 0x29u32, text_seed, 0u32])
             .ptr::<()>();
-        let text = e.call(0x0055_9450, &args![text]).ptr::<()>();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text))
+            .into_ret()
+            .ptr::<()>();
         e.mem.set_u32(cinfo.addr(), text.addr());
 
         if !e.vcall(this.addr(), 0x1d0, &args![]).ptr::<()>().is_null() {
@@ -1140,7 +1155,13 @@ pub fn fn_009ae280(e: &mut Engine, this: Ptr) {
             e.call(0x0056_e2d0, &args![allocation, cinfo]).ptr::<()>()
         };
         e.call(0x0066_b0d0, &args![this.addr() + 0xa0, phantom]);
-        let phantom = e.call(0x0055_9450, &args![this.addr() + 0xa0]).ptr::<()>();
+        let phantom = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.addr() + 0xa0)
+        )
+        .into_ret()
+        .ptr::<()>();
         let parent = e.call(0x008d_6f30, &args![this]).ptr::<()>();
         let world = e.call(0x0045_43c0, &args![parent]).ptr::<()>();
         e.vcall(phantom.addr(), 0x9c, &args![world]);
@@ -1186,8 +1207,8 @@ pub fn fn_009ae5d0(e: &mut Engine, this: Ptr, _unused_1: u32) {
     if e.mem.u32(this.addr() + 0xe4) == 0 {
         let mut target = 0;
         let targets = this.addr() + 0xa4;
-        if !e.call(0x0082_56d0, &args![targets]).bool() {
-            let value = e.call(0x0068_15c0, &args![targets]).u32();
+        if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, targets)) {
+            let value = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, targets));
             let record = e.mem.u32(value);
             target = e.mem.u32(record);
         }
@@ -1284,7 +1305,11 @@ pub fn explosion_ctor(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(0x0063_3c90, &args![this.addr() + 0xc4, 0u32]);
     e.call(0x0042_f730, &args![this.addr() + 0xd0, 0u32]);
     for offset in [0xe8, 0xf4] {
-        e.call(0x0068_15c0, &args![this.addr() + offset]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.addr() + offset)
+        );
     }
     for offset in [0x68, 0xe4, 0x88, 0x8c, 0x90, 0x94, 0x98] {
         e.mem.set_u32(this.addr() + offset, 0);
@@ -1337,7 +1362,11 @@ pub fn bhk_liquid_action_ctor(e: &mut Engine, this: Ptr, info: Ptr) -> Ptr {
     e.call(0x004b_50c0, &args![this]);
     e.mem.set_u32(this.addr(), 0x0108_f1bc);
     for offset in [0x24, 0x30] {
-        e.call(0x0068_15c0, &args![this.addr() + offset]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.addr() + offset)
+        );
     }
     for offset in [0x10, 0x14, 0x18, 0x1c, 0x20] {
         e.mem.set_u32(this.addr() + offset, 0);
@@ -1370,7 +1399,7 @@ pub fn fn_009ae4a0(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
 /// Extracts three rotation rows into four-float vectors with zero fourth lanes.
 pub fn fn_009ae4d0(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
     e.with_stack(12, |e, row| {
-        e.call(0x0068_15c0, &args![row]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, row));
         for index in 0..3u32 {
             e.call(0x0043_9f50, &args![source, index, row]);
             fn_009ae540(e, Ptr::new(this.addr() + index * 16), row.cast());
@@ -1387,7 +1416,11 @@ pub fn fn_009afaf0(e: &mut Engine, this: Ptr, buffer: u32, capacity: u32) -> Ptr
     e.call(0x0062_1060, &args![this]);
     e.mem.set_u32(this.addr(), 0x0108_f288);
     for offset in [8, 12, 16, 20] {
-        e.call(0x0068_15c0, &args![this.addr() + offset]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.addr() + offset)
+        );
     }
     for (offset, value) in [(8, buffer), (12, buffer), (16, capacity), (20, 0)] {
         e.call(0x0053_7e90, &args![this.addr() + offset, value]);
@@ -1429,7 +1462,7 @@ pub fn fn_009b0bd0(e: &mut Engine, this: Ptr) -> f32 {
 /// Converts the supplied vector into Havok units before applying linear impulse.
 pub fn fn_009b0bf0(e: &mut Engine, this: Ptr, vector: Ptr) {
     e.with_stack(16, |e, converted| {
-        e.call(0x0068_15c0, &args![converted]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, converted));
         let result = e.call(0x004a_3e00, &args![converted, vector]).ptr();
         fn_009b0c50(e, this, result);
     });
@@ -1450,7 +1483,7 @@ pub fn fn_009b0c50(e: &mut Engine, this: Ptr, impulse: Ptr) {
 /// Converts the supplied vector before forwarding to the activated body's motion.
 pub fn fn_009b0c90(e: &mut Engine, this: Ptr, vector: Ptr) {
     e.with_stack(16, |e, converted| {
-        e.call(0x0068_15c0, &args![converted]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, converted));
         let result = e.call(0x004a_3e00, &args![converted, vector]).ptr();
         fn_009b0cf0(e, this, result);
     });
@@ -1478,12 +1511,13 @@ pub fn fn_009b0d30(e: &mut Engine, this: Ptr, impulse: Ptr) {
 // Translated from 009b0d70 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Forwards the explosion position to the target's process above the setting threshold.
 pub fn fn_009b0d70(e: &mut Engine, this: Ptr, target: Ptr, magnitude: f32) {
-    if target.is_null() || e.call(0x008d_8520, &args![target]).u32() == 0 {
+    if target.is_null() || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target)) == 0
+    {
         return;
     }
     let setting = e.call(0x0040_3e20, &args![0x011d_1188u32]).u32();
     if e.mem.f32(setting) < magnitude {
-        let process = e.call(0x008d_8520, &args![target]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
         // 009b0dc2: the explosion's +0x1f4 takes no stack word (plain RET in every
         // reference class); the 0.0 pushed before it is the last word of the process'
         // +0x418 (RET 0x14).
@@ -1549,8 +1583,8 @@ pub fn explosion_attach_light(e: &mut Engine, this: Ptr) {
 /// Removes a non-null spLight from the shadow scene and clears the smart pointer.
 pub fn fn_009b12d0(e: &mut Engine, this: Ptr) {
     let member = this.addr() + 0xc4;
-    if e.call(0x0055_9450, &args![member]).u32() != 0 {
-        let light = e.call(0x0055_9450, &args![member]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member)) != 0 {
+        let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member));
         let scene = e.call(0x0045_0b80, &args![0u32]).u32();
         e.call(0x00b5_eed0, &args![scene, light]);
         e.call(0x0066_b0d0, &args![member, 0u32]);
@@ -1568,7 +1602,7 @@ pub fn explosion_start_sounds(e: &mut Engine, this: Ptr) {
         if e.call(getter, &args![base]).u32() != 0 {
             let base = e.call(0x0041_81e0, &args![this]).u32();
             let sound = e.call(getter, &args![base]).u32();
-            let id = e.call(0x0084_e3a0, &args![sound]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
             e.with_stack(12, |e, handle| {
                 let result = e
                     .call(
@@ -1587,14 +1621,14 @@ pub fn explosion_start_sounds(e: &mut Engine, this: Ptr) {
 /// Scales the current light by the age/lifetime fade, clamped through the exe helpers.
 pub fn fn_009b1320(e: &mut Engine, this: Ptr) {
     let member = this.addr() + 0xc4;
-    if e.call(0x0055_9450, &args![member]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member)) != 0 {
         let age = e.call(0x0051_b8e0, &args![this]).f32() as f64;
         let scaled = age * e.global::<f64>(0x0101_1590);
         let lifetime = e.call(0x0050_7e10, &args![this]).f32() as f64;
         let factor = (1.0 - scaled / lifetime) as f32;
         let factor = e.call(0x0040_ebd0, &args![1.0f32, factor]).f32();
         let factor = e.call(0x0040_4010, &args![0.0f32, factor]).f32();
-        let light = e.call(0x0055_9450, &args![member]).u32();
+        let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member));
         e.call(0x0050_dd20, &args![light, factor]);
     }
 }
@@ -1626,7 +1660,7 @@ pub fn fn_009b13a0(e: &mut Engine, this: Ptr) {
 /// otherwise invokes its scalar destructor and reports false.
 pub fn fn_009b1450(e: &mut Engine, this: Ptr) -> bool {
     let process = e.mem.u32(this.addr() + 0x68);
-    let level = e.call(0x0045_cd60, &args![process]).u32();
+    let level = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process));
     let cell = e.call(0x008d_6f30, &args![this]).u32();
     let node = e.vcall(this.addr(), 0x1d0, &args![]).u32();
     let visible = node != 0 || {
@@ -1701,7 +1735,11 @@ pub fn explosion_ctor_ov2(
     e.call(0x0063_3c90, &args![this.addr() + 0xc4, 0u32]);
     e.call(0x0042_f730, &args![this.addr() + 0xd0, 0u32]);
     for offset in [0xe8, 0xf4] {
-        e.call(0x0068_15c0, &args![this.addr() + offset]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.addr() + offset)
+        );
     }
     e.mem.set_u32(this.addr() + 0x68, 0);
     e.mem.set_u32(this.addr() + 0xc8, owner.addr());
@@ -1781,8 +1819,8 @@ pub fn explosion_ctor_ov2(
 // Translation incomplete: 009b0e00 - compiler SEH cleanup after record/list construction failure
 pub fn fn_009b0e00(e: &mut Engine, this: Ptr, reference: Ptr, first: u8, second: u8) -> Ptr {
     let mut node = this.addr().wrapping_add(0xa4);
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let slot = e.call(0x0068_15c0, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let record = e.mem.u32(slot);
         if record != 0 && e.mem.u32(record) == reference.addr() {
             for (offset, value) in [(4, first), (5, second)] {
@@ -1792,7 +1830,7 @@ pub fn fn_009b0e00(e: &mut Engine, this: Ptr, reference: Ptr, first: u8, second:
             }
             return Ptr::new(record);
         }
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let allocation = e.call(0x0040_1000, &args![0x10u32]).ptr::<()>();
     let record = if allocation.is_null() {
@@ -1856,12 +1894,16 @@ pub fn fn_009b0f80(e: &mut Engine, this: Ptr) -> f32 {
 pub fn fn_009afcc0(e: &mut Engine, this: Ptr) {
     let player = Ptr::new(e.global::<u32>(0x011d_ea3c));
     let player_target = fn_009b0e00(e, this, player, 0, 1);
-    let phantom = e.call(0x0055_9450, &args![this.addr() + 0xa0]).u32();
+    let phantom = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xa0)
+    );
     if phantom != 0 {
         let mut index = 0u32;
         loop {
             let array = fn_009afed0(e, Ptr::new(phantom));
-            let count = e.call(0x0072_6070, &args![array]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, array));
             if index >= count {
                 break;
             }
@@ -1919,21 +1961,33 @@ pub fn fn_009afcc0(e: &mut Engine, this: Ptr) {
 /// list. The two native collision-layer lookups are kept as address calls;
 /// their internal Havok object representation is outside this unit.
 pub fn fn_009afef0(e: &mut Engine, this: Ptr) {
-    let phantom = e.call(0x0055_9450, &args![this.addr() + 0xa0]).u32();
+    let phantom = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xa0)
+    );
     if phantom != 0 {
         // 009aff0f: the pushed 0x20 is the word of `00477950` (RET 4).
         let form_data = e.call(0x0041_81e0, &args![this]).u32();
         let always_process = e.call(0x0047_7950, &args![form_data, 0x20u32]).bool();
         let mut index = 0u32;
         loop {
-            let phantom = e.call(0x0055_9450, &args![this.addr() + 0xa0]).u32();
+            let phantom = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, this.addr() + 0xa0)
+            );
             let array = fn_009afed0(e, Ptr::new(phantom));
-            let count = e.call(0x0072_6070, &args![array]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, array));
             if index >= count {
                 break;
             }
 
-            let phantom = e.call(0x0055_9450, &args![this.addr() + 0xa0]).u32();
+            let phantom = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, this.addr() + 0xa0)
+            );
             let array = fn_009afed0(e, Ptr::new(phantom));
             let slot = e.call(0x0062_9ab0, &args![array, index]).u32();
             let collidable = e.mem.u32(slot);
@@ -1959,7 +2013,7 @@ pub fn fn_009afef0(e: &mut Engine, this: Ptr) {
                 let entity = if havok_body == 0 {
                     0
                 } else {
-                    e.call(0x0044_ddc0, &args![havok_body]).u32()
+                    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, havok_body))
                 };
                 let reference = e.call(0x0056_f930, &args![entity]).u32();
                 let exploded_reference = e.mem.u32(this.addr() + 0xcc);
@@ -2015,8 +2069,8 @@ pub fn fn_009b0920(e: &mut Engine, this: Ptr, rigid_body: Ptr) {
         let scaled_torque = Ptr::<()>::new(frame.addr() + 0xb0);
         let output = Ptr::<()>::new(frame.addr() + 0x98);
         let second_output = Ptr::<()>::new(frame.addr() + 0x9c);
-        e.call(0x0068_15c0, &args![target_vector]);
-        e.call(0x0068_15c0, &args![direction]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, target_vector));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
         let target_vector_object = e
             .vcall(rigid_body.addr(), 0xf0, &args![target_vector])
             .u32();
@@ -2043,7 +2097,7 @@ pub fn fn_009b0920(e: &mut Engine, this: Ptr, rigid_body: Ptr) {
             let node = if body == 0 {
                 0
             } else {
-                e.call(0x0044_ddc0, &args![body]).u32()
+                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, body))
             };
             let reference = e.call(0x0056_f930, &args![node]).u32();
             if reference != 0 && reference == fn_009ad610(e, this).addr() {
@@ -2088,7 +2142,11 @@ pub fn fn_009b0920(e: &mut Engine, this: Ptr, rigid_body: Ptr) {
         let z = draw(e);
         let y = draw(e);
         let x = draw(e);
-        e.call(0x0041_6870, &args![torque, x, y, z]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, torque, x, y, z)
+        );
         let angular_scale = e.call(0x0040_3e20, &args![0x011d_02ecu32]).u32();
         // 009b0b8a: the setting's value is read before either multiply.
         let angular_scale = e.mem.f32(angular_scale);
@@ -2117,11 +2175,11 @@ pub fn fn_009b1510(e: &mut Engine, this: Ptr, target: Ptr, object: Ptr, distance
     let mut node = target.addr() + 8;
     let mut count = 0i32;
     let mut minimum = 0;
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         count = count.wrapping_add(1);
-        let slot = e.call(0x0068_15c0, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let record = e.mem.u32(slot);
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if minimum == 0 || e.mem.f32(record + 4) < e.mem.f32(minimum + 4) {
             minimum = record;
         }
@@ -2144,13 +2202,13 @@ pub fn fn_009b1630(e: &mut Engine, _this: Ptr, target: Ptr, part: i32, distance:
     let mut count = 0i32;
     let mut selected = 0;
     while node != 0
-        && !e.call(0x0082_56d0, &args![node]).bool()
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
         && (selected == 0 || e.mem.i32(selected) != part)
     {
         count = count.wrapping_add(1);
-        let slot = e.call(0x0068_15c0, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let record = e.mem.u32(slot);
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if selected == 0
             || e.mem.f32(record + 4) < e.mem.f32(selected + 4)
             || e.mem.i32(selected) == part
@@ -2177,13 +2235,16 @@ pub fn fn_009b1630(e: &mut Engine, _this: Ptr, target: Ptr, part: i32, distance:
 pub fn fn_009b1720(e: &mut Engine, this: Ptr, reference: Ptr) -> Ptr {
     let mut node = this.addr().wrapping_add(0xa4);
     let mut found = 0;
-    while found == 0 && node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let slot = e.call(0x0068_15c0, &args![node]).u32();
+    while found == 0
+        && node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+    {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let record = e.mem.u32(slot);
         if record != 0 && e.mem.u32(record) == reference.addr() {
             found = record + 8;
         }
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     Ptr::new(found)
 }
@@ -2233,7 +2294,11 @@ pub fn fn_009b2040(e: &mut Engine, this: Ptr, buffer: Ptr) {
         e.call(0x0086_5df0, &args![buffer, form, 0u32]);
     }
 
-    let actor_cause = e.call(0x0055_9450, &args![this.addr() + 0xd0]).u32();
+    let actor_cause = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xd0)
+    );
     let actor_cause_id = if actor_cause == 0 {
         u32::MAX
     } else {
@@ -2444,8 +2509,8 @@ pub fn fn_009b2790(e: &mut Engine, this: Ptr, value: u32) {
         }
     }
     let list = this.addr() + 0xa4;
-    while !e.call(0x0082_56d0, &args![list]).bool() {
-        let slot = e.call(0x0068_15c0, &args![list]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let target = e.mem.u32(slot);
         if target != 0 {
             fn_009ac910(e, Ptr::new(target), 1);
@@ -2465,9 +2530,9 @@ pub fn fn_009b28a0(e: &mut Engine, this: Ptr, reference: Ptr) {
         e.call(0x0056_c7d0, &args![this, 0u32]);
     }
     let mut node = this.addr().wrapping_add(0xa4);
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let next = e.call(0x0072_6070, &args![node]).u32();
-        let slot = e.call(0x0068_15c0, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let target = e.mem.u32(slot);
         if target != 0 && e.mem.u32(target) == reference.addr() {
             e.mem.set_u8(target + 6, 1);
@@ -2553,7 +2618,10 @@ pub fn fn_009b2940(e: &mut Engine, this: Ptr) -> bool {
 
                     let mut index = 0u32;
                     while !underwater {
-                        let count = e.call(0x0072_6070, &args![collector]).i32();
+                        let count =
+                            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, collector))
+                                .into_ret()
+                                .i32();
                         if (index as i32) >= count {
                             break;
                         }
@@ -2564,7 +2632,13 @@ pub fn fn_009b2940(e: &mut Engine, this: Ptr) -> bool {
                         let av_object = e.call(0x004b_5820, &args![collidable]).ptr::<()>();
                         let reference = e.call(0x0056_f930, &args![av_object]).ptr::<()>();
                         if !reference.is_null() {
-                            let form = e.call(0x007a_f430, &args![reference]).ptr::<()>();
+                            let form = typed_call!(
+                                leaf::FAMILY,
+                                0x007a_f430,
+                                leaf::word_at_20(e, reference)
+                            )
+                            .into_ret()
+                            .ptr::<()>();
                             if e.call(0x0040_1170, &args![form]).u32() == 0x23 {
                                 let explosion_position =
                                     e.vcall(this.addr(), 0x1f4, &args![]).ptr::<()>();
@@ -2667,7 +2741,7 @@ pub fn fn_009b2e30(e: &mut Engine, this: Ptr, count: u32) -> Ptr {
 pub fn fn_009b2e60(e: &mut Engine, count: u32, flags: u32) -> Ptr {
     let allocator = e.call(0x00c8_5750, &args![]).u32();
     let bytes = count.wrapping_mul(0x70).wrapping_add(0x7f) & 0xffff_ff80;
-    let allocator = e.call(0x0068_15c0, &args![allocator]).u32();
+    let allocator = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, allocator));
     e.call(0x005e_0ad0, &args![allocator, bytes, flags]).ptr()
 }
 
@@ -2825,10 +2899,22 @@ fn explosion_scan_contact(
     object_3d: u32,
     found: &mut bool,
 ) {
-    e.call(0x0068_15c0, &args![frame.point(0x194)]);
-    let source = e.call(0x0068_15c0, &args![frame.point(0x180)]).u32();
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, frame.point(0x194))
+    );
+    let source = typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, frame.point(0x180))
+    );
     e.call(0x0045_8620, &args![frame.point(0x194), source]);
-    e.call(0x0068_15c0, &args![frame.point(0x1a0)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, frame.point(0x1a0))
+    );
     let source = e.call(0x0046_0140, &args![frame.point(0x180)]).u32();
     e.call(0x004a_3970, &args![frame.point(0x1a0), source]);
     e.call(0x004a_3a70, &args![frame.point(0x4c0)]);
@@ -2866,7 +2952,11 @@ fn explosion_scan_contact(
     }
     e.call(0x004a_3da0, &args![frame.point(0x570), frame.point(0x57c)]);
     e.call(0x007f_68a0, &args![frame.point(0x570), frame.point(0x594)]);
-    let phantom = e.call(0x0055_9450, &args![this.addr() + 0xa0]).u32();
+    let phantom = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xa0)
+    );
     let data = e
         .call(0x0043_b4f0, &args![phantom, frame.point(0x5b0)])
         .u32();
@@ -2887,7 +2977,9 @@ fn explosion_scan_contact(
             while !stop && !ray_found {
                 let ray_hits = e.call(0x008c_dd90, &args![frame.point(0x570)]).u32();
                 let hits = e.call(0x0046_0140, &args![ray_hits]).u32();
-                let count = e.call(0x0072_6070, &args![hits]).i32();
+                let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, hits))
+                    .into_ret()
+                    .i32();
                 if ray_index >= count {
                     break;
                 }
@@ -2916,7 +3008,8 @@ fn explosion_scan_contact(
                         let part = e.call(0x0045_7880, &args![world, frame.point(0x194)]).u32();
                         e.mem.set_u32(frame.at(0x5b4), part);
                     } else {
-                        let container = e.call(0x0055_9450, &args![collidable]).u32();
+                        let container =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, collidable));
                         let shape = e.call(0x004a_3a40, &args![container]).u32();
                         if shape != 0 {
                             let part = e.call(0x00c8_4f10, &args![shape, last_part]).u32();
@@ -3078,7 +3171,9 @@ fn explosion_emit_decals(
         &args![caster, frame.point(0x194), frame.point(0x7c8)],
     );
     let iterator = e.call(0x0041_3f40, &args![frame.point(0x7c8)]).u32();
-    let count = e.call(0x0072_6070, &args![iterator]).i32();
+    let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, iterator))
+        .into_ret()
+        .i32();
     let heading = quiet_f32(e.call(0x004a_4240, &args![]).f32());
     let random_maximum = quiet_f32(e.global::<f32>(0x0101_e570));
     let random = quiet_f32(e.call(0x0047_6b70, &args![0.0f32, random_maximum]).f32());
@@ -3124,14 +3219,14 @@ fn explosion_decal_for_hit(
     let hit = e.call(0x0062_e150, &args![iterator, index]).u32();
     let material = e.mem.u32(hit + 12);
     if material == u32::MAX {
-        let pointer = e.call(0x0055_9450, &args![object]).u32();
+        let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
         let shape = e.call(0x004a_3a40, &args![pointer]).u32();
         if shape == 0 {
             return;
         }
         part = e.call(0x0062_05a0, &args![shape]).u32();
     } else {
-        let pointer = e.call(0x0055_9450, &args![object]).u32();
+        let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
         let shape = e.call(0x004a_3a40, &args![pointer]).u32();
         if shape == 0 {
             return;
@@ -3160,7 +3255,7 @@ fn explosion_decal_for_hit(
                     &args![frame.point(0x808), body, 0x011f_4a20u32],
                 )
                 .u32();
-            let node = e.call(0x0055_9450, &args![property]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, property));
             if node != 0 && e.call(0x0096_11e0, &args![node]).u32() != 0 {
                 e.call(0x0096_11e0, &args![node]).u32()
             } else {
@@ -3218,9 +3313,11 @@ fn explosion_decal_for_hit(
     let packed = e.call(0x004a_4220, &args![effect]).u32();
     let divisor: f64 = e.global(0x0101_e568);
     let b = quiet_f32(((packed & 0xff) as f64 / divisor) as f32);
-    let colour = e
-        .call(0x0041_6870, &args![frame.point(0x8b4), b, g, r])
-        .u32();
+    let colour = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, frame.point(0x8b4), b, g, r)
+    );
     copy_explosion_point(e, frame.at(0x830), colour);
     e.call(0x004a_3fe0, &args![marker, frame.point(0x890), 1u32, 0u32]);
 }
@@ -3231,7 +3328,11 @@ fn explosion_play_hit_sound(e: &mut Engine, this: Ptr, frame: &ExplosionEffectFr
     if filename == 0 || e.mem.u8(filename) == 0 {
         return;
     }
-    e.call(0x0068_15c0, &args![frame.point(0x8c4)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, frame.point(0x8c4))
+    );
     let mode = e.call(0x005f_36f0, &args![effect]).u32();
     match mode {
         1 => {
@@ -3254,9 +3355,11 @@ fn explosion_play_hit_sound(e: &mut Engine, this: Ptr, frame: &ExplosionEffectFr
             e.call(0x004a_0c10, &args![frame.point(0x8e0)]);
             copy_explosion_point(e, frame.at(0x8ec), frame.at(0x1a0));
             e.call(0x004a_0c10, &args![frame.point(0x8ec)]);
-            let dot = e
-                .call(0x004b_6190, &args![frame.point(0x8ec), frame.point(0x8e0)])
-                .f32();
+            let dot = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, frame.point(0x8ec), frame.point(0x8e0))
+            );
             let two: f64 = e.global(0x0101_1590);
             let projection = quiet_f32((dot as f64 * two) as f32);
             let scaled = e
@@ -3333,7 +3436,7 @@ fn explosion_play_effect_sounds(
 // Translation incomplete: 009ae6e0 - compiler SEH cleanup after temporary construction/callback failure
 pub fn explosion_apply_effects(e: &mut Engine, this: Ptr) {
     let object = this.addr();
-    if e.call(0x0055_9450, &args![object + 0xa0]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object + 0xa0)) == 0 {
         return;
     }
     if e.mem.i32(object + 0xe4) > 0 && e.mem.u8(object + 0xd6) != 0 && e.mem.u8(object + 0xd7) == 0
@@ -3354,15 +3457,25 @@ pub fn explosion_apply_effects(e: &mut Engine, this: Ptr) {
         fn_009b2cb0(e, frame.point(0x28), collider_capacity);
         let collider_capacity_slot = e.call(0x0043_d4d0, &args![0x011d_10a4u32]).u32();
         let collider_capacity = e.mem.u32(collider_capacity_slot);
-        let collider_buffer = e.call(0x0055_9450, &args![frame.point(0x28)]).u32();
+        let collider_buffer = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, frame.point(0x28))
+        );
         fn_009afaf0(e, frame.point(0x40), collider_buffer, collider_capacity);
         e.call(0x00cb_d960, &args![]);
-        let phantom = e.call(0x0055_9450, &args![object + 0xa0]).u32();
+        let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object + 0xa0));
         e.call(0x00c9_f1e0, &args![phantom, frame.point(0x40)]);
         let has_contacts = fn_009afc70(e, frame.point(0x40), frame.at(0x41));
         if e.call(0x0056_09f0, &args![has_contacts]).bool() {
             let count = e.call(0x009a_fc50, &args![frame.point(0x40)]).i32();
-            let records: Ptr = e.call(0x0055_9450, &args![frame.point(0x28)]).ptr();
+            let records: Ptr = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, frame.point(0x28))
+            )
+            .into_ret()
+            .ptr();
             e.call(0x009b_2e00, &args![records, count]);
         }
 
@@ -3375,10 +3488,22 @@ pub fn explosion_apply_effects(e: &mut Engine, this: Ptr) {
                     .addr()
                     .wrapping_add((index as u32).wrapping_mul(0x70));
                 e.call(0x0063_2d40, &args![frame.point(0xc0), row]);
-                e.call(0x0068_15c0, &args![frame.point(0xcc)]);
-                let source = e.call(0x0068_15c0, &args![frame.point(0xc0)]).u32();
+                typed_call!(
+                    leaf::FAMILY,
+                    0x0068_15c0,
+                    leaf::same_word(e, frame.point(0xcc))
+                );
+                let source = typed_call!(
+                    leaf::FAMILY,
+                    0x0068_15c0,
+                    leaf::same_word(e, frame.point(0xc0))
+                );
                 e.call(0x0045_8620, &args![frame.point(0xcc), source]);
-                e.call(0x0068_15c0, &args![frame.point(0xd8)]);
+                typed_call!(
+                    leaf::FAMILY,
+                    0x0068_15c0,
+                    leaf::same_word(e, frame.point(0xd8))
+                );
                 let source = e.call(0x0046_0140, &args![frame.point(0xc0)]).u32();
                 e.call(0x004a_3970, &args![frame.point(0xd8), source]);
                 explosion_debug_contact(e, &frame);
@@ -3422,10 +3547,12 @@ pub fn explosion_process_targets(e: &mut Engine, this: Ptr) {
         let ebp = stack.addr() + 0x110;
         let at = |offset: u32| ebp - offset;
         let mut cursor = object + 0xa4;
-        while cursor != 0 && !e.call(0x0082_56d0, &args![cursor]).bool() {
-            let entry = e.call(0x0068_15c0, &args![cursor]).u32();
+        while cursor != 0
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, cursor))
+        {
+            let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cursor));
             let target_record = e.mem.u32(entry);
-            cursor = e.call(0x0072_6070, &args![cursor]).u32();
+            cursor = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cursor));
             if target_record == 0
                 || e.mem.u32(target_record) == 0
                 || e.mem.u8(target_record + 6) != 0
@@ -3437,7 +3564,7 @@ pub fn explosion_process_targets(e: &mut Engine, this: Ptr) {
                 continue;
             }
             let target = e.mem.u32(target_record);
-            if e.call(0x0044_0da0, &args![target]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, target)) {
                 continue;
             }
 
@@ -3465,7 +3592,8 @@ pub fn explosion_process_targets(e: &mut Engine, this: Ptr) {
                     && e.mem.u32(target_record) == e.global::<u32>(0x011d_ea3c)
                 {
                     let base = e.call(0x0041_81e0, &args![this]).u32();
-                    let modifier = e.call(0x0072_6070, &args![base + 0x68]).u32();
+                    let modifier =
+                        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base + 0x68));
                     if modifier != 0 {
                         e.call(0x0052_99a0, &args![modifier, falloff, 0u32]);
                     }
@@ -3492,7 +3620,7 @@ pub fn explosion_process_targets(e: &mut Engine, this: Ptr) {
             }
             let owner = if e.vcall(object, 0x168, &args![]).u32() != 0 {
                 let source = e.vcall(object, 0x168, &args![]).u32();
-                e.call(0x0055_9450, &args![source]).u32()
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, source))
             } else {
                 0
             };
@@ -3625,7 +3753,7 @@ fn explosion_player_hit_effect(e: &mut Engine, at: impl Fn(u32) -> u32, power: f
 
 fn explosion_target_impulse(e: &mut Engine, this: Ptr, actor: u32) {
     let base = e.call(0x0041_81e0, &args![this]).u32();
-    let source = e.call(0x0072_6070, &args![base + 0x54]).u32();
+    let source = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base + 0x54));
     if source == 0 {
         return;
     }
@@ -3706,8 +3834,8 @@ pub fn explosion_run_los_pick(
         }
         e.call(0x00c8_2870, &args![0x27u32, 0x26206u32, 0u32]);
         e.call(0x0040_1050, &args![at(0x88), 12u32, 7u32, 0x0068_15c0u32]);
-        let bound = e.call(0x0043_d450, &args![node]).u32();
-        let centre = e.call(0x0068_15c0, &args![bound]).u32();
+        let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
+        let centre = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
         copy_explosion_point(e, at(0x88), centre);
 
         let has_probes = e.vcall(target.addr(), 0x100, &args![]).bool()
@@ -3725,7 +3853,7 @@ pub fn explosion_run_los_pick(
             ] {
                 let point = at(0x88) + index * 12;
                 copy_explosion_point(e, point, at(0x88));
-                let bound = e.call(0x0043_d450, &args![node]).u32();
+                let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
                 let radius = e.call(0x0084_d030, &args![bound]).f64();
                 let axis_address = point + axis * 4;
                 let initial = e.mem.f32(axis_address);
@@ -3812,7 +3940,9 @@ fn explosion_los_scan(
     while e.mem.u8(at(0x481)) == 0 {
         let hits = e.call(0x008c_dd90, &args![ray]).u32();
         let hits = e.call(0x0046_0140, &args![hits]).u32();
-        let count = e.call(0x0072_6070, &args![hits]).i32();
+        let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, hits))
+            .into_ret()
+            .i32();
         if index >= count {
             break;
         }

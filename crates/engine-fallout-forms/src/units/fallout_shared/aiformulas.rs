@@ -288,13 +288,13 @@ pub fn ai_formulas_get_follow_radius_match_speed(e: &mut Engine, radius: f32) ->
 fn for_each_follower(e: &mut Engine, list: u32, mut each: impl FnMut(&mut Engine, u32, u32)) {
     let mut node = e.mem.u32(list + 0xc);
     while node != 0 {
-        let item = e.call(0x0068_15c0, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let actor = e.mem.u32(item);
         let package = e.call(0x0093_44a0, &args![actor]).u32();
         if package != 0 && e.call(0x0041_ca90, &args![package]).u32() == 1 {
             each(e, actor, package);
         }
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -332,7 +332,7 @@ pub fn ai_formulas_get_follow_radius_fudge_for_multiple_followers(
     }
     let mut count = 0u32;
     let first = e.mem.u32(list + 0xc);
-    if !e.call(0x0082_56d0, &args![first]).bool() {
+    if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, first)) {
         for_each_follower(e, list, |_, _, _| count += 1);
     }
     if count == 0 {
@@ -370,7 +370,7 @@ pub fn ai_formulas_get_follow_radius_fudge_for_multiple_followers(
         e.call(0x006c_8980, &args![array, 0x0064_4300u32]);
         let mut sum = 0u32;
         let mut index = 0u32;
-        while index < e.call(0x0044_ddc0, &args![array]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
             let element = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
             if index > 0 {
                 let previous = e.call(ARRAY_ELEMENT, &args![array, index - 1]).u32();

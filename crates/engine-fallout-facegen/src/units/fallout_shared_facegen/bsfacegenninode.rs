@@ -31,8 +31,13 @@ pub fn fn_006629e0(_e: &mut Engine, _this: Ptr) -> u32 {
 /// stack words: the smart pointer `get` (`00559450`) of the pointer at `+0xac`, whose result
 /// it answers.
 pub fn bs_face_gen_ni_node_get_animation_data(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(0x0055_9450, &args![this.addr().wrapping_add(0xac)])
-        .ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(0xac))
+    )
+    .into_ret()
+    .ptr()
 }
 
 layout! {
@@ -70,6 +75,7 @@ const SLOT_GET_ANIMATION_DATA: u32 = 0x100;
 /// `0066b0d0` (thiscall on an `NiPointer`, one word: assigns it; unnamed).
 const POINTER_SET: u32 = 0x0066_b0d0;
 /// `00559450` (thiscall on an `NiPointer`, returns the object; unnamed).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `0045cec0` (thiscall on an `NiPointer`: destroys it; unnamed).
 const POINTER_DESTROY: u32 = 0x0045_cec0;
@@ -150,6 +156,7 @@ const SETTING_011C5724: u32 = 0x011c_5724;
 const FRAME_TIME_0084D030: u32 = 0x0084_d030;
 /// `008d8520` (thiscall on the actor, returns its process; the map's name
 /// `MiddleHighProcess::GetSavedAcquireObject` comes from folded code).
+#[cfg(test)]
 const ACTOR_PROCESS_008D8520: u32 = 0x008d_8520;
 /// `004f0140` (thiscall on the node, returns `AL`; unnamed, `bsbipnode.cpp`).
 const NODE_TEST_004F0140: u32 = 0x004f_0140;
@@ -168,6 +175,7 @@ const MANAGER_00652510: u32 = 0x0065_2510;
 const NI_NODE_UPDATE_DOWNWARD_PASS: u32 = 0x00a5_dd70;
 const NI_NODE_ON_VISIBLE: u32 = 0x00a5_dbe0;
 /// `NiAVObject::GetWorldBound` (`0043d450`).
+#[cfg(test)]
 const NI_AV_OBJECT_GET_WORLD_BOUND: u32 = 0x0043_d450;
 /// `BSShaderAccumulator::StartGroupingAlphas` (`00b63500`) and `StopGroupingAlphas`
 /// (`00b63090`).
@@ -427,7 +435,11 @@ pub fn fn_00663a50(e: &mut Engine, this: Ptr) -> u8 {
 // Translated from 00663b40 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed: the object of the `NiPointer` at `this + 0xc4` (`00559450`), left in `EAX`.
 pub fn fn_00663b40(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(POINTER_GET, &args![this.addr() + 0xc4]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xc4)
+    )
 }
 
 // Translated from 00663b60 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -647,10 +659,10 @@ pub fn bs_face_gen_ni_node_update_morphing(
     let actor = e.get(this, BSFaceGenNiNode::pActor);
     if e.get(this, BSFaceGenNiNode::bAnimationUpdate) != 0
         && actor != 0
-        && e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
     {
         let actor = e.get(this, BSFaceGenNiNode::pActor);
-        let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         if e.vcall(process, 0x678, &[]).u32() != 0 {
             let animation = e.vcall(base, SLOT_GET_ANIMATION_DATA, &[]).u32();
             if fn_006639f0(e, Ptr::new(animation)) != 0
@@ -695,13 +707,15 @@ pub fn bs_face_gen_ni_node_update_morphing(
             }
             let actor = e.get(this, BSFaceGenNiNode::pActor);
             if actor != 0 && e.call(GET_CURRENT_PROCESS_TYPE, &args![actor]).u32() == 0 {
-                let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 if e.vcall(process, 0x78, &[]).bool() {
                     let actor = e.get(this, BSFaceGenNiNode::pActor);
-                    let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     if e.vcall(process, 0xa8, &[]).u32() != 0 {
                         let actor = e.get(this, BSFaceGenNiNode::pActor);
-                        let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
+                        let process =
+                            typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                         if e.vcall(process, 0xa8, &[]).u32() == e.global::<u32>(PLAYER_POINTER) {
                             in_view = true;
                         }
@@ -749,7 +763,7 @@ pub fn bs_face_gen_ni_node_on_visible(e: &mut Engine, this: Ptr<BSFaceGenNiNode>
     let current = fn_00663b40(e, Ptr::new(culler));
     let grouping = fn_00663b60(e, Ptr::new(current));
     if grouping == 0 {
-        let bound = e.call(NI_AV_OBJECT_GET_WORLD_BOUND, &args![this]).u32();
+        let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, this));
         e.call(START_GROUPING_ALPHAS, &args![accumulator, bound, 0u32]);
     }
     e.call(NI_NODE_ON_VISIBLE, &args![this, culler]);
@@ -1028,6 +1042,7 @@ const OPERATOR_NEW: u32 = 0x0040_1000;
 /// `00406d00` (cdecl: buffer, size, format and its arguments; a formatted print).
 const PRINT_00406D00: u32 = 0x0040_6d00;
 /// `0084e3a0` (thiscall on a form, returns its form id by the format it fills).
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// The node's RTTI record (`011d5bf8`), whose name `00559450` gives.
 const RTTI: u32 = 0x011d_5bf8;
@@ -1092,11 +1107,19 @@ fn add_animation_value(
     node: u32,
 ) {
     let unset: f64 = e.global(UNSET);
-    let data = e.call(POINTER_GET, &args![node.wrapping_add(0xac)]).u32();
+    let data = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, node.wrapping_add(0xac))
+    );
     if value(e, data, index) == unset {
         return;
     }
-    let data = e.call(POINTER_GET, &args![node.wrapping_add(0xac)]).u32();
+    let data = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, node.wrapping_add(0xac))
+    );
     let current = x87_store32(value(e, data, index));
     let text = e.call(name, &args![index]).u32();
     let line = e
@@ -1118,7 +1141,7 @@ pub fn bs_face_gen_ni_node_get_viewer_strings(
 ) {
     let base = this.addr();
     e.call(NI_NODE_GET_VIEWER_STRINGS, &args![this, strings]);
-    let name = e.call(POINTER_GET, &args![RTTI]).u32();
+    let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, RTTI));
     let line = e.call(NI_GET_VIEWER_STRING, &args![name]).u32();
     add_viewer_string(e, strings, line);
     for (offset, format) in VIEWER_FLAGS {
@@ -1143,7 +1166,7 @@ pub fn bs_face_gen_ni_node_get_viewer_strings(
     if e.get(this, BSFaceGenNiNode::pActor) != 0 {
         let buffer = e.call(OPERATOR_NEW, &args![0x20u32]).u32();
         let actor = e.get(this, BSFaceGenNiNode::pActor);
-        let id = e.call(FORM_ID_0084E3A0, &args![actor]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
         e.call(
             PRINT_00406D00,
             &args![buffer, 0x20u32, ACTOR_FORM_ID_FORMAT, id],
@@ -1151,13 +1174,22 @@ pub fn bs_face_gen_ni_node_get_viewer_strings(
         add_viewer_string(e, strings, buffer);
     }
     let buffer = e.call(OPERATOR_NEW, &args![0x20u32]).u32();
-    let data = e.call(POINTER_GET, &args![base.wrapping_add(0xac)]).u32();
+    let data = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(0xac))
+    );
     e.call(
         PRINT_00406D00,
         &args![buffer, 0x20u32, ANIMATION_DATA_FORMAT, data],
     );
     add_viewer_string(e, strings, buffer);
-    if e.call(POINTER_GET, &args![base.wrapping_add(0xac)]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(0xac))
+    ) == 0
+    {
         return;
     }
     fn expression(e: &mut Engine, data: u32, index: u32) -> f64 {

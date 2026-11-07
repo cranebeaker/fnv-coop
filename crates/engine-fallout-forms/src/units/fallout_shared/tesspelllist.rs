@@ -29,8 +29,10 @@ pub fn tes_spell_list_clear_data_component(e: &mut Engine, this: Ptr) {
 /// +0x04, the first node of its list of spells).
 const SPELL_LIST: u32 = 0x0071_7e50;
 /// `006815c0` (thiscall on a list node): the address of the node's item word.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (thiscall on a list node): the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `0063f7b0` (thiscall on a list node): removes the node's item (the next
 /// item moves into the node).
@@ -94,7 +96,7 @@ fn empty_list(e: &mut Engine, node: u32) {
         return;
     }
     loop {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             break;
         }
@@ -189,12 +191,12 @@ pub fn tes_spell_list_add_spell_ov3(e: &mut Engine, this: Ptr, form: u32) -> boo
 /// this is the last node and a previous node exists; otherwise the node's
 /// item is removed in place. Returns the node to look at next.
 fn drop_node(e: &mut Engine, node: u32, previous: u32, id: u32) -> u32 {
-    if e.call(NODE_NEXT, &args![node]).u32() == 0 && previous != 0 {
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node)) == 0 && previous != 0 {
         e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), id);
             e.call(NODE_REMOVE_AFTER, &args![previous, slot]);
         });
-        e.call(NODE_NEXT, &args![previous]).u32()
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous))
     } else {
         e.call(NODE_REMOVE, &args![node]);
         node
@@ -224,11 +226,11 @@ pub fn tes_spell_list_init_item(e: &mut Engine, this: Ptr, owner: u32) {
         0
     };
     while node != 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             break;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let (id, form) = e.with_stack(4, |e, slot| {
             let id = e.mem.u32(item);
             e.mem.set_u32(slot.addr(), id);
@@ -243,7 +245,8 @@ pub fn tes_spell_list_init_item(e: &mut Engine, this: Ptr, owner: u32) {
                     let name = e.vcall(owner, 0x130, &[]).u32();
                     e.call(PRINT_WARNING, &args![TEXT_OWNER_NAME, id, name]);
                 } else {
-                    let owner_id = e.call(0x0084_e3a0, &args![owner]).u32();
+                    let owner_id =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
                     e.call(PRINT_WARNING, &args![TEXT_OWNER_ID, id, owner_id]);
                 }
             } else {
@@ -285,7 +288,7 @@ pub fn tes_spell_list_init_item(e: &mut Engine, this: Ptr, owner: u32) {
                 }
             }
             previous = node;
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         } else {
             node = drop_node(e, node, previous, id);
             if leveled != 0 {
@@ -298,7 +301,7 @@ pub fn tes_spell_list_init_item(e: &mut Engine, this: Ptr, owner: u32) {
 /// Adds every nonzero item of the list starting at `from` to the list `to`.
 fn copy_items(e: &mut Engine, mut from: u32, to: u32) {
     while from != 0 {
-        let item = e.call(NODE_ITEM, &args![from]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, from));
         let value = e.mem.u32(item);
         if value != 0 {
             e.with_stack(4, |e, slot| {
@@ -306,7 +309,7 @@ fn copy_items(e: &mut Engine, mut from: u32, to: u32) {
                 e.call(LIST_ADD, &args![to, slot]);
             });
         }
-        from = e.call(NODE_NEXT, &args![from]).u32();
+        from = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, from));
     }
 }
 
@@ -346,13 +349,13 @@ fn save_list(e: &mut Engine, buffer: u32, mut node: u32) {
     let mut count = 0u32;
     let start = e.call(0x0086_5f20, &args![buffer]).u32();
     while node != 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let value = e.mem.u32(item);
         if value != 0 {
             e.call(0x0086_5df0, &args![buffer, value, 0u32]);
             count += 1;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(0x0086_5ff0, &args![buffer, count, start]);
 }
@@ -409,8 +412,10 @@ pub fn tes_spell_list_add_spell_ov2(e: &mut Engine, this: Ptr, spell: u32) -> bo
 }
 
 /// `00440d80` (thiscall on a form): whether its flags word (+8) has bit 0x20.
+#[cfg(test)]
 const FORM_FLAG_20: u32 = 0x0044_0d80;
 /// `0084e3a0` (thiscall on a form): its form id (`TESForm` +0x0C).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `00485910` (cdecl, two words: a chunk tag and a form id; `tesform.cpp` in
 /// the engine map): what `Save` calls for each listed form without flag 0x20.
@@ -422,16 +427,16 @@ const CHUNK_SPLO: u32 = 0x4f4c_5053;
 /// written as an `SPLO` chunk with its form id.
 fn save_list_ids(e: &mut Engine, mut node: u32) {
     while node != 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let form = e.mem.u32(item);
         if form == 0 {
             break;
         }
-        if !e.call(FORM_FLAG_20, &args![form]).bool() {
-            let id = e.call(FORM_ID, &args![form]).u32();
+        if !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, form)) {
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(SAVE_FORM_ID_CHUNK, &args![CHUNK_SPLO, id]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -478,7 +483,7 @@ pub fn tes_spell_list_compare_component(e: &mut Engine, this: Ptr, other: u32) -
     let mut count = 0u32;
     let mut node = e.call(SPELL_LIST, &args![this]).u32();
     while node != 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let spell = e.mem.u32(item);
         if spell != 0 {
             if !fn_0048d830(e, Ptr::new(source), spell) {
@@ -486,7 +491,7 @@ pub fn tes_spell_list_compare_component(e: &mut Engine, this: Ptr, other: u32) -
             }
             count = count.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let list = e.call(SPELL_LIST, &args![source]).u32();
     if e.call(LIST_COUNT, &args![list]).u32() != count {
@@ -495,16 +500,16 @@ pub fn tes_spell_list_compare_component(e: &mut Engine, this: Ptr, other: u32) -
     let mut count = 0u32;
     let mut node = fn_0048d150(e, this).addr();
     while node != 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) != 0 {
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let spell = e.mem.u32(item);
             if !fn_0048d880(e, Ptr::new(source), spell) {
                 return true;
             }
             count = count.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let list = fn_0048d150(e, Ptr::new(source)).addr();
     e.call(LIST_COUNT, &args![list]).u32() != count
@@ -514,11 +519,11 @@ pub fn tes_spell_list_compare_component(e: &mut Engine, this: Ptr, other: u32) -
 /// at an empty item.
 fn list_holds(e: &mut Engine, mut node: u32, item: u32) -> bool {
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == item {
             return true;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }
@@ -582,6 +587,7 @@ const SAVE_NUMERIC_ID: u32 = 0x0085_7a10;
 /// `TESSaveLoadGame::LoadNumericID` (engine map, `00857aa0`, `RET 8`).
 const LOAD_NUMERIC_ID: u32 = 0x0085_7aa0;
 /// `Error` (`0040fbe0`, engine map; cdecl, a format and its words).
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 /// The block marker the old saves write before a block: the bytes `KOLB`.
 const BLOCK_MARKER: u32 = 0x424c_4f4b;
@@ -647,12 +653,9 @@ fn report_size(e: &mut Engine, size: u32, line: u32, with_form: u32, without_for
         let flags = e.mem.u32(current.wrapping_add(5));
         let name = e.vcall(form, 0x130, &[]).u32();
         let id = e.mem.u32(current);
-        e.call(
-            ERROR,
-            &args![with_form, size, id, name, flags, line, SOURCE_FILE],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words with_form, size, id, name, flags, line, SOURCE_FILE);
     } else {
-        e.call(ERROR, &args![without_form, size, line, SOURCE_FILE]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words without_form, size, line, SOURCE_FILE);
     }
 }
 
@@ -694,16 +697,16 @@ pub fn fn_0048d8f0(e: &mut Engine, this: Ptr, flags: u32) -> u16 {
 /// (`SaveNumericID`, 4 bytes) and counted.
 fn save_game_list(e: &mut Engine, mut node: u32, id_slot: u32, count: &mut u16) {
     while node != 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let form = e.mem.u32(item);
         if form != 0 {
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.mem.set_u32(id_slot, id);
             let slg = save_load_game(e);
             e.call(SAVE_NUMERIC_ID, &args![slg, id_slot, 4u32]);
             *count = count.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 

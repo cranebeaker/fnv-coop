@@ -50,6 +50,7 @@ const STRING_ASSIGN: u32 = 0x0043_8390;
 /// Returns the pointer to the `int` value of the `Setting` in ECX.
 const SETTING_INT_POINTER: u32 = 0x0043_d4d0;
 /// Count of the list in ECX (the list's `m_uiCount` at +8).
+#[cfg(test)]
 const LIST_COUNT: u32 = 0x0044_ddc0;
 /// `strlen`.
 const STRING_LENGTH_C: u32 = 0x0044_a670;
@@ -57,6 +58,7 @@ const STRING_LENGTH_C: u32 = 0x0044_a670;
 const INTERFACE_GETTER: u32 = 0x004b_7210;
 /// The first member of a list or string (`*this`): the head node of a list,
 /// the character pointer of a `BSStringT`.
+#[cfg(test)]
 const FIRST_MEMBER: u32 = 0x0055_9450;
 /// `NiTListItem` data address (node + 8).
 const LIST_NODE_DATA: u32 = 0x0063_17a0;
@@ -293,7 +295,7 @@ pub fn fn_0071d0a0(e: &mut Engine, this: Ptr<MenuConsole>, format: u32, argument
         let text = frame.addr() + 0x838;
         e.call(STRING_CONSTRUCT, &args![text]);
         e.call(STRING_FORMAT_LIST, &args![text, format, arguments]);
-        let c_text = e.call(FIRST_MEMBER, &args![text]).u32();
+        let c_text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         e.call(0x0071_dd90, &args![this, c_text]);
         let size = frame.addr() + 0x2c;
         e.mem.set_u32(size, 0x4b0);
@@ -318,7 +320,7 @@ pub fn fn_0071d0a0(e: &mut Engine, this: Ptr<MenuConsole>, format: u32, argument
         let length = e.call(STRING_LENGTH, &args![text]).u32();
         let buffer = frame.addr() + 0x30;
         for i in 0..=length {
-            let c_text = e.call(FIRST_MEMBER, &args![text]).u32();
+            let c_text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let byte = e.mem.u8(c_text + i);
             e.mem.set_u8(buffer + i, byte);
         }
@@ -326,7 +328,9 @@ pub fn fn_0071d0a0(e: &mut Engine, this: Ptr<MenuConsole>, format: u32, argument
         let strings = this.addr() + STRINGS_LIST;
         for index in 0..lines {
             let mut was_last = false;
-            let count = e.call(LIST_COUNT, &args![strings]).i32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, strings))
+                .into_ret()
+                .i32();
             if e.get(this, MenuConsole::iLastString) == count {
                 was_last = true;
             }
@@ -336,11 +340,15 @@ pub fn fn_0071d0a0(e: &mut Engine, this: Ptr<MenuConsole>, format: u32, argument
             // Appends the line to the list (`NiTList::AddTail`).
             e.call(0x0071_df60, &args![strings, line]);
             if was_last {
-                let count = e.call(LIST_COUNT, &args![strings]).i32();
+                let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, strings))
+                    .into_ret()
+                    .i32();
                 e.set(this, MenuConsole::iLastString, count);
             }
             loop {
-                let count = e.call(LIST_COUNT, &args![strings]).i32();
+                let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, strings))
+                    .into_ret()
+                    .i32();
                 let limit = setting_int(e, CONSOLE_HISTORY_SIZE);
                 if count <= limit {
                     break;
@@ -361,7 +369,9 @@ pub fn fn_0071d0a0(e: &mut Engine, this: Ptr<MenuConsole>, format: u32, argument
             }
             e.call(STRING_DESTRUCT, &args![line]);
         }
-        let count = e.call(LIST_COUNT, &args![strings]).i32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, strings))
+            .into_ret()
+            .i32();
         if e.get(this, MenuConsole::iLastString) == count {
             menu_console_refresh_lines(e, this);
         }
@@ -373,7 +383,13 @@ pub fn fn_0071d0a0(e: &mut Engine, this: Ptr<MenuConsole>, format: u32, argument
 /// Moves the last line shown by `delta`: the result is kept between
 /// `iConsoleVisibleLines` and the number of lines.
 pub fn fn_0071d380(e: &mut Engine, this: Ptr<MenuConsole>, delta: i32) {
-    let count = e.call(LIST_COUNT, &args![this.addr() + STRINGS_LIST]).i32();
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + STRINGS_LIST)
+    )
+    .into_ret()
+    .i32();
     let mut target = e.get(this, MenuConsole::iLastString).wrapping_add(delta);
     if target > count {
         target = count;
@@ -395,7 +411,7 @@ pub fn fn_0071d380(e: &mut Engine, this: Ptr<MenuConsole>, delta: i32) {
 /// lower than the one before, ending at `iConsoleYPos`.
 pub fn menu_console_refresh_lines(e: &mut Engine, this: Ptr<MenuConsole>) {
     let strings = this.addr() + STRINGS_LIST;
-    let mut node = e.call(FIRST_MEMBER, &args![strings]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, strings));
     let visible = setting_int(e, CONSOLE_VISIBLE_LINES);
     let spacing = e.get(this, MenuConsole::iConsoleLineSpacing);
     let mut y = e.get(this, MenuConsole::iConsoleYPos) - visible * spacing;
@@ -415,7 +431,7 @@ pub fn menu_console_refresh_lines(e: &mut Engine, this: Ptr<MenuConsole>) {
     while index < last {
         let font = setting_int(e, CONSOLE_FONT);
         let data = e.call(LIST_NODE_DATA, &args![strings, node]).u32();
-        let line = e.call(FIRST_MEMBER, &args![data]).u32();
+        let line = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, data));
         let (x, _) = console_position(e, this);
         debug_text_print(e, line, x, y as f32, font as u32);
         node = e.call(LIST_NEXT, &args![strings, node]).u32();
@@ -467,20 +483,26 @@ pub fn fn_0071d620(e: &mut Engine, this: Ptr<MenuConsole>, state: i8) {
         return;
     }
     if state > 0 {
-        e.call(0x0040_fbe0, &args![]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
         let interface = e.call(INTERFACE_GETTER, &args![]).u32();
         let (x, y) = console_position(e, this);
         if e.call(0x0070_23a0, &args![interface]).bool() {
             let font = setting_int(e, CONSOLE_FONT);
             debug_text_print(e, CURSOR_TEXT, x, y, font as u32);
-            let count = e.call(LIST_COUNT, &args![this.addr() + STRINGS_LIST]).i32();
+            let count = typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, this.addr() + STRINGS_LIST)
+            )
+            .into_ret()
+            .i32();
             fn_0071d380(e, this, count);
         } else {
             debug_text_print(e, EMPTY_STRING, x, y, 0);
         }
         menu_console_refresh_lines(e, this);
     } else {
-        e.call(0x0040_fbe0, &args![]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
         let instance = e.call(DEBUG_TEXT_INSTANCE, &args![1u32]).u32();
         e.call(DEBUG_TEXT_DELETE_ALL, &args![instance]);
         let interface = e.call(INTERFACE_GETTER, &args![]).u32();
@@ -504,7 +526,13 @@ pub fn menu_console_on_enter_menu_mode(e: &mut Engine, this: Ptr<MenuConsole>) {
         let font = setting_int(e, CONSOLE_FONT);
         let (x, y) = console_position(e, this);
         debug_text_print(e, CURSOR_TEXT, x, y, font as u32);
-        let count = e.call(LIST_COUNT, &args![this.addr() + STRINGS_LIST]).i32();
+        let count = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, this.addr() + STRINGS_LIST)
+        )
+        .into_ret()
+        .i32();
         fn_0071d380(e, this, count);
         menu_console_refresh_lines(e, this);
         e.call(0x0070_3310, &args![0u32]);
@@ -616,7 +644,7 @@ pub fn menu_console_dump_textures(e: &mut Engine, this: Ptr<MenuConsole>) {
         } else {
             UNKNOWN_NAME
         };
-        let grid_y = e.call(0x0045_cd60, &args![tes]).u32();
+        let grid_y = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tes));
         let grid_x = e.call(0x0059_bb30, &args![tes]).u32();
         let buffer = frame.addr() + 0x2c;
         e.call(
@@ -1017,26 +1045,36 @@ fn idle_message(e: &mut Engine, this: Ptr<MenuConsole>, message: u32, ebp: u32) 
         }
         MESSAGE_HISTORY_OLDER => {
             let inputs = this.addr() + INPUTS_LIST;
-            if e.call(LIST_COUNT, &args![inputs]).i32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, inputs))
+                .into_ret()
+                .i32()
+                != 0
+            {
                 let position = e.get(this, MenuConsole::iInputsPos) + 1;
                 e.set(this, MenuConsole::iInputsPos, position);
-                let count = e.call(LIST_COUNT, &args![inputs]).i32();
+                let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, inputs))
+                    .into_ret()
+                    .i32();
                 let position = e.call(0x004a_8f20, &args![position, count - 1]).i32();
                 e.set(this, MenuConsole::iInputsPos, position);
-                let mut node = e.call(FIRST_MEMBER, &args![inputs]).u32();
+                let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, inputs));
                 let mut k = 0;
                 while k < e.get(this, MenuConsole::iInputsPos) {
                     node = e.call(LIST_NEXT, &args![inputs, node]).u32();
                     k += 1;
                 }
                 let data = e.call(LIST_NODE_DATA, &args![inputs, node]).u32();
-                let text = e.call(FIRST_MEMBER, &args![data]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, data));
                 e.call(SPRINTF, &args![at(ebp, frame::LINE), STRING_FORMAT_S, text]);
             }
         }
         MESSAGE_HISTORY_NEWER => {
             let inputs = this.addr() + INPUTS_LIST;
-            if e.call(LIST_COUNT, &args![inputs]).i32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, inputs))
+                .into_ret()
+                .i32()
+                != 0
+            {
                 let position = e.get(this, MenuConsole::iInputsPos) - 1;
                 e.set(this, MenuConsole::iInputsPos, position);
                 let position = e.call(0x0064_7b70, &args![position, 0u32]).i32();
@@ -1045,7 +1083,7 @@ fn idle_message(e: &mut Engine, this: Ptr<MenuConsole>, message: u32, ebp: u32) 
                 e.call(STRING_CONSTRUCT, &args![recalled]);
                 let mut node = 0u32;
                 if e.get(this, MenuConsole::iInputsPos) != 0 {
-                    node = e.call(FIRST_MEMBER, &args![inputs]).u32();
+                    node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, inputs));
                     let mut k = 0;
                     while k < e.get(this, MenuConsole::iInputsPos) {
                         node = e.call(LIST_NEXT, &args![inputs, node]).u32();
@@ -1059,7 +1097,7 @@ fn idle_message(e: &mut Engine, this: Ptr<MenuConsole>, message: u32, ebp: u32) 
                     e.call(STRING_ASSIGN, &args![recalled, EMPTY_STRING]);
                 }
                 let text = if e.call(STRING_LENGTH, &args![recalled]).u32() != 0 {
-                    e.call(FIRST_MEMBER, &args![recalled]).u32()
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, recalled))
                 } else {
                     EMPTY_STRING
                 };
@@ -1135,7 +1173,11 @@ fn idle_message(e: &mut Engine, this: Ptr<MenuConsole>, message: u32, ebp: u32) 
     let history = at(ebp, frame::HISTORY_TEXT);
     e.call(STRING_FROM_C_STRING, &args![history, at(ebp, frame::LINE)]);
     let inputs = this.addr() + INPUTS_LIST;
-    if e.call(LIST_COUNT, &args![inputs]).i32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, inputs))
+        .into_ret()
+        .i32()
+        == 0
+    {
         e.call(0x0071_df20, &args![inputs, history]);
     } else {
         let dropped = at(ebp, frame::DROPPED_TEXT);
@@ -1186,7 +1228,13 @@ fn idle_enter_line(e: &mut Engine, this: Ptr<MenuConsole>, ebp: u32, length: i32
     }
     e.mem.set_u8(COMMAND_ENTERED, 1);
     let interface = e.call(INTERFACE_GETTER, &args![]).u32();
-    let count = e.call(LIST_COUNT, &args![this.addr() + STRINGS_LIST]).i32();
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + STRINGS_LIST)
+    )
+    .into_ret()
+    .i32();
     fn_0071d380(e, this, count);
     menu_console_print_line(e, this, at(ebp, frame::LINE), &[]);
     let entered = at(ebp, frame::ENTERED_LINE);
@@ -1315,7 +1363,7 @@ fn idle_run_command(e: &mut Engine, this: Ptr<MenuConsole>, ebp: u32, interface:
     if starts_with_b(e, ebp, FRONT_COMMAND, 5) {
         let manager = e.call(0x0071_e290, &args![1u32]).u32();
         let a = e.call(0x0072_0e60, &args![manager]).u32();
-        let b = e.call(0x0072_6070, &args![a]).u32();
+        let b = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, a));
         let name = e.call(0x0070_0300, &args![b]).u32();
         menu_console_print_line(e, this, FRONTMOST_FORMAT, &[name]);
         return;
@@ -1367,7 +1415,7 @@ fn idle_run_command(e: &mut Engine, this: Ptr<MenuConsole>, ebp: u32, interface:
         let depth = e.call(FTOL, &args![depth as f64]).u32();
         menu_console_print_line(e, this, MAX_DEPTH_FORMAT, &[depth]);
         let interface = e.call(INTERFACE_GETTER, &args![]).u32();
-        let tile = e.call(0x0045_cd60, &args![interface]).u32();
+        let tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interface));
         let depth = e.call(0x00a0_11b0, &args![tile, 0xfadu32]).f32();
         let depth = e.call(FTOL, &args![depth as f64]).u32();
         menu_console_print_line(e, this, CURSOR_DEPTH_FORMAT, &[depth]);
@@ -1440,7 +1488,7 @@ fn idle_tag(e: &mut Engine, ebp: u32, interface: u32) {
     }
     let text = at(ebp, frame::TAG_TEXT);
     e.call(STRING_CONSTRUCT, &args![text]);
-    let form_id = e.call(0x0084_e3a0, &args![object]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object));
     let name = e.call(0x0055_d520, &args![object]).u32();
     e.call(STRING_FORMAT, &args![text, TAG_FORMAT, name, form_id]);
     let key = e.vcall(object, 0x1d0, &args![]).u32();
@@ -1453,7 +1501,7 @@ fn idle_tag(e: &mut Engine, ebp: u32, interface: u32) {
             .u32();
     }
     let argument: f32 = e.global(PRINT_FLOAT_ARGUMENT);
-    let c_text = e.call(FIRST_MEMBER, &args![text]).u32();
+    let c_text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
     e.call(0x00a1_0c00, &args![found, c_text, 0u32, argument]);
     e.call(STRING_DESTRUCT, &args![text]);
 }

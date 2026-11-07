@@ -17,6 +17,7 @@ const FACE_GEN_NI_NODE_VTABLE: u32 = 0x0106_60dc;
 const MEMBER_CONSTRUCT: u32 = 0x0063_3c90;
 const MEMBER_SET: u32 = 0x0066_b0d0;
 /// The constructor run on +0xB0 (`006815c0`, result unused).
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
 /// The `float` -1.0 stored at +0xDC.
 const MINUS_ONE: u32 = 0x0101_2054;
@@ -49,7 +50,7 @@ pub fn fn_006628c0(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(NI_NODE_CONSTRUCT, &args![this, 0u32]);
     e.mem.set_u32(this.addr(), FACE_GEN_NI_NODE_VTABLE);
     e.call(MEMBER_CONSTRUCT, &args![at(0xac), 0u32]);
-    e.call(POINT_CONSTRUCT, &args![at(0xb0)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0xb0)));
     e.mem.set_u8(at(0xd5), 0);
     e.mem.set_u8(at(0xd4), 0);
     e.mem.set_u8(at(0xd6), 1);

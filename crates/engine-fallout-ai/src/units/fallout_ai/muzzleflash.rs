@@ -18,6 +18,7 @@ use crate::prelude::*;
 use crate::units::fallout_ai::run_009ba550::MuzzleFlash;
 
 /// `NiPointer<T>` read: the pointer it holds (`this` is the smart pointer).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer<T>` assignment `(this, pointer)`.
 const NI_POINTER_SET: u32 = 0x0066_b0d0;
@@ -52,6 +53,7 @@ const REMOVE_MASTER_PARTICLE_ADDON_NODES: u32 = 0x0057_8170;
 /// `(0x011f2250)`: a mode word of the object at `011f2250`; 4 selects the
 /// time scaling below.
 const MODE_OBJECT: u32 = 0x011f_2250;
+#[cfg(test)]
 const MODE_GET: u32 = 0x0044_ddc0;
 /// A float in ST0 (map: `interfacemanager.cpp`) the elapsed time is divided by.
 const TIME_DIVISOR: u32 = 0x0071_6440;
@@ -120,6 +122,7 @@ const PROCESS_LISTS: u32 = 0x011e_0e80;
 const PROCESS_LISTS_MUZZLE_FLASH: u32 = 0x0097_8740;
 /// `MiddleHighProcess::GetSavedAcquireObject` (map name of `008d8520`;
 /// called on the reference).
+#[cfg(test)]
 const REFERENCE_PROCESS: u32 = 0x008d_8520;
 /// The word at +0x14 of `this`.
 const WORD_AT_14: u32 = 0x0082_5c00;
@@ -142,11 +145,19 @@ fn at_most_zero(e: &Engine, value: f64) -> bool {
 }
 
 fn flash_node(e: &mut Engine, this: Ptr<MuzzleFlash>) -> u32 {
-    e.call(NI_POINTER_GET, &args![this.byte_add(0x0c)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0x0c))
+    )
 }
 
 fn flash_light(e: &mut Engine, this: Ptr<MuzzleFlash>) -> u32 {
-    e.call(NI_POINTER_GET, &args![this.byte_add(0x10)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0x10))
+    )
 }
 
 // Translated from 008d9f70 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -237,11 +248,12 @@ pub fn muzzle_flash_update(e: &mut Engine, this: Ptr<MuzzleFlash>, elapsed: f32,
     }
 
     let mut elapsed = elapsed;
-    let scaled_by_mode = e.call(MODE_GET, &args![MODE_OBJECT]).u32() == 4 && {
-        let divisor = e.call(TIME_DIVISOR, &args![]).f64();
-        // Only above zero (9bb179): NaN goes to the other branch.
-        divisor > e.global::<f64>(ZERO)
-    };
+    let scaled_by_mode =
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, MODE_OBJECT)) == 4 && {
+            let divisor = e.call(TIME_DIVISOR, &args![]).f64();
+            // Only above zero (9bb179): NaN goes to the other branch.
+            divisor > e.global::<f64>(ZERO)
+        };
     if scaled_by_mode {
         let divisor = e.call(TIME_DIVISOR, &args![]).f64();
         elapsed = (elapsed as f64 / divisor) as f32;
@@ -502,7 +514,7 @@ pub fn fn_009bb6d0(e: &mut Engine, reference: Ptr, source: Ptr) {
         );
         return;
     }
-    let process = e.call(REFERENCE_PROCESS, &args![reference]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference));
     if process == 0 {
         return;
     }

@@ -9,6 +9,7 @@ const PLAYER_POINTER: u32 = 0x011d_ea3c;
 /// `005de0a0` (thiscall(mask, on)): sets or clears a projectile flag.
 const SET_FLAG: u32 = 0x005d_e0a0;
 /// `00559450` (thiscall): the word at `this`.
+#[cfg(test)]
 const WORD_AT: u32 = 0x0055_9450;
 /// `00874480` (thiscall): the projectile's shooter.
 const GET_SHOOTER: u32 = 0x0087_4480;
@@ -53,6 +54,7 @@ const WEAPON_DATA: u32 = 0x0047_6c90;
 /// start).
 const TRANSFORM: u32 = 0x0046_1130;
 /// `008d8520` (thiscall): the actor's process.
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 /// `008b0dd0` (thiscall(which), ST0): one of the shooter's spread values.
 const SHOOTER_SPREAD: u32 = 0x008b_0dd0;
@@ -83,9 +85,9 @@ pub fn continuous_beam_projectile_initialize(e: &mut Engine, this: Ptr) {
     }
     e.mem.set_u32(base + 0x154, 0);
     e.call(0x009b_da10, &args![this]);
-    if e.call(WORD_AT, &args![base + 0x150]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x150)) != 0 {
         let value = x87_store32(e.call(PROJECTILE_VALUE_00979260, &args![this]).f64());
-        let object = e.call(WORD_AT, &args![base + 0x150]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x150));
         e.call(SET_VALUE_005BFBD0, &args![object, value]);
     }
     let shooter = e.call(GET_SHOOTER, &args![this]).u32();
@@ -132,7 +134,7 @@ pub fn continuous_beam_projectile_initialize(e: &mut Engine, this: Ptr) {
 /// gets `00644660` (`0051b840`) and `00979260` (`005bfbd0`).
 pub fn fn_009ab390(e: &mut Engine, this: Ptr, time: f32) {
     let base = this.addr();
-    if e.call(0x0044_0d80, &args![this]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
         return;
     }
     // The function's frame: locals at `ebp - x` as the exe keeps them.
@@ -222,7 +224,11 @@ pub fn fn_009ab390(e: &mut Engine, this: Ptr, time: f32) {
                     e.set_global(IRON_SIGHTS_OFFSET_BUILT, guard | 1);
                     let y = x87_quiet_bits(e.global::<u32>(IRON_SIGHTS_Y));
                     let zero = x87_store32(0.0);
-                    e.call(0x0041_6870, &args![IRON_SIGHTS_OFFSET, zero, y, zero]);
+                    typed_call!(
+                        leaf::FAMILY,
+                        0x0041_6870,
+                        leaf::point3_new(e, IRON_SIGHTS_OFFSET, zero, y, zero)
+                    );
                 }
                 let transform = e.call(TRANSFORM, &args![sight_node]).u32();
                 let point = e
@@ -242,12 +248,12 @@ pub fn fn_009ab390(e: &mut Engine, this: Ptr, time: f32) {
         e.call(0x0097_95c0, &args![this, length]);
         e.vcall(base, 0x328, &args![]);
         e.vcall(base, 0x30c, &args![]);
-        if e.call(WORD_AT, &args![base + 0x150]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x150)) != 0 {
             let value = x87_store32(e.call(PROJECTILE_VALUE_00644660, &args![this]).f64());
-            let object = e.call(WORD_AT, &args![base + 0x150]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x150));
             e.call(SET_VALUE_0051B840, &args![object, value]);
             let value = x87_store32(e.call(PROJECTILE_VALUE_00979260, &args![this]).f64());
-            let object = e.call(WORD_AT, &args![base + 0x150]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x150));
             e.call(SET_VALUE_005BFBD0, &args![object, value]);
         }
     });
@@ -257,7 +263,7 @@ pub fn fn_009ab390(e: &mut Engine, this: Ptr, time: f32) {
 /// random offset inside the shooter's cone to the two angles.
 fn spread(e: &mut Engine, this: Ptr, shooter: u32, angle_x: u32, angle_z: u32, ebp: u32) {
     let process = if shooter != 0 {
-        e.call(GET_PROCESS, &args![shooter]).u32()
+        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, shooter))
     } else {
         0
     };
@@ -276,7 +282,7 @@ fn spread(e: &mut Engine, this: Ptr, shooter: u32, angle_x: u32, angle_z: u32, e
     e.mem.set_u32(ebp - 0x4c, skill);
     let mut modded = 0u32;
     if shooter != 0
-        && e.call(GET_PROCESS, &args![shooter]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, shooter)) != 0
         && item != 0
         && e.call(0x004b_da70, &args![item, 3u32]).bool()
     {
@@ -292,7 +298,7 @@ fn spread(e: &mut Engine, this: Ptr, shooter: u32, angle_x: u32, angle_z: u32, e
     let mut cone = x87_store32(cone);
     let unused = x87_store32(e.call(SHOOTER_SPREAD, &args![shooter, 2u32]).f64());
     e.mem.set_u32(ebp - 0x44, unused);
-    let process = e.call(GET_PROCESS, &args![shooter]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, shooter));
     let extra = x87_store32(e.vcall(process, 0x42c, &args![]).f64());
     cone = x87_store32(x87_add(x87_load32(cone), x87_m32(extra)));
     let zero = x87_store32(0.0);

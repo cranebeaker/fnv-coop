@@ -29,6 +29,7 @@ const TARGET_SINGLETON: u32 = 0x011c_3b3c;
 /// `(this = singleton, object)`.
 const NOTIFY: u32 = 0x0045_34f0;
 /// `(this = object, flag mask) -> bool`: tests flag bits of the object.
+#[cfg(test)]
 const TEST_FLAGS: u32 = 0x0045_6630;
 /// The flag mask `00936fb0` tests.
 const FLAG_MASK: u32 = 0x0100_0000;
@@ -86,7 +87,11 @@ pub fn fn_00936f50(e: &mut Engine, this: u32, force: u8) {
 /// Tests flag bit `0x01000000` of the object through `00456630` (unnamed in
 /// the Xbox PDB) and returns its result.
 pub fn fn_00936fb0(e: &mut Engine, this: u32) -> bool {
-    e.call(TEST_FLAGS, &args![this, FLAG_MASK]).bool()
+    typed_call!(
+        leaf::FAMILY,
+        0x0045_6630,
+        leaf::flags_at_30_any(e, this, FLAG_MASK)
+    )
 }
 
 // Translated from 00936fd0 (decompiled, FalloutNV.exe 1.4.0.525)

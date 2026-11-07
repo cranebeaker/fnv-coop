@@ -10,6 +10,7 @@ const ALLOCATE: u32 = 0x00aa_13e0;
 const DEALLOCATE: u32 = 0x00aa_1460;
 const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 const NI_POINTER_DESTRUCT: u32 = 0x0045_cec0;
+#[cfg(test)]
 const MULTI_BOUND_GET_FORM: u32 = 0x007a_f430;
 const MULTI_BOUND_FORM_A: u32 = 0x011c_a230;
 const MULTI_BOUND_FORM_B: u32 = 0x011c_a238;
@@ -22,6 +23,7 @@ const MULTI_BOUND_READ_MODE: u32 = 0x0040_1680;
 const NI_PROPERTY_BASE_CONSTRUCT: u32 = 0x00a5_c200;
 const NI_PROPERTY_BASE_DESTRUCT: u32 = 0x00a5_c240;
 const NI_ALPHA_FLAGS_SET: u32 = 0x0063_3ba0;
+#[cfg(test)]
 const VECTOR_SET: u32 = 0x0041_6870;
 const VECTOR_MULTIBOUND_INTERSECT: u32 = 0x004b_1e80;
 
@@ -67,7 +69,7 @@ pub fn multi_bound_marker_data_construct(
     e: &mut Engine,
     this: Ptr<MultiBoundMarkerData>,
 ) -> Ptr<MultiBoundMarkerData> {
-    e.call(0x0068_15c0, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     for offset in [0, 4, 8] {
         let value = e.mem.u32(DEFAULT_HALF_EXTENTS + offset);
         e.mem.set_u32(this.addr() + offset, value);
@@ -417,7 +419,11 @@ pub fn multi_bound_marker_data_intersects_cell(
                 // These constructors return their input in EAX (`mov eax,ecx`);
                 // retain the three native calls because they are not bare RETs.
                 for offset in [0, 0x0c, 0x18] {
-                    e.call(0x0068_15c0, &args![point_temporaries.addr() + offset]);
+                    typed_call!(
+                        leaf::FAMILY,
+                        0x0068_15c0,
+                        leaf::same_word(e, point_temporaries.addr() + offset)
+                    );
                 }
                 let half_extents: Ptr<()> = e.call(0x0056_9880, &args![reference]).ptr();
                 let scales = read_vector(e, half_extents);
@@ -468,7 +474,7 @@ pub fn multi_bound_marker_data_intersects_cell(
                         const FACE_VERTICES: [[usize; 4]; 4] =
                             [[0, 1, 2, 4], [3, 1, 2, 7], [5, 1, 4, 7], [6, 2, 4, 7]];
                         e.with_stack(0x0c, |e, output| {
-                            e.call(0x0068_15c0, &args![output]);
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, output));
                             for face in FACE_VERTICES {
                                 let start = read_vector(
                                     e,
@@ -519,7 +525,11 @@ pub fn multibound_vector_add(
     let left = read_vector(e, this);
     let right = read_vector(e, other);
     let values: [f32; 3] = core::array::from_fn(|i| (left[i] as f64 + right[i] as f64) as f32);
-    e.call(VECTOR_SET, &args![result, values[0], values[1], values[2]]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, result, values[0], values[1], values[2])
+    );
     result
 }
 
@@ -534,7 +544,11 @@ pub fn multibound_vector_subtract(
     let left = read_vector(e, this);
     let right = read_vector(e, other);
     let values: [f32; 3] = core::array::from_fn(|i| (left[i] as f64 - right[i] as f64) as f32);
-    e.call(VECTOR_SET, &args![result, values[0], values[1], values[2]]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, result, values[0], values[1], values[2])
+    );
     result
 }
 
@@ -555,9 +569,9 @@ pub fn multibound_matrix_get_axis(e: &mut Engine, matrix: Ptr<()>, index: u32, r
 /// Returns true when the reference's form pointer equals either global
 /// marker form pointer used by the executable.
 pub fn multi_bound_marker_data_is_marker_form(e: &mut Engine, reference: Ptr<()>) -> bool {
-    let form = e.call(MULTI_BOUND_GET_FORM, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     form == e.global::<u32>(MULTI_BOUND_FORM_A)
-        || e.call(MULTI_BOUND_GET_FORM, &args![reference]).u32()
+        || typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
             == e.global::<u32>(MULTI_BOUND_FORM_B)
 }
 

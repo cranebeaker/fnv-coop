@@ -15,6 +15,7 @@ use crate::prelude::*;
 
 /// Getter for the grid's `iDimension` (`this + 0xc`; one function shared by
 /// several classes, so the map has no name for it).
+#[cfg(test)]
 const GRID_DIMENSION: u32 = 0x0084_e3a0;
 /// `GridArray` destructor body: writes the `GridArray` vtable (`01020634`).
 const GRID_ARRAY_DESTRUCTOR_BODY: u32 = 0x004b_9e50;
@@ -39,6 +40,7 @@ const SMART_POINTER_DESTRUCTOR: u32 = 0x0045_cec0;
 /// `NiPointer` assignment: `ECX` = the pointer slot, one stack word.
 const SMART_POINTER_SET: u32 = 0x0066_b0d0;
 /// Returns the pointer stored at `ECX` (`*this`).
+#[cfg(test)]
 const POINTER_VALUE: u32 = 0x0055_9450;
 /// `cdecl`, no arguments: the pointer stored at `011ca0d8`.
 const SINGLETON_GET: u32 = 0x0045_1010;
@@ -131,7 +133,7 @@ layout! {
 }
 
 fn dimension(e: &mut Engine, this: Ptr<GridCellArray>) -> u32 {
-    e.call(GRID_DIMENSION, &args![this]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this))
 }
 
 /// The cell pointer stored in the slot at `slot`.
@@ -605,9 +607,9 @@ pub fn fn_004bae20(e: &mut Engine, this: Ptr<GridCellArray>, flag: u8) {
 /// `spTexRendered` and sets `bRecreateCanopyShadowMaskTexture`.
 pub fn grid_cell_array_clear_canopy_shadow_mask_texture(e: &mut Engine, this: Ptr<GridCellArray>) {
     let slot = this.byte_add(0x24);
-    if e.call(POINTER_VALUE, &args![slot]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) != 0 {
         e.call(SINGLETON_SET, &args![0u32]);
-        let texture = e.call(POINTER_VALUE, &args![slot]).u32();
+        let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         let manager = e.call(TEXTURE_MANAGER_GET, &args![]).u32();
         e.call(RETURN_RENDERED_TEXTURE, &args![manager, texture]);
         e.call(SMART_POINTER_SET, &args![slot, 0u32]);

@@ -50,7 +50,11 @@ pub fn fn_0052b8f0(e: &mut Engine, this: Ptr) -> Ptr {
 /// Runs `006815c0` on the member at `+0xcc` of `this` (`ECX`) and returns `this`. The disassembly
 /// shows no other work; `006815c0` takes only `ECX`.
 pub fn fn_0052bad0(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(0x0068_15c0, &args![this.addr() + 0xcc]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0xcc)
+    );
     this
 }
 
@@ -82,6 +86,7 @@ const FLOAT_DATA_VTABLE: u32 = 0x0102_dabc;
 const COLOR_DATA_VTABLE: u32 = 0x0102_db4c;
 /// `NiPointer` members: the pointer (`00559450`), the destructor
 /// (`0045cec0`) and the assignment (`0066b0d0`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const POINTER_DESTRUCT: u32 = 0x0045_cec0;
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
@@ -125,6 +130,7 @@ const TES_FORM_ADD_COMPILE_INDEX: u32 = 0x0048_5d50;
 const LOOKUP_FORM: u32 = 0x0048_39c0;
 const TES_FORM_SET_FLAG: u32 = 0x0048_4ab0;
 const TES_FORM_LOAD_FORM: u32 = 0x0048_5110;
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `__RTDynamicCast` and the `TESForm` / `TESSound` type descriptors.
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
@@ -140,6 +146,7 @@ const MISSING_OUTRO_SOUND: u32 = 0x0102_dbd8;
 /// (`00414430`), `NiPoint2(x, y)` (`00452dc0`), the float key's value
 /// setter (`004f5d90`), the clear `007fc2b0(0)` and the fill
 /// `00403d30(dest, value, count)`.
+#[cfg(test)]
 const ALLOCATOR_CONSTRUCT: u32 = 0x0068_15c0;
 const COLOR_CONSTRUCT: u32 = 0x0041_4430;
 const POINT2_CONSTRUCT: u32 = 0x0045_2dc0;
@@ -385,7 +392,7 @@ pub fn ni_float_interpolator_replace_keys(
 ) {
     let holder = this.addr() + 0x10;
     if count > 0 {
-        if e.call(POINTER_GET, &args![holder]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) == 0 {
             let block = e.call(NI_NEW, &args![0x18u32]).u32();
             let data = if block == 0 {
                 0
@@ -394,11 +401,11 @@ pub fn ni_float_interpolator_replace_keys(
             };
             e.call(POINTER_ASSIGN, &args![holder, data]);
         }
-        let data = e.call(POINTER_GET, &args![holder]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         e.call(FLOAT_DATA_REPLACE_ANIM, &args![data, keys, count, kind]);
         e.mem.set_u32(this.addr() + 0x14, 0);
-    } else if e.call(POINTER_GET, &args![holder]).u32() != 0 {
-        let data = e.call(POINTER_GET, &args![holder]).u32();
+    } else if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) != 0 {
+        let data = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         e.call(FLOAT_DATA_REPLACE_ANIM, &args![data, 0u32, 0u32, 0u32]);
     }
 }
@@ -454,7 +461,7 @@ pub fn ni_color_interpolator_replace_keys(
 ) {
     let holder = this.addr() + 0x1c;
     if count > 0 {
-        if e.call(POINTER_GET, &args![holder]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) == 0 {
             let block = e.call(NI_NEW, &args![0x18u32]).u32();
             let data = if block == 0 {
                 0
@@ -463,11 +470,11 @@ pub fn ni_color_interpolator_replace_keys(
             };
             e.call(POINTER_ASSIGN, &args![holder, data]);
         }
-        let data = e.call(POINTER_GET, &args![holder]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         e.call(COLOR_DATA_REPLACE_ANIM, &args![data, keys, count, kind]);
         e.mem.set_u32(this.addr() + 0x20, 0);
-    } else if e.call(POINTER_GET, &args![holder]).u32() != 0 {
-        let data = e.call(POINTER_GET, &args![holder]).u32();
+    } else if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) != 0 {
+        let data = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         e.call(COLOR_DATA_REPLACE_ANIM, &args![data, 0u32, 0u32, 0u32]);
     }
 }
@@ -509,7 +516,7 @@ pub fn fn_0052d160(e: &mut Engine, this: Ptr) -> Ptr {
 /// then `NiColorA(0, 0, 0, 0)` at +4. Returns `this`.
 // Translation incomplete: 0052d180 - the FS:[0] exception frame (no cleanup after the first step) is not translated
 pub fn fn_0052d180(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(ALLOCATOR_CONSTRUCT, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     e.call(
         COLOR_CONSTRUCT,
         &args![this.addr() + 4, 0.0f32, 0.0f32, 0.0f32, 0.0f32],
@@ -586,7 +593,7 @@ fn resolve_sound(e: &mut Engine, this: Ptr, field: u32, message: u32) {
             .u32();
         e.mem.set_u32(this.addr() + field, sound);
         if e.mem.u32(this.addr() + field) == 0 {
-            let form_id = e.call(FORM_ID, &args![this]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(this.addr(), 0x130, &[]).u32();
             let id = e.mem.u32(local.addr());
             e.call(LOG, &args![message, id, name, form_id]);
@@ -929,12 +936,12 @@ pub fn tes_image_space_modifier_save(e: &mut Engine, this: Ptr) {
     }
     let intro = e.mem.u32(at + 0x1c);
     if intro != 0 {
-        let id = e.call(FORM_ID, &args![intro]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, intro));
         e.call(FORM_ADD_CHUNK_WORD, &args![0x4453_4452u32, id]);
     }
     let outro = e.mem.u32(at + 0x18);
     if outro != 0 {
-        let id = e.call(FORM_ID, &args![outro]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, outro));
         e.call(FORM_ADD_CHUNK_WORD, &args![0x4953_4452u32, id]);
     }
     e.call(FORM_CLOSE, &args![this]);

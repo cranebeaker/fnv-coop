@@ -6,6 +6,7 @@ use crate::prelude::*;
 
 /// `MiddleHighProcess::GetSavedAcquireObject` (`008d8520`, engine map; `thiscall`): asked
 /// of the reference this magic target belongs to.
+#[cfg(test)]
 const PROCESS_OBJECT_008D8520: u32 = 0x008d_8520;
 /// `008d6f30` (`thiscall`) and `TESObjectCELL::Get3D` (`00545cb0`, engine map;
 /// `thiscall`): the reference's cell and its 3D.
@@ -13,11 +14,15 @@ const CELL_008D6F30: u32 = 0x008d_6f30;
 const TES_OBJECT_CELL_GET_3D: u32 = 0x0054_5cb0;
 /// The effect list's node calls (`thiscall`): `008256d0` (`bool`), `00726070` (the next
 /// node) and `006815c0` (the address of the node's item).
+#[cfg(test)]
 const NODE_CHECK_008256D0: u32 = 0x0082_56d0;
+#[cfg(test)]
 const NODE_NEXT_00726070: u32 = 0x0072_6070;
+#[cfg(test)]
 const NODE_ITEM_006815C0: u32 = 0x0068_15c0;
 /// The effect calls (`thiscall`): `0044ddc0` (a word compared with `kind`), `00824060`
 /// (`bool`), `00804560` (one float), `00705cf0` (`bool`).
+#[cfg(test)]
 const EFFECT_KIND_0044DDC0: u32 = 0x0044_ddc0;
 const EFFECT_CHECK_00824060: u32 = 0x0082_4060;
 const EFFECT_SET_00804560: u32 = 0x0080_4560;
@@ -42,7 +47,7 @@ pub fn fn_00824110(e: &mut Engine, this: Ptr, kind: u32) {
     let mut node = e.vcall(at, 0x8, &[]).u32();
     if e.vcall(at, 0xc, &[]).bool() {
         let owner = if at != 0 { at.wrapping_sub(0x94) } else { 0 };
-        if owner != 0 && e.call(PROCESS_OBJECT_008D8520, &args![owner]).u32() == 0 {
+        if owner != 0 && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner)) == 0 {
             return;
         }
         let reference = e.vcall(at, 0x4, &[]).u32();
@@ -60,17 +65,18 @@ pub fn fn_00824110(e: &mut Engine, this: Ptr, kind: u32) {
         }
     }
     while node != 0 {
-        if e.call(NODE_CHECK_008256D0, &args![node]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             return;
         }
-        let mut next = e.call(NODE_NEXT_00726070, &args![node]).u32();
-        let item = e.call(NODE_ITEM_006815C0, &args![node]).u32();
+        let mut next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect = e.mem.u32(item);
-        if effect != 0 && e.call(EFFECT_KIND_0044DDC0, &args![effect]).u32() == kind {
+        if effect != 0 && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, effect)) == kind
+        {
             if !e.call(EFFECT_CHECK_00824060, &args![effect]).bool() {
                 let value = x87_quiet_bits(e.mem.u32(EFFECT_VALUE_0101E2BC));
                 e.call(EFFECT_SET_00804560, &args![effect, value]);
-                next = e.call(NODE_NEXT_00726070, &args![node]).u32();
+                next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             } else {
                 e.vcall(effect, 0x54, &[]);
             }

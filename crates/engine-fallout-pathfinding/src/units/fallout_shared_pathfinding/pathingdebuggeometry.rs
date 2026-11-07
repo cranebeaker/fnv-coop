@@ -6,6 +6,7 @@ use crate::prelude::*;
 
 /// `00559450` (unnamed in the engine map): the word at +0 of its `this`
 /// (a smart pointer's object).
+#[cfg(test)]
 const FIRST_OF_00559450: u32 = 0x0055_9450;
 /// `009611e0` (unnamed in the engine map): the node's parent (0 when none).
 const PARENT_009611E0: u32 = 0x0096_11e0;
@@ -43,8 +44,6 @@ const SETTING_011F1858: u32 = 0x011f_1858;
 const SETTING_011F1814: u32 = 0x011f_1814;
 /// A byte (`011a4d34`) that turns the first part off.
 const SWITCH_011A4D34: u32 = 0x011a_4d34;
-/// `0044ddc0` (unnamed in the engine map): a `BSSimpleArray`'s size.
-const ARRAY_SIZE_0044DDC0: u32 = 0x0044_ddc0;
 /// `006a7ad0`, `006a7af0` (navmeshsearch unit; `RET 4`): the addresses of
 /// elements of the arrays at +0x138 and +0x120.
 const ELEMENT_006A7AD0: u32 = 0x006a_7ad0;
@@ -69,8 +68,6 @@ const BOX_HEIGHT_01032ADC: u32 = 0x0103_2adc;
 /// radius is scaled by (`01016ff0`).
 const RING_STEP_0104F2F0: u32 = 0x0104_f2f0;
 const RADIUS_SCALE_01016FF0: u32 = 0x0101_6ff0;
-/// `006815c0` (unnamed in the engine map): returns its `this`.
-const IDENTITY_006815C0: u32 = 0x0068_15c0;
 /// `00990890`, `00988790` (`RET 4`): the group's member count and member.
 const MEMBER_COUNT_00990890: u32 = 0x0099_0890;
 const MEMBER_00988790: u32 = 0x0098_8790;
@@ -101,8 +98,6 @@ const GROUP_COLOUR_005D8550: u32 = 0x005d_8550;
 /// list of the group.
 const LIST_COUNT_00988750: u32 = 0x0098_8750;
 const LIST_ELEMENT_00988770: u32 = 0x0098_8770;
-/// `0084e3a0` (unnamed in the engine map): the element's space.
-const ELEMENT_SPACE_0084E3A0: u32 = 0x0084_e3a0;
 /// `00985be0` (unnamed in the engine map; `RET 4`): the element's colour
 /// into the address it is given.
 const ELEMENT_COLOUR_00985BE0: u32 = 0x0098_5be0;
@@ -166,7 +161,11 @@ fn setting_on(e: &mut Engine, setting: u32) -> bool {
 }
 
 fn root_object(e: &mut Engine, this: u32) -> u32 {
-    e.call(FIRST_OF_00559450, &args![this + DEBUG_ROOT]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this + DEBUG_ROOT)
+    )
 }
 
 /// Makes the debug root node (`00aa13e0(0xAC)`, `00a5ecb0(block, 0)`; null
@@ -263,7 +262,13 @@ pub fn fn_009878b0(e: &mut Engine, this: Ptr, skip: u8) {
         if setting_on(e, SETTING_011F1824) && e.global::<u8>(SWITCH_011A4D34) == 0 && selected != 0
         {
             let mut index = 0u32;
-            while index < e.call(ARRAY_SIZE_0044DDC0, &args![base + TARGETS]).u32() {
+            while index
+                < typed_call!(
+                    leaf::FAMILY,
+                    0x0044_ddc0,
+                    leaf::word_at_8(e, base + TARGETS)
+                )
+            {
                 let slot = e
                     .call(ELEMENT_006A7AD0, &args![base + TARGETS, index])
                     .u32();
@@ -272,7 +277,7 @@ pub fn fn_009878b0(e: &mut Engine, this: Ptr, skip: u8) {
                 let ring_colour = ebp - 0x3c;
                 colour(e, ring_colour, [half, zero, half, half]);
                 let mut drawn = false;
-                let position = e.call(IDENTITY_006815C0, &args![target]).u32();
+                let position = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, target));
                 let at = ebp - 0x2c;
                 copy_words(e, at, position, 3);
                 let count = e.call(MEMBER_COUNT_00990890, &args![this]).u32();
@@ -370,7 +375,7 @@ pub fn fn_009878b0(e: &mut Engine, this: Ptr, skip: u8) {
             let mut index = 0u32;
             while index < count {
                 let element = e.call(LIST_ELEMENT_00988770, &args![this, index]).u32();
-                if e.call(ELEMENT_SPACE_0084E3A0, &args![element]).u32() == space {
+                if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, element)) == space {
                     let sphere_colour = ebp - 0xc8;
                     e.call(ELEMENT_COLOUR_00985BE0, &args![element, sphere_colour]);
                     let size = float_bits(e, SPHERE_SIZE_0101E340);
@@ -380,14 +385,15 @@ pub fn fn_009878b0(e: &mut Engine, this: Ptr, skip: u8) {
                             &args![size, 10u32, 10u32, sphere_colour],
                         )
                         .u32();
-                    let position = e.call(IDENTITY_006815C0, &args![element]).u32();
+                    let position =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, element));
                     e.call(SET_TRANSLATE_00440460, &args![sphere, position]);
                     attach(e, base, sphere);
                 }
                 index = index.wrapping_add(1);
             }
             let mut index = 0u32;
-            while index < e.call(ARRAY_SIZE_0044DDC0, &args![base + PAIRS]).u32() {
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + PAIRS)) {
                 let pair = e.call(ELEMENT_006A7AF0, &args![base + PAIRS, index]).u32();
                 let mut reference = 0u32;
                 if e.mem.u32(pair) != 0
@@ -429,15 +435,27 @@ pub fn fn_009878b0(e: &mut Engine, this: Ptr, skip: u8) {
                 attach(e, base, shape);
                 index = index.wrapping_add(1);
             }
-            if e.call(FIRST_OF_00559450, &args![base + LOS_TARGET]).u32() != 0
+            if typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base + LOS_TARGET)
+            ) != 0
                 && e.mem.u8(base + LOS_REBUILD) != 0
                 && e.call(GET_SPACE_00575CA0, &args![selected]).u32() == space
             {
                 let block = e.call(ALLOCATE_00AA13E0, &args![0x50u32]).u32();
                 let map = if block != 0 {
-                    let target = e.call(FIRST_OF_00559450, &args![base + LOS_TARGET]).u32();
+                    let target = typed_call!(
+                        leaf::FAMILY,
+                        0x0055_9450,
+                        leaf::word_at_0(e, base + LOS_TARGET)
+                    );
                     let float = x87_store32(e.call(TARGET_VALUE_00508050, &args![target]).f64());
-                    let target = e.call(FIRST_OF_00559450, &args![base + LOS_TARGET]).u32();
+                    let target = typed_call!(
+                        leaf::FAMILY,
+                        0x0055_9450,
+                        leaf::word_at_0(e, base + LOS_TARGET)
+                    );
                     let position = e
                         .call(TARGET_POSITION_006AABD0, &args![target, ebp - 0x16c])
                         .u32();
@@ -451,15 +469,23 @@ pub fn fn_009878b0(e: &mut Engine, this: Ptr, skip: u8) {
                 };
                 let pointer = ebp - 0x100;
                 e.call(POINTER_INIT_00633C90, &args![pointer, map]);
-                let target = e.call(FIRST_OF_00559450, &args![base + LOS_TARGET]).u32();
+                let target = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, base + LOS_TARGET)
+                );
                 e.call(LOS_MAP_FILL_006E07A0, &args![target, pointer]);
-                let map = e.call(FIRST_OF_00559450, &args![pointer]).u32();
+                let map = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                 let geometry = e.call(LOS_MAP_GEOMETRY_006E1800, &args![map]).u32();
                 e.call(POINTER_SET_0066B0D0, &args![base + LOS_GEOMETRY, geometry]);
                 e.mem.set_u8(base + LOS_REBUILD, 0);
                 e.call(POINTER_RELEASE_0045CEC0, &args![pointer]);
             }
-            los_geometry = e.call(FIRST_OF_00559450, &args![base + LOS_GEOMETRY]).u32();
+            los_geometry = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base + LOS_GEOMETRY)
+            );
         }
 
         if root_object(e, base) != 0 {

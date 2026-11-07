@@ -39,6 +39,7 @@ const ITERATOR_STARTED: u32 = 0x0044_de20;
 const ITERATOR_SET_STARTED: u32 = 0x0044_de40;
 const ITERATOR_SET_FINISHED: u32 = 0x0044_de80;
 /// `0044ddc0` (`thiscall` on the map, no stack words): the bucket count.
+#[cfg(test)]
 const BUCKET_COUNT: u32 = 0x0044_ddc0;
 /// The inner object's first and next lookups (`thiscall`, three words: bucket, address of
 /// the key slot, wanted).
@@ -154,7 +155,7 @@ pub fn fn_00906570(
             }
             let next = e.mem.u32(iterator + 4).wrapping_add(1);
             e.mem.set_u32(iterator + 4, next);
-            let count = e.call(BUCKET_COUNT, &args![this]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
             if e.mem.u32(iterator + 4) >= count {
                 e.call(ITERATOR_SET_FINISHED, &args![iterator, 1u32]);
                 break;

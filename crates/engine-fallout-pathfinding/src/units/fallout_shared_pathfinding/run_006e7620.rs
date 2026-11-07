@@ -9,6 +9,7 @@ use crate::prelude::*;
 const THREAD_DATA: u32 = 0x00c8_5750;
 /// `006815c0` (`thiscall`): run on the thread data, answers the object the
 /// allocation is made on.
+#[cfg(test)]
 const THREAD_HEAP: u32 = 0x0068_15c0;
 /// `005e0ad0` (`thiscall`, `RET 8`): allocates (size, second word).
 const HEAP_ALLOCATE: u32 = 0x005e_0ad0;
@@ -23,7 +24,7 @@ const CACHE_VTABLE: u32 = 0x0106_d4bc;
 /// read).
 pub fn fn_006e7620(e: &mut Engine, size: u32, extra: u32) -> u32 {
     let thread_data = e.call(THREAD_DATA, &[]).u32();
-    let heap = e.call(THREAD_HEAP, &args![thread_data]).u32();
+    let heap = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, thread_data));
     e.call(
         HEAP_ALLOCATE,
         &args![heap, size.wrapping_add(0x7f) & 0xffff_ff80, extra],

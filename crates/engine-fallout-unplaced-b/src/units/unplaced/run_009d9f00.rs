@@ -15,7 +15,11 @@ pub fn fn_009d9f40(_e: &mut Engine, this: Ptr) -> Ptr {
 /// Unnamed in the engine map: `00559450` (the word at +0) on `this + 0xd4`;
 /// returns what it returns.
 pub fn fn_009d9f20(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(0x0055_9450, &args![this.byte_add(0xd4)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0xd4))
+    )
 }
 
 // Translated from 009d9f00 (decompiled, FalloutNV.exe 1.4.0.525)

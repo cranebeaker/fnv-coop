@@ -30,9 +30,10 @@
 //! 3. The typed version with each `typed_call!` into a named family direct (Rust calls, with the call
 //!    log still seeing them), against run 2, call for call. A `typed_call!` naming the wrong function
 //!    shows here, and one whose address is in another family stops here. An address in no named
-//!    family goes by address, as it does in play with that family off, so a real callee or a rewritten
-//!    site in the call tree is no finding; [`Report::direct_calls`] says how many went direct. This run
-//!    needs debug assertions: under `--release` it is skipped and [`Report::direct_runs`] says 0.
+//!    family goes by address, as it does in play with that family off, but the function it names then
+//!    hasn't run at all, so [`Report::assert_same`] fails on it unless the test says so with
+//!    [`Diff::goes_by_address`]. [`Report::direct_calls`] says how many went direct. This run needs
+//!    debug assertions: under `--release` it is skipped and [`Report::direct_runs`] says 0.
 //!
 //! Compared, bit for bit:
 //!
@@ -331,6 +332,7 @@ pub struct Diff {
     setup: Option<Setup>,
     ignored_calls: Vec<u32>,
     plain_callees: Vec<u32>,
+    by_address: Vec<u32>,
     local_words: Vec<LocalWord>,
     control_words: Option<Vec<u16>>,
     max_cases: usize,
@@ -351,6 +353,7 @@ impl Diff {
             setup: None,
             ignored_calls: Vec::new(),
             plain_callees: Vec::new(),
+            by_address: Vec::new(),
             local_words: Vec::new(),
             control_words: None,
             max_cases: 512,
@@ -377,12 +380,22 @@ impl Diff {
     /// A family the typed runs have on, as play would: its members go over their translations, after
     /// the setup, and each `typed_call!` into it goes direct on the direct run. Call again for another
     /// family, as many as the call tree reaches. A `typed_call!` into a family nobody names goes by
-    /// address on every run. The translation run stays translations only.
+    /// address on every run, so the function it names runs nowhere: [`Report::assert_same`] fails on
+    /// it unless [`Diff::goes_by_address`] lists its address. The translation run stays translations
+    /// only.
     ///
     /// The setup may not put a double over a member ([`Diff::run`] stops): the typed runs would replace
     /// it, and a double on one side only is no comparison.
     pub fn family(mut self, family: &'static Family) -> Diff {
         self.families.push(family);
+        self
+    }
+
+    /// `typed_call!`s at these addresses go by address in this test on purpose: no family it names
+    /// holds them, and their direct branch runs in another test. Without this a `typed_call!` in no named
+    /// family fails [`Report::assert_same`], because the function it names has run nowhere.
+    pub fn goes_by_address(mut self, addrs: &[u32]) -> Diff {
+        self.by_address.extend_from_slice(addrs);
         self
     }
 
@@ -524,6 +537,7 @@ impl Diff {
             translation.words, typed.words,
             "the setup gave the two engines different call words: it must do the same on both"
         );
+        same_registered(&translation, &typed);
         let expected = self.stop_cases.as_ref().is_some_and(|on| on(case));
         match (&translation.stop, &typed.stop) {
             (Some(a), Some(b)) if a == b => {
@@ -557,7 +571,13 @@ impl Diff {
         if cfg!(debug_assertions) {
             report.direct_runs += 1;
             let direct = self.side(case, word, Branch::Direct);
+            same_registered(&translation, &direct);
             report.direct_calls += direct.calls.iter().filter(|c| c.direct).count();
+            for addr in direct.engine.typed.unnamed.take() {
+                if !self.by_address.contains(&addr) && !report.unnamed.contains(&addr) {
+                    report.unnamed.push(addr);
+                }
+            }
             self.compare(
                 &typed,
                 &direct,
@@ -642,6 +662,7 @@ impl Diff {
             Some(setup) => setup(&mut e, case),
             None => case.words(),
         };
+        let mut registered = Vec::with_capacity(watched.len());
         for (addr, before) in watched.iter().zip(before) {
             let now = e.registered_identity(*addr);
             if now.is_some_and(|(_, double)| double) || (before.is_some() && now != before) {
@@ -650,6 +671,7 @@ impl Diff {
                      callee the translation reaches plainly: that double would run on one side only"
                 );
             }
+            registered.push((*addr, now));
         }
         match branch {
             Branch::Translation => {
@@ -710,6 +732,7 @@ impl Diff {
         Side {
             engine: e,
             words,
+            registered,
             ret,
             stop,
             calls,
@@ -717,6 +740,19 @@ impl Diff {
             control_word,
             clock,
         }
+    }
+}
+
+/// Stops the test when a setup left a different function at a watched address on two sides: one
+/// that was empty before it may get a function, but the same one on every side, or a double runs on
+/// one side only and the comparison can't see it.
+fn same_registered(a: &Side, b: &Side) {
+    for ((addr, on_a), (_, on_b)) in a.registered.iter().zip(&b.registered) {
+        assert!(
+            on_a == on_b,
+            "the setup registered different functions at {addr:08x} on the two sides, a family's \
+             member or a callee the translation reaches plainly: it must do the same on both"
+        );
     }
 }
 
@@ -1037,6 +1073,8 @@ fn canonical_nans(words: &mut [u32]) {
 struct Side {
     engine: Engine,
     words: Vec<u32>,
+    /// What the setup left at each address it may not replace.
+    registered: Vec<(u32, Option<(usize, bool)>)>,
     ret: Ret,
     stop: Option<String>,
     calls: Vec<Seen>,
@@ -1339,6 +1377,10 @@ pub struct Report {
     /// The `typed_call!`s that went direct on those runs. 0 for a function with one means no family
     /// named holds its address, and the direct branch has run nowhere.
     pub direct_calls: usize,
+    /// The addresses of `typed_call!`s on those runs that no named family holds and
+    /// [`Diff::goes_by_address`] doesn't list: the functions they name ran nowhere, so
+    /// [`Report::assert_same`] fails.
+    pub unnamed: Vec<u32>,
     /// Differences found.
     pub found: usize,
     /// The first of them in full.
@@ -1358,16 +1400,23 @@ impl Report {
         }
     }
 
-    /// Stops the test when nothing ran or anything differed.
+    /// Stops the test when nothing ran, anything differed, or a `typed_call!`'s function ran nowhere.
     #[track_caller]
     pub fn assert_same(&self) {
         assert!(self.runs > 0, "nothing ran: no case was generated");
         assert!(self.found == 0, "{self}");
+        assert!(
+            self.unnamed.is_empty(),
+            "typed_call! at {:08x?} went by address: no family this test names holds it, so the \
+             function it names ran nowhere. Name its family with `.family(..)`, or list the address \
+             in `.goes_by_address(..)` when another test runs it",
+            self.unnamed
+        );
     }
 
-    /// Whether something ran and nothing differed.
+    /// Whether something ran, nothing differed and every `typed_call!`'s function ran.
     pub fn is_same(&self) -> bool {
-        self.runs > 0 && self.found == 0
+        self.runs > 0 && self.found == 0 && self.unnamed.is_empty()
     }
 }
 
@@ -2130,16 +2179,83 @@ mod tests {
     }
 
     /// A function with a `typed_call!` and a test that names no family: everything goes by address,
-    /// as in play with that family off, and the report says no call went direct.
+    /// as in play with that family off, so the function the `typed_call!` names ran nowhere. That fails
+    /// unless the test says it means it.
     #[test]
     fn a_typed_call_with_no_family_named_goes_by_address() {
         fn right(e: &mut Engine, x: u32) -> u32 {
             let got: u32 = crate::typed_call!(FAMILY_ID, 0x0040_2200, member(e, x));
             got + 1
         }
-        let report = diff_of_caller(crate::entry!(0x0040_2000, right(u32) -> u32)).run();
+        let diff = diff_of_caller(crate::entry!(0x0040_2000, right(u32) -> u32));
+        let report = diff.run();
+        assert_eq!(report.found, 0, "{report}");
+        assert_eq!(report.direct_calls, 0);
+        if cfg!(debug_assertions) {
+            assert_eq!(report.unnamed, [0x0040_2200]);
+            assert!(!report.is_same());
+            let stopped = catch_unwind(AssertUnwindSafe(|| report.assert_same()));
+            assert!(stopped.is_err());
+        }
+        let report = diff.goes_by_address(&[0x0040_2200]).run();
         report.assert_same();
         assert_eq!(report.direct_calls, 0);
+        assert!(report.is_same());
+    }
+
+    /// The hole this closes: the wrong function inside a `typed_call!` whose family the test doesn't
+    /// name runs nowhere and compares equal, so only the report's `unnamed` catches it.
+    #[test]
+    fn the_wrong_function_in_an_unnamed_family_does_not_pass() {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        fn not_the_member(_: &mut Engine, _: u32) -> u32 {
+            0xdead
+        }
+        fn wrong(e: &mut Engine, x: u32) -> u32 {
+            let got: u32 = crate::typed_call!(FAMILY_ID, 0x0040_2200, not_the_member(e, x));
+            got + 1
+        }
+        let report = diff_of_caller(crate::entry!(0x0040_2000, wrong(u32) -> u32)).run();
+        assert_eq!(report.found, 0, "{report}");
+        assert!(!report.is_same());
+        assert!(catch_unwind(AssertUnwindSafe(|| report.assert_same())).is_err());
+    }
+
+    /// A setup that registers at a watched address where nothing was, on one side only: a double on
+    /// the typed side alone, which no comparison sees. The same function on every side is fine.
+    #[test]
+    fn a_setup_registering_a_new_callee_on_one_side_stops() {
+        fn plain_translation(e: &mut Engine, x: u32) -> u32 {
+            let _ = e;
+            x
+        }
+        fn calls_it(e: &mut Engine, x: u32) -> u32 {
+            e.call(CALLEE, &[x]).u32()
+        }
+        let run = |one_side: bool| {
+            let seen = std::cell::Cell::new(0);
+            let diff = Diff::new(crate::entry!(0x0040_2000, calls_it(u32) -> u32))
+                .translation(crate::entry!(0x0040_2000, plain_translation(u32) -> u32).1)
+                .translation_calls_plainly(&[CALLEE])
+                .inputs(&[Input::Of(&[3])])
+                .control_words(&[OTHER_THREADS])
+                .setup(move |e, case| {
+                    seen.set(seen.get() + 1);
+                    if !one_side || seen.get() > 1 {
+                        e.register(CALLEE, |_, a| Ret {
+                            eax: a[0],
+                            ..Ret::default()
+                        });
+                    }
+                    case.words()
+                });
+            catch_unwind(AssertUnwindSafe(|| diff.run()))
+        };
+        let on_all = run(false).expect("the same function on every side");
+        on_all.assert_same();
+        assert!(run(true).is_err());
     }
 
     // ---- Stack words, memory at each call, the clock ----------------------------------
@@ -2783,7 +2899,7 @@ mod tests {
                 vec![p]
             });
         let report = diff.run();
-        report.assert_same();
+        assert_eq!(report.found, 0, "{report}");
         assert_eq!(report.direct_calls, 0);
         let report = diff.family(&LEAF_FAMILY).run();
         report.assert_same();

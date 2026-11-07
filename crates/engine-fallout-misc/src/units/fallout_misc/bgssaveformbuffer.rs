@@ -28,8 +28,6 @@ const SAVE_LOAD_FILE_WRITE: u32 = 0x0084_6330;
 /// `BGSSaveGameBuffer::Save` overload that writes the buffer's bytes to a
 /// file (`__thiscall` on the form buffer: `(file, size)`).
 const SAVE_BUFFER_TO_FILE: u32 = 0x0086_5c80;
-/// `0084e3a0`: the word at `+0xc` of the buffer (the written size).
-const BUFFER_WRITTEN_SIZE: u32 = 0x0084_e3a0;
 /// `BGSNumericIDIndex::SetNumericID` (on the header at `+0x14`) and
 /// `BGSSaveLoadFormInfo::SetFormType` (on the form info at `+0x1b`).
 const SET_NUMERIC_ID: u32 = 0x0085_3570;
@@ -86,7 +84,7 @@ pub fn get_actor(e: &mut Engine, this: Ptr<BGSSaveFormBuffer>) -> Ptr {
 /// writes the 9-byte header to `file`, then the size in that size type and
 /// the buffer's bytes.
 pub fn bgs_save_form_buffer_save(e: &mut Engine, this: Ptr<BGSSaveFormBuffer>, file: Ptr) {
-    let size = e.call(BUFFER_WRITTEN_SIZE, &args![this]).u32();
+    let size = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let size_type = e.call(GET_SIZE_TYPE_FOR_SIZE, &args![size]).u32();
     fn_00865aa0(e, this.byte_add(0x1b), size_type);
     e.call(
@@ -139,7 +137,7 @@ pub fn fn_00865ad0(
 /// `BGSSaveFormBuffer::GetOverhead` (Xbox PDB): the size of the header (9)
 /// plus the bytes the size takes in its size type.
 pub fn bgs_save_form_buffer_get_overhead(e: &mut Engine, this: Ptr<BGSSaveFormBuffer>) -> i32 {
-    let size = e.call(BUFFER_WRITTEN_SIZE, &args![this]).u32();
+    let size = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let size_type = e.call(GET_SIZE_TYPE_FOR_SIZE, &args![size]).u32();
     e.call(GET_SIZE_TYPE_SIZE, &args![size_type]).i32() + HEADER_SIZE as i32
 }

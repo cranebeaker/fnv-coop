@@ -542,8 +542,12 @@ pub fn fn_006f3fb0(e: &mut Engine, this: Ptr) -> u32 {
             let current = word(e, search + CURRENT_NODE);
             e.vcall(search, 4, &args![current, neighbours]);
             let mut index = 0u32;
-            while index < e.call(0x0044_ddc0, &args![neighbours]).u32() {
-                let slot = e.call(0x0087_7a30, &args![neighbours, index]).u32();
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, neighbours)) {
+                let slot = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, neighbours, index)
+                );
                 let neighbour = word(e, slot);
                 fn_006f4430(e, Ptr::new(search + OPEN_LIST), neighbour);
                 let current = word(e, search + CURRENT_NODE);
@@ -733,11 +737,15 @@ pub fn teleport_door_search_get_node_connections(
         let frame = frame.addr();
         let local = |k: u32| frame + 0x80 - k;
         let mut index = 0u32;
-        while index < e.call(0x0044_ddc0, &args![doors]).u32() {
-            let slot = e.call(0x0087_7a30, &args![doors, index]).u32();
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, doors)) {
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, doors, index)
+            );
             let door = word(e, slot);
             index = index.wrapping_add(1);
-            if e.call(0x0044_0da0, &args![door]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, door)) {
                 continue;
             }
             let destination = if teleport_worldspace(e, door) != 0 {
@@ -778,7 +786,7 @@ pub fn teleport_door_search_get_node_connections(
                     _ => {}
                 }
             }
-            let base = e.call(0x007a_f430, &args![door]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, door));
             if e.call(0x0051_8000, &args![base]).bool() && word(e, search + LOCK_MODE) != 3 {
                 penalty = x87_quiet_bits(e.global::<u32>(DOOR_PENALTY));
             }

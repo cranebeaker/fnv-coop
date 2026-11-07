@@ -1268,6 +1268,7 @@ impl PlayerMovement {
         match turn {
             Ok(()) => {
                 self.main_frames += 1;
+                engine::thread_host::note_frame(e);
                 self.main_stage = Stage::Done(());
                 // The status line every 5 s of the run while main's frames go on (the viewer's own
                 // print stops when its walking stops).
@@ -1303,6 +1304,8 @@ impl PlayerMovement {
                     // thread sleeps, waits or has turns, `thread_host::describe`).
                     if std::env::var_os("NV_MOVE_THREADS").is_some() {
                         println!("threads: {}", engine::thread_host::describe(e));
+                        let order = engine::thread_host::take_order(e);
+                        println!("thread calls: {} order: {order}", e.kernel.threads.calls);
                     }
                     // `NV_SAVE_OUT=DIR` (a test aid): the saves the game wrote, copied out
                     // ([`crate::save_out`]).

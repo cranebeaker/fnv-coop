@@ -102,6 +102,7 @@ pub fn special_book_menu_close(e: &mut Engine) {
 }
 
 /// `00559450` (`thiscall`, no stack words): the word at `this` (an `NiPointer`'s object).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `0043c4b0` (no arguments: the word at `011f4748`) and `007148c0` (`thiscall` on it, two
 /// words: when `"ClearBuffer"` is enabled, its vtable +0x188 with them).
@@ -152,7 +153,12 @@ pub fn fn_007c9ca0(e: &mut Engine) {
     if e.global::<u32>(SPECIAL_BOOK_MENU) == 0 {
         return;
     }
-    if e.call(POINTER_GET, &args![CAMERA_POINTER]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_POINTER)
+    ) == 0
+    {
         return;
     }
     let renderer = e.call(RENDERER_OBJECT, &args![]).u32();
@@ -160,18 +166,22 @@ pub fn fn_007c9ca0(e: &mut Engine) {
     let scene = e.call(SCENE_OBJECT, &args![]).u32();
     let culler = e.call(WORD_AT_B4, &args![scene]).u32();
     e.call(PUSH_CULL_MODE, &args![culler, 1u32]);
-    let camera = e.call(POINTER_GET, &args![CAMERA_POINTER]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_POINTER)
+    );
     let value = x87_quiet_bits(e.global::<u32>(CAMERA_VALUE_01030FF4));
     e.call(CAMERA_SETUP_00709D50, &args![camera, value]);
     let manager = e.call(INTERFACE_MANAGER, &args![]).u32();
     let object = e.call(INTERFACE_OBJECT_007FD640, &args![manager]).u32();
     e.with_stack(4, |e, held| {
         e.call(POINTER_CONSTRUCT, &args![held, object]);
-        let object = e.call(POINTER_GET, &args![held]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held));
         e.call(CULLER_SET_004A0FD0, &args![culler, object]);
         let accumulator = e.call(OBJECT_BY_INDEX, &args![1u32]).u32();
         e.call(ACCUMULATE_SCENE, &args![camera, accumulator, culler]);
-        let object = e.call(POINTER_GET, &args![held]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held));
         e.call(RENDER_00B6C0D0, &args![camera, object, 0u32]);
         e.call(CULLER_SET_004A0FD0, &args![culler, 0u32]);
         e.call(POP_CULL_MODE, &args![culler]);
@@ -205,6 +215,7 @@ const TILE_READ_FILE: u32 = 0x00a0_1b00;
 const TILE_GET_MENU: u32 = 0x00a0_3c90;
 const MENU_SET_MENU_TILE: u32 = 0x00a1_dc70;
 const MENU_PREP_FOR_VISIBILITY: u32 = 0x00a1_dc20;
+#[cfg(test)]
 const MENU_TILE_00726070: u32 = 0x0072_6070;
 /// `00791750` (`thiscall` on the menu, one word: where the missing tile index goes; a
 /// byte: whether every tile is there), the debug message printer (`005b5e40`, `cdecl`),
@@ -263,6 +274,7 @@ const NEXT_CONTROLLER_004A8A90: u32 = 0x004a_8a90;
 /// A transform's translation (`0043d410`, three words: x, y, z), a point (`00416870`, three
 /// `float`s) and the object's local translation setter (`00a59c60`, one word).
 const TRANSLATION_0043D410: u32 = 0x0043_d410;
+#[cfg(test)]
 const POINT_00416870: u32 = 0x0041_6870;
 const SET_TRANSLATE_00A59C60: u32 = 0x00a5_9c60;
 /// The animation name tables the page turn reads (`011a0858` backward, `011a0878` forward,
@@ -273,6 +285,7 @@ const TURNED_FORWARD: u32 = 0x011a_0854;
 /// `BSSimpleArray` helpers: the element count (`0044ddc0`: the word at +8), the element's
 /// address (`006a7ad0`, one word) and `AddUninitialized` with a value (`007cb2e0`, one
 /// word: the address of the value).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 const ARRAY_AT: u32 = 0x006a_7ad0;
 const ARRAY_ADD: u32 = 0x007c_b2e0;
@@ -334,7 +347,7 @@ fn player_base_value(e: &mut Engine, index: u32) -> i32 {
 
 /// The texture held by the `NiPointer` at `slot` (`00559450`).
 fn texture(e: &mut Engine, slot: u32) -> u32 {
-    e.call(POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// `node`'s vtable +0xF0 with `(0, 0, texture)`: the texture shown on it.
@@ -441,7 +454,7 @@ fn run_items(e: &mut Engine, array: impl Fn(&Engine) -> u32, offset: u32) {
     let mut index = 0u32;
     loop {
         let list = array(e);
-        if index >= e.call(ARRAY_COUNT, &args![list]).u32() {
+        if index >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) {
             return;
         }
         let item = array_item(e, list, index);
@@ -475,7 +488,10 @@ pub fn special_book_menu_create_ov2(e: &mut Engine, points: u32) {
     let menu = e.call(TILE_GET_MENU, &args![tile]).u32();
     let made = menu != 0 && e.vcall(menu, 0x34, &args![]).u32() == fn_007c6110(e);
     if !made {
-        if menu != 0 && e.call(MENU_TILE_00726070, &args![menu]).u32() != 0 && menu != 0 {
+        if menu != 0
+            && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0
+            && menu != 0
+        {
             e.vcall(menu, 0, &args![1u32]);
         }
         return;
@@ -782,6 +798,7 @@ const VIEWPORT_FLAG: u32 = 0x011f_9426;
 const VIEWPORT_TOP: u32 = 0x011a_d848;
 const VIEWPORT_BOTTOM: u32 = 0x011a_d84c;
 const VIEWPORT_WIDTH: u32 = 0x011f_9434;
+#[cfg(test)]
 const VALUE_OF_0084E3A0: u32 = 0x0084_e3a0;
 /// `NiPick`'s constructor (`00e98f20`, two words), its settings (`00458b30`, `00705fc0`,
 /// `006ecd40`, `00792780`, one word each), `PickObjects` (`00e98e20`, three words), its
@@ -798,6 +815,7 @@ const PICK_RESULTS_00500940: u32 = 0x0050_0940;
 const PICK_RESULT_00968670: u32 = 0x0096_8670;
 const PICK_DESTROY: u32 = 0x00e9_8fa0;
 const CAMERA_WINDOW_POINT_TO_RAY: u32 = 0x00a7_1080;
+#[cfg(test)]
 const POINT_SELF_006815C0: u32 = 0x0068_15c0;
 
 /// `DoClick`'s case 5 (see there).
@@ -813,7 +831,7 @@ fn pick_button(e: &mut Engine, this: Ptr) {
         // FLD bottom; FSTP double (exact).
         let bottom = x87_load32(e.mem.u32(VIEWPORT_BOTTOM));
         let object = e.vcall(renderer, 0xd4, &args![]).u32();
-        let height = e.call(VALUE_OF_0084E3A0, &args![object]).u32();
+        let height = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object));
         let scaled = x87_mul(f64::from(height), bottom);
         let span = x87_sub(
             x87_m32(e.mem.u32(VIEWPORT_TOP)),
@@ -825,24 +843,28 @@ fn pick_button(e: &mut Engine, this: Ptr) {
     let mut index = 0u32;
     loop {
         let buttons = page_array(e, base, false);
-        if index >= e.call(ARRAY_COUNT, &args![buttons]).u32() {
+        if index >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, buttons)) {
             return;
         }
         let hit = e.with_stack(0x58, |e, locals| {
             let origin = locals.addr();
             let direction = origin + 0xc;
             let pick = origin + 0x18;
-            e.call(POINT_SELF_006815C0, &args![origin]);
-            e.call(POINT_SELF_006815C0, &args![direction]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
             e.call(PICK_CONSTRUCT, &args![pick, 0u32, 8u32]);
             e.call(PICK_00458B30, &args![pick, 1u32]);
             let buttons = page_array(e, base, false);
             let button = array_item(e, buttons, index);
-            let node = e.call(POINTER_GET, &args![button + 8]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, button + 8));
             e.call(PICK_SET_TARGET_00705FC0, &args![pick, node]);
             e.call(PICK_006ECD40, &args![pick, 0u32]);
             e.call(PICK_00792780, &args![pick, 1u32]);
-            let camera = e.call(POINTER_GET, &args![POINTER_011DAA9C]).u32();
+            let camera = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, POINTER_011DAA9C)
+            );
             e.call(
                 CAMERA_WINDOW_POINT_TO_RAY,
                 &args![camera, x, y, origin, direction, 0u32],
@@ -1101,6 +1123,7 @@ const FORWARD_TEXT: u32 = 0x0104_8458;
 /// (`00b5ca70`, two words), `ShadowSceneNode::AddLight` (`00b5c940`, two words), the light's
 /// constructor (`00a7d670`), its ambient, diffuse and position (`00440460`, `004bc2e0`,
 /// `0050dd50`, one word each) and dimmer (`0050dd20`, a `float`).
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 const ADD_ALL_LIGHTS_FROM_NODE: u32 = 0x00b5_ca70;
 const ADD_LIGHT: u32 = 0x00b5_c940;
@@ -1204,7 +1227,7 @@ pub fn special_book_menu_init_book(e: &mut Engine, this: Ptr) {
     }
     place_at_origin(e, |e| e.mem.u32(base + BOOK_GEOMETRY));
     let geometry = e.mem.u32(book(e) + BOOK_GEOMETRY);
-    let bound = e.call(GET_WORLD_BOUND, &args![geometry]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, geometry));
     let radius = e.call(SECONDS_0084D030, &args![bound]).f64();
     let factor: f64 = e.global(BOUND_SCALE_DOUBLE);
     let distance = x87_store32(x87_mul(radius, factor));
@@ -1290,9 +1313,11 @@ fn add_book_light(e: &mut Engine, distance: u32) {
         ),
     ] {
         e.with_stack(0xc, |e, local| {
-            let made = e
-                .call(POINT_00416870, &args![local, point[0], point[1], point[2]])
-                .u32();
+            let made = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, local, point[0], point[1], point[2])
+            );
             e.call(setter, &args![light, made]);
         });
     }
@@ -1464,12 +1489,16 @@ pub fn special_book_menu_init_camera(e: &mut Engine, _this: Ptr) -> u32 {
         let translation = local(ebp, -0x18);
         e.call(TRANSLATION_0043D410, &args![translation, zero, 0u32, 0u32]);
         e.call(SET_TRANSLATE_00A59C60, &args![camera, translation]);
-        let up = e
-            .call(POINT_00416870, &args![local(ebp, -0x68), zero, one, zero])
-            .u32();
-        let target = e
-            .call(POINT_00416870, &args![local(ebp, -0x74), zero, zero, zero])
-            .u32();
+        let up = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, local(ebp, -0x68), zero, one, zero)
+        );
+        let target = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, local(ebp, -0x74), zero, zero, zero)
+        );
         e.call(CAMERA_LOOK_AT_WORLD_POINT, &args![camera, target, up]);
         e.call(CAMERA_00733FD0, &args![camera, one]);
     });
@@ -1723,7 +1752,7 @@ fn hide_unselected(e: &mut Engine, item: u32, index: u32) {
         && e.mem.i32(book(e) + STATE) == 8
         && index != e.mem.u32(book(e) + INDEX_STATE).wrapping_add(4)
     {
-        let node = e.call(POINTER_GET, &args![item + 8]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item + 8));
         set_hidden(e, node, 1);
     }
 }
@@ -1734,7 +1763,7 @@ fn hide_unselected(e: &mut Engine, item: u32, index: u32) {
 pub fn fn_007ca700(e: &mut Engine, item: u32) {
     let index = e.mem.u32(item + 0x24);
     let hidden = u32::from(player_value(e, index) <= 1);
-    let node = e.call(POINTER_GET, &args![item + 8]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item + 8));
     set_hidden(e, node, hidden);
     hide_unselected(e, item, index);
 }
@@ -1750,7 +1779,7 @@ pub fn fn_007ca7a0(e: &mut Engine, item: u32) {
             let used = special_book_menu_get_total_points_used(e, Ptr::new(book(e)));
             (used as i32) < e.mem.i32(book(e) + AVAILABLE_POINTS)
         });
-    let node = e.call(POINTER_GET, &args![item + 8]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item + 8));
     set_hidden(e, node, u32::from(!shown));
     hide_unselected(e, item, index);
 }

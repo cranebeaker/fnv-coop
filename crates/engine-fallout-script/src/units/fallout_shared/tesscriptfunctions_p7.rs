@@ -58,6 +58,7 @@ const STRING_COMPARE_NO_CASE: u32 = 0x0040_4dc0;
 
 /// `thiscall`: `*(this + 0x0c)`, the form id of a form (also read as the
 /// element count of the array `00717e50` returns).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// `Script::PutNumericIDInDouble` (Xbox PDB), `cdecl` (`address of the id,
 /// double* result`).
@@ -70,12 +71,14 @@ const FORM_TYPE: u32 = 0x0040_1170;
 const REMOVE_EXTRA: u32 = 0x0041_0140;
 /// `thiscall` on a reference: its `Process` (`MiddleHighProcess::
 /// GetSavedAcquireObject` in the map: `*(this + 0x68)`).
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 /// `thiscall` on the player: the player's parent cell (`*(this + 0x40)`).
 const PLAYER_GET_PARENT_CELL: u32 = 0x008d_6f30;
 /// `TESForm::GetFile` (Xbox PDB), `thiscall` (`0`).
 const GET_FILE: u32 = 0x0048_4e60;
 /// `thiscall` on a form: bit `0x20` of its flags (`this + 8`).
+#[cfg(test)]
 const FORM_IS_DELETED_FLAG: u32 = 0x0044_0d80;
 /// `TESObjectREFR::RunScript` (Xbox PDB), `thiscall`.
 const RUN_SCRIPT: u32 = 0x0056_5870;
@@ -137,6 +140,7 @@ const AUDIO_SET_MULTI_THREADED: u32 = 0x00ad_7230;
 const REFERENCE_FN_0056A9B0: u32 = 0x0056_a9b0;
 
 /// Constructor of a three-float point (`thiscall`: `x, y, z`).
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// `thiscall` on a cell (`point, text, index address`), `tesobjectcell.cpp`.
 const CELL_FN_005578E0: u32 = 0x0055_78e0;
@@ -155,6 +159,7 @@ const FN_00450B80: u32 = 0x0045_0b80;
 /// `thiscall` (`value`) on what [`FN_00450B80`] returns.
 const FN_00B5D270: u32 = 0x00b5_d270;
 /// `thiscall`: `*this` (the word at the address it is given).
+#[cfg(test)]
 const DEREF: u32 = 0x0055_9450;
 
 /// `cdecl` (`value, 0.0f, 0`).
@@ -181,14 +186,17 @@ const GET_TOPIC: u32 = 0x0061_a2d0;
 /// keeps (`this + 0x108`).
 const LIST_FIRST_NODE: u32 = 0x0046_12e0;
 /// `thiscall` on a list node: the next node, or 0.
+#[cfg(test)]
 const LIST_NEXT_NODE: u32 = 0x0072_6070;
 /// `thiscall` on a list node: the address of its data word.
+#[cfg(test)]
 const LIST_NODE_DATA: u32 = 0x0068_15c0;
 /// `BaseProcess::GetActorPackageThatIsRunning` in the map (identical code
 /// folded): `this + 4`, the array of `005d8930`'s inner loop.
 const ARRAY_AT_4: u32 = 0x0071_7e50;
 /// `thiscall` (`index`): the address of the element, `*(this + 4) +
 /// index * 4`.
+#[cfg(test)]
 const ARRAY_ELEMENT_ADDRESS: u32 = 0x0087_7a30;
 /// `thiscall` on an element.
 const ELEMENT_FN_0061F280: u32 = 0x0061_f280;
@@ -237,6 +245,7 @@ const FORM_ADD_LEVELED_ITEMS: u32 = 0x0048_7f70;
 /// `thiscall`: `this + 0x18`, the first node of a list.
 const LIST_AT_18: u32 = 0x0050_0940;
 /// `thiscall` on a list node: true when the node is empty.
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `cdecl` (`reference, a, b, c, d, float`): returns a form or 0
 /// (`tesscriptfunctions.cpp`, another part of the unit).
@@ -427,6 +436,7 @@ const REFERENCE_GET_WORLD_SPACE: u32 = 0x0057_5d70;
 const REFERENCE_FIELD_24_ADDRESS: u32 = 0x0043_0830;
 /// `thiscall`: the word at `this + 0x20` (named `BGSSaveFormBuffer::GetForm`
 /// in the map; the body is shared by folding).
+#[cfg(test)]
 const WORD_AT_20: u32 = 0x007a_f430;
 /// `thiscall` on the data handler at [`LIST_OWNER`] (`tesdatahandler.cpp`):
 /// eight words (`word, word, word, cell, world space, new reference, 0, 0`).
@@ -638,6 +648,7 @@ const ITEM_SET_ITEM_HEALTH: u32 = 0x004b_d030;
 /// `AL`.
 const ITEM_HAS_MOD_EFFECT_ACTIVE: u32 = 0x004b_da70;
 /// `thiscall` on an item change: its form (`this + 8`).
+#[cfg(test)]
 const ITEM_GET_FORM: u32 = 0x0044_ddc0;
 /// `TESObjectWEAP::GetFormHealth` (Xbox PDB), `thiscall` on the form
 /// (`has mod effect`): its maximum health.
@@ -795,13 +806,13 @@ pub fn fn_005d7d30(e: &mut Engine, a: ScriptArgs) -> bool {
         return false;
     };
     if quest == 0 {
-        let form_id = e.call(GET_FORM_ID, &args![quest]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, quest));
         let name = e.vcall(quest, QUEST_NAME_SLOT, &args![]).u32();
         e.call(LOG_STUB, &args![MSG_QUEST_MISSING, name, form_id]);
     } else {
         let found = e.call(QUEST_FIND_OBJECTIVE, &args![quest, objective]).u32();
         if found == 0 {
-            let form_id = e.call(GET_FORM_ID, &args![quest]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, quest));
             let name = e.vcall(quest, QUEST_NAME_SLOT, &args![]).u32();
             e.call(
                 LOG_STUB,
@@ -1021,7 +1032,11 @@ pub fn fn_005d8420(e: &mut Engine, a: ScriptArgs) -> bool {
         let player_object = player(e);
         if e.call(PLAYER_GET_PARENT_CELL, &args![player_object]).u32() != 0 {
             e.with_stack(12, |e, point| {
-                e.call(POINT3_CONSTRUCT, &args![point, x, y, z]);
+                typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, point, x, y, z)
+                );
                 let empty = e.call(STRLEN, &args![text]).u32() == 0;
                 let entry = fn_005d8550(e, index);
                 let player_object = player(e);
@@ -1126,7 +1141,7 @@ pub fn script_toggle_vats_light(e: &mut Engine) -> bool {
 /// `thiscall`: what `00559450` returns for the address `this + 0x34` (the
 /// word stored there).
 pub fn fn_005d8710(e: &mut Engine, this: u32) -> u32 {
-    e.call(DEREF, &args![this + 0x34]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this + 0x34))
 }
 
 // Translated from 005d8730 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1218,28 +1233,32 @@ pub fn fn_005d8930(e: &mut Engine) -> bool {
     let owner = e.global::<u32>(LIST_OWNER);
     let mut node = e.call(LIST_FIRST_NODE, &args![owner]).u32();
     while node != 0 {
-        let data = e.call(LIST_NODE_DATA, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let topic = e.mem.u32(data);
         if topic != 0 {
             let mut inner = fn_005d8a70(e, topic);
             while inner != 0 {
-                let data = e.call(LIST_NODE_DATA, &args![inner]).u32();
+                let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, inner));
                 let item = e.mem.u32(data);
                 if item != 0 {
                     let array = e.call(ARRAY_AT_4, &args![item]).u32();
-                    let count = e.call(GET_FORM_ID, &args![array]).u32();
+                    let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array));
                     for index in 0..count {
-                        let slot = e.call(ARRAY_ELEMENT_ADDRESS, &args![array, index]).u32();
+                        let slot = typed_call!(
+                            leaf::FAMILY,
+                            0x0087_7a30,
+                            leaf::array_element(e, array, index)
+                        );
                         let element = e.mem.u32(slot);
                         if element != 0 {
                             e.call(ELEMENT_FN_0061F280, &args![element]);
                         }
                     }
                 }
-                inner = e.call(LIST_NEXT_NODE, &args![inner]).u32();
+                inner = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, inner));
             }
         }
-        node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(DEBUG_RESET_SAID_ONCE_FLAGS, &args![]);
     true
@@ -1259,7 +1278,7 @@ pub fn fn_005d8a70(_e: &mut Engine, this: u32) -> u32 {
 /// list.
 pub fn fn_005d8a90(e: &mut Engine, _unused_this: Ptr, actor: Ptr) {
     if e.vcall(actor.addr(), REFERENCE_TEST_SLOT, &args![]).bool() {
-        let process = e.call(GET_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         if process != 0 {
             e.vcall(process, PROCESS_SLOT_310, &args![0u32]);
         }
@@ -1381,7 +1400,7 @@ pub fn script_trigger_enter_function(e: &mut Engine, a: ScriptArgs) -> bool {
 pub fn fn_005d8e20(e: &mut Engine, a: ScriptArgs) -> bool {
     let object = a.this_obj;
     if !object.is_null()
-        && !e.call(FORM_IS_DELETED_FLAG, &args![object]).bool()
+        && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, object))
         && object.addr() != player(e)
     {
         e.vcall(object.addr(), REFERENCE_SLOT_C4, &args![1u32]);
@@ -1442,10 +1461,12 @@ pub fn fn_005d8e80(e: &mut Engine, a: ScriptArgs) -> bool {
             );
         } else if list_form != 0 && count != 0 {
             let mut node = e.call(LIST_AT_18, &args![list_form]).u32();
-            while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-                let data = e.call(LIST_NODE_DATA, &args![node]).u32();
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
+                let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(data);
-                node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 if e.vcall(entry, FORM_TEST_SLOT, &args![]).bool() {
                     e.call(CONTAINER_ADD_ITEM, &args![container, entry, count, 0u32]);
                 }
@@ -1487,7 +1508,7 @@ pub fn fn_005d90a0(e: &mut Engine, a: ScriptArgs) -> bool {
         )
         .u32();
     if made != 0 {
-        let id = e.call(GET_FORM_ID, &args![made]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, made));
         e.with_stack(4, |e, cell| {
             e.mem.set_u32(cell.addr(), id);
             e.call(PUT_NUMERIC_ID_IN_DOUBLE, &args![cell, a.result]);
@@ -1752,7 +1773,7 @@ pub fn script_get_player_grabbed_ref_function(e: &mut Engine, a: ScriptArgs) -> 
     if e.call(PLAYER_GRABBED_REF, &args![player_object]).u32() != 0 {
         let player_object = player(e);
         let grabbed = e.call(PLAYER_GRABBED_REF, &args![player_object]).u32();
-        id = e.call(GET_FORM_ID, &args![grabbed]).u32();
+        id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, grabbed));
         e.with_stack(4, |e, cell| {
             e.mem.set_u32(cell.addr(), id);
             e.call(PUT_NUMERIC_ID_IN_DOUBLE, &args![cell, a.result]);
@@ -1833,7 +1854,7 @@ pub fn fn_005d9810(e: &mut Engine, a: ScriptArgs) -> bool {
     let world_space = e.call(REFERENCE_GET_WORLD_SPACE, &args![this_obj]).u32();
     let field = e.call(REFERENCE_FIELD_24_ADDRESS, &args![this_obj]).u32();
     let word = e.vcall(this_obj, REFERENCE_SLOT_1F4, &args![]).u32();
-    let saved = e.call(WORD_AT_20, &args![made]).u32();
+    let saved = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, made));
     let data_handler = e.global::<u32>(LIST_OWNER);
     e.call(
         DATA_HANDLER_FN_004698A0,
@@ -1850,7 +1871,7 @@ pub fn fn_005d9810(e: &mut Engine, a: ScriptArgs) -> bool {
         ],
     );
     e.call(DATA_HANDLER_FN_0046A010, &args![made, 0u32]);
-    let id = e.call(GET_FORM_ID, &args![made]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, made));
     e.with_stack(4, |e, cell| {
         e.mem.set_u32(cell.addr(), id);
         e.call(PUT_NUMERIC_ID_IN_DOUBLE, &args![cell, a.result]);
@@ -1905,7 +1926,7 @@ pub fn fn_005d9b20(e: &mut Engine, a: ScriptArgs) -> bool {
 /// `__RTDynamicCast` of the object `object + 0x20` holds a pointer to (the
 /// `TESBoundObject` of a form) to `TESNPC`.
 fn cast_to_npc(e: &mut Engine, object: Ptr) -> Ptr {
-    let bound = e.call(WORD_AT_20, &args![object]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, object));
     e.call(
         DYNAMIC_CAST,
         &args![bound, 0u32, RTTI_TES_BOUND_OBJECT, RTTI_TES_NPC, 0u32],
@@ -1956,9 +1977,17 @@ pub fn fn_005d9bc0(e: &mut Engine, actor: Ptr, source: Ptr, percent: i32) {
     let race = e.call(ACTOR_BASE_RACE, &args![source_npc]).u32();
     e.call(COLLECT_MATCHING_NPCS, &args![race, sex, list]);
     let mut chosen = 0;
-    let first = e.call(ARRAY_ELEMENT_ADDRESS, &args![list, 0u32]).u32();
+    let first = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, list, 0u32)
+    );
     if e.mem.u32(first) != 0 {
-        let first = e.call(ARRAY_ELEMENT_ADDRESS, &args![list, 0u32]).u32();
+        let first = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, list, 0u32)
+        );
         chosen = e.mem.u32(first);
     }
     let old = fn_005d9f90(e, actor_npc);
@@ -2159,7 +2188,11 @@ pub fn fn_005da280(e: &mut Engine, a: ScriptArgs) -> bool {
 fn raise_alarm(e: &mut Engine, alarmed: u32, process_owner: u32, target: u32) {
     let player = player(e);
     e.call(ACTOR_ATTACK_ALARM, &args![alarmed, player, 0u32, 1u32]);
-    let process = e.call(GET_PROCESS, &args![process_owner]).u32();
+    let process = typed_call!(
+        leaf::FAMILY,
+        0x008d_8520,
+        leaf::word_at_68(e, process_owner)
+    );
     e.vcall(
         process,
         PROCESS_SLOT_33C,
@@ -2187,7 +2220,10 @@ pub fn fn_005da2a0(e: &mut Engine, a: ScriptArgs) -> bool {
         raise_alarm(e, this_obj, this_obj, this_obj);
         return true;
     }
-    if target != 0 && target != player && e.call(GET_PROCESS, &args![target]).u32() != 0 {
+    if target != 0
+        && target != player
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target)) != 0
+    {
         raise_alarm(e, target, target, target);
         return true;
     }
@@ -2296,8 +2332,8 @@ pub fn fn_005da690(e: &mut Engine, a: ScriptArgs) -> bool {
         && this_obj != 0
         && e.vcall(this_obj, REFERENCE_TEST_SLOT_218, &args![]).bool()
     {
-        let base = e.call(WORD_AT_20, &args![this_obj]).u32();
-        let start = e.call(LIST_NEXT_NODE, &args![base + 0x10c]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this_obj));
+        let start = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base + 0x10c));
         let mut node = start;
         while remaining != 0 {
             if remaining < 0 {
@@ -2367,10 +2403,18 @@ pub fn fn_005da810(e: &mut Engine, a: ScriptArgs) -> bool {
         && this_obj != 0
         && e.vcall(this_obj, REFERENCE_TEST_SLOT_218, &args![]).bool()
     {
-        let target_base = e.call(WORD_AT_20, &args![this_obj]).u32();
-        let source_base = e.call(WORD_AT_20, &args![source]).u32();
-        let target_start = e.call(LIST_NEXT_NODE, &args![target_base + 0x10c]).u32();
-        let source_start = e.call(LIST_NEXT_NODE, &args![source_base + 0x10c]).u32();
+        let target_base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this_obj));
+        let source_base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, source));
+        let target_start = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, target_base + 0x10c)
+        );
+        let source_start = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, source_base + 0x10c)
+        );
         if source_start != target_start {
             let mut steps = 0u32;
             let mut target_node = target_start;
@@ -2476,7 +2520,7 @@ pub fn fn_005daae0(e: &mut Engine, a: ScriptArgs) -> bool {
     if e.call(FORM_HAS_FLAG_1000000, &args![this_obj]).bool() {
         let wanted = (flag != 0) as u8;
         let mut current = 0u8;
-        let base = e.call(WORD_AT_20, &args![this_obj]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this_obj));
         let destruction = e.call(GET_DESTRUCTION_FORM, &args![base]).u32();
         if destruction != 0 {
             current = e.call(DESTRUCTIBLE_FN_00576100, &args![destruction]).u8();
@@ -2543,9 +2587,9 @@ pub fn fn_005dac80(e: &mut Engine, a: ScriptArgs) -> bool {
     };
     if reference != 0
         && e.vcall(reference, REFERENCE_TEST_SLOT, &args![]).bool()
-        && e.call(GET_PROCESS, &args![reference]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference)) != 0
     {
-        let process = e.call(GET_PROCESS, &args![reference]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference));
         let point = e
             .vcall(a.this_obj.addr(), REFERENCE_SLOT_1F4, &args![])
             .u32();
@@ -2601,11 +2645,11 @@ pub fn fn_005dadf0(e: &mut Engine, a: ScriptArgs) -> bool {
 fn equipped_item(e: &mut Engine, this_obj: u32) -> Option<u32> {
     if this_obj == 0
         || !e.vcall(this_obj, REFERENCE_TEST_SLOT, &args![]).bool()
-        || e.call(GET_PROCESS, &args![this_obj]).u32() == 0
+        || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this_obj)) == 0
     {
         return None;
     }
-    let process = e.call(GET_PROCESS, &args![this_obj]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this_obj));
     let item = e.vcall(process, PROCESS_EQUIPPED_ITEM_SLOT, &args![]).u32();
     (item != 0).then_some(item)
 }
@@ -2622,8 +2666,8 @@ fn change_item_health(e: &mut Engine, this_obj: u32, item: u32, target: f32, cei
     let current = e.call(ITEM_GET_ITEM_HEALTH, &args![item, 0u32]).f32();
     let difference = (target as f64 - current as f64) as f32;
     if difference > 0.0 {
-        let list = e.call(DEREF, &args![item]).u32();
-        let data = e.call(LIST_NODE_DATA, &args![list]).u32();
+        let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let first_extra_list = e.mem.u32(data);
         let extra_list = e.call(EXTRA_DATA_LIST, &args![this_obj]).u32();
         let changes = e.call(GET_CONTAINER_CHANGES, &args![extra_list]).u32();
@@ -2660,7 +2704,7 @@ pub fn fn_005dae10(e: &mut Engine, a: ScriptArgs) -> bool {
         let hundred = e.global::<f64>(HUNDRED);
         let fraction = (f32::from_bits(percent) as f64 / hundred) as f32;
         let mod_active = e.call(ITEM_HAS_MOD_EFFECT_ACTIVE, &args![item, 10u32]).u8();
-        let form = e.call(ITEM_GET_FORM, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let maximum = e
             .call(WEAPON_GET_FORM_HEALTH, &args![form, mod_active as u32])
             .i32() as f32;
@@ -2691,7 +2735,7 @@ pub fn fn_005daf90(e: &mut Engine, a: ScriptArgs) -> bool {
         if fraction < 0.0 {
             fraction = 0.0;
         }
-        let form = e.call(ITEM_GET_FORM, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let maximum = e.call(HEALTH_FORM_GET_FORM_HEALTH, &args![form]).u32() as f32;
         let target = (maximum as f64 * fraction as f64) as f32;
         change_item_health(e, this_obj, item, target, None);

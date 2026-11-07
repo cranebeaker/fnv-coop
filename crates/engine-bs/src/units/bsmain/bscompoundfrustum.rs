@@ -91,9 +91,11 @@ const NI_FRUSTUM_PLANES_SET: u32 = 0x00a7_4e10;
 /// `NiBound::WhichSide(plane)` (Xbox PDB), `this` the bound.
 const NI_BOUND_WHICH_SIDE: u32 = 0x004b_6100;
 /// `NiPoint3::Dot(other)` (Xbox PDB), result in `ST0`.
+#[cfg(test)]
 const NI_POINT3_DOT: u32 = 0x004b_6190;
 /// The signed distance test of a point against a plane (`this` the plane,
 /// then the point): 0 on the plane, 1 in front, 2 behind.
+#[cfg(test)]
 const PLANE_SIDE_OF_POINT: u32 = 0x0049_da80;
 /// `fabs` (`00ec6cde`), double in, double out.
 const FABS: u32 = 0x00ec_6cde;
@@ -527,9 +529,13 @@ pub fn fn_00c47b50(e: &mut Engine, this: Frustum, plane: Ptr, _unused_1: u32) {
             OCCLUSION_GET_FRUSTUM_PLANES,
             &args![plane, position[0], position[1], position[2], planes],
         );
-        let dot = e
-            .call(NI_POINT3_DOT, &args![portal_plane, view_position(this)])
-            .f64();
+        let dot = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, portal_plane, view_position(this))
+        )
+        .into_ret()
+        .f64();
         let constant = e.mem.f32(portal_plane + 12);
         // `FSUB` in extended precision, stored as a `float`.
         let distance = (dot - constant as f64) as f32;
@@ -597,9 +603,13 @@ pub fn bs_compound_frustum_add_occlusion_plane(e: &mut Engine, this: Frustum, pl
                 NI_PLANE_FROM_POINTS,
                 &args![first_plane, vertices, vertices + 12, vertices + 24],
             );
-            let first_side = e
-                .call(PLANE_SIDE_OF_POINT, &args![first_plane, position_address])
-                .i32();
+            let first_side = typed_call!(
+                leaf::FAMILY,
+                0x0049_da80,
+                leaf::plane_side(e, first_plane, position_address)
+            )
+            .into_ret()
+            .i32();
             e.call(
                 OCCLUSION_GET_FRUSTUM_PLANES,
                 &args![joined, position[0], position[1], position[2], frustum],
@@ -614,9 +624,13 @@ pub fn bs_compound_frustum_add_occlusion_plane(e: &mut Engine, this: Frustum, pl
             // The plane the call returns is copied over the first one.
             let copy = e.mem.bytes(made, 0x10);
             e.mem.write(first_plane, &copy);
-            let second_side = e
-                .call(PLANE_SIDE_OF_POINT, &args![first_plane, position_address])
-                .i32();
+            let second_side = typed_call!(
+                leaf::FAMILY,
+                0x0049_da80,
+                leaf::plane_side(e, first_plane, position_address)
+            )
+            .into_ret()
+            .i32();
             first_side == second_side
         });
     }

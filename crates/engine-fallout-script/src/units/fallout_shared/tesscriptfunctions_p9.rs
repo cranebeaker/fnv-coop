@@ -42,6 +42,7 @@ const SIMPLE_ARRAY_CLEAR: u32 = 0x0084_54f0;
 /// `operator delete` wrapper (`cdecl`, the block).
 const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// Returns the word at the start of its object (`fastcall`, `*this`).
+#[cfg(test)]
 const READ_FIRST_WORD: u32 = 0x0055_9450;
 /// `fastcall`; returns the base address `005e05b0` offsets from (it calls
 /// `00559450`, the first-word reader).
@@ -57,6 +58,7 @@ const UNLOADED_FORM_BUFFER_CONSTRUCTOR: u32 = 0x0053_7e90;
 const BLOCK_POOL: u32 = 0x00c8_5750;
 /// Identity `thiscall` (plain `RET`, returns `ECX`): the size and flag
 /// words pushed before it stay on the stack for `005e0ad0`.
+#[cfg(test)]
 const POOL_ALLOCATE: u32 = 0x0068_15c0;
 /// Follow-up `thiscall` on the pool (`RET 8`: the size and flag words
 /// left by `006815c0`).
@@ -293,7 +295,7 @@ pub fn fn_005e05d0(e: &mut Engine, this: Ptr, block_count: u32, _unused_1: u32) 
 // Translated from 005e0600 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Reads the first word of `this` (`00559450`) and passes it to `005e0b60`.
 pub fn fn_005e0600(e: &mut Engine, this: Ptr) {
-    let word = e.call(READ_FIRST_WORD, &args![this]).u32();
+    let word = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     e.call(RELEASE_BLOCK, &args![word]);
 }
 
@@ -464,7 +466,7 @@ pub fn fn_005e09c0(
 pub fn fn_005e0aa0(e: &mut Engine, block_count: u32, flag: u32) -> u32 {
     let pool = e.call(BLOCK_POOL, &args![]).u32();
     let size = (block_count << 9).wrapping_add(0x7f) & 0xffff_ff80;
-    let block = e.call(POOL_ALLOCATE, &args![pool]).u32();
+    let block = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, pool));
     e.call(POOL_FINISH, &args![block, size, flag]).u32()
 }
 

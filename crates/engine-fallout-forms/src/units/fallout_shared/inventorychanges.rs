@@ -72,11 +72,14 @@ pub(crate) const FTOL: u32 = 0x00ec_62c0;
 pub(crate) const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// The word at +4 of an object (`00726070`; the next node of a list node, or
 /// the value of a `TESHealthForm`).
+#[cfg(test)]
 pub(crate) const WORD_AT_4: u32 = 0x0072_6070;
 /// The word at +8 of an object (`0044ddc0`; for an `ItemChange` its form).
+#[cfg(test)]
 pub(crate) const WORD_AT_8: u32 = 0x0044_ddc0;
 /// The word at +0 of an object (`00559450`; for an `ItemChange` or an
 /// inventory entry its list).
+#[cfg(test)]
 pub(crate) const WORD_AT_0: u32 = 0x0055_9450;
 /// The byte at +4 of a form (`00401170`): its form type.
 pub(crate) const FORM_TYPE: u32 = 0x0040_1170;
@@ -256,6 +259,7 @@ pub(crate) const OPERATOR_DELETE: u32 = 0x0040_1030;
 pub(crate) const MEMSET: u32 = 0x0040_3d30;
 /// `Error(format, ...)` (Xbox PDB, `__cdecl`, varargs) and the save/load
 /// log `005b5e40(format, ...)` (`__cdecl`, varargs).
+#[cfg(test)]
 pub(crate) const ERROR_LOG: u32 = 0x0040_fbe0;
 pub(crate) const SAVE_LOAD_LOG: u32 = 0x005b_5e40;
 /// `delete item` of an `ItemChange` (`004459e0(item, flags)`, a scalar
@@ -264,6 +268,7 @@ pub(crate) const ITEM_CHANGE_DELETE: u32 = 0x0044_59e0;
 /// `005f65d0(list, &item)` (`__thiscall`): true when the list holds the item.
 pub(crate) const LIST_CONTAINS: u32 = 0x005f_65d0;
 /// The word at +0xC of a form (`0084e3a0`): its form id.
+#[cfg(test)]
 pub(crate) const FORM_ID: u32 = 0x0084_e3a0;
 /// `LookupFormByID(id)` (`004839c0`, `__cdecl`).
 pub(crate) const LOOKUP_FORM_BY_ID: u32 = 0x0048_39c0;
@@ -334,6 +339,7 @@ pub(crate) const LOAD_VERSION: u32 = 0x008d_f040;
 pub(crate) const FLAG_BYTE_ADDRESS: u32 = 0x0040_8d60;
 /// `008256d0(node)`: true for the head node of an empty `BSSimpleList`
 /// (no item, no next node).
+#[cfg(test)]
 pub(crate) const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// Virtual slot 0x130 of a form (called without arguments by the log
 /// messages, its result is the `%s` of the message).
@@ -349,6 +355,7 @@ pub(crate) const REFR_CONSTRUCT: u32 = 0x0055_a2f0;
 pub(crate) const REFR_EXTRA_LIST: u32 = 0x005d_43c0;
 /// The map names the body of `008d8520` `MiddleHighProcess::GetSavedAcquireObject`;
 /// it returns the word at +0x68 of an `Actor` (`pCurrentProcess`).
+#[cfg(test)]
 pub(crate) const ACTOR_PROCESS: u32 = 0x008d_8520;
 pub(crate) const ACTOR_RELOAD_TARGETS: u32 = 0x008b_0b00;
 pub(crate) const ACTOR_INIT_LIGHTING: u32 = 0x008b_0bd0;
@@ -454,6 +461,7 @@ pub(crate) const EXTRA_REMOVE_OWNERSHIP: u32 = 0x0041_aed0;
 /// `007af430`: the word at +0x20 of an object (a reference's base form; the
 /// map names it `BGSSaveFormBuffer::GetForm`), and the extra data list of a
 /// reference (`005d43c0`).
+#[cfg(test)]
 pub(crate) const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 /// `TESObjectREFR::GetRefPersists` (Xbox PDB) and the scale of a reference
 /// (`00598040`, the float at +0x3c), the scale `TESObjectREFR` setter
@@ -526,7 +534,6 @@ pub(crate) const SET_ACTION_FLAG: u32 = 0x005a_c750;
 /// actor test `00440da0`.
 pub(crate) const ACTOR_UNEQUIP_OBJECT: u32 = 0x0088_d7d0;
 pub(crate) const ACTOR_EQUIP_OBJECT: u32 = 0x0088_c830;
-pub(crate) const ACTOR_TEST_00440DA0: u32 = 0x0044_0da0;
 /// `Interface::IsMenuIDVisible(id, 0)` (Xbox PDB, `__cdecl`).
 pub(crate) const IS_MENU_VISIBLE: u32 = 0x0070_2680;
 /// The "can not unequip" message of `fn_004c37d0`: the text object
@@ -549,15 +556,8 @@ pub(crate) const PLAYER_REWARD_KARMA: u32 = 0x0094_fd30;
 pub(crate) const PLAYER_ADD_NOTE: u32 = 0x0096_6a70;
 /// `Actor::GetCurrentWeapon` (Xbox PDB).
 pub(crate) const ACTOR_CURRENT_WEAPON: u32 = 0x008a_1710;
-/// `DropItemIntoWorld` callees: the node item address (`006815c0`, returns
-/// its `this`), `NiMatrix3::FromEulerAnglesXYZ` (Xbox PDB), the `NiPoint3`
-/// constructor `00416870(this, x, y, z)`, matrix times vector
-/// `004b4500(this, out, vector)`, `NiPoint3` add `0063c8a0(this, other)`, the
-/// actor rotation `00430830`, `TESObjectREFR::GetWorldSpace` (Xbox PDB), the
-/// game data manager global and its object placement
-/// `004698a0(form, &position, &rotation, cell, world space)`.
-pub(crate) const NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
 pub(crate) const MATRIX_FROM_EULER_ANGLES: u32 = 0x00a5_9540;
+#[cfg(test)]
 pub(crate) const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 pub(crate) const MATRIX_TIMES_VECTOR: u32 = 0x004b_4500;
 pub(crate) const POINT3_ADD: u32 = 0x0063_c8a0;
@@ -758,20 +758,9 @@ fn log_save_size(e: &mut Engine, saved: u32, current: u32, line: u32, formats: (
         // pushed before it stay on the stack as the message's own arguments.
         let name = e.vcall(form, FORM_NAME_SLOT, &args![]).u32();
         let flags = e.mem.u32(current + 5);
-        e.call(
-            ERROR_LOG,
-            &args![
-                formats.0,
-                saved,
-                form_id,
-                name,
-                flags,
-                line,
-                SOURCE_FILE_NAME
-            ],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words formats.0, saved, form_id, name, flags, line, SOURCE_FILE_NAME);
     } else {
-        e.call(ERROR_LOG, &args![formats.1, saved, line, SOURCE_FILE_NAME]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words formats.1, saved, line, SOURCE_FILE_NAME);
     }
 }
 
@@ -940,13 +929,13 @@ pub fn fn_004bc810(e: &mut Engine, this: Ptr<ItemChange>, other: Ptr<ItemChange>
     e.set(this, ItemChange::pContainerObj, Ptr::new(form));
     let node = new_list_node(e);
     e.set(this, ItemChange::pExtraObjectList, Ptr::new(node));
-    let mut cursor = e.call(WORD_AT_0, &args![other]).u32();
+    let mut cursor = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
     while cursor != 0 {
         let item = list_item(e, cursor);
         if item == 0 {
             break;
         }
-        let list = e.call(WORD_AT_0, &args![this]).u32();
+        let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         list_call_with_item(e, LIST_ADD, list, item);
         cursor = list_next(e, cursor);
     }
@@ -1213,11 +1202,13 @@ pub fn tes_object_weap_get_form_health(e: &mut Engine, this: Ptr, with_mods: u8)
     let health_form = this.addr() + WEAPON_HEALTH_FORM;
     if with_mods != 0 {
         let bonus = tes_object_weap_get_mod_effect_value(e, this, MOD_EFFECT_HEALTH, 0);
-        let health = e.call(WORD_AT_4, &args![health_form]).u32();
+        let health = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, health_form));
         let total = health as f64 + bonus as f64;
         float_to_int(e, total)
     } else {
-        e.call(WORD_AT_4, &args![health_form]).i32()
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, health_form))
+            .into_ret()
+            .i32()
     }
 }
 
@@ -1283,7 +1274,11 @@ pub fn item_change_set_item_health(
     let current = item_change_get_item_health(e, this, false);
     let current = float_to_int(e, current as f64);
     // InventoryChanges::pRef (Xbox PDB) +4.
-    let owner = e.call(WORD_AT_4, &args![inventory_changes]).u32();
+    let owner = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, inventory_changes)
+    );
     if owner != 0 {
         e.vcall(owner, 0x48, &args![0x20u32]);
     }
@@ -1326,14 +1321,15 @@ pub fn item_change_set_item_health(
             if item == extra.addr() {
                 e.call(EXTRA_REMOVE_HEALTH, &args![item]);
                 if fn_004bca60(e, Ptr::new(item)) && remove_empty {
-                    let form = e.call(WORD_AT_8, &args![this]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
                     let entry = e
                         .call(
                             INVENTORY_CHANGES_GET_OBJECT_IN_LIST,
                             &args![inventory_changes, form, 1u32, 0u32],
                         )
                         .u32();
-                    let entry_list = e.call(WORD_AT_0, &args![entry]).u32();
+                    let entry_list =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
                     list_call_with_item(e, LIST_REMOVE, entry_list, item);
                     delete_object(e, item);
                 }
@@ -1388,7 +1384,7 @@ pub fn item_change_get_item_value(e: &mut Engine, this: Ptr<ItemChange>) -> f32 
     let form = container_object(e, this);
     let value = e.call(GET_FORM_VALUE, &args![form]).i32();
     let mut price = e.call(CALC_ITEM_PRICE, &args![value as f32, health]).f32();
-    let form = e.call(WORD_AT_8, &args![this]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     let weapon = e
         .call(
             RT_DYNAMIC_CAST,
@@ -1408,9 +1404,13 @@ pub fn item_change_get_item_value(e: &mut Engine, this: Ptr<ItemChange>) -> f32 
                 if slots & bit != 0 {
                     let mod_object = fn_004bd570(e, Ptr::new(weapon), bit);
                     // TESObjectIMOD value word.
-                    let word = e
-                        .call(WORD_AT_4, &args![mod_object + MOD_OBJECT_VALUE])
-                        .i32();
+                    let word = typed_call!(
+                        leaf::FAMILY,
+                        0x0072_6070,
+                        leaf::word_at_4(e, mod_object + MOD_OBJECT_VALUE)
+                    )
+                    .into_ret()
+                    .i32();
                     price = (word as f64 + price as f64) as f32;
                 }
             }
@@ -1498,7 +1498,7 @@ pub fn item_change_get_item_ownership(e: &mut Engine, this: Ptr<ItemChange>) -> 
 /// first extra list that has one (not negative), else -1.
 pub fn item_change_get_hot_key(e: &mut Engine, this: Ptr<ItemChange>) -> i32 {
     let mut hot_key = -1i32;
-    let mut cursor = e.call(WORD_AT_0, &args![this]).u32();
+    let mut cursor = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     while hot_key < 0 && cursor != 0 {
         let extra = list_item(e, cursor);
         if extra == 0 {
@@ -1920,7 +1920,7 @@ pub fn tes_enchantable_form_get_form_enchanting(e: &mut Engine, form: u32) -> u3
     if enchantable == 0 {
         return 0;
     }
-    e.call(WORD_AT_4, &args![enchantable]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, enchantable))
 }
 
 // Translated from 004be380 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2005,7 +2005,7 @@ pub fn fn_004be5a0(e: &mut Engine, this: Ptr<ItemChange>) -> u16 {
     size = size.wrapping_add(4);
     let mut cursor = list_head(e, this);
     while cursor != 0 {
-        if e.call(LIST_IS_EMPTY, &args![cursor]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, cursor)) {
             break;
         }
         let extra = list_item(e, cursor);
@@ -2054,7 +2054,7 @@ pub fn fn_004be6f0(e: &mut Engine, this: Ptr<ItemChange>) {
             e.call(SAVE_BYTES, &args![save, length_slot, 2u32]);
         }
         let form = container_object(e, this);
-        let form_id = e.call(FORM_ID, &args![form]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.mem.set_u32(form_id_slot, form_id);
         e.call(SAVE_NUMERIC_ID, &args![save, form_id_slot, 4u32]);
         let number = this.addr() + 4;
@@ -2064,7 +2064,7 @@ pub fn fn_004be6f0(e: &mut Engine, this: Ptr<ItemChange>) {
         e.call(SAVE_BYTES, &args![save, count_slot, 4u32]);
         let mut cursor = list_head(e, this);
         while cursor != 0 {
-            if e.call(LIST_IS_EMPTY, &args![cursor]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, cursor)) {
                 break;
             }
             let extra = list_item(e, cursor);
@@ -2241,7 +2241,7 @@ pub fn item_change_load_game(e: &mut Engine, this: Ptr<ItemChange>) {
 pub fn fn_004bed00(e: &mut Engine, this: Ptr<ItemChange>) {
     let mut cursor = list_head(e, this);
     while cursor != 0 {
-        if e.call(LIST_IS_EMPTY, &args![cursor]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, cursor)) {
             break;
         }
         let extra = list_item(e, cursor);
@@ -2500,7 +2500,7 @@ pub fn inventory_changes_remove_hot_key_item(
         }
     }
     let list = e.mem.u32(entry);
-    if list != 0 && e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if list != 0 && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         let list = e.mem.u32(entry);
         if list != 0 {
             e.call(LIST_DESTROY, &args![list, 1u32]);
@@ -2526,7 +2526,7 @@ pub fn fn_004bf4b0(e: &mut Engine, this: Ptr<InventoryChanges>, hot_key: i32) ->
         loop {
             let item = e.call(GET_NEXT_FAST_ITEM, &args![this, iterator]).u32();
             if item != 0 {
-                let mut cursor = e.call(WORD_AT_0, &args![item]).u32();
+                let mut cursor = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                 while cursor != 0 {
                     let extra = list_item(e, cursor);
                     if extra == 0 {
@@ -2590,7 +2590,7 @@ pub fn fn_004bf660(e: &mut Engine, this: Ptr<InventoryChanges>, low: i32, high: 
         let item = e.call(GET_NEXT_FAST_ITEM, &args![this, iterator]).u32();
         if item != 0 {
             let mut used = false;
-            let mut cursor = e.call(WORD_AT_0, &args![item]).u32();
+            let mut cursor = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
             while cursor != 0 {
                 let extra = list_item(e, cursor);
                 if extra == 0 {
@@ -2764,7 +2764,8 @@ pub fn inventory_changes_get_object_in_list(
         let extra = list_item(e, inner);
         if extra != 0 && e.call(EXTRA_GET_REFERENCE_POINTER, &args![extra]).u32() != 0 {
             let reference = e.call(EXTRA_GET_REFERENCE_POINTER, &args![extra]).u32();
-            if e.call(FORM_ID, &args![reference]).u32() == reference_id {
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference)) == reference_id
+            {
                 return item;
             }
         }
@@ -3133,8 +3134,10 @@ fn announce_equip(e: &mut Engine, form: u32, count: i32, actor: u32, worn_list: 
             let power_armor = e.call(BIPED_IS_POWER_ARMOR, &args![biped]).bool()
                 || fn_004c0bd0(e, Ptr::new(biped))
                 || e.call(BIPED_FLAG_FOUR, &args![biped]).bool();
-            if power_armor && e.call(ACTOR_PROCESS, &args![actor]).u32() != 0 {
-                let acquire = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            if power_armor
+                && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
+            {
+                let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 e.vcall(acquire, 0x6e4, &args![actor]);
             }
             let process = e.mem.u32(actor + ACTOR_CURRENT_PROCESS);
@@ -3145,7 +3148,7 @@ fn announce_equip(e: &mut Engine, form: u32, count: i32, actor: u32, worn_list: 
             e.vcall(process, 0x468, &args![1u32]);
         }
         0x28 => {
-            let acquire = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             let mut kept = e.vcall(acquire, 0x148, &args![]).u32();
             if kept != 0 {
                 let list = e.mem.u32(kept);
@@ -3158,7 +3161,7 @@ fn announce_equip(e: &mut Engine, form: u32, count: i32, actor: u32, worn_list: 
                 kept = new_item_change(e, form, count as u32);
                 let list = e.mem.u32(kept);
                 list_call_with_item(e, LIST_ADD, list, worn_list);
-                let acquire = e.call(ACTOR_PROCESS, &args![actor]).u32();
+                let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 // 004c082e: slot 0x1d0 takes no stack word; the pushed 0 is the
                 // third word of slot 0x160.
                 let hand = e.vcall(actor, 0x1d0, &args![]).u32();
@@ -3198,7 +3201,7 @@ fn announce_equip(e: &mut Engine, form: u32, count: i32, actor: u32, worn_list: 
             }
         }
         0x29 => {
-            let acquire = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             let mut kept = e.vcall(acquire, 0x14c, &args![]).u32();
             if kept != 0 {
                 let list = e.mem.u32(kept);
@@ -3210,7 +3213,7 @@ fn announce_equip(e: &mut Engine, form: u32, count: i32, actor: u32, worn_list: 
                 kept = new_item_change(e, form, 0);
                 let list = e.mem.u32(kept);
                 list_call_with_item(e, LIST_ADD, list, worn_list);
-                let acquire = e.call(ACTOR_PROCESS, &args![actor]).u32();
+                let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 if !e.vcall(acquire, 0x168, &args![kept]).bool() {
                     delete_item_change(e, kept);
                     kept = 0;
@@ -3285,11 +3288,11 @@ fn dismemberment_allows_slot_update(e: &mut Engine, actor: u32) -> bool {
     let extra_list = e.call(REFR_EXTRA_LIST, &args![actor]).u32();
     let data = e.call(GET_DISMEMBERMENT_EXTRA, &args![extra_list]).u32();
     if data != 0
-        && e.call(WORD_AT_8, &args![data + 0x20]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, data + 0x20)) != 0
         && e.call(ARRAY_ELEMENT, &args![data, 0u32]).u32() != 0
     {
         let mut index = 0u32;
-        while index < e.call(WORD_AT_8, &args![data + 0x20]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, data + 0x20)) {
             let entry = e.call(ARRAY_ELEMENT, &args![data, index]).u32();
             if e.mem.u8(entry) == 0 && e.mem.u8(entry + 1) != 0 {
                 allowed = false;
@@ -3382,7 +3385,7 @@ pub fn fn_004c0cf0(
             e.mem.set_u8(removed, 0);
             return result;
         }
-        if actor != 0 && e.call(ACTOR_PROCESS, &args![actor]).u32() != 0 {
+        if actor != 0 && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
             match form_type_of(e, form) {
                 0x18 => {
                     let biped = form + ARMOR_BIPED_MODEL;
@@ -3403,7 +3406,8 @@ pub fn fn_004c0cf0(
                     }
                 }
                 0x28 => {
-                    let acquire = e.call(ACTOR_PROCESS, &args![actor]).u32();
+                    let acquire =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     let kept = e.vcall(acquire, 0x148, &args![]).u32();
                     if kept != 0 {
                         let head = e.mem.u32(kept);
@@ -3415,27 +3419,41 @@ pub fn fn_004c0cf0(
                                 special_weapon = true;
                             }
                             if e.call(PREDICATE_008C7AA0, &args![]).bool() {
-                                let kept_form = e.call(WORD_AT_8, &args![kept]).u32();
+                                let kept_form = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0044_ddc0,
+                                    leaf::word_at_8(e, kept)
+                                );
                                 let queue = e.call(TASK_QUEUE_GETTER, &args![]).u32();
                                 e.call(TASK_QUEUE_DETACH_WEAPON, &args![queue, actor, kept_form]);
                             } else {
                                 e.call(REFR_REMOVE_WEAPON, &args![actor]);
-                                let acquire = e.call(ACTOR_PROCESS, &args![actor]).u32();
+                                let acquire = typed_call!(
+                                    leaf::FAMILY,
+                                    0x008d_8520,
+                                    leaf::word_at_68(e, actor)
+                                );
                                 e.vcall(acquire, 0x160, &args![0u32, 0u32, 0u32]);
-                                let acquire = e.call(ACTOR_PROCESS, &args![actor]).u32();
+                                let acquire = typed_call!(
+                                    leaf::FAMILY,
+                                    0x008d_8520,
+                                    leaf::word_at_68(e, actor)
+                                );
                                 e.vcall(acquire, 0x168, &args![0u32]);
                             }
                         }
                     }
                 }
                 0x29 => {
-                    let acquire = e.call(ACTOR_PROCESS, &args![actor]).u32();
+                    let acquire =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     let kept = e.vcall(acquire, 0x14c, &args![]).u32();
                     if kept != 0 {
                         let head = e.mem.u32(kept);
                         if list_item(e, head) == worn_extra {
                             e.call(NO_OPERATION_00483710, &args![actor]);
-                            let acquire = e.call(ACTOR_PROCESS, &args![actor]).u32();
+                            let acquire =
+                                typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                             e.vcall(acquire, 0x168, &args![0u32]);
                         }
                     }
@@ -3501,8 +3519,11 @@ pub fn fn_004c0cf0(
         }
         break;
     }
-    if power_armor && actor != 0 && e.call(ACTOR_PROCESS, &args![actor]).u32() != 0 {
-        let acquire = e.call(ACTOR_PROCESS, &args![actor]).u32();
+    if power_armor
+        && actor != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
+    {
+        let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(acquire, 0x6e4, &args![actor]);
     }
     let owner = e.get(this, InventoryChanges::pRef).addr();
@@ -3514,7 +3535,7 @@ pub fn fn_004c0cf0(
     let head = e.mem.u32(entry);
     let number = e.get(Ptr::<ItemChange>::new(entry), ItemChange::iNumber);
     if head != 0
-        && e.call(LIST_IS_EMPTY, &args![head]).bool()
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head))
         && (number == 0 || in_container == number)
     {
         let list = e.get(this, InventoryChanges::pListofChanges).addr();
@@ -3724,9 +3745,9 @@ fn truncate_to_low_word(value: f64) -> u32 {
 /// (the owner's id and name are evaluated first, as the game pushes them).
 fn log_adding_reference(e: &mut Engine, this: Ptr<InventoryChanges>, format: u32, reference: u32) {
     let owner = e.get(this, InventoryChanges::pRef).addr();
-    let owner_id = e.call(FORM_ID, &args![owner]).u32();
+    let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
     let owner_name = e.vcall(owner, FORM_NAME_SLOT, &args![]).u32();
-    let reference_id = e.call(FORM_ID, &args![reference]).u32();
+    let reference_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
     let reference_name = e.vcall(reference, FORM_NAME_SLOT, &args![]).u32();
     e.call(
         SAVE_LOAD_LOG,
@@ -3737,7 +3758,7 @@ fn log_adding_reference(e: &mut Engine, this: Ptr<InventoryChanges>, format: u32
 /// The base object of a reference (`007af430`; the map names it
 /// `BGSSaveFormBuffer::GetForm` because of folding).
 fn reference_base_form(e: &mut Engine, reference: u32) -> u32 {
-    e.call(REFERENCE_BASE_FORM, &args![reference]).u32()
+    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
 }
 
 /// The extra data list of a reference (`005d43c0`).
@@ -3990,7 +4011,7 @@ pub fn fn_004c1c90(
             }
             let head = e.mem.u32(entry);
             if head != 0
-                && e.call(LIST_IS_EMPTY, &args![head]).bool()
+                && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head))
                 && e.get(Ptr::<ItemChange>::new(entry), ItemChange::iNumber) == 0
             {
                 let list = e.get(this, InventoryChanges::pListofChanges).addr();
@@ -4106,12 +4127,12 @@ pub fn fn_004c29a0(e: &mut Engine, this: Ptr<InventoryChanges>, form: u32, extra
         }
         if form_type_of(e, form) == 0x28
             && actor != 0
-            && e.call(ACTOR_PROCESS, &args![actor]).u32() != 0
+            && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
         {
-            let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if fn_004c0bf0(e, Ptr::new(form)) && e.vcall(process, 0x14c, &args![]).u32() != 0 {
                 let kept = e.vcall(process, 0x14c, &args![]).u32();
-                if form == e.call(WORD_AT_8, &args![kept]).u32() {
+                if form == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, kept)) {
                     special_weapon = true;
                     if e.vcall(process, 0x148, &args![]).u32() != 0 {
                         let kept = e.vcall(process, 0x148, &args![]).u32();
@@ -4234,7 +4255,7 @@ pub fn fn_004c29a0(e: &mut Engine, this: Ptr<InventoryChanges>, form: u32, extra
             }
             let head = e.mem.u32(entry);
             if head != 0
-                && e.call(LIST_IS_EMPTY, &args![head]).bool()
+                && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head))
                 && e.get(Ptr::<ItemChange>::new(entry), ItemChange::iNumber) == 0
             {
                 let list = e.get(this, InventoryChanges::pListofChanges).addr();
@@ -4286,15 +4307,21 @@ pub fn fn_004c3380(e: &mut Engine, this: Ptr<InventoryChanges>, source: u32, del
         if owner != 0 {
             e.vcall(owner, 0x48, &args![0x20u32]);
         }
-        let form = e.call(WORD_AT_8, &args![source]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, source));
         let mut destination = inventory_changes_get_object_in_list(e, this, form, 1, 0);
-        let form = e.call(WORD_AT_8, &args![source]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, source));
         let mut special_weapon = false;
         if form_type_of(e, form) == 0x28 {
             special_weapon = fn_004c0bf0(e, Ptr::new(form));
         }
         let source_list = e.mem.u32(source);
-        if source_list != 0 && e.call(LIST_IS_EMPTY, &args![source_list]).bool() {
+        if source_list != 0
+            && typed_call!(
+                leaf::FAMILY,
+                0x0082_56d0,
+                leaf::both_words_zero(e, source_list)
+            )
+        {
             if source_list != 0 {
                 e.call(LIST_DESTROY, &args![source_list, 1u32]);
             }
@@ -4309,7 +4336,13 @@ pub fn fn_004c3380(e: &mut Engine, this: Ptr<InventoryChanges>, source: u32, del
             + e.get(Ptr::<ItemChange>::new(source), ItemChange::iNumber);
         e.call(ITEM_SET_NUMBER, &args![destination, total]);
         let source_list = e.mem.u32(source);
-        if source_list == 0 || !e.call(LIST_IS_EMPTY, &args![source_list]).bool() {
+        if source_list == 0
+            || !typed_call!(
+                leaf::FAMILY,
+                0x0082_56d0,
+                leaf::both_words_zero(e, source_list)
+            )
+        {
             let mut destination_node = e.mem.u32(destination);
             let mut source_node = e.mem.u32(source);
             while source_node != 0 && list_item(e, source_node) != 0 {
@@ -4359,7 +4392,7 @@ pub fn fn_004c3380(e: &mut Engine, this: Ptr<InventoryChanges>, source: u32, del
         destination = inventory_changes_get_object_in_list(e, this, form, 1, 0);
         if destination != 0 {
             let head = e.mem.u32(destination);
-            if (head == 0 || e.call(LIST_IS_EMPTY, &args![head]).bool())
+            if (head == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head)))
                 && e.get(Ptr::<ItemChange>::new(destination), ItemChange::iNumber) == 0
             {
                 let list = e.get(this, InventoryChanges::pListofChanges).addr();
@@ -4696,7 +4729,7 @@ pub fn inventory_changes_drop_item_into_world(
         let vector = base + 0x50;
         let product = base + 0x60;
         let rotation_copy = base + 0x70;
-        e.call(NODE_ITEM_ADDRESS, &args![pos]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, pos));
         if position != 0 {
             for i in 0..3 {
                 let word = e.mem.u32(position + 4 * i);
@@ -4713,14 +4746,18 @@ pub fn inventory_changes_drop_item_into_world(
                 let word = e.mem.u32(actor_rot + 4 * i);
                 e.mem.set_u32(actor_rotation + 4 * i, word);
             }
-            e.call(NODE_ITEM_ADDRESS, &args![matrix]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
             let x = e.mem.f32(actor_rotation);
             let y = e.mem.f32(actor_rotation + 4);
             let z = e.mem.f32(actor_rotation + 8);
             e.call(MATRIX_FROM_EULER_ANGLES, &args![matrix, x, y, z]);
             let offset_z = e.global::<f32>(DROP_OFFSET_Z);
             let offset_y = e.global::<f32>(DROP_OFFSET_Y);
-            e.call(POINT3_CONSTRUCT, &args![vector, 0.0f32, offset_y, offset_z]);
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, vector, 0.0f32, offset_y, offset_z)
+            );
             let moved = e
                 .call(MATRIX_TIMES_VECTOR, &args![matrix, product, vector])
                 .u32();
@@ -4858,11 +4895,12 @@ pub fn fn_004c37d0(
             player_actor = actor;
         }
         if player_actor != 0 && (drop_flag != 0 || target != 0) {
-            let process = e.call(ACTOR_PROCESS, &args![player_actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player_actor));
             if e.vcall(process, 0x14c, &args![]).u32() != 0 {
-                let process = e.call(ACTOR_PROCESS, &args![player_actor]).u32();
+                let process =
+                    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player_actor));
                 let kept = e.vcall(process, 0x14c, &args![]).u32();
-                if e.call(WORD_AT_8, &args![kept]).u32() == form {
+                if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, kept)) == form {
                     kept_weapon = true;
                 }
             }
@@ -4916,7 +4954,7 @@ pub fn fn_004c37d0(
         while entry != 0 && count > 0 && entry_number(e, entry).wrapping_add(in_container) > 0 {
             delete_item_change(e, temp);
             temp = new_default_item_change(e);
-            let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+            let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             e.mem.set_u32(temp + 8, entry_form);
             let mut node = e.mem.u32(entry);
             let mut searching = true;
@@ -4963,13 +5001,26 @@ pub fn fn_004c37d0(
                             }
                             let mut unequipped = false;
                             if e.vcall(actor, 0x100, &args![]).bool()
-                                && !e.call(ACTOR_TEST_00440DA0, &args![actor]).bool()
+                                && !typed_call!(
+                                    leaf::FAMILY,
+                                    0x0044_0da0,
+                                    leaf::form_flag_800(e, actor)
+                                )
                             {
-                                if e.call(ACTOR_PROCESS, &args![actor]).u32() != 0 {
+                                if typed_call!(
+                                    leaf::FAMILY,
+                                    0x008d_8520,
+                                    leaf::word_at_68(e, actor)
+                                ) != 0
+                                {
                                     let held = e.call(EXTRA_GET_COUNT, &args![extra_item]).u16()
                                         as i16
                                         as i32;
-                                    let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+                                    let entry_form = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0044_ddc0,
+                                        leaf::word_at_8(e, entry)
+                                    );
                                     unequipped = e
                                         .call(
                                             ACTOR_UNEQUIP_OBJECT,
@@ -4983,7 +5034,11 @@ pub fn fn_004c37d0(
                             } else {
                                 let held =
                                     e.call(EXTRA_GET_COUNT, &args![extra_item]).u16() as i16 as i32;
-                                let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+                                let entry_form = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0044_ddc0,
+                                    leaf::word_at_8(e, entry)
+                                );
                                 unequipped = e
                                     .vcall(actor, 0x188, &args![entry_form, held, extra_item])
                                     .bool();
@@ -5003,7 +5058,11 @@ pub fn fn_004c37d0(
                                 e.vcall(owner, 0x100, &args![]).bool()
                             } {
                                 let owner = e.get(this, InventoryChanges::pRef).addr();
-                                let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+                                let entry_form = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0044_ddc0,
+                                    leaf::word_at_8(e, entry)
+                                );
                                 e.call(
                                     ACTOR_EQUIP_OBJECT,
                                     &args![
@@ -5023,7 +5082,8 @@ pub fn fn_004c37d0(
                         let leveled_now = e.call(EXTRA_GET_LEVELED_ITEM, &args![extra_item]).u32();
                         if item_count > count || leveled_now != 0 {
                             leveled = e.call(EXTRA_GET_LEVELED_ITEM, &args![extra_item]).u32();
-                            let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+                            let entry_form =
+                                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                             let kind = form_type_of(e, entry_form);
                             if e.call(EXTRA_GET_LEVELED_ITEM, &args![extra_item]).u32() == 0
                                 || e.call(EXTRA_GET_SCRIPT, &args![extra_item]).u32() == 0
@@ -5182,13 +5242,21 @@ pub fn fn_004c37d0(
                                     if e.call(EXTRA_GET_OWNERSHIP, &args![given]).u32() == 0 {
                                         let item_owner = removal_owner(e, actor);
                                         if set_owner != 0 {
-                                            let temp_form = e.call(WORD_AT_8, &args![temp]).u32();
+                                            let temp_form = typed_call!(
+                                                leaf::FAMILY,
+                                                0x0044_ddc0,
+                                                leaf::word_at_8(e, temp)
+                                            );
                                             if !e.call(IS_GOLD, &args![temp_form]).bool() {
                                                 e.call(EXTRA_SET_OWNER, &args![given, item_owner]);
                                             }
                                         }
                                     }
-                                    let temp_form = e.call(WORD_AT_8, &args![temp]).u32();
+                                    let temp_form = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0044_ddc0,
+                                        leaf::word_at_8(e, temp)
+                                    );
                                     e.vcall(target, 0x190, &args![temp_form, given, item_count]);
                                     node_t = list_next(e, node_t);
                                 }
@@ -5198,14 +5266,22 @@ pub fn fn_004c37d0(
                                 let mut given = 0u32;
                                 let item_owner = removal_owner(e, actor);
                                 if set_owner != 0 {
-                                    let temp_form = e.call(WORD_AT_8, &args![temp]).u32();
+                                    let temp_form = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0044_ddc0,
+                                        leaf::word_at_8(e, temp)
+                                    );
                                     if !e.call(IS_GOLD, &args![temp_form]).bool() {
                                         given = new_extra_list(e);
                                         e.call(EXTRA_SET_OWNER, &args![given, item_owner]);
                                         e.call(EXTRA_SET_COUNT, &args![given, count as u16 as u32]);
                                     }
                                 }
-                                let temp_form = e.call(WORD_AT_8, &args![temp]).u32();
+                                let temp_form = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0044_ddc0,
+                                    leaf::word_at_8(e, temp)
+                                );
                                 e.vcall(target, 0x190, &args![temp_form, given, item_count]);
                                 delete_item_change(e, temp);
                                 temp = 0;
@@ -5352,7 +5428,11 @@ pub fn fn_004c37d0(
                 let listed_head = e.mem.u32(entry);
                 if count > 0
                     && listed_head != 0
-                    && !e.call(LIST_IS_EMPTY, &args![listed_head]).bool()
+                    && !typed_call!(
+                        leaf::FAMILY,
+                        0x0082_56d0,
+                        leaf::both_words_zero(e, listed_head)
+                    )
                 {
                     cursor = e.mem.u32(entry);
                     while cursor != 0 && list_item(e, cursor) != 0 && count > 0 {
@@ -5361,7 +5441,8 @@ pub fn fn_004c37d0(
                         delete_item_change(e, temp);
                         temp = new_default_item_change(e);
                         if entry != 0 {
-                            let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+                            let entry_form =
+                                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                             e.mem.set_u32(temp + 8, entry_form);
                         }
                         if (e.call(EXTRA_GET_COUNT, &args![taken_extra]).u16() as i16) < 0 {
@@ -5389,7 +5470,11 @@ pub fn fn_004c37d0(
                                 }
                                 let held = e.call(EXTRA_GET_COUNT, &args![taken_extra]).u16() as i16
                                     as i32;
-                                let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+                                let entry_form = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0044_ddc0,
+                                    leaf::word_at_8(e, entry)
+                                );
                                 let unequipped = e
                                     .vcall(actor, 0x188, &args![entry_form, held, taken_extra])
                                     .bool();
@@ -5538,14 +5623,22 @@ pub fn fn_004c37d0(
                                     list_call_with_item(e, LIST_ADD, node_slot, given);
                                 }
                                 let item_owner = removal_owner(e, actor);
-                                let temp_form = e.call(WORD_AT_8, &args![temp]).u32();
+                                let temp_form = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0044_ddc0,
+                                    leaf::word_at_8(e, temp)
+                                );
                                 if set_owner != 0 && !e.call(IS_GOLD, &args![temp_form]).bool() {
                                     e.call(EXTRA_SET_OWNER, &args![given, item_owner]);
                                     e.call(EXTRA_SET_COUNT, &args![given, taken as u16 as u32]);
                                 } else {
                                     e.call(EXTRA_REMOVE_OWNERSHIP, &args![given]);
                                 }
-                                let temp_form = e.call(WORD_AT_8, &args![temp]).u32();
+                                let temp_form = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0044_ddc0,
+                                    leaf::word_at_8(e, temp)
+                                );
                                 e.vcall(target, 0x190, &args![temp_form, given, taken]);
                                 delete_item_change(e, temp);
                                 temp = 0;
@@ -5650,7 +5743,9 @@ pub fn fn_004c37d0(
                 let number = entry_number(e, entry);
                 remove_entry = if number != 0 || in_container != 0 {
                     let head = e.mem.u32(entry);
-                    head != 0 && e.call(LIST_IS_EMPTY, &args![head]).bool() && number == 0
+                    head != 0
+                        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head))
+                        && number == 0
                 } else {
                     true
                 };
@@ -5782,7 +5877,7 @@ pub fn fn_004c6f60(
             result = new_default_item_change(e);
         }
         if entry != 0 {
-            let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+            let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             e.mem.set_u32(result + 8, entry_form);
             let entry_list = e.mem.u32(entry);
             if entry_list != 0 && e.mem.u32(entry_list) != 0 {
@@ -5824,7 +5919,7 @@ pub fn fn_004c7300(e: &mut Engine, this: Ptr<InventoryChanges>, actor: u32, foun
     let mut fallback = 0u32;
     if ammo_list != 0 {
         let mut index = 0u32;
-        let first_added = e.call(REFERENCE_BASE_FORM, &args![ammo_list]).u32();
+        let first_added = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, ammo_list));
         let mut node = e.call(FORM_LIST_HEAD, &args![ammo_list]).u32();
         while node != 0 && list_item(e, node) != 0 {
             let ammo = list_item(e, node);
@@ -5941,8 +6036,9 @@ pub fn fn_004c7400(
         if owner != 0 && e.vcall(owner, 0x100, &args![]).bool() {
             owner_actor = owner;
             rating_actor = owner;
-            if e.call(ACTOR_PROCESS, &args![owner_actor]).u32() != 0 {
-                let process = e.call(ACTOR_PROCESS, &args![owner_actor]).u32();
+            if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner_actor)) != 0 {
+                let process =
+                    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner_actor));
                 if e.vcall(process, 0x388, &args![]).bool() {
                     return result;
                 }
@@ -6015,7 +6111,7 @@ pub fn fn_004c7400(
                         // the limit below; 0 when there is none.
                         let ammo_slot = weapon + 0x74;
                         let mut limit_slot = if ammo_slot != 0 {
-                            e.call(WORD_AT_4, &args![ammo_slot]).u32()
+                            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, ammo_slot))
                         } else {
                             0
                         };
@@ -6074,7 +6170,7 @@ pub fn fn_004c7400(
         }
         // The weapons of the changes.
         let mut node = e.get(this, InventoryChanges::pListofChanges).addr();
-        while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let item = list_item(e, node);
             let mut weapon = 0u32;
             let item_form = e.mem.u32(item + 8);
@@ -6119,7 +6215,11 @@ pub fn fn_004c7400(
                                 let health = weapon_list_health(e, weapon, list);
                                 if health > 0.0 {
                                     let ammo_slot = weapon + 0x74;
-                                    e.call(WORD_AT_4, &args![ammo_slot]);
+                                    typed_call!(
+                                        leaf::FAMILY,
+                                        0x0072_6070,
+                                        leaf::word_at_4(e, ammo_slot)
+                                    );
                                     let form_health = e.call(GET_FORM_HEALTH, &args![weapon]).u32();
                                     fraction = (health as f64 / (form_health as u64 as f64)) as f32;
                                     let rating =
@@ -6146,12 +6246,12 @@ pub fn fn_004c7400(
         let score = e.call(ROUND_SCORE, &args![best, 0u32, 0u32]).f32();
         e.mem.set_f32(out, score);
         if result != 0 {
-            let form = e.call(WORD_AT_8, &args![result]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, result));
             if e.call(WEAPON_TYPE_GETTER, &args![form]).u32() as i32 == 10
                 || e.call(WEAPON_TYPE_GETTER, &args![form]).u32() as i32 == 0xb
                 || e.call(WEAPON_TYPE_GETTER, &args![form]).u32() as i32 == 0xd
             {
-                let form = e.call(WORD_AT_8, &args![result]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, result));
                 let count = fn_004c8f30(e, this, form);
                 e.call(ITEM_SET_NUMBER, &args![result, count]);
             }
@@ -6186,12 +6286,14 @@ pub fn fn_004c8c10(e: &mut Engine, this: Ptr<InventoryChanges>, slot: i32, armor
                     worn_extra = list_item(e, extra_node);
                     if e.call(EXTRA_GET_WORN, &args![worn_extra, 0u32]).bool() {
                         if slot == 5 {
-                            let form = e.call(WORD_AT_8, &args![item]).u32();
+                            let form =
+                                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                             if form_type_of(e, form) == 0x28 {
                                 found = true;
                             }
                         } else {
-                            let form = e.call(WORD_AT_8, &args![item]).u32();
+                            let form =
+                                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                             let biped = e.call(GET_FORM_AS_BIPED_MODEL, &args![form]).u32();
                             if slot < 0 || (slot > 1 && slot != 10) {
                                 if biped != 0
@@ -6201,7 +6303,11 @@ pub fn fn_004c8c10(e: &mut Engine, this: Ptr<InventoryChanges>, slot: i32, armor
                                     found = true;
                                 }
                             } else {
-                                let form = e.call(WORD_AT_8, &args![item]).u32();
+                                let form = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0044_ddc0,
+                                    leaf::word_at_8(e, item)
+                                );
                                 let list = e.call(GET_FORM_AS_BIPED_MODEL_LIST, &args![form]).u32();
                                 if biped != 0
                                     && e.call(BIPED_FILLS_SLOT, &args![biped, slot, 0u32, list])
@@ -6216,13 +6322,13 @@ pub fn fn_004c8c10(e: &mut Engine, this: Ptr<InventoryChanges>, slot: i32, armor
                 }
                 if found {
                     if armor_only != 0 {
-                        let form = e.call(WORD_AT_8, &args![item]).u32();
+                        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                         if form_type_of(e, form) != 0x18 {
                             return result;
                         }
                     }
                     let worn_item = new_default_item_change(e);
-                    let form = e.call(WORD_AT_8, &args![item]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                     e.mem.set_u32(worn_item + 8, form);
                     ensure_extra_list(e, worn_item);
                     let head = e.mem.u32(worn_item);
@@ -6321,7 +6427,7 @@ pub fn fn_004c8220(
         let container = fn_004bffb0(e, this);
         let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
         // The container's armors.
-        while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let object = list_item(e, node);
             let form = e.mem.u32(object + 4);
             let armor = e
@@ -6387,7 +6493,7 @@ pub fn fn_004c8220(
         }
         // The changes' armors.
         let mut node = e.get(this, InventoryChanges::pListofChanges).addr();
-        while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let item_slot = list_item(e, node);
             let form = e.mem.u32(item_slot + 8);
             let armor = e
@@ -6564,20 +6670,20 @@ pub fn fn_004c8fd0(e: &mut Engine, this: Ptr<InventoryChanges>, include_all: u8)
                 }
             }
             if include_all == 0 {
-                let form = e.call(WORD_AT_8, &args![entry]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                 let kind = form_type_of(e, form);
                 if kind == 0x28 {
-                    let form = e.call(WORD_AT_8, &args![entry]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                     if !e.call(WEAPON_PLAYABLE, &args![form]).bool() {
                         listed_here = false;
                     }
                 } else if kind == 0x29 {
-                    let form = e.call(WORD_AT_8, &args![entry]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                     if !fn_004c94d0(e, Ptr::new(form)) {
                         listed_here = false;
                     }
                 } else {
-                    let form = e.call(WORD_AT_8, &args![entry]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                     let biped = e.call(GET_FORM_AS_BIPED_MODEL, &args![form]).u32();
                     if biped != 0 {
                         listed_here = e.call(BIPED_PLAYABLE, &args![biped]).bool();
@@ -6931,16 +7037,16 @@ pub fn fn_004c94f0(e: &mut Engine, this: Ptr<InventoryChanges>, index: i32) -> u
 fn entry_counts_as_one(e: &mut Engine, entry: u32) -> bool {
     let mut counts_as_one = false;
     let mut weapon = 0u32;
-    let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+    let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
     if form_type_of(e, entry_form) == 0x28 {
-        weapon = e.call(WORD_AT_8, &args![entry]).u32();
+        weapon = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
     }
     if item_change_get_extra_total_count(e, Ptr::new(entry), false) == 0
         && item_change_get_worn(e, Ptr::new(entry), 0)
     {
         counts_as_one = true;
         if entry_number(e, entry) > 0 {
-            let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+            let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             let kind = form_type_of(e, entry_form);
             if kind != 0x29
                 && (weapon == 0
@@ -7041,7 +7147,7 @@ pub fn inventory_changes_start_oei_fast_inventory_iteration(
         let iterator = if memory == 0 {
             0
         } else {
-            e.call(NODE_ITEM_ADDRESS, &args![memory]).u32()
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, memory))
         };
         e.mem.set_u32(iterator, 0);
         e.mem.set_u32(iterator + 4, 0);
@@ -7417,7 +7523,7 @@ pub fn inventory_changes_get_best_food(e: &mut Engine, this: Ptr<InventoryChange
         let mut alchemy = 0u32;
         let container = fn_004bffb0(e, this);
         let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
-        while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let object = list_item(e, node);
             let form = e.mem.u32(object + 4);
             // The container pass asks the alchemy item first.
@@ -7438,7 +7544,7 @@ pub fn inventory_changes_get_best_food(e: &mut Engine, this: Ptr<InventoryChange
             node = list_next(e, node);
         }
         let mut node = e.get(this, InventoryChanges::pListofChanges).addr();
-        while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let item_slot = list_item(e, node);
             let form = e.mem.u32(item_slot + 8);
             let selected = food_form(e, form, false, &mut alchemy);
@@ -7476,7 +7582,7 @@ pub fn inventory_changes_get_gold_amount(e: &mut Engine, this: Ptr<InventoryChan
     } else {
         0
     };
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         let form = e.mem.u32(object + 4);
         if form != 0 && e.call(IS_GOLD, &args![form]).bool() {
@@ -7497,7 +7603,7 @@ pub fn inventory_changes_get_gold_amount(e: &mut Engine, this: Ptr<InventoryChan
         node = list_next(e, node);
     }
     let mut node = e.get(this, InventoryChanges::pListofChanges).addr();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let item_slot = list_item(e, node);
         let form = e.mem.u32(item_slot + 8);
         if form != 0 && e.call(IS_GOLD, &args![form]).bool() {
@@ -7533,7 +7639,7 @@ pub fn inventory_changes_remove_gold(
     } else {
         0
     };
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         let form = e.mem.u32(object + 4);
         if form != 0 && e.call(IS_GOLD, &args![form]).bool() {
@@ -7543,7 +7649,7 @@ pub fn inventory_changes_remove_gold(
         node = list_next(e, node);
     }
     let mut node = e.get(this, InventoryChanges::pListofChanges).addr();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let item_slot = list_item(e, node);
         let form = e.mem.u32(item_slot + 8);
         if form != 0 && e.call(IS_GOLD, &args![form]).bool() {
@@ -7589,14 +7695,14 @@ pub fn inventory_changes_remove_stolen_items(
     let mut owner_filter = owner_filter;
     let mut node = e.get(this, InventoryChanges::pListofChanges).addr();
     loop {
-        if node == 0 || e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        if node == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             return;
         }
         let saved_next = list_next(e, node);
         let item = list_item(e, node);
         let mut done = false;
         let skip = item == 0 || entry_number(e, item) <= 0 || {
-            let form = e.call(WORD_AT_8, &args![item]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             e.vcall(form, 0x94, &args![]).bool()
         };
         if skip {
@@ -7604,7 +7710,7 @@ pub fn inventory_changes_remove_stolen_items(
             continue;
         }
         let mut extra_list = e.mem.u32(item);
-        let taken_form = e.call(WORD_AT_8, &args![item]).u32();
+        let taken_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let mut victim = 0u32;
         if e.vcall(target, 0x100, &args![]).bool() {
             victim = target;
@@ -7630,13 +7736,15 @@ pub fn inventory_changes_remove_stolen_items(
             if owner_filter == 0 || owner_filter == e.call(EXTRA_GET_OWNERSHIP, &args![extra]).u32()
             {
                 if victim != 0 && owner_filter == 0 {
-                    owner_filter = e.call(REFERENCE_BASE_FORM, &args![victim]).u32();
+                    owner_filter =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, victim));
                 }
                 let owner = e.call(EXTRA_GET_OWNERSHIP, &args![extra]).u32();
                 if owner != 0
                     && owner != actor
                     && (victim == 0
-                        || e.call(REFERENCE_BASE_FORM, &args![victim]).u32() == faction
+                        || typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, victim))
+                            == faction
                         || e.call(ACTOR_IS_IN_FACTION, &args![victim, actor_base])
                             .bool())
                 {
@@ -7740,7 +7848,7 @@ pub fn fn_004cba70(e: &mut Engine, this: Ptr<InventoryChanges>, leveled: u32) ->
     let container = fn_004bffb0(e, this);
     let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
     let mut position = 0i32;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         let form = e.mem.u32(object + 4);
         let lev_item = e
@@ -7758,14 +7866,17 @@ pub fn fn_004cba70(e: &mut Engine, this: Ptr<InventoryChanges>, leveled: u32) ->
         node = list_next(e, node);
     }
     let mut node = e.get(this, InventoryChanges::pListofChanges).addr();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && list_item(e, node) != 0 {
+    while node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        && list_item(e, node) != 0
+    {
         let item = list_item(e, node);
         if item != 0 {
             let mut cursor = e.mem.u32(item);
             while cursor != 0 && list_item(e, cursor) != 0 {
                 let extra = list_item(e, cursor);
                 if extra != 0 && e.call(EXTRA_LEVELED_POSITION, &args![extra]).i32() == position {
-                    result = e.call(WORD_AT_8, &args![item]).u32();
+                    result = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                     break;
                 }
                 cursor = list_next(e, cursor);
@@ -7813,7 +7924,7 @@ fn list_pop_head(e: &mut Engine, list: u32) {
 /// is then plain (`fn_004bca60`) is unlinked and deleted, else its count is
 /// put back.
 fn fix_default_health(e: &mut Engine, entry: u32) {
-    let form = e.call(WORD_AT_8, &args![entry]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
     let health_form = e
         .call(
             RT_DYNAMIC_CAST,
@@ -7944,7 +8055,7 @@ fn run_form_scripts(
     delete_reference: bool,
 ) {
     let head = e.mem.u32(entry);
-    if head == 0 || e.call(LIST_IS_EMPTY, &args![head]).bool() {
+    if head == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head)) {
         e.call(INVENTORY_FN_004D1960, &args![this]);
         return;
     }
@@ -8005,7 +8116,7 @@ fn trim_extra_lists(e: &mut Engine, entry: u32, total: u32) {
         if popped != 0 {
             let destination = list_item(e, list);
             if destination != 0 {
-                let mut data = e.call(WORD_AT_4, &args![popped]).u32();
+                let mut data = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, popped));
                 while data != 0 {
                     let kind = e.call(EXTRA_DATA_TYPE, &args![data]).u8() as u32;
                     if e.call(EXTRA_GET_BY_TYPE, &args![destination, kind]).u32() != 0 {
@@ -8014,13 +8125,13 @@ fn trim_extra_lists(e: &mut Engine, entry: u32, total: u32) {
                         e.call(EXTRA_REMOVE_EXTRA, &args![popped, data, 0u32]);
                         e.call(EXTRA_ADD_EXTRA, &args![destination, data]);
                     }
-                    data = e.call(WORD_AT_4, &args![popped]).u32();
+                    data = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, popped));
                 }
             }
             delete_object(e, popped);
         }
     }
-    if e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         let head = e.mem.u32(entry);
         if head != 0 {
             e.call(LIST_DESTROY, &args![head, 1u32]);
@@ -8034,7 +8145,7 @@ fn trim_extra_lists(e: &mut Engine, entry: u32, total: u32) {
         if e.call(EXTRA_ITEMS_IN_LIST, &args![item]).u32() < 1 {
             list_pop_head(e, list);
             let head = e.mem.u32(entry);
-            if e.call(LIST_IS_EMPTY, &args![head]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head)) {
                 e.call(LIST_CLEAR, &args![list]);
                 e.call(LIST_DESTROY, &args![list, 1u32]);
                 list = 0;
@@ -8069,7 +8180,7 @@ pub fn fn_004cbbc0(e: &mut Engine, this: Ptr<InventoryChanges>) {
     let container = fn_004bffb0(e, this);
     let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
     // The container's objects.
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         let form = e.mem.u32(object + 4);
         let object = list_item(e, node);
@@ -8185,7 +8296,7 @@ pub fn fn_004cbbc0(e: &mut Engine, this: Ptr<InventoryChanges>) {
     }
     // The changes' entries.
     let mut node = e.get(this, InventoryChanges::pListofChanges).addr();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let entry = list_item(e, node);
         let mut in_container = 0i32;
         if fn_004bffb0(e, this) != 0 && entry != 0 {
@@ -8198,12 +8309,12 @@ pub fn fn_004cbbc0(e: &mut Engine, this: Ptr<InventoryChanges>) {
             fix_default_health(e, entry);
         }
         let listed = item_change_get_extra_total_count(e, Ptr::new(entry), false);
-        let form = e.call(WORD_AT_8, &args![entry]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         if entry != 0 && item_change_get_script(e, Ptr::new(entry)) != 0 {
             rerun_duplicate_scripts(e, entry);
         }
         if entry != 0 && entry_number(e, entry) >= 0 {
-            let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+            let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             let form_script = e.call(FORM_SCRIPT_OF, &args![entry_form]).u32();
             if form_script != 0 {
                 run_form_scripts(e, this, entry, form_script, false);
@@ -8364,7 +8475,7 @@ pub fn inventory_changes_duplicate_all_items(
     }
     let container = fn_004bffb0(e, this);
     let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         let form = e.mem.u32(object + 4);
         let object = list_item(e, node);
@@ -8409,10 +8520,10 @@ pub fn inventory_changes_duplicate_all_items(
         node = list_next(e, node);
     }
     let mut node = e.mem.u32(this.addr());
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let entry = list_item(e, node);
         if entry != 0 && entry_number(e, entry) > 0 {
-            let form = e.call(WORD_AT_8, &args![entry]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             item_change_remove_leveled_item_extra(e, Ptr::new(entry));
             let new_item;
             if item_change_get_script(e, Ptr::new(entry)) == 0 {
@@ -8420,7 +8531,7 @@ pub fn inventory_changes_duplicate_all_items(
                 new_item = new_item_change(e, form, number as u32);
                 copy_lists_for_duplicate(e, entry, new_item, false);
             } else {
-                let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+                let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                 let cloned = clone_form_without_script(e, entry_form);
                 let number = entry_number(e, entry);
                 new_item = new_item_change(e, cloned, number as u32);
@@ -8458,10 +8569,11 @@ pub fn fn_004cfe20(e: &mut Engine, this: Ptr<InventoryChanges>, form_id: u32) ->
     let mut total = 0i32;
     let container = fn_004bffb0(e, this);
     let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         let form = e.mem.u32(object + 4);
-        if form != 0 && e.call(FORM_ID, &args![form]).u32() == form_id {
+        if form != 0 && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form)) == form_id
+        {
             let entry = inventory_changes_get_object_in_list(e, this, form, 1, 0);
             let object = list_item(e, node);
             let count = e.mem.u32(object) as i32;
@@ -8482,14 +8594,15 @@ pub fn fn_004cfe20(e: &mut Engine, this: Ptr<InventoryChanges>, form_id: u32) ->
         node = list_next(e, node);
     }
     let mut node = e.mem.u32(this.addr());
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let item = list_item(e, node);
         let mut cursor = e.mem.u32(item);
         while cursor != 0 && list_item(e, cursor) != 0 {
             let extra = list_item(e, cursor);
             if extra != 0 && e.call(EXTRA_GET_REFERENCE_POINTER, &args![extra]).u32() != 0 {
                 let reference = e.call(EXTRA_GET_REFERENCE_POINTER, &args![extra]).u32();
-                if e.call(FORM_ID, &args![reference]).u32() == form_id {
+                if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference)) == form_id
+                {
                     return true;
                 }
             }
@@ -8530,7 +8643,7 @@ pub fn inventory_changes_container_has_objects(
     }
     let container = fn_004bffb0(e, this);
     let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         let found = e.mem.u32(object + 4);
         if found != 0 {
@@ -8552,19 +8665,29 @@ pub fn inventory_changes_container_has_objects(
                     total = entry_number(e, entry)
                         .wrapping_add(held)
                         .wrapping_add(total);
-                    if actor_obj != 0 && e.call(ACTOR_PROCESS, &args![actor_obj]).u32() != 0 {
-                        let process = e.call(ACTOR_PROCESS, &args![actor_obj]).u32();
-                        let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+                    if actor_obj != 0
+                        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor_obj))
+                            != 0
+                    {
+                        let process =
+                            typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor_obj));
+                        let entry_form =
+                            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                         e.vcall(process, 0x1d0, &args![entry_form]);
                     }
-                    let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+                    let entry_form =
+                        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                     let kind = e
                         .call(PACKAGE_OBJECT_TYPE_FROM_FORM, &args![entry_form])
                         .u32();
                     e.mem.set_u32(out, kind);
                 } else {
-                    if actor_obj != 0 && e.call(ACTOR_PROCESS, &args![actor_obj]).u32() != 0 {
-                        let process = e.call(ACTOR_PROCESS, &args![actor_obj]).u32();
+                    if actor_obj != 0
+                        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor_obj))
+                            != 0
+                    {
+                        let process =
+                            typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor_obj));
                         e.vcall(process, 0x1d0, &args![found]);
                     }
                     let kind = e.call(PACKAGE_OBJECT_TYPE_FROM_FORM, &args![found]).u32();
@@ -8581,12 +8704,15 @@ pub fn inventory_changes_container_has_objects(
     if form != 0 {
         let entry = inventory_changes_get_object_in_list(e, this, form, 1, 0);
         if entry != 0 && entry_number(e, entry) >= count {
-            if actor_obj != 0 && e.call(ACTOR_PROCESS, &args![actor_obj]).u32() != 0 {
-                let process = e.call(ACTOR_PROCESS, &args![actor_obj]).u32();
-                let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+            if actor_obj != 0
+                && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor_obj)) != 0
+            {
+                let process =
+                    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor_obj));
+                let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                 e.vcall(process, 0x1d0, &args![entry_form]);
             }
-            let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+            let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             let kind = e
                 .call(PACKAGE_OBJECT_TYPE_FROM_FORM, &args![entry_form])
                 .u32();
@@ -8596,7 +8722,10 @@ pub fn inventory_changes_container_has_objects(
         return false;
     }
     let mut node = e.mem.u32(this.addr());
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && list_item(e, node) != 0 {
+    while node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        && list_item(e, node) != 0
+    {
         let item = list_item(e, node);
         let found = e.mem.u32(item + 8);
         if found != 0
@@ -8606,14 +8735,18 @@ pub fn inventory_changes_container_has_objects(
         {
             let item = list_item(e, node);
             if entry_number(e, item) >= count {
-                if actor_obj != 0 && e.call(ACTOR_PROCESS, &args![actor_obj]).u32() != 0 {
-                    let process = e.call(ACTOR_PROCESS, &args![actor_obj]).u32();
+                if actor_obj != 0
+                    && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor_obj)) != 0
+                {
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor_obj));
                     let item = list_item(e, node);
-                    let item_form = e.call(WORD_AT_8, &args![item]).u32();
+                    let item_form =
+                        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                     e.vcall(process, 0x1d0, &args![item_form]);
                 }
                 let item = list_item(e, node);
-                let item_form = e.call(WORD_AT_8, &args![item]).u32();
+                let item_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                 let kind = e
                     .call(PACKAGE_OBJECT_TYPE_FROM_FORM, &args![item_form])
                     .u32();
@@ -8648,7 +8781,10 @@ pub fn fn_004d0360(e: &mut Engine, this: Ptr<InventoryChanges>) -> bool {
     }
     if !found {
         let mut node = e.mem.u32(this.addr());
-        while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && !found {
+        while node != 0
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            && !found
+        {
             let item = list_item(e, node);
             if item != 0 {
                 let form = e.mem.u32(item + 8);
@@ -8676,7 +8812,10 @@ pub fn fn_004d0490(e: &mut Engine, this: Ptr<InventoryChanges>) -> bool {
         let mut found = false;
         let container = fn_004bffb0(e, this);
         let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
-        while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && !found {
+        while node != 0
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            && !found
+        {
             let object = list_item(e, node);
             let form = e.mem.u32(object + 4);
             let seen = e.with_stack(4, |e, flag| {
@@ -8699,7 +8838,10 @@ pub fn fn_004d0490(e: &mut Engine, this: Ptr<InventoryChanges>) -> bool {
         }
         if !found {
             let mut node = e.mem.u32(this.addr());
-            while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && !found {
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+                && !found
+            {
                 let item = list_item(e, node);
                 if entry_number(e, item) != 0 {
                     let form = e.mem.u32(item + 8);
@@ -8891,7 +9033,7 @@ fn prepare_taken_extra(
 /// goes on at: 0 for an emptied list, else the entry's list word.
 fn drop_empty_extra(e: &mut Engine, entry: u32, node: u32) -> u32 {
     list_pop_head(e, node);
-    if e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         e.call(LIST_CLEAR, &args![node]);
         e.call(LIST_DESTROY, &args![node, 1u32]);
         e.mem.set_u32(entry, 0);
@@ -8983,7 +9125,7 @@ pub fn fn_004ce380(
     let has_skip = skip_list != 0;
     let container = fn_004bffb0(e, this);
     let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         let form = e.mem.u32(object + 4);
         let leveled = e
@@ -9116,18 +9258,18 @@ pub fn fn_004ce380(
         node = list_next(e, node);
     }
     let mut node = e.mem.u32(this.addr());
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let mut taken = false;
         let mut entry = list_item(e, node);
         if has_skip {
-            let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+            let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             if form_in_skip_list(e, skip_list, entry_form) {
                 node = list_next(e, node);
                 continue;
             }
         }
         if type_filter > -1 && entry != 0 {
-            let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+            let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             if form_type_of(e, entry_form) as i32 != type_filter {
                 node = list_next(e, node);
                 continue;
@@ -9137,7 +9279,7 @@ pub fn fn_004ce380(
             node = list_next(e, node);
             continue;
         }
-        let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+        let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         let biped = e.call(GET_FORM_AS_BIPED_MODEL, &args![entry_form]).u32();
         if biped != 0 && !e.call(BIPED_PLAYABLE, &args![biped]).bool() {
             node = list_next(e, node);
@@ -9153,13 +9295,13 @@ pub fn fn_004ce380(
                 continue;
             }
         }
-        let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+        let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         let player = e.global::<u32>(PLAYER_GLOBAL);
         if e.vcall(entry_form, 0x94, &args![]).bool() && actor == player {
             if entry != 0 && item_change_get_worn(e, Ptr::new(entry), 0) {
                 let number = entry_number(e, entry);
                 let worn_flag = item_change_get_worn(e, Ptr::new(entry), 1) as u8;
-                let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+                let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                 e.with_stack(4, |e, removed| {
                     e.mem.set_u8(removed.addr(), 0);
                     fn_004c0cf0(
@@ -9184,7 +9326,7 @@ pub fn fn_004ce380(
             node = list_next(e, node);
             continue;
         }
-        let form = e.call(WORD_AT_8, &args![entry]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         let value = e.call(GET_FORM_VALUE, &args![form]).i32();
         total = ((value.wrapping_mul(entry_number(e, entry)) as f64) + (total as f64)) as f32;
         let mut in_container = 0i32;
@@ -9373,7 +9515,7 @@ pub fn inventory_changes_get_inventory_item(
     if entry == 0 {
         let container = fn_004bffb0(e, this);
         let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
-        while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let object = list_item(e, node);
             if e.mem.u32(object + 4) == form {
                 let object = list_item(e, node);
@@ -9386,25 +9528,25 @@ pub fn inventory_changes_get_inventory_item(
     }
     let container = fn_004bffb0(e, this);
     let in_container = e.call(CONTAINER_COUNT, &args![container, form]).i32();
-    let number = e
-        .call(WORD_AT_4, &args![entry])
+    let number = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+        .into_ret()
         .i32()
         .wrapping_add(in_container);
     let result = new_item_change(e, form, number as u32);
-    let entry_lists = e.call(WORD_AT_0, &args![entry]).u32();
+    let entry_lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
     if entry_lists != 0 {
-        let list = e.call(WORD_AT_0, &args![entry]).u32();
+        let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
         if e.call(LIST_COUNT_NONNULL, &args![list]).u32() != 0 {
-            if e.call(WORD_AT_0, &args![result]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, result)) == 0 {
                 let node = new_list_node(e);
                 e.mem.set_u32(result, node);
             }
-            let source = e.call(WORD_AT_0, &args![entry]).u32();
+            let source = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
             let first = list_item(e, source);
             if e.call(EXTRA_IS_DEFAULT_FOR_CONTAINER, &args![first, 0u32])
                 .bool()
             {
-                let mut cursor = e.call(WORD_AT_0, &args![entry]).u32();
+                let mut cursor = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
                 while cursor != 0 && list_item(e, cursor) != 0 {
                     let item = list_item(e, cursor);
                     let target = e.mem.u32(result);
@@ -9418,7 +9560,7 @@ pub fn inventory_changes_get_inventory_item(
             return result;
         }
     }
-    if e.call(WORD_AT_0, &args![result]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, result)) != 0 {
         let list = e.mem.u32(result);
         if list != 0 {
             e.call(LIST_DESTROY, &args![list, 1u32]);
@@ -9475,7 +9617,7 @@ pub fn fn_004d0900(e: &mut Engine, this: Ptr<InventoryChanges>, with_mods: u8) -
     let mut mod_weight = 0.0f32;
     let container = fn_004bffb0(e, this);
     let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         let form = e.mem.u32(object + 4);
         let entry = inventory_changes_get_object_in_list(e, this, form, 1, 0);
@@ -9501,7 +9643,10 @@ pub fn fn_004d0900(e: &mut Engine, this: Ptr<InventoryChanges>, with_mods: u8) -
             if entry == 0 {
                 total = (count as f64 * weight as f64 + total as f64) as f32;
             } else {
-                let number = e.call(WORD_AT_4, &args![entry]).i32().wrapping_add(count);
+                let number = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                    .into_ret()
+                    .i32()
+                    .wrapping_add(count);
                 if number != 0 {
                     total = (number as f64 * weight as f64 + total as f64) as f32;
                 }
@@ -9510,7 +9655,10 @@ pub fn fn_004d0900(e: &mut Engine, this: Ptr<InventoryChanges>, with_mods: u8) -
         node = list_next(e, node);
     }
     let mut node = e.mem.u32(this.addr());
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && list_item(e, node) != 0 {
+    while node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        && list_item(e, node) != 0
+    {
         let mut is_weapon = false;
         let entry = list_item(e, node);
         let form = e.mem.u32(entry + 8);
@@ -9551,15 +9699,18 @@ pub fn fn_004d0900(e: &mut Engine, this: Ptr<InventoryChanges>, with_mods: u8) -
                 } else {
                     0
                 };
-                let mut count = e.call(WORD_AT_4, &args![entry]).i32();
-                let lists = e.call(WORD_AT_0, &args![entry]).u32();
+                let mut count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                    .into_ret()
+                    .i32();
+                let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
                 if lists != 0
                     && is_weapon
                     && item_change_get_extra_total_count(e, Ptr::new(entry), true) >= 1
                 {
-                    let weapon = e.call(WORD_AT_8, &args![entry]).u32();
+                    let weapon = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                     let mut modded = 0i32;
-                    let mut cursor = e.call(WORD_AT_0, &args![entry]).u32();
+                    let mut cursor =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
                     while cursor != 0 {
                         let extra = list_item(e, cursor);
                         if extra != 0 && e.call(EXTRA_HAS_WEAPON_MODS, &args![extra]).bool() {
@@ -9639,11 +9790,12 @@ pub fn fn_004d0f40(
     let mut total = 0i32;
     let container = fn_004bffb0(e, this);
     let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         let form = e.mem.u32(object + 4);
         if (include_excluded != 0 || !e.vcall(form, FORM_EXCLUDED_SLOT, &args![]).bool())
-            && (include_caps != 0 || e.call(FORM_ID, &args![form]).u32() != 0xf)
+            && (include_caps != 0
+                || typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form)) != 0xf)
         {
             let mut value = e.call(GET_FORM_VALUE, &args![form]).i32();
             if value == -1 {
@@ -9656,7 +9808,10 @@ pub fn fn_004d0f40(
                 if entry == 0 {
                     total = value.wrapping_mul(count).wrapping_add(total);
                 } else {
-                    let number = e.call(WORD_AT_4, &args![entry]).i32().wrapping_add(count);
+                    let number = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                        .into_ret()
+                        .i32()
+                        .wrapping_add(count);
                     if number != 0 {
                         total = number.wrapping_mul(value).wrapping_add(total);
                     }
@@ -9666,7 +9821,10 @@ pub fn fn_004d0f40(
         node = list_next(e, node);
     }
     let mut node = e.mem.u32(this.addr());
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && list_item(e, node) != 0 {
+    while node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        && list_item(e, node) != 0
+    {
         let entry = list_item(e, node);
         let form = e.mem.u32(entry + 8);
         if form != 0 {
@@ -9675,14 +9833,19 @@ pub fn fn_004d0f40(
                 container != 0 && e.call(CONTAINER_HAS_FORM, &args![container, form]).bool();
             if !listed
                 && (include_excluded != 0 || !e.vcall(form, FORM_EXCLUDED_SLOT, &args![]).bool())
-                && (include_caps != 0 || e.call(FORM_ID, &args![form]).u32() != 0xf)
+                && (include_caps != 0
+                    || typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form)) != 0xf)
             {
                 let mut value = e.call(GET_FORM_VALUE, &args![form]).i32();
                 if value == -1 {
                     value = 0;
                 }
-                if value != 0 && e.call(WORD_AT_4, &args![entry]).u32() != 0 {
-                    let number = e.call(WORD_AT_4, &args![entry]).i32();
+                if value != 0
+                    && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry)) != 0
+                {
+                    let number = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                        .into_ret()
+                        .i32();
                     total = number.wrapping_mul(value).wrapping_add(total);
                 }
             }
@@ -9710,7 +9873,10 @@ pub fn fn_004d1360(e: &mut Engine, this: Ptr) -> bool {
 pub fn fn_004d1180(e: &mut Engine, this: Ptr<InventoryChanges>, actor: u32) -> f32 {
     let mut total = 0.0f32;
     let mut node = e.mem.u32(this.addr());
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && list_item(e, node) != 0 {
+    while node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        && list_item(e, node) != 0
+    {
         let entry = list_item(e, node);
         let form = e.mem.u32(entry + 8);
         if item_change_get_worn(e, Ptr::new(entry), 0) && form_type_of(e, form) != 0x29 {
@@ -9726,7 +9892,7 @@ pub fn fn_004d1180(e: &mut Engine, this: Ptr<InventoryChanges>, actor: u32) -> f
                     .call(WEIGHT_FORM_GET_WEIGHT, &args![form, mode as u32])
                     .f32();
             }
-            let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+            let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             let mut count = fn_004c8f30(e, this, entry_form);
             if form_type_of(e, form) == FORM_TYPE_ARMOR {
                 // The result of this cast is not used.
@@ -9735,14 +9901,14 @@ pub fn fn_004d1180(e: &mut Engine, this: Ptr<InventoryChanges>, actor: u32) -> f
                     &args![form, 0u32, TYPE_TES_OBJECT, TYPE_TES_OBJECT_ARMO, 0u32],
                 );
             } else if form_type_of(e, form) == FORM_TYPE_WEAPON {
-                let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 if process != 0 {
                     let first = e.vcall(process, 0x148, &args![]).u32();
                     let second = e.vcall(process, 0x14c, &args![]).u32();
                     if first != 0
                         && second != 0
-                        && e.call(WORD_AT_8, &args![first]).u32()
-                            == e.call(WORD_AT_8, &args![second]).u32()
+                        && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, first))
+                            == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, second))
                     {
                         count = 1;
                     }
@@ -9762,7 +9928,7 @@ pub fn fn_004d1380(e: &mut Engine, this: Ptr<InventoryChanges>, position: i32) -
     let mut found = false;
     let mut node = e.mem.u32(this.addr());
     while node != 0
-        && !e.call(LIST_IS_EMPTY, &args![node]).bool()
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
         && list_item(e, node) != 0
         && !found
     {
@@ -9822,15 +9988,15 @@ pub fn fn_004d1440(e: &mut Engine, this: Ptr<InventoryChanges>) {
     let container = fn_004bffb0(e, this);
     let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
     let mut index = 0i32;
-    let owner = e.call(WORD_AT_4, &args![this]).u32();
+    let owner = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     let level = if e.vcall(owner, 0x100, &args![]).bool() {
-        let owner = e.call(WORD_AT_4, &args![this]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         e.call(ACTOR_LEVEL, &args![owner]).u32() & 0xffff
     } else {
-        let owner = e.call(WORD_AT_4, &args![this]).u32();
+        let owner = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         e.call(REFERENCE_GET_CALC_LEVEL, &args![owner, 1u32]).u32()
     };
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         let mut leveled = 0u32;
         let form = e.mem.u32(object + 4);
@@ -9876,7 +10042,7 @@ pub fn fn_004d1440(e: &mut Engine, this: Ptr<InventoryChanges>) {
 pub fn fn_004d1610(e: &mut Engine, this: Ptr<InventoryChanges>) {
     let container = fn_004bffb0(e, this);
     let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         node = list_next(e, node);
         let form = e.mem.u32(object + 4);
@@ -9913,7 +10079,10 @@ pub fn fn_004d17a0(e: &mut Engine, this: Ptr<InventoryChanges>) {
     let owner = e.get(this, InventoryChanges::pRef).addr();
     e.vcall(owner, 0x48, &args![0x0800_0000u32]);
     let mut node = e.mem.u32(this.addr());
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && list_item(e, node) != 0 {
+    while node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        && list_item(e, node) != 0
+    {
         let entry = list_item(e, node);
         let mut inner = e.mem.u32(entry);
         while inner != 0 && list_item(e, inner) != 0 {
@@ -9922,7 +10091,9 @@ pub fn fn_004d17a0(e: &mut Engine, this: Ptr<InventoryChanges>) {
                 inner = list_next(e, inner);
             } else if e.call(EXTRA_GET_LEVELED_ITEM, &args![extra]).u32() != 0 {
                 e.call(EXTRA_FN_0041D000, &args![extra]);
-                let number = e.call(WORD_AT_4, &args![entry]).i32();
+                let number = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                    .into_ret()
+                    .i32();
                 let held = e.call(EXTRA_GET_COUNT, &args![extra]).u16() as i16 as i32;
                 e.call(ITEM_SET_NUMBER, &args![entry, number.wrapping_sub(held)]);
                 list_call_with_item(e, LIST_REMOVE, inner, extra);
@@ -9935,8 +10106,8 @@ pub fn fn_004d17a0(e: &mut Engine, this: Ptr<InventoryChanges>) {
         let lists = e.mem.u32(entry);
         if entry != 0
             && lists != 0
-            && e.call(LIST_IS_EMPTY, &args![lists]).bool()
-            && e.call(WORD_AT_4, &args![entry]).u32() == 0
+            && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, lists))
+            && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry)) == 0
         {
             let head = e.mem.u32(this.addr());
             list_call_with_item(e, LIST_REMOVE, head, entry);
@@ -10033,7 +10204,7 @@ fn run_script_for_lists_of_entry(e: &mut Engine, entry: u32, script: u32) -> i32
 pub fn fn_004d1960(e: &mut Engine, this: Ptr<InventoryChanges>) {
     let container = fn_004bffb0(e, this);
     let mut node = e.call(CONTAINER_OBJECT_LIST, &args![container]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let object = list_item(e, node);
         let form = e.mem.u32(object + 4);
         let script = e.call(FORM_SCRIPT_OF, &args![form]).u32();
@@ -10063,9 +10234,9 @@ pub fn fn_004d1960(e: &mut Engine, this: Ptr<InventoryChanges>) {
     let mut node = e.mem.u32(this.addr());
     while node != 0 && list_item(e, node) != 0 {
         let entry = list_item(e, node);
-        let form = e.call(WORD_AT_8, &args![entry]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         let script = e.call(FORM_SCRIPT_OF, &args![form]).u32();
-        let number = e.call(WORD_AT_4, &args![entry]).u32();
+        let number = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
         let count = e.call(ABS_INT, &args![number]).i32();
         if script != 0 && count > 0 {
             if entry == 0 || item_change_get_script(e, Ptr::new(entry)) != 0 {
@@ -10148,7 +10319,8 @@ pub fn inventory_changes_run_scripts(
                         if form_type_of(e, script) == FORM_TYPE_SCRIPT {
                             let temporary = e.global::<u32>(TEMP_REF_GLOBAL);
                             e.call(REFERENCE_SET_EXTRA, &args![temporary, extra]);
-                            let form = e.call(WORD_AT_8, &args![entry]).u32();
+                            let form =
+                                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                             let temporary = e.global::<u32>(TEMP_REF_GLOBAL);
                             e.call(REFERENCE_SET_OBJECT_REFERENCE, &args![temporary, form]);
                             let locals = e.call(EXTRA_GET_SCRIPT_LOCALS, &args![extra]).u32();
@@ -10299,7 +10471,8 @@ pub fn fn_004d26d0(
                         && item_change_number_leveled_extra(e, Ptr::new(entry)) >= 1)
                         || entry_number(e, entry).wrapping_add(count) != 0;
                     if keep {
-                        let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+                        let entry_form =
+                            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                         let excluded = e.vcall(entry_form, FORM_EXCLUDED_SLOT, &args![]).bool();
                         if (excluded && skip_excluded != 0)
                             || item_change_get_worn(e, Ptr::new(entry), 0)
@@ -10330,7 +10503,8 @@ pub fn fn_004d26d0(
                         }
                         e.call(ITEM_SET_FORM, &args![item, object_form]);
                         if entry != 0 && item_change_get_script(e, Ptr::new(entry)) != 0 {
-                            let mut cursor = e.call(WORD_AT_0, &args![entry]).u32();
+                            let mut cursor =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
                             while cursor != 0 && list_item(e, cursor) != 0 {
                                 let extra = list_item(e, cursor);
                                 e.call(EXTRA_SET_OWNER_EXTRA, &args![extra, owner]);
@@ -10340,7 +10514,8 @@ pub fn fn_004d26d0(
                             }
                             fn_004c3380(e, target, item, 1);
                         } else if !item_change_get_worn(e, Ptr::new(item), 0) {
-                            let number = e.call(WORD_AT_4, &args![item]).u32();
+                            let number =
+                                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
                             add_counted_list(e, item, owner, number);
                             fn_004c3380(e, target, item, 1);
                         } else {
@@ -10385,7 +10560,11 @@ pub fn fn_004d26d0(
                             }
                             e.call(ITEM_SET_FORM, &args![item, object_form]);
                             if !item_change_get_worn(e, Ptr::new(item), 0) {
-                                let number = e.call(WORD_AT_4, &args![item]).u32();
+                                let number = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0072_6070,
+                                    leaf::word_at_4(e, item)
+                                );
                                 add_counted_list(e, item, owner, number);
                                 fn_004c3380(e, target, item, 1);
                             } else {
@@ -10402,7 +10581,12 @@ pub fn fn_004d26d0(
             let item = new_empty_item_change(e);
             ensure_extra_list(e, item);
             let entry = list_item(e, node);
-            if entry == 0 || e.call(WORD_AT_4, &args![entry]).i32() < 1 {
+            if entry == 0
+                || typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                    .into_ret()
+                    .i32()
+                    < 1
+            {
                 delete_item_change(e, item);
             } else {
                 let container = fn_004bffb0(e, this);
@@ -10438,30 +10622,39 @@ pub fn fn_004d26d0(
                             e.call(EXTRA_SET_OWNER_EXTRA, &args![found, owner]);
                             let head = e.mem.u32(item);
                             list_call_with_item(e, LIST_ADD, head, found);
-                            let number = e.call(WORD_AT_4, &args![entry]).i32();
+                            let number =
+                                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                                    .into_ret()
+                                    .i32();
                             if !item_change_get_worn(e, Ptr::new(item), 0) && sum < number {
                                 add_counted_list(e, item, owner, number.wrapping_sub(sum) as u32);
                             }
                         } else {
-                            let number = e.call(WORD_AT_4, &args![entry]).u32();
+                            let number =
+                                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                             add_counted_list(e, item, owner, number);
                         }
                         e.call(ITEM_SET_FORM, &args![item, entry_form]);
-                        let number = e.call(WORD_AT_4, &args![entry]).u32();
+                        let number =
+                            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                         e.call(ITEM_SET_NUMBER, &args![item, number]);
                         if !item_change_get_worn(e, Ptr::new(item), 0) {
-                            let number = e.call(WORD_AT_4, &args![entry]).u32();
+                            let number =
+                                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                             e.call(ITEM_SET_NUMBER, &args![item, number]);
                             fn_004c3380(e, target, item, 1);
                         } else {
                             drop_worn_item(e, item);
                         }
                     } else {
-                        let form = e.call(WORD_AT_8, &args![entry]).u32();
+                        let form =
+                            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                         e.call(ITEM_SET_FORM, &args![item, form]);
-                        let number = e.call(WORD_AT_4, &args![entry]).u32();
+                        let number =
+                            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                         e.call(ITEM_SET_NUMBER, &args![item, number]);
-                        let number = e.call(WORD_AT_4, &args![item]).u32();
+                        let number =
+                            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
                         add_counted_list(e, item, owner, number);
                         fn_004c3380(e, target, item, 1);
                     }
@@ -10511,9 +10704,11 @@ pub fn fn_004d26d0(
                     }
                     let entry_form = e.mem.u32(entry + 8);
                     e.call(ITEM_SET_FORM, &args![item, entry_form]);
-                    let number = e.call(WORD_AT_4, &args![entry]).u32();
+                    let number = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                     e.call(ITEM_SET_NUMBER, &args![item, number]);
-                    let number = e.call(WORD_AT_4, &args![entry]).i32();
+                    let number = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                        .into_ret()
+                        .i32();
                     if !item_change_get_worn(e, Ptr::new(item), 0) && moved < number {
                         add_counted_list(e, item, owner, number.wrapping_sub(moved) as u32);
                     }
@@ -10573,7 +10768,7 @@ pub fn inventory_changes_clear_all_change_items(e: &mut Engine, this: Ptr<Invent
             {
                 e.call(EXTRA_REMOVE_COUNT, &args![extra]);
             }
-            let lists = e.call(WORD_AT_0, &args![entry]).u32();
+            let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
             list_call_with_item(e, LIST_REMOVE, lists, extra);
             let mut unlisted = true;
             let reference_extras = e.call(REFR_EXTRA_LIST, &args![reference]).u32();
@@ -10603,10 +10798,10 @@ pub fn inventory_changes_clear_all_change_items(e: &mut Engine, this: Ptr<Invent
 fn lists_hold_no(e: &mut Engine, changes: u32, entry: u32, extra: u32, unlisted: bool) -> bool {
     let mut unlisted = unlisted;
     if changes != 0 {
-        let form = e.call(WORD_AT_8, &args![entry]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         let other = inventory_changes_get_object_in_list(e, Ptr::new(changes), form, 1, 0);
-        if other != 0 && e.call(WORD_AT_0, &args![other]).u32() != 0 {
-            let mut cursor = e.call(WORD_AT_0, &args![other]).u32();
+        if other != 0 && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other)) != 0 {
+            let mut cursor = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
             while cursor != 0 && list_item(e, cursor) != 0 && unlisted {
                 if list_item(e, cursor) == extra {
                     unlisted = false;
@@ -10635,7 +10830,7 @@ pub fn fn_004d3960(e: &mut Engine, this: Ptr<InventoryChanges>) -> u16 {
     size = size.wrapping_add(2);
     let mut cursor = e.mem.u32(this.addr());
     while cursor != 0 {
-        if e.call(LIST_IS_EMPTY, &args![cursor]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, cursor)) {
             break;
         }
         let entry = list_item(e, cursor);
@@ -10681,7 +10876,7 @@ pub fn fn_004d3ab0(e: &mut Engine, this: Ptr<InventoryChanges>) {
         e.call(SAVE_BYTES, &args![save, count_slot, 2u32]);
         let mut cursor = e.mem.u32(this.addr());
         while cursor != 0 {
-            if e.call(LIST_IS_EMPTY, &args![cursor]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, cursor)) {
                 break;
             }
             let entry = list_item(e, cursor);
@@ -10775,7 +10970,7 @@ pub fn inventory_changes_load_game(e: &mut Engine, this: Ptr<InventoryChanges>) 
     for _ in 0..entries {
         let item = new_empty_item_change(e);
         item_change_load_game(e, Ptr::new(item));
-        if e.call(WORD_AT_8, &args![item]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item)) != 0 {
             let list = e.mem.u32(this.addr());
             list_call_with_item(e, LIST_ADD, list, item);
         } else {
@@ -10886,7 +11081,7 @@ fn skipped_by_item_filter(e: &mut Engine, form: u32) -> bool {
 pub fn fn_004d4030(e: &mut Engine, this: Ptr<InventoryChanges>) {
     let mut cursor = e.mem.u32(this.addr());
     while cursor != 0 {
-        if e.call(LIST_IS_EMPTY, &args![cursor]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, cursor)) {
             break;
         }
         let entry = list_item(e, cursor);
@@ -10975,7 +11170,7 @@ pub fn fn_004d4160(e: &mut Engine, this: Ptr<InventoryChanges>, buffer: u32) {
         for _ in 0..entries {
             let mut item = new_empty_item_change(e);
             item_change_load_game_ov2(e, Ptr::new(item), buffer);
-            if e.call(WORD_AT_8, &args![item]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item)) == 0 {
                 item_change_delete_all_extra(e, Ptr::new(item));
                 delete_item_change(e, item);
                 item = 0;
@@ -11015,9 +11210,9 @@ pub fn fn_004d43c0(e: &mut Engine, this: Ptr<InventoryChanges>, form: u32, extra
     while cursor != 0 {
         let entry = list_item(e, cursor);
         cursor = list_next(e, cursor);
-        if entry != 0 && e.call(WORD_AT_8, &args![entry]).u32() == form {
+        if entry != 0 && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry)) == form {
             let mut index = 0i32;
-            let mut lists = e.call(WORD_AT_0, &args![entry]).u32();
+            let mut lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
             while lists != 0 {
                 let item = list_item(e, lists);
                 if item != 0 && item == extra {
@@ -11044,9 +11239,9 @@ pub fn fn_004d4480(e: &mut Engine, this: Ptr<InventoryChanges>, form: u32, index
     while cursor != 0 {
         let entry = list_item(e, cursor);
         cursor = list_next(e, cursor);
-        if entry != 0 && e.call(WORD_AT_8, &args![entry]).u32() == form {
+        if entry != 0 && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry)) == form {
             let mut position = 0i32;
-            let mut lists = e.call(WORD_AT_0, &args![entry]).u32();
+            let mut lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
             while lists != 0 {
                 let item = list_item(e, lists);
                 if position == index {
@@ -11114,19 +11309,22 @@ pub fn fn_004d4530(
         if entry == 0 {
             continue;
         }
-        let form = e.call(WORD_AT_8, &args![entry]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         if flags & 1 != 0 && skipped_by_item_filter(e, form) {
             continue;
         }
         let container = fn_004bffb0(e, this);
         let held = e.call(CONTAINER_COUNT, &args![container, form]).i32();
-        let number = e.call(WORD_AT_4, &args![entry]).i32().wrapping_add(held);
+        let number = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+            .into_ret()
+            .i32()
+            .wrapping_add(held);
         if number == 0 {
             continue;
         }
         let stop = e.with_stack(0xc, |e, item| {
             item_change_item_change_ov3(e, Ptr::new(item.addr()));
-            let lists = e.call(WORD_AT_0, &args![entry]).u32();
+            let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
             e.mem.set_u32(item.addr(), lists);
             e.call(ITEM_SET_NUMBER, &args![item, number]);
             e.call(ITEM_SET_FORM, &args![item, form]);
@@ -11221,11 +11419,13 @@ pub fn fn_004d4830(
         if entry == 0 {
             continue;
         }
-        let form = e.call(WORD_AT_8, &args![entry]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         if flags & 1 != 0 && skipped_by_item_filter(e, form) {
             continue;
         }
-        let held_by = e.call(WORD_AT_4, &args![entry]).i32();
+        let held_by = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+            .into_ret()
+            .i32();
         let container = fn_004bffb0(e, this);
         let held = e.call(CONTAINER_COUNT, &args![container, form]).i32();
         let number = held_by.wrapping_add(held);
@@ -11233,7 +11433,7 @@ pub fn fn_004d4830(
             continue;
         }
         e.mem.set_u32(out, entry);
-        let lists = e.call(WORD_AT_0, &args![entry]).u32();
+        let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
         e.mem.set_u32(iterator, lists);
         e.call(ITEM_SET_NUMBER, &args![iterator, number]);
         e.call(ITEM_SET_FORM, &args![iterator, form]);
@@ -11283,7 +11483,7 @@ pub fn inventory_changes_get_item_group(
     }
     let mut found = false;
     for_each_fast_item(e, this, |e, item| {
-        if e.call(WORD_AT_8, &args![item]).u32() == form {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item)) == form {
             found = true;
             list_call_with_item(e, LIST_ADD, list, item);
             true
@@ -11308,7 +11508,7 @@ pub fn inventory_changes_get_repair_item_group(
         return;
     }
     for_each_fast_item(e, this, |e, item| {
-        let item_form = e.call(WORD_AT_8, &args![item]).u32();
+        let item_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         if e.call(REPAIR_ITEM_TEST, &args![item_form, form]).u8() != 0 {
             list_call_with_item(e, LIST_ADD, list, item);
         } else {
@@ -11335,9 +11535,9 @@ pub fn inventory_changes_get_item_mod_group(
         return;
     }
     for_each_fast_item(e, this, |e, item| {
-        let item_form = e.call(WORD_AT_8, &args![item]).u32();
+        let item_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         if form_type_of(e, item_form) == FORM_TYPE_WEAPON_MOD {
-            let mod_form = e.call(WORD_AT_8, &args![item]).u32();
+            let mod_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             for slot_bit in [1u32, 2, 4] {
                 if mod_form == fn_004bd570(e, Ptr::new(weapon), slot_bit) {
                     list_call_with_item(e, LIST_ADD, list, item);

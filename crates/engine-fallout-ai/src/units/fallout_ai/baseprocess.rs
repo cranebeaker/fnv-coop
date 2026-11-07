@@ -71,6 +71,7 @@ const CURRENT_VERSION: u32 = 0x008d_f040;
 /// `004839c0` (cdecl, one word): the form for a record's id word.
 const FORM_FOR_ID: u32 = 0x0048_39c0;
 /// `0040fbe0`, `Error` (Xbox PDB), cdecl with variable arguments.
+#[cfg(test)]
 const ERROR_MESSAGE: u32 = 0x0040_fbe0;
 /// `005b5e40`, cdecl with variable arguments: the SAVELOAD warnings.
 const SAVELOAD_WARNING: u32 = 0x005b_5e40;
@@ -335,7 +336,7 @@ pub fn base_process_set_current_procedure_index(
 /// `GetCurrentProcedureIndex` slot.
 pub fn fn_008d03e0(e: &mut Engine, this: Ptr<BaseProcess>) -> u32 {
     let package = this.addr().wrapping_add(CURRENT_PACKAGE);
-    e.call(0x0084_e3a0, &args![package]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, package))
 }
 
 // Translated from 008d0400 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -372,7 +373,7 @@ pub fn fn_008d0420(
 /// current package; PC vtable slot +0x274.
 pub fn fn_008d0430(e: &mut Engine, this: Ptr<BaseProcess>) -> u32 {
     let package = this.addr().wrapping_add(CURRENT_PACKAGE);
-    e.call(0x0072_6070, &args![package]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, package))
 }
 
 // Translated from 008d0450 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -710,23 +711,9 @@ pub fn base_process_get_save_size(
         let record = e.call(SAVING_RECORD, &args![save_load]).u32();
         if record != 0 {
             let words = record_words(e, record, false);
-            e.call(
-                ERROR_MESSAGE,
-                &args![
-                    SAVE_SIZE_FORM_FORMAT,
-                    size as u32,
-                    words.form_id,
-                    words.name,
-                    words.flags,
-                    0xe8u32,
-                    SOURCE_FILE
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words SAVE_SIZE_FORM_FORMAT, size as u32, words.form_id, words.name, words.flags, 0xe8u32, SOURCE_FILE);
         } else {
-            e.call(
-                ERROR_MESSAGE,
-                &args![SAVE_SIZE_FORMAT, size as u32, 0xe8u32, SOURCE_FILE],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words SAVE_SIZE_FORMAT, size as u32, 0xe8u32, SOURCE_FILE);
         }
     }
     size
@@ -775,23 +762,9 @@ pub fn base_process_save_game(
         let written = end.wrapping_sub(start);
         if record != 0 {
             let words = record_words(e, record, false);
-            e.call(
-                ERROR_MESSAGE,
-                &args![
-                    SAVE_GAME_FORM_FORMAT,
-                    written,
-                    words.form_id,
-                    words.name,
-                    words.flags,
-                    0xf9u32,
-                    SOURCE_FILE
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words SAVE_GAME_FORM_FORMAT, written, words.form_id, words.name, words.flags, 0xf9u32, SOURCE_FILE);
         } else {
-            e.call(
-                ERROR_MESSAGE,
-                &args![SAVE_GAME_FORMAT, written, 0xf9u32, SOURCE_FILE],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words SAVE_GAME_FORMAT, written, 0xf9u32, SOURCE_FILE);
         }
     }
     if use_save_game_blocks(e) {

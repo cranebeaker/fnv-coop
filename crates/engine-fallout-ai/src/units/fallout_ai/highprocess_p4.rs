@@ -19,11 +19,6 @@ use crate::prelude::*;
 /// (`00401030`, cdecl).
 const OPERATOR_NEW: u32 = 0x0040_1000;
 const OPERATOR_DELETE: u32 = 0x0040_1030;
-/// A `BSSimpleList` node's own address (`006815c0`, returns `this`): the item
-/// is the word at the result.
-const LIST_ITEM_SLOT: u32 = 0x0068_15c0;
-/// A `BSSimpleList` node's next pointer (`00726070`, the word at `+4`).
-const LIST_NEXT: u32 = 0x0072_6070;
 /// Appends the item whose address is passed: `(list, &item)` (`005ae3d0`).
 const LIST_APPEND: u32 = 0x005a_e3d0;
 /// Removes the first node's item by moving the second node's content into the
@@ -82,13 +77,13 @@ const LAST_SEEN_POSITION: u32 = 0xfc;
 
 /// The item of a list node: `*LIST_ITEM_SLOT(node)`.
 fn list_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 /// The next node of a list node.
 fn list_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// A new `DetectionState` (`operator new(0x24)` and its constructor; null
@@ -127,14 +122,8 @@ fn list_append_at(e: &mut Engine, list: u32, item: u32, slot: u32) {
     e.call(LIST_APPEND, &args![list, slot]);
 }
 
-/// `MiddleHighProcess::GetSavedAcquireObject` in the engine map, but the
-/// body (shared by folding) returns the word at +0x68 of an actor: its
-/// process (`008d8520`).
-const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// The type code of a package or object (`0041ca90`).
 const PACKAGE_TYPE: u32 = 0x0041_ca90;
-/// `TESPackage::GetPackageTarget` (`00671d10`: the word at +0x30).
-const PACKAGE_GET_TARGET: u32 = 0x0067_1d10;
 /// The 3D node of a reference (`0043fcd0`, also its slot `0x1d0`).
 const GET_3D_NODE: u32 = 0x0043_fcd0;
 /// The `Calendar` singleton (`011de7b8`) and its `GetHour` (`00867da0`) and
@@ -590,7 +579,7 @@ pub fn high_process_get_emotions_dispostion(
         let target = e.mem.u32(this.addr() + TARGET);
         if target != 0
             && e.vcall(target, REFERENCE_SLOT_IS_ACTOR, &args![]).bool()
-            && !e.call(0x0044_0da0, &args![target]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, target))
         {
             return e
                 .vcall(subject, ACTOR_SLOT_DISPOSITION, &args![target, 0u32])
@@ -671,7 +660,7 @@ pub fn fn_008f9160(e: &mut Engine, this: Ptr) -> u16 {
 /// the event type -1 and the reference null. Returns `this`.
 pub fn fn_008fdb10(e: &mut Engine, this: Ptr<DetectionEvent>) -> Ptr<DetectionEvent> {
     let base = this.addr();
-    e.call(LIST_ITEM_SLOT, &args![base + 4]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 4));
     e.call(0x0043_00a0, &args![base + 0x10]);
     e.mem.set_u32(base, 0);
     for word in 0..3 {
@@ -756,7 +745,7 @@ pub fn high_process_create_followno_escort(e: &mut Engine, this: Ptr, actor: Ptr
         .vcall(this.addr(), PROCESS_SLOT_RUNNING_PACKAGE, &args![])
         .u32();
     if package != 0 {
-        let actor_process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+        let actor_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let greeting = e
             .vcall(actor_process, PROCESS_SLOT_GREETING_FLAG, &args![])
             .bool();
@@ -812,12 +801,12 @@ pub fn high_process_create_followno_escort(e: &mut Engine, this: Ptr, actor: Ptr
     if target != 0 {
         e.call(0x007b_3fa0, &args![target, 1u32]);
     }
-    let package_target = e.call(PACKAGE_GET_TARGET, &args![created]).u32();
+    let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, created));
     e.call(0x0068_00b0, &args![package_target, 0u32]);
     let player = e.mem.u32(PLAYER);
-    let package_target = e.call(PACKAGE_GET_TARGET, &args![created]).u32();
+    let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, created));
     e.call(0x0068_0110, &args![package_target, player]);
-    let package_target = e.call(PACKAGE_GET_TARGET, &args![created]).u32();
+    let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, created));
     let count: u32 = if long_range != 0 { 3000 } else { 0x50 };
     e.call(0x0040_3550, &args![package_target, count]);
     if package != 0 {
@@ -1050,12 +1039,12 @@ pub fn high_process_clean_up_after_process_use_weapon(e: &mut Engine, this: Ptr,
         let current = e
             .vcall(this.addr(), PROCESS_SLOT_CURRENT_WEAPON, &args![])
             .u32();
-        let item = e.call(0x0044_ddc0, &args![current]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, current));
         if item != 0 && e.call(0x0040_1170, &args![item]).i32() == 0x28 {
             let current = e
                 .vcall(this.addr(), PROCESS_SLOT_CURRENT_WEAPON, &args![])
                 .u32();
-            weapon_form = e.call(0x0044_ddc0, &args![current]).u32();
+            weapon_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, current));
         }
         if weapon_form != 0 && e.call(0x004c_0bf0, &args![weapon_form]).bool() {
             e.call(0x008a_6840, &args![actor, 0u32]);
@@ -1185,8 +1174,12 @@ pub fn high_process_update_3d_model(e: &mut Engine, this: Ptr, actor: Ptr) {
                 (e.mem.u32(out.addr()), e.mem.u32(out.addr() + 4))
             });
             e.call(0x0060_7420, &args![base, actor, face, first, second]);
-            if e.call(0x0084_e3a0, &args![base]).i32() == 7 {
-                let race = e.call(LIST_NEXT, &args![base + 0x10c]).u32();
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, base))
+                .into_ret()
+                .i32()
+                == 7
+            {
+                let race = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base + 0x10c));
                 e.call(0x0061_3fd0, &args![race]);
             }
         }
@@ -1211,7 +1204,7 @@ pub fn high_process_update_3d_model(e: &mut Engine, this: Ptr, actor: Ptr) {
             if e.vcall(actor.addr(), REFERENCE_SLOT_IS_CREATURE, &args![])
                 .bool()
             {
-                save_form = e.call(0x007a_f430, &args![actor]).u32();
+                save_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
             }
             let face_data = e.call(0x008a_dcb0, &args![actor]).u32();
             if face_data != 0 {
@@ -1247,7 +1240,7 @@ pub fn high_process_update_3d_model(e: &mut Engine, this: Ptr, actor: Ptr) {
                 }
                 e.call(0x008b_0bd0, &args![actor, lit]);
                 if actor.addr() != player {
-                    let form_id = e.call(0x0084_e3a0, &args![actor]).u32();
+                    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
                     let current = e.vcall(actor.addr(), REFERENCE_SLOT_GET_3D, &args![]).u32();
                     e.call(0x004b_6dc0, &args![current, form_id]);
                 }
@@ -1271,9 +1264,6 @@ const SAVE_LOAD_GAME: u32 = 0x011d_e45c;
 const SAVE_VERSION: u32 = 0x008d_f040;
 /// `TESSaveLoadGame::UseSaveGameBlocks` (`00862110`).
 const USE_SAVE_GAME_BLOCKS: u32 = 0x0086_2110;
-/// `Error(format, ...)` (`0040fbe0`, cdecl; the release build keeps the
-/// calls but the function does nothing).
-const ERROR_LOG: u32 = 0x0040_fbe0;
 /// The source file name the error messages print (`01088358`).
 const SOURCE_FILE_NAME: u32 = 0x0108_8358;
 
@@ -1340,23 +1330,9 @@ pub fn high_process_get_save_size(e: &mut Engine, this: Ptr, flags: u32, context
             let name = e.vcall(form, 0x130, &args![]).u32();
             // `[world space + 5]` is read as the game does (an unaligned word).
             let word = e.mem.u32(world_space + 5);
-            e.call(
-                ERROR_LOG,
-                &args![
-                    0x0101_2cb0u32,
-                    used,
-                    form_id,
-                    name,
-                    word,
-                    0x3152u32,
-                    SOURCE_FILE_NAME
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_2cb0u32, used, form_id, name, word, 0x3152u32, SOURCE_FILE_NAME);
         } else {
-            e.call(
-                ERROR_LOG,
-                &args![0x0101_2c78u32, used, 0x3152u32, SOURCE_FILE_NAME],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_2c78u32, used, 0x3152u32, SOURCE_FILE_NAME);
         }
     }
     size
@@ -1375,10 +1351,6 @@ const LOGGING_SETTING: u32 = 0x0040_8d60;
 const LOGGING_SETTING_OBJECT: u32 = 0x011d_e4e8;
 /// `TES::GetWorldSpace` (`004fd3e0`).
 const GET_WORLD_SPACE: u32 = 0x004f_d3e0;
-/// `TESForm::GetFormID` (`0084e3a0`: the word at +0x0c).
-const GET_FORM_ID: u32 = 0x0084_e3a0;
-/// Whether a list is empty (`008256d0`: no item and no next node).
-const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 
 /// Writes `size` bytes of `this + offset` to the save buffer.
 fn save_field(e: &mut Engine, tes: u32, this: Ptr, offset: u32, size: u32) {
@@ -1393,7 +1365,7 @@ fn save_field(e: &mut Engine, tes: u32, this: Ptr, offset: u32, size: u32) {
 fn save_form_id_field(e: &mut Engine, tes: u32, this: Ptr, offset: u32) {
     let form = e.mem.u32(this.addr() + offset);
     let id = if form != 0 {
-        e.call(GET_FORM_ID, &args![form]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
     } else {
         0
     };
@@ -1481,11 +1453,11 @@ pub fn high_process_save_game(e: &mut Engine, this: Ptr, flags: u32, context: u3
     let count_slot = e.call(SAVE_POSITION, &args![tes]).u32();
     save_local(e, tes, 0, 2);
     let mut node = e.mem.u32(this.addr() + DETECTED_ACTOR_LIST);
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let state = list_item(e, node);
         let actor = e.mem.u32(state);
         let id = if actor != 0 {
-            e.call(GET_FORM_ID, &args![actor]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor))
         } else {
             0
         };
@@ -1555,23 +1527,9 @@ pub fn high_process_save_game(e: &mut Engine, this: Ptr, flags: u32, context: u3
             let name = e.vcall(form, 0x130, &args![]).u32();
             // `[world space + 5]` is read as the game does (an unaligned word).
             let word = e.mem.u32(world_space + 5);
-            e.call(
-                ERROR_LOG,
-                &args![
-                    0x0101_53a0u32,
-                    used,
-                    form_id,
-                    name,
-                    word,
-                    0x3200u32,
-                    SOURCE_FILE_NAME
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_53a0u32, used, form_id, name, word, 0x3200u32, SOURCE_FILE_NAME);
         } else {
-            e.call(
-                ERROR_LOG,
-                &args![0x0101_536cu32, used, 0x3200u32, SOURCE_FILE_NAME],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_536cu32, used, 0x3200u32, SOURCE_FILE_NAME);
         }
     }
     if e.call(USE_SAVE_GAME_BLOCKS, &args![tes]).bool() {
@@ -1913,7 +1871,7 @@ pub fn high_process_init_load_game(e: &mut Engine, this: Ptr, a: u32, b: u32, c:
     }
     let mut node = e.mem.u32(this.addr() + DETECTED_ACTOR_LIST);
     let mut previous = 0;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let state = list_item(e, node);
         let actor_id = e.mem.u32(state);
         if actor_id != 0 {
@@ -2261,7 +2219,11 @@ pub fn high_process_update_ov2(e: &mut Engine, this: Ptr, actor: Ptr, delta: f32
                             );
                             keep_going = false;
                             let saved_form = if location != 0 {
-                                e.call(0x007a_f430, &args![location]).u32()
+                                typed_call!(
+                                    leaf::FAMILY,
+                                    0x007a_f430,
+                                    leaf::word_at_20(e, location)
+                                )
                             } else {
                                 0
                             };
@@ -2367,10 +2329,18 @@ pub fn high_process_update_ov2(e: &mut Engine, this: Ptr, actor: Ptr, delta: f32
                             }
                         } else {
                             let target = e.mem.u32(base + TARGET);
-                            if e.call(0x0044_0d80, &args![target]).bool()
-                                || e.call(0x0044_0da0, &args![target]).bool()
+                            if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, target))
+                                || typed_call!(
+                                    leaf::FAMILY,
+                                    0x0044_0da0,
+                                    leaf::form_flag_800(e, target)
+                                )
                             {
-                                if e.call(0x0044_0d80, &args![target]).bool() {
+                                if typed_call!(
+                                    leaf::FAMILY,
+                                    0x0044_0d80,
+                                    leaf::form_flag_20(e, target)
+                                ) {
                                     e.call(0x0067_4e70, &args![package, target, 1u32]);
                                 }
                                 e.vcall(
@@ -2494,7 +2464,7 @@ pub fn high_process_update_ov2(e: &mut Engine, this: Ptr, actor: Ptr, delta: f32
             }
         }
     }
-    let actor_process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+    let actor_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(
         actor_process,
         PROCESS_SLOT_COMPUTE_LAST_TIME_PROCESSED,
@@ -2562,8 +2532,13 @@ fn update_case_0_travel(e: &mut Engine, this: Ptr, package: u32, actor: u32) {
             &args![actor, coordinates, cell, world, radius, 0u32],
         );
     });
-    let saved_acquire_object = e.call(ACTOR_PROCESS, &args![actor]).u32();
-    if e.call(0x0045_cd60, &args![saved_acquire_object]).u32() != 0 {
+    let saved_acquire_object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+    if typed_call!(
+        leaf::FAMILY,
+        0x0045_cd60,
+        leaf::word_at_28(e, saved_acquire_object)
+    ) != 0
+    {
         return;
     }
     if !e
@@ -2594,7 +2569,8 @@ fn update_case_0_travel(e: &mut Engine, this: Ptr, package: u32, actor: u32) {
         &args![actor, 1u32],
     );
     let at_saved_form = destination != 0
-        && e.call(0x007a_f430, &args![destination]).u32() == e.mem.u32(SAVED_FORM_GLOBAL);
+        && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, destination))
+            == e.mem.u32(SAVED_FORM_GLOBAL);
     let mut reached = at_saved_form;
     if !at_saved_form && e.call(0x0055_b980, &args![package]).u32() != 0 {
         let package_location = e.call(0x0055_b980, &args![package]).u32();
@@ -2775,7 +2751,7 @@ fn finish_package_procedure(e: &mut Engine, this: Ptr, package: u32, actor: u32)
     e.mem.set_u32(base + 0x64, 0);
     e.mem.set_u32(base + 0x34, 0);
     let objects = base + 0x5c;
-    while !e.call(LIST_IS_EMPTY, &args![objects]).bool() {
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, objects)) {
         let item = list_item(e, objects);
         if item != 0 {
             e.call(0x007b_3fa0, &args![item, 1u32]);
@@ -2799,8 +2775,6 @@ const BUFFER_SAVE_BYTES: u32 = 0x0086_5e50;
 const BUFFER_SAVE_FORM_ID: u32 = 0x0086_5df0;
 const BUFFER_START_SIZED_VALUE: u32 = 0x0086_5f20;
 const BUFFER_END_SIZED_VALUE: u32 = 0x0086_5ff0;
-/// `0084e3a0(buffer)`: the word at +0x0c of the buffer (its position).
-const BUFFER_POSITION: u32 = 0x0084_e3a0;
 
 /// The fixed fields `SaveGame_ov2` writes first, as (offset in the process,
 /// size in bytes), in the order the code writes them.
@@ -2970,9 +2944,9 @@ pub fn high_process_save_game_ov2(e: &mut Engine, this: Ptr, buffer: u32) {
         e.call(0x008d_7270, &args![event, buffer]);
     }
     let start = e.call(BUFFER_START_SIZED_VALUE, &args![buffer]).u32();
-    let before = e.call(BUFFER_POSITION, &args![buffer]).u32();
+    let before = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, buffer));
     e.call(0x0092_8880, &args![this, buffer]);
-    let after = e.call(BUFFER_POSITION, &args![buffer]).u32();
+    let after = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, buffer));
     e.call(
         BUFFER_END_SIZED_VALUE,
         &args![buffer, after.wrapping_sub(before), start],
@@ -3403,7 +3377,8 @@ pub fn high_process_evaluate_detection(e: &mut Engine, this: Ptr, actor: Ptr) ->
             if e.vcall(player, ACTOR_SLOT_0X22C, &args![0u32]).bool()
                 && !e.vcall(player, ACTOR_SLOT_IS_DYING, &args![]).bool()
             {
-                let player_process = e.call(ACTOR_PROCESS, &args![player]).u32();
+                let player_process =
+                    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
                 if !e
                     .vcall(player_process, PROCESS_SLOT_GREETING_FLAG, &args![])
                     .bool()
@@ -3700,9 +3675,6 @@ const DEGREES_TO_RADIANS: u32 = 0x0102_3128;
 /// `008bb5c0(actor, angle, flag)`: turns the actor towards an angle (stack:
 /// angle, flag).
 const TURN_ACTOR_SET_ROTATION: u32 = 0x008b_b5c0;
-/// `TESObjectREFR::GetForm`-like conversion `007af430` and the global the
-/// location checks compare against (`011ca248`).
-const FORM_OF_REFERENCE: u32 = 0x007a_f430;
 /// `PackageTarget` accessors: type (`00519b00`), object (`00680050`),
 /// reference (`00680020`), object type (`00680080`); `TESPackage::
 /// GetObjectTypeFromForm` (`00679ba0`, cdecl).
@@ -3756,7 +3728,8 @@ fn must_turn(e: &mut Engine, actor: u32, target_angle: f32) -> bool {
 /// location (`0055b980`) has type 3.
 fn at_marker_location(e: &mut Engine, package: u32, location: u32) -> bool {
     if location != 0
-        && e.call(FORM_OF_REFERENCE, &args![location]).u32() == e.mem.u32(SAVED_FORM_GLOBAL)
+        && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, location))
+            == e.mem.u32(SAVED_FORM_GLOBAL)
     {
         return true;
     }
@@ -3822,7 +3795,7 @@ pub fn high_process_process_use_item_at(e: &mut Engine, this: Ptr, actor: Ptr) -
     let package_location = e.call(PACKAGE_LOCATION, &args![package]).u32();
     // `InventoryChanges::GetInventoryChanges(actor)` is called; its result is never used.
     e.call(0x004b_f220, &args![actor]);
-    let target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     if package_location != 0 && e.call(LOCATION_REFERENCE, &args![package_location]).u32() != 0 {
         location = e.call(LOCATION_REFERENCE, &args![package_location]).u32();
     }
@@ -3850,7 +3823,8 @@ pub fn high_process_process_use_item_at(e: &mut Engine, this: Ptr, actor: Ptr) -
         return false;
     }
     if location != 0
-        && e.call(FORM_OF_REFERENCE, &args![location]).u32() == e.mem.u32(SAVED_FORM_GLOBAL)
+        && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, location))
+            == e.mem.u32(SAVED_FORM_GLOBAL)
         && e.mem.u8(base + 0xe1) == 0
     {
         let angle = facing_of(e, actor, location);
@@ -3901,9 +3875,17 @@ pub fn high_process_process_use_item_at(e: &mut Engine, this: Ptr, actor: Ptr) -
         if process_target != 0
             && (target_type_a == 0 || e.call(TARGET_TYPE, &args![target]).i32() == 3)
         {
-            let form = e.call(FORM_OF_REFERENCE, &args![process_target]).u32();
+            let form = typed_call!(
+                leaf::FAMILY,
+                0x007a_f430,
+                leaf::word_at_20(e, process_target)
+            );
             item_form = form;
-            let form = e.call(FORM_OF_REFERENCE, &args![process_target]).u32();
+            let form = typed_call!(
+                leaf::FAMILY,
+                0x007a_f430,
+                leaf::word_at_20(e, process_target)
+            );
             let kind = e.call(OBJECT_TYPE_FROM_FORM, &args![form]).u32();
             e.mem.set_u32(base + 0x108, kind);
         } else {
@@ -3919,8 +3901,16 @@ pub fn high_process_process_use_item_at(e: &mut Engine, this: Ptr, actor: Ptr) -
         }
         if e.mem.u32(base + TARGET) != 0 && e.mem.u32(base + 0x108) == 0 {
             let process_target = e.mem.u32(base + TARGET);
-            item_form = e.call(FORM_OF_REFERENCE, &args![process_target]).u32();
-            let form = e.call(FORM_OF_REFERENCE, &args![process_target]).u32();
+            item_form = typed_call!(
+                leaf::FAMILY,
+                0x007a_f430,
+                leaf::word_at_20(e, process_target)
+            );
+            let form = typed_call!(
+                leaf::FAMILY,
+                0x007a_f430,
+                leaf::word_at_20(e, process_target)
+            );
             let kind = e.call(OBJECT_TYPE_FROM_FORM, &args![form]).u32();
             e.mem.set_u32(base + 0x108, kind);
             let generic = e.mem.u32(base + 0x44);
@@ -3928,8 +3918,8 @@ pub fn high_process_process_use_item_at(e: &mut Engine, this: Ptr, actor: Ptr) -
                 e.mem.set_u32(base + 0x108, 0);
             } else {
                 e.vcall(base, PROCESS_SLOT_SET_TARGET, &args![generic]);
-                item_form = e.call(FORM_OF_REFERENCE, &args![generic]).u32();
-                let form = e.call(FORM_OF_REFERENCE, &args![generic]).u32();
+                item_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, generic));
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, generic));
                 let kind = e.call(OBJECT_TYPE_FROM_FORM, &args![form]).u32();
                 e.mem.set_u32(base + 0x108, kind);
             }
@@ -3973,20 +3963,21 @@ pub fn high_process_process_use_item_at(e: &mut Engine, this: Ptr, actor: Ptr) -
                 e.vcall(base, PROCESS_SLOT_END_MOVE_MESSAGE, &args![actor]);
                 return false;
             }
-            let package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+            let package_target =
+                typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
             let mut selected = 0;
             let kind = e.call(TARGET_TYPE, &args![package_target]).i32();
             if kind == 1 {
                 selected = e.call(TARGET_OBJECT, &args![package_target]).u32();
             } else if e.call(TARGET_TYPE, &args![package_target]).i32() == 0 {
                 let reference = e.call(TARGET_REFERENCE, &args![package_target]).u32();
-                selected = e.call(FORM_OF_REFERENCE, &args![reference]).u32();
+                selected = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             } else if e.call(TARGET_TYPE, &args![package_target]).i32() == 3 {
                 let reference = e.call(0x0056_9b80, &args![actor]).u32();
                 selected = if reference == 0 {
                     0
                 } else {
-                    e.call(FORM_OF_REFERENCE, &args![reference]).u32()
+                    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
                 };
             }
             if selected != 0 {
@@ -4021,7 +4012,7 @@ fn use_furniture(e: &mut Engine, this: Ptr, package: u32, actor: u32, saved_targ
     let mut search = true;
     let furniture = e.mem.u32(base + 0x140);
     if furniture != 0 {
-        let form = e.call(FORM_OF_REFERENCE, &args![furniture]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, furniture));
         search = !(e.call(0x0050_93f0, &args![form]).bool()
             && e.call(0x0056_8260, &args![furniture, 0u32]).bool());
     }
@@ -4337,21 +4328,25 @@ fn current_weapon_form(e: &mut Engine, process: u32) -> Option<u32> {
     let entry = e
         .vcall(process, PROCESS_SLOT_CURRENT_WEAPON, &args![])
         .u32();
-    let entry = e.call(0x0044_ddc0, &args![entry]).u32();
+    let entry = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
     if entry == 0 {
         return Some(0);
     }
     let again = e
         .vcall(process, PROCESS_SLOT_CURRENT_WEAPON, &args![])
         .u32();
-    let object = e.call(0x0044_ddc0, &args![again]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, again));
     if e.call(0x0040_1170, &args![object]).i32() != 0x28 {
         return Some(0);
     }
     let third = e
         .vcall(process, PROCESS_SLOT_CURRENT_WEAPON, &args![])
         .u32();
-    Some(e.call(0x0044_ddc0, &args![third]).u32())
+    Some(typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, third)
+    ))
 }
 
 /// `Actor::QueueEquipObject(actor, object, 1, 0, 1, 0, 1)`.
@@ -4436,7 +4431,7 @@ pub fn high_process_process_use_weapon(e: &mut Engine, this: Ptr, actor: Ptr) ->
     let mut location = 0;
     let package_location = e.call(PACKAGE_LOCATION, &args![package]).u32();
     let inventory = e.call(0x004b_f220, &args![actor]).u32();
-    let mut target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+    let mut target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     let data = e.call(0x0067_58f0, &args![package]).u32();
     e.vcall(base, PROCESS_SLOT_SET_TARGET_FOR_PACKAGE, &args![actor]);
     if package_location != 0 && e.call(LOCATION_REFERENCE, &args![package_location]).u32() != 0 {
@@ -4463,7 +4458,8 @@ pub fn high_process_process_use_weapon(e: &mut Engine, this: Ptr, actor: Ptr) ->
         return false;
     }
     if location != 0
-        && e.call(FORM_OF_REFERENCE, &args![location]).u32() == e.mem.u32(SAVED_FORM_GLOBAL)
+        && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, location))
+            == e.mem.u32(SAVED_FORM_GLOBAL)
         && e.mem.u8(base + 0xe1) == 0
     {
         let angle = facing_of(e, actor, location);
@@ -4528,8 +4524,16 @@ pub fn high_process_process_use_weapon(e: &mut Engine, this: Ptr, actor: Ptr) ->
             && (e.call(TARGET_TYPE, &args![target]).i32() == 0
                 || e.call(TARGET_TYPE, &args![target]).i32() == 3)
         {
-            item_form = e.call(FORM_OF_REFERENCE, &args![process_target]).u32();
-            let form = e.call(FORM_OF_REFERENCE, &args![process_target]).u32();
+            item_form = typed_call!(
+                leaf::FAMILY,
+                0x007a_f430,
+                leaf::word_at_20(e, process_target)
+            );
+            let form = typed_call!(
+                leaf::FAMILY,
+                0x007a_f430,
+                leaf::word_at_20(e, process_target)
+            );
             let kind = e.call(OBJECT_TYPE_FROM_FORM, &args![form]).u32();
             e.mem.set_u32(base + 0x108, kind);
         } else if e.call(TARGET_TYPE, &args![target]).i32() == 1 {
@@ -4542,15 +4546,23 @@ pub fn high_process_process_use_weapon(e: &mut Engine, this: Ptr, actor: Ptr) ->
         }
         if e.mem.u32(base + TARGET) != 0 && e.mem.u32(base + 0x108) == 0 {
             let process_target = e.mem.u32(base + TARGET);
-            item_form = e.call(FORM_OF_REFERENCE, &args![process_target]).u32();
-            let form = e.call(FORM_OF_REFERENCE, &args![process_target]).u32();
+            item_form = typed_call!(
+                leaf::FAMILY,
+                0x007a_f430,
+                leaf::word_at_20(e, process_target)
+            );
+            let form = typed_call!(
+                leaf::FAMILY,
+                0x007a_f430,
+                leaf::word_at_20(e, process_target)
+            );
             let kind = e.call(OBJECT_TYPE_FROM_FORM, &args![form]).u32();
             e.mem.set_u32(base + 0x108, kind);
             let generic = e.mem.u32(base + 0x44);
             if generic != 0 {
                 e.vcall(base, PROCESS_SLOT_SET_TARGET, &args![generic]);
-                item_form = e.call(FORM_OF_REFERENCE, &args![generic]).u32();
-                let form = e.call(FORM_OF_REFERENCE, &args![generic]).u32();
+                item_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, generic));
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, generic));
                 let kind = e.call(OBJECT_TYPE_FROM_FORM, &args![form]).u32();
                 e.mem.set_u32(base + 0x108, kind);
             } else {
@@ -4572,7 +4584,7 @@ pub fn high_process_process_use_weapon(e: &mut Engine, this: Ptr, actor: Ptr) ->
         });
         return false;
     }
-    target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+    target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     if !e
         .vcall(base, PROCESS_SLOT_CHECK_IF_HAS_OBJECT, &args![actor, 1u32])
         .bool()
@@ -4600,11 +4612,12 @@ pub fn high_process_process_use_weapon(e: &mut Engine, this: Ptr, actor: Ptr) ->
                 let entry = e
                     .vcall(base, PROCESS_SLOT_ACTOR_PACKAGE_ITEM, &args![])
                     .u32();
-                let entry = e.call(0x0044_ddc0, &args![entry]).u32();
+                let entry = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                 if entry != 0 {
-                    let form = e.call(FORM_OF_REFERENCE, &args![entry]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, entry));
                     if weapon != form {
-                        let form = e.call(FORM_OF_REFERENCE, &args![entry]).u32();
+                        let form =
+                            typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, entry));
                         queue_equip(e, actor, form);
                         return true;
                     }
@@ -4780,7 +4793,11 @@ fn use_weapon_attack(
         let mut entry = 0;
         let process_target = e.mem.u32(base + TARGET);
         if process_target != 0 {
-            let form = e.call(FORM_OF_REFERENCE, &args![process_target]).u32();
+            let form = typed_call!(
+                leaf::FAMILY,
+                0x007a_f430,
+                leaf::word_at_20(e, process_target)
+            );
             entry = e.call(0x004d_0650, &args![inventory, form, 0u32]).u32();
         } else if item_form != 0 {
             entry = e
@@ -4794,7 +4811,7 @@ fn use_weapon_attack(
             });
         }
         if found == 0 && entry != 0 {
-            found = e.call(0x0044_ddc0, &args![entry]).u32();
+            found = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         }
         if found != 0 {
             queue_equip(e, actor, found);
@@ -4807,7 +4824,7 @@ fn use_weapon_attack(
             );
         }
         if entry != 0 {
-            let object = e.call(0x0044_ddc0, &args![entry]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             queue_equip(e, actor, object);
         }
         if entry != 0 {
@@ -4914,7 +4931,7 @@ fn line_of_fire_clear(e: &mut Engine, this: Ptr, actor: u32, target: u32) -> boo
     let distance = e.call(0x0057_23b0, &args![actor, target, 0u32, 0u32]).f32();
     let distance_squared = (f64::from(distance) * f64::from(distance)) as f32;
     let mut node = e.mem.u32(base + DETECTED_ACTOR_LIST);
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let state = list_item(e, node);
         node = list_next(e, node);
         let other = e.mem.u32(state);
@@ -5020,7 +5037,7 @@ fn attack_with_weapon(e: &mut Engine, this: Ptr, actor: u32, aim_target: u32) ->
         // The frame of `008f7730` (0x374 bytes): the attack data at `EBP-0x30c` (+0x68).
         e.with_stack(0x374, |e, frame| {
             let pointer = frame.addr() + 0x68;
-            e.call(LIST_ITEM_SLOT, &args![pointer]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, pointer));
             let accepted = e
                 .call(0x0097_fd80, &args![actor, chosen as u32, pointer])
                 .bool();
@@ -5128,7 +5145,7 @@ fn remove_list_node(e: &mut Engine, node: u32, previous: u32) -> u32 {
         e.call(LIST_REMOVE_HEAD, &args![node]);
         node
     } else {
-        let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.call(LIST_REMOVE_ITEM, &args![previous, slot]);
         list_next(e, previous)
     }
@@ -5140,8 +5157,8 @@ fn remove_list_node(e: &mut Engine, node: u32, previous: u32) -> u32 {
 fn resolve_actor_list(e: &mut Engine, head: u32) {
     let mut node = head;
     let mut previous = 0;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let form_id = e.mem.u32(slot);
         let mut keep = false;
         if form_id != 0 {
@@ -5169,7 +5186,7 @@ fn resolve_actor_list(e: &mut Engine, head: u32) {
 fn resolve_detection_list(e: &mut Engine, head: u32) {
     let mut node = head;
     let mut previous = 0;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let state = list_item(e, node);
         let mut remove = true;
         if state != 0 {
@@ -5758,7 +5775,6 @@ const SOUND_HANDLES: u32 = 0x314;
 /// `00933150(out handle, sound word, 1, 2, 1)` (RET 0x14).
 const DATA_HANDLER_GET_SOUND: u32 = 0x0046_16c0;
 const TORCH_SOUND_NAME: u32 = 0x0108_8398;
-const SOUND_PREPARE: u32 = 0x0084_e3a0;
 const OWNER_START_SOUND: u32 = 0x0093_3150;
 
 // Translated from 008ff0b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -5849,7 +5865,7 @@ pub fn high_process_start_torch_sound(e: &mut Engine, this: Ptr, owner: u32) {
     }
     // 008ff2f7: `0084e3a0` takes no stack word (plain RET); the pushed 1, 2, 1 are
     // the last three words of `00933150` (RET 0x14).
-    let prepared = e.call(SOUND_PREPARE, &args![sound]).u32();
+    let prepared = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
     e.with_stack(12, |e, temporary| {
         let made = e
             .call(
@@ -5988,7 +6004,7 @@ pub fn fn_008ff350(
     let player_like = e.call(ACTOR_TEST_00493BB0, &args![actor]).bool();
     let own_group = e.vcall(actor, ACTOR_SLOT_GROUP, &args![]).u32();
     if other == 0
-        || e.call(0x0044_0da0, &args![other]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, other))
         || !e.vcall(other, REFERENCE_SLOT_IS_ACTOR, &args![]).bool()
         || other == actor
     {
@@ -6038,7 +6054,7 @@ pub fn fn_008ff350(
     {
         let desired = e.vcall(other, ACTOR_SLOT_0X42C_WORD, &args![]).u32();
         if desired != 0 {
-            let process = e.call(ACTOR_PROCESS, &args![other]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, other));
             let other_state = e
                 .vcall(
                     process,
@@ -6751,7 +6767,7 @@ pub fn high_process_update_followers(e: &mut Engine, _this: Ptr, actor: u32, hou
     let mut node = e.mem.u32(followers + 0xc);
     let mut accumulated = 0.0f32;
     while node != 0 {
-        let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
@@ -6781,7 +6797,8 @@ pub fn high_process_update_followers(e: &mut Engine, _this: Ptr, actor: u32, hou
                     if process_type == 3 {
                         let hour = e.call(CALENDAR_GET_HOUR, &args![CALENDAR]).f64();
                         let adjusted = (hour - e.global::<f64>(ONE_DOUBLE)) as f32;
-                        let process = e.call(ACTOR_PROCESS, &args![follower]).u32();
+                        let process =
+                            typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, follower));
                         e.call(PROCESS_SET_HOUR, &args![process, adjusted]);
                     }
                     e.vcall(follower, FOLLOWER_SLOT_UPDATE, &args![length]);
@@ -6828,7 +6845,11 @@ pub fn high_process_update_followers(e: &mut Engine, _this: Ptr, actor: u32, hou
         e.call(LIST_DESTROY, &args![work, 1u32]);
     }
     let follower_list = e.mem.u32(followers + 0xc);
-    if e.call(LIST_IS_EMPTY, &args![follower_list]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, follower_list)
+    ) {
         let list_owner = e.call(EXTRA_DATA_LIST, &args![actor]).u32();
         e.call(EXTRA_DATA_REMOVE_FOLLOWER_EXTRA, &args![list_owner]);
     }
@@ -6854,12 +6875,14 @@ pub fn high_process_get_leveled_spells(e: &mut Engine, this: Ptr, actor: u32, fl
     }
     let form = e.call(0x0041_81e0, &args![actor]).u32();
     let mut outer = e.call(BASE_SPELL_LIST, &args![form + 0x7c]).u32();
-    while outer != 0 && !e.call(LIST_IS_EMPTY, &args![outer]).bool() {
+    while outer != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, outer)) {
         let entry = list_item(e, outer);
         if entry != 0 {
             let expanded = e.call(EXPAND_LEVELED_SPELL, &args![entry, actor]).u32();
             let mut inner = expanded;
-            while inner != 0 && !e.call(LIST_IS_EMPTY, &args![inner]).bool() {
+            while inner != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, inner))
+            {
                 let spell = list_item(e, inner);
                 if spell != 0 {
                     let kind = e.vcall(spell + 0x18, 0x18, &args![]).u32();
@@ -7156,7 +7179,7 @@ pub fn high_process_update_head_track_targets(e: &mut Engine, this: Ptr) {
             continue;
         }
         let target = e.mem.u32(base + HEAD_TRACKING_TARGETS + 4 * index);
-        if target == 0 || e.call(0x0044_0d80, &args![target]).bool() {
+        if target == 0 || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, target)) {
             e.mem.set_u8(base + HEAD_TRACKING_TARGET_FLAGS + index, 0);
             e.mem.set_u32(base + HEAD_TRACKING_TARGETS + 4 * index, 0);
             changed = true;
@@ -7237,13 +7260,13 @@ pub fn fn_00901740(e: &mut Engine, _this: Ptr, actor: u32) {
     let player = e.mem.u32(PLAYER);
     e.call(0x0057_bd60, &args![actor, player]);
     if item != 0 {
-        let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, 0x2a4, &args![actor, item, 0u32, 1u32, 0u32, 0u32]);
     }
     if e.vcall(actor, 0x214, &args![]).u32() == 0 {
         let form = e.call(0x0093_44a0, &args![actor]).u32();
         if form == 0 || e.call(PACKAGE_TYPE, &args![form]).u32() != 6 {
-            let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             e.vcall(process, 0x1dc, &args![actor, 1u32]);
         }
     }
@@ -7289,7 +7312,7 @@ pub fn high_process_compute_can_initiate_dialogue_with_npc(
     }
     e.call(0x0088_1510, &args![actor]);
     e.call(0x0088_1510, &args![other]);
-    let other_process = e.call(ACTOR_PROCESS, &args![other]).u32();
+    let other_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, other));
     if other_process == 0 || !e.vcall(other_process, 0x1f8, &args![other, actor]).bool() {
         return false;
     }
@@ -7378,8 +7401,8 @@ pub fn high_process_process_sand_box_dialogue(
         let value = e.call(0x0064_65f0, &args![high, low]).f32();
         e.mem.set_f32(base + 0x2c8, value);
         e.vcall(base, 0x1f0, &args![other]);
-        if e.call(ACTOR_PROCESS, &args![other]).u32() != 0 {
-            let other_process = e.call(ACTOR_PROCESS, &args![other]).u32();
+        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, other)) != 0 {
+            let other_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, other));
             e.vcall(other_process, 0x1f0, &args![actor]);
         }
         let result = e
@@ -7415,17 +7438,17 @@ pub fn fn_00901c50(e: &mut Engine, this: Ptr) -> bool {
 /// exception-unwinding frame is not translated.
 pub fn high_process_process_use_idle_marker(e: &mut Engine, this: Ptr, actor: u32, marker: u32) {
     let base = this.addr();
-    let marker_form = e.call(FORM_OF_REFERENCE, &args![marker]).u32();
+    let marker_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, marker));
     let mode = e.call(0x0047_9e80, &args![marker_form + 0x30]).u32();
     if marker != 0 {
         e.vcall(base, 0x12c, &args![marker]);
     } else if e.mem.u32(base + TARGET) == 0 {
         e.vcall(base, 0x8c, &args![actor]);
         let target = e.mem.u32(base + TARGET);
-        if target == 0 || e.call(FORM_OF_REFERENCE, &args![target]).u32() == 0 {
+        if target == 0 || typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target)) == 0 {
             return;
         }
-        let form = e.call(FORM_OF_REFERENCE, &args![target]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target));
         if e.call(0x0040_1170, &args![form]).u32() != 0x30 {
             return;
         }
@@ -7519,7 +7542,11 @@ pub fn high_process_process_use_idle_marker(e: &mut Engine, this: Ptr, actor: u3
                 if mode == 0 {
                     let random = e.call(0x00ec_adb8, &args![]).u32();
                     let index = random % count;
-                    let slot = e.call(0x0087_7a30, &args![idles, index]).u32();
+                    let slot = typed_call!(
+                        leaf::FAMILY,
+                        0x0087_7a30,
+                        leaf::array_element(e, idles, index)
+                    );
                     let idle = e.mem.u32(slot);
                     e.mem.set_u32(base + 0x194, idle);
                     e.mem.set_u32(base + 0x190, index);
@@ -7535,7 +7562,11 @@ pub fn high_process_process_use_idle_marker(e: &mut Engine, this: Ptr, actor: u3
                         last + 1
                     };
                     e.mem.set_u32(base + 0x190, next);
-                    let slot = e.call(0x0087_7a30, &args![idles, next]).u32();
+                    let slot = typed_call!(
+                        leaf::FAMILY,
+                        0x0087_7a30,
+                        leaf::array_element(e, idles, next)
+                    );
                     let idle = e.mem.u32(slot);
                     e.mem.set_u32(base + 0x194, idle);
                     let delay = e.global::<f32>(0x0101_2054);
@@ -7636,9 +7667,11 @@ pub fn high_process_process_guard(e: &mut Engine, this: Ptr, actor: u32) {
                 .bool();
             radius = e.call(0x0067_6280, &args![package, actor]).u32() as f32;
         } else {
-            let target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
             radius = if target != 0 {
-                e.call(0x0044_ddc0, &args![target]).i32() as f32
+                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, target))
+                    .into_ret()
+                    .i32() as f32
             } else {
                 e.global::<f32>(0x0101_8f5c)
             };
@@ -7647,7 +7680,7 @@ pub fn high_process_process_guard(e: &mut Engine, this: Ptr, actor: u32) {
                 .f64();
             inside = f64::from(radius) > distance;
         }
-        if e.call(LIST_NEXT, &args![state]).u32() != 0
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, state)) != 0
             && ((e.call(0x008b_3bb0, &args![actor]).bool() && !inside)
                 || e.call(0x008b_3b90, &args![actor]).bool())
         {
@@ -7670,7 +7703,7 @@ pub fn high_process_process_guard(e: &mut Engine, this: Ptr, actor: u32) {
         e.call(0x0067_8670, &args![package, actor, 0u32]);
         e.vcall(base, 0x350, &args![actor, steps, 1u32]);
     }
-    match e.call(LIST_NEXT, &args![state]).u32() {
+    match typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, state)) {
         0 => fn_00902640(e, this, actor, state),
         1 => fn_009026c0(e, this, actor, state, inside as u8),
         2 => high_process_process_guard_wait_to_attack(e, this, actor, state),
@@ -7726,12 +7759,14 @@ pub fn fn_009026c0(e: &mut Engine, this: Ptr, actor: u32, state: u32, inside: u8
         e.vcall(package, 0x13c, &args![actor, 0u32, minus_one, 0u32]);
     } else {
         e.call(REFERENCE_GET_DISTANCE, &args![actor, guard, 0u32, 0u32]);
-        let target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
-        e.call(0x0044_ddc0, &args![target]);
+        let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, target));
     }
     let package_now = e.vcall(base, 0x27c, &args![]).u32();
-    let target = e.call(PACKAGE_GET_TARGET, &args![package_now]).u32();
-    let radius = e.call(0x0044_ddc0, &args![target]).i32() as f32;
+    let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package_now));
+    let radius = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, target))
+        .into_ret()
+        .i32() as f32;
     let radius_squared = (f64::from(radius) * f64::from(radius)) as f32;
     let mut found = 0u32;
     let mut node = e.mem.u32(base + DETECTED_ACTOR_LIST);
@@ -7739,18 +7774,18 @@ pub fn fn_009026c0(e: &mut Engine, this: Ptr, actor: u32, state: u32, inside: u8
     if !e.call(0x0067_a7e0, &args![package_now]).bool() {
         node = 0;
     }
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let entry = list_item(e, node);
         node = list_next(e, node);
         let candidate = e.mem.u32(entry);
         if candidate == 0 || candidate == guard {
             continue;
         }
-        if e.call(ACTOR_PROCESS, &args![candidate]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, candidate)) == 0 {
             continue;
         }
-        let process = e.call(ACTOR_PROCESS, &args![candidate]).u32();
-        if e.call(0x0045_cd60, &args![process]).u32() != 0 {
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, candidate));
+        if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) != 0 {
             continue;
         }
         if e.vcall(candidate, 0x22c, &args![0u32]).bool()
@@ -7848,7 +7883,8 @@ pub fn fn_009026c0(e: &mut Engine, this: Ptr, actor: u32, state: u32, inside: u8
         return;
     }
     let usable = (location != 0
-        && e.call(FORM_OF_REFERENCE, &args![location]).u32() == e.mem.u32(0x011c_a248))
+        && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, location))
+            == e.mem.u32(0x011c_a248))
         || (location != 0
             && location_object != 0
             && e.call(0x0067_8ca0, &args![location_object]).u32() == 3);
@@ -7875,7 +7911,7 @@ pub fn fn_009026c0(e: &mut Engine, this: Ptr, actor: u32, state: u32, inside: u8
 /// the actor's process (slot `0x2a4`) `(actor, value, 0, 0, 1, 0)`.
 pub fn high_process_process_guard_warn(e: &mut Engine, this: Ptr, actor: u32, state: u32) {
     let base = this.addr();
-    e.call(0x0044_ddc0, &args![state]);
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, state));
     let guard = e.vcall(base, 0x128, &args![]).u32();
     if guard != 0 {
         e.call(0x0056_7790, &args![guard]);
@@ -7914,7 +7950,7 @@ pub fn high_process_process_guard_wait_to_attack(
 ) {
     let base = this.addr();
     let mut flagged = false;
-    let target = e.call(0x0044_ddc0, &args![state]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, state));
     if e.mem.u32(base + 0x368) != 0 {
         flagged = true;
         if e.vcall(actor, 0x4b4, &args![]).bool() && target != 0 {
@@ -7939,8 +7975,10 @@ pub fn high_process_process_guard_wait_to_attack(
         return;
     }
     let package = e.vcall(base, 0x27c, &args![]).u32();
-    let guard_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
-    let radius = e.call(0x0044_ddc0, &args![guard_target]).i32() as f32;
+    let guard_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
+    let radius = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, guard_target))
+        .into_ret()
+        .i32() as f32;
     let scale = setting_float(e, 0x011c_d1f8);
     let near = (f64::from(radius) * f64::from(scale)) as f32;
     let radius_squared = (f64::from(radius) * f64::from(radius)) as f32;
@@ -8010,17 +8048,21 @@ pub fn high_process_process_guard_wait_to_attack(
                 0
             };
             let limit = if warnings != 0 {
-                e.call(0x0044_ddc0, &args![warnings]).i32()
+                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, warnings))
+                    .into_ret()
+                    .i32()
             } else {
                 2
             };
-            let count = e.call(GET_FORM_ID, &args![state]).i32();
+            let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, state))
+                .into_ret()
+                .i32();
             attack = count > limit;
             warn = !attack;
         }
     }
     if attack {
-        let weapon_state = e.call(0x0044_ddc0, &args![state]).u32();
+        let weapon_state = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, state));
         let engaged = e
             .vcall(
                 base,
@@ -8042,7 +8084,8 @@ pub fn high_process_process_guard_wait_to_attack(
                 ],
             )
             .bool();
-        if engaged && e.call(LIST_NEXT, &args![base + 4]).u32() == state {
+        if engaged && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base + 4)) == state
+        {
             e.call(0x006e_cd40, &args![state, 0u32]);
         }
     } else if warn {

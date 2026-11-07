@@ -360,6 +360,7 @@ const IDLE_MARKER_TYPE: u32 = 0x0119_750c;
 /// The form id of a form (`0084e3a0`, thiscall) and the chunk writers
 /// (cdecl): a byte (`004858f0`), a word (`00485910`), an array
 /// (`TESForm::AddChunkArray`, `004856f0`: chunk, data, size).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 const WRITE_BYTE_CHUNK: u32 = 0x0048_58f0;
 const WRITE_WORD_CHUNK: u32 = 0x0048_5910;
@@ -425,18 +426,18 @@ pub fn fn_005e8300(e: &mut Engine, this: Ptr<BGSNote>) {
     let kind = e.mem.u8(base + 0x7c);
     e.call(WRITE_BYTE_CHUNK, &args![0x4154_4144u32, u32::from(kind)]);
     let mut node = e.call(0x004f_adc0, &args![this]).u32();
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let slot = e.call(0x0068_15c0, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let form = e.mem.u32(slot);
-        let id = e.call(FORM_ID, &args![form]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.call(WRITE_WORD_CHUNK, &args![0x4d41_4e4fu32, id]);
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     match e.mem.i8(base + 0x7c) {
         0 => {
             let sound = e.call(0x005e_9100, &args![this]).u32();
             if sound != 0 {
-                let id = e.call(FORM_ID, &args![sound]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
                 e.call(WRITE_WORD_CHUNK, &args![0x4d41_4e53u32, id]);
             }
         }
@@ -460,12 +461,12 @@ pub fn fn_005e8300(e: &mut Engine, this: Ptr<BGSNote>) {
         3 => {
             let topic = e.call(0x005e_9240, &args![this]).u32();
             if topic != 0 {
-                let id = e.call(FORM_ID, &args![topic]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, topic));
                 e.call(WRITE_WORD_CHUNK, &args![0x4d41_4e54u32, id]);
             }
             let speaker = e.call(0x005e_92a0, &args![this]).u32();
             if speaker != 0 {
-                let id = e.call(FORM_ID, &args![speaker]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, speaker));
                 e.call(WRITE_WORD_CHUNK, &args![0x4d41_4e53u32, id]);
             }
         }

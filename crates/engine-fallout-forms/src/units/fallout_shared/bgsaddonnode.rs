@@ -212,6 +212,7 @@ const ADD_CHUNK_WORD: u32 = 0x0048_5910;
 /// address, size).
 const ADD_CHUNK_DATA: u32 = 0x0048_5990;
 /// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `00401500` (`cdecl`, no arguments, `AL`): whether saved data is byte-swapped.
 const SWAP_ON_SAVE: u32 = 0x0040_1500;
@@ -240,7 +241,7 @@ pub fn bgs_addon_node_save(e: &mut Engine, this: Ptr<BgsAddonNode>) {
     e.call(ADD_CHUNK_WORD, &args![CHUNK_DATA, index]);
     let sound = e.get(this, BgsAddonNode::pSound);
     if sound != 0 {
-        let id = e.call(FORM_ID, &args![sound]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         e.call(ADD_CHUNK_WORD, &args![CHUNK_SNAM, id]);
     }
     let data = this.addr() + 0x58;

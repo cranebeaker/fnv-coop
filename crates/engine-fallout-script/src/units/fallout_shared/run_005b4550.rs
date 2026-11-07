@@ -50,6 +50,7 @@ const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 /// The `BSStringT<char>` destructor (`004037d0`).
 const STRING_DESTROY: u32 = 0x0040_37d0;
 /// The string's text pointer (`00559450`: the word at `this`).
+#[cfg(test)]
 const TEXT_POINTER: u32 = 0x0055_9450;
 /// The string's length (`004048e0`).
 const STRING_LENGTH: u32 = 0x0040_48e0;
@@ -59,8 +60,10 @@ const IDENTITY: u32 = 0x0046_4f30;
 /// empty string.
 const TEXT_OR_EMPTY: u32 = 0x0040_8da0;
 /// A list node's item word address (`006815c0`: answers `this`).
+#[cfg(test)]
 const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
 /// The next list node (`00726070`).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The head node of the message's item list (`00436aa0`, `this + 0x30`).
 const ITEM_LIST_HEAD: u32 = 0x0043_6aa0;
@@ -77,6 +80,7 @@ const GET_MESSAGE_MENU_RESULT: u32 = 0x0070_3fa0;
 /// The flag test of a script reference (`004077c0`: bit 0x4000, temporary).
 const IS_TEMPORARY: u32 = 0x0040_77c0;
 /// The owner id of a reference (`0084e3a0`).
+#[cfg(test)]
 const OWNER_ID: u32 = 0x0084_e3a0;
 /// The message form's flag test (`00590d00`, bit 0 of `+0x38`: a message box).
 const IS_MESSAGE_BOX: u32 = 0x0059_0d00;
@@ -151,7 +155,7 @@ fn show_message(e: &mut Engine, a: ScriptArgs, form: u32, string: u32) -> bool {
         } else {
             return false;
         };
-    let owner = e.call(OWNER_ID, &args![owner_source]).u32();
+    let owner = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner_source));
     e.set_global(MESSAGE_OWNER, owner);
 
     // Up to ten texts, one for each item of the form's list.
@@ -162,12 +166,12 @@ fn show_message(e: &mut Engine, a: ScriptArgs, form: u32, string: u32) -> bool {
     let mut all_empty = true;
     let mut node = e.call(ITEM_LIST_HEAD, &args![form]).u32();
     while node != 0 {
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 || count as i32 >= 10 {
             break;
         }
         let player = e.global::<u32>(PLAYER_POINTER);
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         let holds = e
             .call(
@@ -176,16 +180,16 @@ fn show_message(e: &mut Engine, a: ScriptArgs, form: u32, string: u32) -> bool {
             )
             .bool();
         let text = if holds {
-            let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(slot);
             all_empty = false;
-            e.call(TEXT_POINTER, &args![item]).u32()
+            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item))
         } else {
             EMPTY_TEXT
         };
         e.mem.set_u32(texts + 4 * count, text);
         count += 1;
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if all_empty {
         e.mem.set_u32(texts, NO_TEXT);
@@ -193,7 +197,7 @@ fn show_message(e: &mut Engine, a: ScriptArgs, form: u32, string: u32) -> bool {
 
     if e.call(IS_MESSAGE_BOX, &args![form]).bool() {
         let title = e.call(TEXT_OR_EMPTY, &args![form + 0x18]).u32();
-        let text = e.call(TEXT_POINTER, &args![string]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
         let text = e.call(IDENTITY, &args![text]).u32();
         // Nineteen words: text, 0, title, the answer callback, 0, 0x17, two
         // 0.0 floats, the ten texts, 0.
@@ -222,7 +226,7 @@ fn show_message(e: &mut Engine, a: ScriptArgs, form: u32, string: u32) -> bool {
         };
         // The value is an unsigned word shown as a `float`.
         let time = e.call(DISPLAY_TIME, &args![form]).u32() as f32;
-        let text = e.call(TEXT_POINTER, &args![string]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
         let text = e.call(IDENTITY, &args![text]).u32();
         e.call(SHOW_PLAIN, &args![text, 0u32, name, 0u32, time, 0u32]);
     }
@@ -326,9 +330,9 @@ const NO_ANSWER: u32 = 0x0101_a6b0;
 /// result is the `double` at `0101a6b0` (-1.0). True.
 pub fn fn_005b4a80(e: &mut Engine, a: ScriptArgs) -> bool {
     let caller = if !a.this_obj.is_null() && !e.call(IS_TEMPORARY, &args![a.this_obj]).bool() {
-        e.call(OWNER_ID, &args![a.this_obj]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, a.this_obj))
     } else if !a.script_obj.is_null() {
-        e.call(OWNER_ID, &args![a.script_obj]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, a.script_obj))
     } else {
         return false;
     };

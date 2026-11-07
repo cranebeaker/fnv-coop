@@ -54,12 +54,15 @@ pub fn fn_006fa100(e: &mut Engine, this: Ptr) -> Ptr {
 const OPERATOR_NEW: u32 = 0x0040_1000;
 const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// `00559450` (thiscall, no stack words): the object a smart pointer holds.
+#[cfg(test)]
 const POINTER_GET_00559450: u32 = 0x0055_9450;
 /// `0066b0d0` (thiscall, one word): assigns a smart pointer.
 const POINTER_SET_0066B0D0: u32 = 0x0066_b0d0;
 /// `0044ddc0` (thiscall, no stack words): an array's count.
+#[cfg(test)]
 const ARRAY_COUNT_0044DDC0: u32 = 0x0044_ddc0;
 /// `00877a30` (thiscall, one word: the index): the address of an array entry.
+#[cfg(test)]
 const ARRAY_AT_00877A30: u32 = 0x0087_7a30;
 /// `008454f0` (thiscall, one word): frees an array (called with 1).
 const ARRAY_FREE_008454F0: u32 = 0x0084_54f0;
@@ -130,15 +133,19 @@ pub fn bgs_distant_tree_block_allocate_static_data(e: &mut Engine, world: u32) {
             &args![manager, texture_path, STATIC_TEXTURE_011D85E0, 1u32, 1u32],
         );
     });
-    if e.call(POINTER_GET_00559450, &args![STATIC_TEXTURE_011D85E0])
-        .u32()
-        == 0
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, STATIC_TEXTURE_011D85E0)
+    ) == 0
     {
         e.call(0x005b_5e40, &args![0x0106_dd94u32]);
     }
-    let texture = e
-        .call(POINTER_GET_00559450, &args![STATIC_TEXTURE_011D85E0])
-        .u32();
+    let texture = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, STATIC_TEXTURE_011D85E0)
+    );
     fn_006f7a60(e, texture);
     e.mem.set_u8(STATIC_LOADED_011D85A0, 1);
     let block = e.call(0x00aa_13e0, &args![0x24u32]).u32();
@@ -151,9 +158,11 @@ pub fn bgs_distant_tree_block_allocate_static_data(e: &mut Engine, world: u32) {
         POINTER_SET_0066B0D0,
         &args![STATIC_POINTER_011D85BC, object],
     );
-    let held = e
-        .call(POINTER_GET_00559450, &args![STATIC_POINTER_011D85BC])
-        .u32();
+    let held = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, STATIC_POINTER_011D85BC)
+    );
     e.call(0x0049_ee30, &args![held, 3u32]);
     let block = e.call(0x00aa_13e0, &args![0x1cu32]).u32();
     let object = if block != 0 {
@@ -171,9 +180,11 @@ pub fn bgs_distant_tree_block_allocate_static_data(e: &mut Engine, world: u32) {
         (0x0094_db80, 0x80),
         (0x0043_93e0, 4),
     ] {
-        let held = e
-            .call(POINTER_GET_00559450, &args![STATIC_POINTER_011D85C4])
-            .u32();
+        let held = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, STATIC_POINTER_011D85C4)
+        );
         e.call(callee, &args![held, value]);
     }
     e.call(SECURITY_CHECK_COOKIE, &args![cookie]);
@@ -196,8 +207,11 @@ pub fn fn_006f7a60(e: &mut Engine, object: u32) {
 pub fn fn_006f83f0(e: &mut Engine) {
     let mut index = 0u32;
     while index
-        < e.call(ARRAY_COUNT_0044DDC0, &args![STATIC_ARRAY_011D85D0])
-            .u32()
+        < typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, STATIC_ARRAY_011D85D0)
+        )
     {
         let entry = e
             .call(0x006b_3120, &args![STATIC_ARRAY_011D85D0, index])
@@ -221,30 +235,54 @@ pub fn fn_006f83f0(e: &mut Engine) {
 pub fn fn_006f86e0(e: &mut Engine, this: Ptr) {
     let groups = this.addr() + 4;
     let mut index = 0u32;
-    while index < e.call(ARRAY_COUNT_0044DDC0, &args![groups]).u32() {
-        let group_at = e.call(ARRAY_AT_00877A30, &args![groups, index]).u32();
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, groups)) {
+        let group_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, groups, index)
+        );
         let group = e.mem.u32(group_at);
         e.call(ARRAY_FREE_008454F0, &args![group.wrapping_add(8), 1u32]);
-        let group_at = e.call(ARRAY_AT_00877A30, &args![groups, index]).u32();
+        let group_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, groups, index)
+        );
         let group = e.mem.u32(group_at);
-        if e.call(POINTER_GET_00559450, &args![group.wrapping_add(4)])
-            .u32()
-            != 0
+        if typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, group.wrapping_add(4))
+        ) != 0
         {
             let first = e.call(0x0080_41a0, &args![this]).u32();
-            let second = e.call(POINTER_GET_00559450, &args![first]).u32();
+            let second = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
             let parent = e.call(0x004e_a9e0, &args![second]).u32();
-            let group_at = e.call(ARRAY_AT_00877A30, &args![groups, index]).u32();
+            let group_at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, groups, index)
+            );
             let group = e.mem.u32(group_at);
-            let geometry = e
-                .call(POINTER_GET_00559450, &args![group.wrapping_add(4)])
-                .u32();
+            let geometry = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, group.wrapping_add(4))
+            );
             e.vcall(parent, 0xe8, &args![geometry]);
-            let group_at = e.call(ARRAY_AT_00877A30, &args![groups, index]).u32();
+            let group_at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, groups, index)
+            );
             let group = e.mem.u32(group_at);
             e.call(POINTER_SET_0066B0D0, &args![group.wrapping_add(4), 0u32]);
         }
-        let group_at = e.call(ARRAY_AT_00877A30, &args![groups, index]).u32();
+        let group_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, groups, index)
+        );
         let group = e.mem.u32(group_at);
         if group != 0 {
             e.call(0x006f_8800, &args![group, 1u32]);
@@ -286,9 +324,11 @@ fn set_instance_hidden(e: &mut Engine, this: Ptr, id: u32, hidden: u8) -> bool {
         let instance = e.mem.u32(result.addr());
         e.mem.set_u8(instance + 0x1c, hidden);
         let group_index = e.mem.u32(instance + 0x18);
-        let group_at = e
-            .call(ARRAY_AT_00877A30, &args![base + 4, group_index])
-            .u32();
+        let group_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, base + 4, group_index)
+        );
         let group = e.mem.u32(group_at);
         e.mem.set_u8(group + 0x1c, 0);
         true
@@ -416,7 +456,7 @@ pub fn bgs_distant_tree_block_load_task_cancel(e: &mut Engine, this: Ptr, first:
 /// is set and the block's `006f9300` runs; otherwise `bFileExists` is cleared.
 pub fn bgs_distant_tree_block_load_task_run(e: &mut Engine, this: Ptr) {
     let base = this.addr();
-    let name = e.call(0x0045_cd60, &args![base]).u32();
+    let name = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, base));
     let file = e
         .call(0x00af_df20, &args![name, 0u32, 0x800u32, 1u32])
         .u32();
@@ -905,7 +945,7 @@ pub fn bgs_distant_tree_block_allocate_static_data_for_tree_type(e: &mut Engine,
             0
         };
         e.call(POINTER_CONSTRUCT_00633C90, &args![shape_pointer, shape]);
-        let held = e.call(POINTER_GET_00559450, &args![shape_pointer]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, shape_pointer));
         e.call(0x00a6_7260, &args![held, additional]);
         e.call(
             POINTER_ASSIGN_006E5CC0,
@@ -945,16 +985,20 @@ pub fn bgs_distant_tree_block_add_tree(e: &mut Engine, this: Ptr, tree_type: u32
         let mut needs_group = true;
         if found != 0 && e.mem.u32(group_slot) != 0 {
             let group = e.mem.u32(group_slot);
-            let count = e
-                .call(ARRAY_COUNT_0044DDC0, &args![group.wrapping_add(8)])
-                .u32();
+            let count = typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, group.wrapping_add(8))
+            );
             let max = e.call(GET_MAX_INSTANCES_00BB6030, &args![]).u32();
             needs_group = count == max;
         }
         if needs_group {
-            let types = e
-                .call(ARRAY_COUNT_0044DDC0, &args![STATIC_ARRAY_011D85D0])
-                .u32();
+            let types = typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, STATIC_ARRAY_011D85D0)
+            );
             if tree_type >= types {
                 e.call(0x005b_5e40, &args![0x0106_de40u32, tree_type]);
                 e.call(SCOPE_GUARD_LEAVE_00404EE0, &args![guard]);
@@ -978,9 +1022,7 @@ pub fn bgs_distant_tree_block_add_tree(e: &mut Engine, this: Ptr, tree_type: u32
             e.call(0x007c_b2e0, &args![base + 4, group_slot]);
             let group = e.mem.u32(group_slot);
             bs_map_base_set_at(e, Ptr::new(base + 0x24), tree_type, group);
-            let index = e
-                .call(ARRAY_COUNT_0044DDC0, &args![base + 4])
-                .u32()
+            let index = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + 4))
                 .wrapping_sub(1);
             let group = e.mem.u32(group_slot);
             e.mem.set_u32(group.wrapping_add(0x18), index);
@@ -993,10 +1035,8 @@ pub fn bgs_distant_tree_block_add_tree(e: &mut Engine, this: Ptr, tree_type: u32
         let instances = e.mem.u32(group_slot).wrapping_add(8);
         fn_006f9800(e, Ptr::new(instances), instance);
         let instances = e.mem.u32(group_slot).wrapping_add(8);
-        let last = e
-            .call(ARRAY_COUNT_0044DDC0, &args![instances])
-            .u32()
-            .wrapping_sub(1);
+        let last =
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, instances)).wrapping_sub(1);
         let instances = e.mem.u32(group_slot).wrapping_add(8);
         let added = e.call(ARRAY_ENTRY_006B3120, &args![instances, last]).u32();
         let group = e.mem.u32(group_slot);
@@ -1057,7 +1097,7 @@ pub fn fn_006f88e0(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     e.mem.set_u8(base + 0x48, 1);
     let pointer = e.mem.u32(base + 0x44);
-    let held = e.call(POINTER_GET_00559450, &args![pointer]).u32();
+    let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.call(0x0092_9260, &args![held, 1u32]);
     e.call(0x006f_74f0, &args![base, 0u32]);
 }
@@ -1081,11 +1121,19 @@ pub fn fn_006f8910(e: &mut Engine, _this: Ptr, result: u32, group: u32) -> u32 {
         let centre = at(0xc);
         e.call(0x0062_40d0, &args![bound]);
         let limit = float_bits(e, FLOAT_MAX_01016970);
-        e.call(0x0041_6870, &args![min, limit, limit, limit]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, min, limit, limit, limit)
+        );
         let negative = limit ^ 0x8000_0000;
-        e.call(0x0041_6870, &args![max, negative, negative, negative]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, max, negative, negative, negative)
+        );
         let instances = group.wrapping_add(8);
-        let count = e.call(ARRAY_COUNT_0044DDC0, &args![instances]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, instances));
         let mut index = 0u32;
         while index < count {
             for component in [0u32, 4, 8] {
@@ -1103,9 +1151,11 @@ pub fn fn_006f8910(e: &mut Engine, _this: Ptr, result: u32, group: u32) -> u32 {
         let extent = e.call(0x0043_9ef0, &args![max, at(0x50), min]).u32();
         let scaled = e.call(0x0053_d280, &args![extent, at(0x5c), factor]).u32();
         e.call(0x0043_9e90, &args![min, centre, scaled]);
-        let geometry = e
-            .call(POINTER_GET_00559450, &args![group.wrapping_add(4)])
-            .u32();
+        let geometry = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, group.wrapping_add(4))
+        );
         let object = e.vcall(geometry, 0xf8, &args![]).u32();
         // `FSTP qword` into a local, read back by `FADD qword`.
         let scale = e.call(0x0084_d030, &args![object]).f64();
@@ -1187,27 +1237,38 @@ pub fn fn_006f8c40(e: &mut Engine, this: Ptr) {
         if e.mem.u8(base + 0x48) != 0 && e.mem.u8(base + 0x49) == 0 {
             let groups = base + 4;
             let mut index = 0u32;
-            while index < e.call(ARRAY_COUNT_0044DDC0, &args![groups]).u32() {
-                let group_at = e.call(ARRAY_AT_00877A30, &args![groups, index]).u32();
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, groups)) {
+                let group_at = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, groups, index)
+                );
                 let group = e.mem.u32(group_at);
                 let block = e.call(NI_ALLOCATE_00AA13E0, &args![0xd8u32]).u32();
                 let geometry = if block != 0 {
-                    let group_at = e.call(ARRAY_AT_00877A30, &args![groups, index]).u32();
+                    let group_at = typed_call!(
+                        leaf::FAMILY,
+                        0x0087_7a30,
+                        leaf::array_element(e, groups, index)
+                    );
                     let tree_type = e.mem.u32(e.mem.u32(group_at));
-                    let data = e
-                        .call(POINTER_GET_00559450, &args![tree_type.wrapping_add(0x1c)])
-                        .u32();
+                    let data = typed_call!(
+                        leaf::FAMILY,
+                        0x0055_9450,
+                        leaf::word_at_0(e, tree_type.wrapping_add(0x1c))
+                    );
                     e.call(0x00a8_6dd0, &args![block, data]).u32()
                 } else {
                     0
                 };
                 let held_at = group.wrapping_add(4);
                 e.call(POINTER_SET_0066B0D0, &args![held_at, geometry]);
-                let active = e
-                    .call(ARRAY_COUNT_0044DDC0, &args![group.wrapping_add(8)])
-                    .u32()
-                    << 2;
-                let held = e.call(POINTER_GET_00559450, &args![held_at]).u32();
+                let active = typed_call!(
+                    leaf::FAMILY,
+                    0x0044_ddc0,
+                    leaf::word_at_8(e, group.wrapping_add(8))
+                ) << 2;
+                let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_at));
                 e.call(0x0070_5b10, &args![held, active]);
                 let block = e.call(NI_ALLOCATE_00AA13E0, &args![0x68u32]).u32();
                 let property = if block != 0 {
@@ -1216,38 +1277,38 @@ pub fn fn_006f8c40(e: &mut Engine, this: Ptr) {
                     0
                 };
                 bgs_distant_tree_block_setup_shader_property(e, this, property, group);
-                let held = e.call(POINTER_GET_00559450, &args![held_at]).u32();
+                let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_at));
                 e.call(ATTACH_PROPERTY_00439410, &args![held, property]);
-                let held = e.call(POINTER_GET_00559450, &args![held_at]).u32();
+                let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_at));
                 e.call(0x00b5_7e30, &args![held, 0u32, 0u32]);
                 for shared in [STATIC_POINTER_011D85BC, STATIC_POINTER_011D85C4] {
-                    let shared = e.call(POINTER_GET_00559450, &args![shared]).u32();
-                    let held = e.call(POINTER_GET_00559450, &args![held_at]).u32();
+                    let shared = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, shared));
+                    let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_at));
                     e.call(ATTACH_PROPERTY_00439410, &args![held, shared]);
                 }
                 let node = e.call(NODE_POINTER_008041A0, &args![base]).u32();
-                let node = e.call(POINTER_GET_00559450, &args![node]).u32();
+                let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
                 let parent = e.call(0x004e_a9e0, &args![node]).u32();
-                let held = e.call(POINTER_GET_00559450, &args![held_at]).u32();
+                let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_at));
                 e.vcall(parent, 0xdc, &args![held, 1u32]);
-                let held = e.call(POINTER_GET_00559450, &args![held_at]).u32();
+                let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_at));
                 e.call(0x00a5_a040, &args![held]);
                 e.call(VECTOR_SET_0043D410, &args![translation_a, 0u32, 0u32, 0u32]);
-                let held = e.call(POINTER_GET_00559450, &args![held_at]).u32();
+                let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_at));
                 e.call(SET_TRANSLATE_00A59C60, &args![held, translation_a]);
                 e.call(VECTOR_SET_0043D410, &args![translation_b, 0u32, 0u32, 0u32]);
                 let node = e.call(NODE_POINTER_008041A0, &args![base]).u32();
-                let node = e.call(POINTER_GET_00559450, &args![node]).u32();
+                let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node));
                 let object = e.call(0x0055_85e0, &args![node]).u32();
                 e.call(SET_TRANSLATE_00A59C60, &args![object, translation_b]);
-                let held = e.call(POINTER_GET_00559450, &args![held_at]).u32();
+                let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_at));
                 let computed = fn_006f8910(e, this, bound, group);
                 let words: Vec<u32> = (0..4)
                     .map(|k| e.mem.u32(computed.wrapping_add(k * 4)))
                     .collect();
                 e.vcall(held, 0xf4, &words);
                 e.call(VECTOR_SET_0043D410, &args![translation_c, 0u32, 0u32, 0u32]);
-                let held = e.call(POINTER_GET_00559450, &args![held_at]).u32();
+                let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held_at));
                 e.call(SET_TRANSLATE_00A59C60, &args![held, translation_c]);
                 index = index.wrapping_add(1);
             }
@@ -1314,7 +1375,7 @@ pub fn bgs_distant_tree_block_setup_shader_property(
 ) {
     let instances = group.wrapping_add(8);
     let max = e.call(GET_MAX_INSTANCES_00BB6030, &args![]).u32();
-    let count = e.call(ARRAY_COUNT_0044DDC0, &args![instances]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, instances));
     let used = e.call(0x0042_f5a0, &args![count, max]).u32();
     let mut index = 0u32;
     while index < used {
@@ -1350,18 +1411,26 @@ pub fn bgs_distant_tree_block_setup_shader_property(
 pub fn bgs_distant_tree_block_update_shader_properties(e: &mut Engine, this: Ptr) {
     let groups = this.addr() + 4;
     let mut index = 0u32;
-    while index < e.call(ARRAY_COUNT_0044DDC0, &args![groups]).u32() {
-        let group_at = e.call(ARRAY_AT_00877A30, &args![groups, index]).u32();
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, groups)) {
+        let group_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, groups, index)
+        );
         let group = e.mem.u32(group_at);
         if e.mem.u8(group.wrapping_add(0x1c)) == 0
-            && e.call(POINTER_GET_00559450, &args![group.wrapping_add(4)])
-                .u32()
-                != 0
+            && typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, group.wrapping_add(4))
+            ) != 0
         {
             let kind = e.call(0x0043_8220, &args![]).u32();
-            let geometry = e
-                .call(POINTER_GET_00559450, &args![group.wrapping_add(4)])
-                .u32();
+            let geometry = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, group.wrapping_add(4))
+            );
             let property = e.call(0x00a5_9d30, &args![geometry, kind]).u32();
             if property != 0 {
                 bgs_distant_tree_block_setup_shader_property(e, this, property, group);
@@ -1378,8 +1447,12 @@ pub fn bgs_distant_tree_block_update_shader_properties(e: &mut Engine, this: Ptr
 pub fn bgs_distant_tree_block_hide_queued_trees(e: &mut Engine, this: Ptr) {
     let queue = this.addr() + 0x34;
     let mut index = 0u32;
-    while index < e.call(ARRAY_COUNT_0044DDC0, &args![queue]).u32() {
-        let at = e.call(ARRAY_AT_00877A30, &args![queue, index]).u32();
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, queue)) {
+        let at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, queue, index)
+        );
         let id = e.mem.u32(at);
         fn_006f9230(e, this, id, 0);
         index = index.wrapping_add(1);

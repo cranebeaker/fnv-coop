@@ -93,6 +93,7 @@ const GET_TICK_COUNT: u32 = 0x00fd_f060;
 /// `NiPointer<T>::NiPointer(T*)` (`ecx` = the pointer cell; takes a reference).
 const NI_POINTER_CTOR: u32 = 0x0063_3c90;
 /// `NiPointer<T>::operator T*` (returns the stored pointer).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer<T>::~NiPointer` (releases the reference).
 const NI_POINTER_DTOR: u32 = 0x0045_cec0;
@@ -102,6 +103,7 @@ const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const SCOPE_GUARD_CTOR: u32 = 0x0040_4eb0;
 const SCOPE_GUARD_DTOR: u32 = 0x0040_4ee0;
 /// A trivial constructor of an `hkVector4`/`NiPoint3`: returns `this`.
+#[cfg(test)]
 const VECTOR_CTOR: u32 = 0x0068_15c0;
 /// Copies the 16 bytes at the argument into `this` (`hkVector4` assignment).
 const VECTOR_COPY: u32 = 0x004a_3c90;
@@ -138,7 +140,7 @@ fn grids_to_load(e: &mut Engine) -> u32 {
 
 /// The stored pointer of the `NiPointer` at `cell`.
 fn ni_pointer_get(e: &mut Engine, cell: Ptr) -> u32 {
-    e.call(NI_POINTER_GET, &args![cell]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, cell))
 }
 
 // Translated from 004579e0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -175,7 +177,9 @@ pub fn make_new_geom_data(e: &mut Engine, node: Ptr) {
                         let mut copied = false;
                         if fn_00457b80(e, Ptr::new(object)) == 0 {
                             let object = ni_pointer_get(e, held);
-                            if e.call(0x007a_f430, &args![object]).u32() != 0 {
+                            if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, object))
+                                != 0
+                            {
                                 let object = ni_pointer_get(e, held);
                                 e.call(0x00a5_d510, &args![object, copy]);
                                 let new_object = ni_pointer_get(e, copy);
@@ -641,9 +645,9 @@ pub fn tes_pick_ni(e: &mut Engine, this: Ptr<TES>, pick: Ptr) -> u32 {
         let end = block.byte_add(24);
         let difference = block.byte_add(36);
         let ni_pick = block.byte_add(48);
-        e.call(VECTOR_CTOR, &args![direction]);
-        e.call(VECTOR_CTOR, &args![origin]);
-        e.call(VECTOR_CTOR, &args![end]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, end));
         fn_004585f0(e, pick, origin);
         fn_004587f0(e, pick, end);
         let delta = e.call(0x0043_9ef0, &args![end, difference, origin]).u32();
@@ -652,7 +656,7 @@ pub fn tes_pick_ni(e: &mut Engine, this: Ptr<TES>, pick: Ptr) -> u32 {
             e.mem.set_u32(direction.addr() + 4 * word, value);
         }
         e.call(0x00e9_8f20, &args![ni_pick, 0u32, 8u32]);
-        let root = e.call(0x0084_e3a0, &args![this]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         e.call(0x0070_5fc0, &args![ni_pick, root]);
         e.call(0x0045_8b30, &args![ni_pick, 1u32]);
         let mut result = 0;
@@ -673,7 +677,9 @@ pub fn tes_pick_ni(e: &mut Engine, this: Ptr<TES>, pick: Ptr) -> u32 {
 /// `bhkPickData`), scaled ([`fn_00458620`]), to the three floats at `out`.
 /// Returns `out`.
 pub fn fn_004585f0(e: &mut Engine, this: Ptr, out: Ptr) -> Ptr {
-    let vector = e.call(VECTOR_CTOR, &args![this]).ptr();
+    let vector = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this))
+        .into_ret()
+        .ptr();
     fn_00458620(e, out, vector)
 }
 
@@ -792,10 +798,10 @@ pub fn fn_00458900(e: &mut Engine, this: Ptr, other: Ptr, tolerance: f32) -> boo
         let difference = block;
         let limit = block.byte_add(16);
         let flags = block.byte_add(32);
-        e.call(VECTOR_CTOR, &args![difference]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, difference));
         fn_00458a10(e, difference, this, other);
         fn_00458ad0(e, difference, difference);
-        e.call(VECTOR_CTOR, &args![limit]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, limit));
         fn_004589c0(e, limit, tolerance);
         let flags = fn_00458a60(e, difference, flags, limit);
         fn_00458990(e, flags, 7)
@@ -904,6 +910,7 @@ const BS_TEMP_NODE_VTABLE: u32 = 0x0101_7d24;
 const BS_TEMP_NODE_RTTI: u32 = 0x0120_2e00;
 
 /// `Error` (the game's formatted debug-message function; C varargs).
+#[cfg(test)]
 const ERROR_LOG: u32 = 0x0040_fbe0;
 /// `strlen`.
 const STRING_LENGTH: u32 = 0x0044_a670;
@@ -917,6 +924,7 @@ const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// constant when null).
 const STRING_OBJECT_TEXT: u32 = 0x0040_8da0;
 /// Whether a list node has neither item nor successor.
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `NiNode::NiNode(unsigned short)` and `NiNode::~NiNode`.
 const NI_NODE_CTOR: u32 = 0x00a5_ecb0;
@@ -927,6 +935,7 @@ const NI_AV_OBJECT_UPDATE_PROPERTIES: u32 = 0x00a5_a040;
 /// `TES`).
 const TES_DEBUG_PARENT: u32 = 0x0096_11e0;
 /// A form's id (the word the game keeps for it).
+#[cfg(test)]
 const FORM_ID_GETTER: u32 = 0x0084_e3a0;
 /// Looks a form up by its id.
 const FORM_LOOKUP: u32 = 0x0048_39c0;
@@ -1177,7 +1186,7 @@ pub fn fn_00458f90(e: &mut Engine, this: Ptr<TES>) {
         }
         let entry = list_node_item(e, node);
         e.call(OPERATOR_DELETE, &args![entry]);
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(0x0047_0470, &args![list]);
 }
@@ -1196,7 +1205,7 @@ pub fn fn_00459000(e: &mut Engine, this: Ptr<TES>, form: u32) -> u16 {
         if e.mem.u32(entry) == form {
             return e.mem.u16(entry + 4);
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     0
 }
@@ -1218,7 +1227,7 @@ pub fn fn_00459060(e: &mut Engine, this: Ptr<TES>, form: u32, delta: i16) {
             e.mem.set_u16(entry + 4, count as u16);
             return;
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let entry = e.call(OPERATOR_NEW, &args![8u32]).u32();
     e.mem.set_u32(entry, form);
@@ -1244,24 +1253,13 @@ fn log_save_bytes(
 ) {
     let world_space = e.call(GET_WORLD_SPACE, &args![save_load]).u32();
     if world_space == 0 {
-        e.call(ERROR_LOG, &args![format_plain, bytes, line, TES_CPP_PATH]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words format_plain, bytes, line, TES_CPP_PATH);
     } else {
         let form_id = e.mem.u32(world_space);
         let form = e.call(FORM_LOOKUP, &args![form_id]).u32();
         let flags = e.mem.u32(world_space + 5);
         let name = e.vcall(form, FORM_SLOT_NAME, &args![]).u32();
-        e.call(
-            ERROR_LOG,
-            &args![
-                format_with_form,
-                bytes,
-                form_id,
-                name,
-                flags,
-                line,
-                TES_CPP_PATH
-            ],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words format_with_form, bytes, form_id, name, flags, line, TES_CPP_PATH);
     }
 }
 
@@ -1330,13 +1328,13 @@ pub fn tes_save_game(e: &mut Engine, this: Ptr<TES>) {
                 e.mem.set_u32(id_cell, 0);
                 let form = e.mem.u32(entry);
                 if form != 0 {
-                    let id = e.call(FORM_ID_GETTER, &args![form]).u32();
+                    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                     e.mem.set_u32(id_cell, id);
                 }
                 e.call(SAVE_NUMERIC_ID, &args![save_load, id_cell, 4u32]);
                 e.call(SAVE_BUFFER_WRITE, &args![save_load, entry + 4, 2u32]);
             }
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         if e.call(SAVE_VERSION, &args![save_load]).u8() >= 0x32 {
             e.call(SAVE_BUFFER_WRITE, &args![save_load, SAVE_EXTRA_WORD, 4u32]);
@@ -1390,7 +1388,7 @@ pub fn tes_save_game_ov2(e: &mut Engine, this: Ptr<TES>, buffer: Ptr) {
             );
             entries += 1;
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SAVE_BUFFER_END_VARIABLE, &args![buffer, entries, start]);
     let grids = grids_to_load(e);
@@ -1407,12 +1405,12 @@ pub fn tes_save_game_ov2(e: &mut Engine, this: Ptr<TES>, buffer: Ptr) {
             let cell = e.mem.u32(slot);
             let mut id = 0u32;
             if cell != 0 {
-                let cell_id = e.call(FORM_ID_GETTER, &args![cell]).u32();
+                let cell_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell));
                 let handler: u32 = e.global(DATA_HANDLER);
                 if e.call(DATA_HANDLER_HAS_FORM, &args![handler, cell_id])
                     .bool()
                 {
-                    id = e.call(FORM_ID_GETTER, &args![cell]).u32();
+                    id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell));
                 }
             }
             e.call(SAVE_BUFFER_SAVE_FORM_ID, &args![buffer, id, 0u32]);
@@ -1469,7 +1467,7 @@ pub fn tes_load_game(e: &mut Engine, this: Ptr<TES>, buffer: Ptr) {
                 e.mem.u32(id_cell.addr())
             });
             if cell != 0 && id != 0 {
-                let cell_id = e.call(FORM_ID_GETTER, &args![cell]).u32();
+                let cell_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell));
                 let handler: u32 = e.global(DATA_HANDLER);
                 if e.call(DATA_HANDLER_HAS_FORM, &args![handler, cell_id])
                     .bool()
@@ -1620,14 +1618,14 @@ pub fn fn_00459a00(e: &mut Engine, this: Ptr<TES>) {
 pub fn tes_run_cell_test(e: &mut Engine, this: Ptr<TES>, mode: u32) {
     e.set(this, TES::bRunningCellTests, true);
     e.call(0x0095_26a0, &args![1u32]);
-    e.call(ERROR_LOG, &args![0x0101_7e5cu32]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_7e5cu32);
     e.call(0x0070_37e0, &args![]);
     let start = fn_00457fe0(e);
     let handler: u32 = e.global(DATA_HANDLER);
     let mut node = e
         .call(DATA_HANDLER_FIRST_WORLD_SPACE, &args![handler])
         .u32();
-    while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let world_space = list_node_item(e, node);
         if world_space != 0 {
             tes_set_world_space(e, this, Ptr::new(world_space));
@@ -1639,11 +1637,8 @@ pub fn tes_run_cell_test(e: &mut Engine, this: Ptr<TES>, mode: u32) {
             if name == 0 || e.call(STRING_LENGTH, &args![name]).u32() == 0 {
                 name = e.vcall(world_space, FORM_SLOT_NAME, &args![]).u32();
             }
-            let form_id = e.call(FORM_ID_GETTER, &args![world_space]).u32();
-            e.call(
-                ERROR_LOG,
-                &args![0x0101_7e24u32, form_id, name, left, bottom, right, top],
-            );
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world_space));
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_7e24u32, form_id, name, left, bottom, right, top);
             let mut x = left;
             while x < right {
                 let mut y = bottom;
@@ -1664,7 +1659,7 @@ pub fn tes_run_cell_test(e: &mut Engine, this: Ptr<TES>, mode: u32) {
                 x = x.wrapping_add(grids_to_load(e) as i32);
             }
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let handler: u32 = e.global(DATA_HANDLER);
     e.call(DATA_HANDLER_PREPARE_INTERIORS, &args![handler]);
@@ -1697,17 +1692,14 @@ pub fn tes_test_cell(e: &mut Engine, _this: Ptr<TES>, cell: Ptr, mode: u32, star
     }
     if e.call(CELL_IS_INTERIOR, &args![cell]).bool() {
         let name = e.call(STRING_OBJECT_TEXT, &args![cell.addr() + 0x18]).u32();
-        let form_id = e.call(FORM_ID_GETTER, &args![cell]).u32();
-        e.call(ERROR_LOG, &args![0x0101_7f54u32, form_id, name]);
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell));
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_7f54u32, form_id, name);
     } else {
         let name = e.call(STRING_OBJECT_TEXT, &args![cell.addr() + 0x18]).u32();
         let data_y = e.call(CELL_GET_DATA_Y, &args![cell]).u32();
         let data_x = e.call(CELL_GET_DATA_X, &args![cell]).u32();
-        let form_id = e.call(FORM_ID_GETTER, &args![cell]).u32();
-        e.call(
-            ERROR_LOG,
-            &args![0x0101_7f2cu32, form_id, data_x, data_y, name],
-        );
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell));
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_7f2cu32, form_id, data_x, data_y, name);
     }
     let before = fn_00457fe0(e);
     let player: u32 = e.global(PLAYER_CHARACTER);
@@ -1723,25 +1715,11 @@ pub fn tes_test_cell(e: &mut Engine, _this: Ptr<TES>, cell: Ptr, mode: u32, star
     let seconds = rest / 1000;
     let loading = after.wrapping_sub(before) as f64 / e.mem.f64(0x0101_7b70);
     if e.call(CELL_IS_INTERIOR, &args![cell]).bool() {
-        e.call(
-            ERROR_LOG,
-            &args![0x0101_7ed8u32, loading, hours, minutes, seconds],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_7ed8u32, loading, hours, minutes, seconds);
     } else {
         let data_y = e.call(CELL_GET_DATA_Y, &args![cell]).u32();
         let data_x = e.call(CELL_GET_DATA_X, &args![cell]).u32();
-        e.call(
-            ERROR_LOG,
-            &args![
-                0x0101_7e78u32,
-                data_x,
-                data_y,
-                loading,
-                hours,
-                minutes,
-                seconds
-            ],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_7e78u32, data_x, data_y, loading, hours, minutes, seconds);
     }
     let delay = e.mem.f32(0x0101_7e70);
     e.call(0x0086_7a40, &args![OBJECT_011DE7B8, delay]);
@@ -1907,9 +1885,9 @@ pub fn tes_preload_forms(e: &mut Engine, this: Ptr<TES>) {
         store_new_queued_file(e, slot);
         let handler: u32 = e.global(DATA_HANDLER);
         let mut node = fn_0045a330(e, Ptr::new(handler));
-        while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let entry = list_node_item(e, node);
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             if entry != 0 {
                 let queued = ni_pointer_get(e, Ptr::new(slot));
                 e.vcall(entry + 0x30, 0x10, &args![5u32, queued]);
@@ -2044,7 +2022,7 @@ pub fn fn_0045a600(e: &mut Engine, this: Ptr<TES>) {
         }
         let handler: u32 = e.global(DATA_HANDLER);
         let mut node = fn_0045a730(e, Ptr::new(handler));
-        while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let entry = list_node_item(e, node);
             if e.call(0x0058_0080, &args![entry]).u32() != 0 {
                 e.with_stack(4, |e, texture| {
@@ -2057,7 +2035,7 @@ pub fn fn_0045a600(e: &mut Engine, this: Ptr<TES>) {
                     e.call(NI_POINTER_DTOR, &args![texture]);
                 });
             }
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         e.call(SCOPE_GUARD_DTOR, &args![guard]);
     });
@@ -2131,6 +2109,7 @@ const NI_POINTER_ARRAY_DELETING_DESTRUCTOR: u32 = 0x0066_7120;
 /// `ecx` = a particle cache entry: whether its first word is the argument.
 const CACHE_ENTRY_HOLDS_OBJECT: u32 = 0x0082_2510;
 /// `this->+8` (the next link of a cache entry).
+#[cfg(test)]
 const LINK_GET_NEXT: u32 = 0x0044_ddc0;
 /// `this->+8 = argument`.
 const LINK_SET_NEXT: u32 = 0x0040_3550;
@@ -2175,7 +2154,7 @@ const STATIC_TEARDOWN_CALLS: [u32; 5] = [
 /// The value of the pointer stored in the cell at `address`
 /// (`NiPointer::operator T*`).
 fn pointer_at(e: &mut Engine, address: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![address]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, address))
 }
 
 // Translated from 0045a750 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2235,7 +2214,7 @@ pub fn tes_add_temporary_particle_object_to_cache(e: &mut Engine, this: Ptr<TES>
         {
             return;
         }
-        node = e.call(LINK_GET_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, node));
     }
     let block = e.call(OPERATOR_NEW, &args![0xcu32]).u32();
     let entry = if block != 0 {
@@ -2306,7 +2285,7 @@ pub fn tes_get_unused_cached_particle_object(
             result = 1;
             break;
         }
-        node = e.call(LINK_GET_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, node));
     }
     if node != 0 {
         let cells = e.mem.u32(node + 4);
@@ -2334,7 +2313,7 @@ pub fn tes_get_unused_cached_particle_object(
 pub fn fn_0045ac80(e: &mut Engine, this: Ptr<TES>) {
     let mut node = e.get(this, TES::pParticleCacheHead).addr();
     while node != 0 {
-        let next = e.call(LINK_GET_NEXT, &args![node]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, node));
         if node != 0 {
             fn_0045ae20(e, Ptr::new(node), 1);
         }
@@ -2464,6 +2443,7 @@ const TERRAIN_PREPARE_FOR_CAMERA: u32 = 0x006f_d080;
 /// Terrain manager call made before the removal walk.
 const TERRAIN_PREPARE_FOR_REMOVAL: u32 = 0x006f_d130;
 /// `ecx` = a form: a helper whose result the scene walks do not use.
+#[cfg(test)]
 const FORM_HAS_BUFFER_FORM: u32 = 0x007a_f430;
 /// `ecx` = the water system: its second list holder.
 const WATER_SYSTEM_SECOND_HOLDER: u32 = 0x0067_33e0;
@@ -2497,6 +2477,7 @@ const CULLING_PROCESS_DESTRUCT: u32 = 0x00a6_93e0;
 /// stack argument pushed before the call is ignored and stays pushed).
 const CULLING_PROCESS_MEMBER: u32 = 0x005d_8a70;
 /// `ecx` = the culling process: the word at `+0x0C`.
+#[cfg(test)]
 const CULLING_PROCESS_WORD: u32 = 0x0084_e3a0;
 /// Shadow scene node call that adds an object seen from a position:
 /// (object, x, y, z, culling process).
@@ -2534,6 +2515,7 @@ const POINT_ADD: u32 = 0x0043_9e90;
 /// argument).
 const MATRIX_GET_COLUMN: u32 = 0x0043_9f50;
 /// Constructor of a vector of three `float`s: (x, y, z).
+#[cfg(test)]
 const VECTOR3_CONSTRUCT: u32 = 0x0041_6870;
 
 /// Adds `object` to `scene`, seen from the camera position `position`.
@@ -2581,7 +2563,7 @@ fn visit_water_entries(e: &mut Engine, holder: u32, visit: &mut dyn FnMut(&mut E
         if position != 0 {
             let item_address = e.call(LIST_ITEM_ADDRESS, &args![list, position]).u32();
             let entry = e.mem.u32(item_address);
-            e.call(FORM_HAS_BUFFER_FORM, &args![entry]);
+            typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, entry));
             let objects = e.vcall(entry, 0x1d0, &[]).u32();
             let first = e.call(NODE_CHILD_AT, &args![objects, 0u32]).u32();
             if fn_0045bad0(e, WATER_ENTRY_RTTI, Ptr::new(first)) {
@@ -2812,7 +2794,7 @@ fn scene_update_held_object(e: &mut Engine, camera: u32, scene: u32, process: Pt
 /// pushed before it; the flag stays on the stack as the last argument).
 fn scene_add_candidate(e: &mut Engine, scene: u32, process: Ptr, object: u32, flag: u32) {
     let member = e.call(CULLING_PROCESS_MEMBER, &args![process]).u32();
-    let word = e.call(CULLING_PROCESS_WORD, &args![process]).u32();
+    let word = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, process));
     e.call(
         SCENE_ADD_CANDIDATE,
         &args![scene, object, word, member, flag],
@@ -2842,9 +2824,10 @@ pub fn fn_0045bb20(e: &mut Engine, this: Ptr, out: Ptr, scale: f32) -> Ptr {
     let x = e.mem.f32(this.addr());
     let y = e.mem.f32(this.addr() + 4);
     let z = e.mem.f32(this.addr() + 8);
-    e.call(
-        VECTOR3_CONSTRUCT,
-        &args![out, x * scale, y * scale, z * scale],
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, out, x * scale, y * scale, z * scale)
     );
     out
 }
@@ -2860,7 +2843,7 @@ pub fn fn_0045bb80(_e: &mut Engine, this: Ptr) -> Ptr {
 /// (`00439f50` with column 0, into a local vector); returns `out`.
 pub fn fn_0045bba0(e: &mut Engine, this: Ptr, out: Ptr) -> Ptr {
     e.with_stack(12, |e, local| {
-        e.call(VECTOR_CTOR, &args![local]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
         e.call(
             MATRIX_GET_COLUMN,
             &args![this.addr().wrapping_add(0x68), 0u32, local],
@@ -2888,13 +2871,18 @@ pub fn fn_0045bc00(e: &mut Engine, this: Ptr, index: u32) -> u32 {
     if count <= index {
         return 0;
     }
-    let slot = e.call(CHILD_ARRAY_SLOT, &args![array, index]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    );
     pointer_at(e, slot)
 }
 
 /// `ecx` = an array: its count (the 16-bit word at `+0xA`).
 const CHILD_ARRAY_COUNT: u32 = 0x0065_8930;
 /// `ecx` = an array: the address of entry `n`.
+#[cfg(test)]
 const CHILD_ARRAY_SLOT: u32 = 0x0087_7a30;
 
 // Translated from 0045bc40 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -3244,6 +3232,7 @@ const GRID_FLAGS_FIRST: u32 = 0x0101_7830;
 /// The 5x5 table of flags `fn_0045c840` marks cells with.
 const GRID_FLAGS_SECOND: u32 = 0x0101_784c;
 /// `ecx` = the grid array: its side length.
+#[cfg(test)]
 const GRID_SIDE: u32 = 0x0084_e3a0;
 /// Returns the object used by the two marking calls (no arguments).
 const MARKING_CONTEXT: u32 = 0x0043_8220;
@@ -3286,7 +3275,7 @@ pub fn fn_0045c780(e: &mut Engine, this: Ptr<TES>) {
 /// The side length of the grid array of `this`.
 fn grid_side(e: &mut Engine, this: Ptr<TES>) -> u32 {
     let grid = e.get(this, TES::pGridCellA);
-    e.call(GRID_SIDE, &args![grid]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, grid))
 }
 
 // Translated from 0045c840 (decompiled, FalloutNV.exe 1.4.0.525)

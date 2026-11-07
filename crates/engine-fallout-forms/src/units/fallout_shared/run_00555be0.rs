@@ -21,6 +21,7 @@ const CELL_SIZE: u32 = 0x0101_7a10;
 const SEEN_DISTANCE_SETTING: u32 = 0x011c_a094;
 
 /// `NiPoint3` constructor (`00416870`, `thiscall`: x, y, z), answers `this`.
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0041_6870;
 /// `NiPoint2` constructor (`00452dc0`, `thiscall`: x, y).
 const POINT2_CONSTRUCT: u32 = 0x0045_2dc0;
@@ -124,7 +125,11 @@ pub fn fn_00555c20(e: &mut Engine) {
     if guard & 1 == 0 {
         e.set_global(LAST_POSITION_INITIALIZED, guard | 1);
         let max = x87_quiet_bits(e.global::<u32>(FLOAT_MAX));
-        e.call(POINT_CONSTRUCT, &args![LAST_POSITION, max, max, max]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, LAST_POSITION, max, max, max)
+        );
     }
     if e.global::<u32>(PLAYER_POINTER) == 0 {
         return;
@@ -245,9 +250,11 @@ fn section_center(value: i32) -> u32 {
 /// Builds the point `(x, y, z)` with the `NiPoint3` constructor on the
 /// temporary and copies it to `out`.
 fn build_point(e: &mut Engine, temporary: u32, out: u32, x: u32, y: u32, z: u32) {
-    let point = e
-        .call(POINT_CONSTRUCT, &args![temporary, x, y, x87_quiet_bits(z)])
-        .u32();
+    let point = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, temporary, x, y, x87_quiet_bits(z))
+    );
     for i in 0..3 {
         let word = e.mem.u32(point + 4 * i);
         e.mem.set_u32(out + 4 * i, word);
@@ -296,7 +303,11 @@ pub fn fn_00555f60(e: &mut Engine, this: Ptr, position: u32) {
             let y = int_to_float(y.wrapping_shl(12));
             let x = e.call(CELL_DATA_X, &args![cell]).i32();
             let x = int_to_float(x.wrapping_shl(12));
-            e.call(POINT_CONSTRUCT, &args![corner, x, y, x87_quiet_bits(z)]);
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, corner, x, y, x87_quiet_bits(z))
+            );
             if e.call(SEEN_DATA_UPDATE, &args![seen, position, corner])
                 .bool()
             {

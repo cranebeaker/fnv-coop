@@ -20,8 +20,8 @@ pub fn fn_006b8340(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
     e.call(0x006b_8d90, &args![this]);
     e.mem.set_u32(base, 0x0106_c22c);
-    e.call(0x0068_15c0, &args![base + 0x2058]);
-    e.call(0x0068_15c0, &args![base + 0x2068]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x2058));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x2068));
     e.call(0x0050_1cd0, &args![base + 0x2084]);
     e.mem.set_u32(base + 0x2078, 0);
     e.mem.set_u32(base + 0x2064, 0);

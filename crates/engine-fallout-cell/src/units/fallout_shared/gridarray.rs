@@ -36,7 +36,9 @@ const SLOT_MOVE_ITEM: u32 = 0x20;
 /// `00726070` and `0044ddc0` (`thiscall`, unnamed in the engine map): the
 /// word getters `SetCenter` reads the centre with (`+4` and `+8` of a
 /// `GridArray`).
+#[cfg(test)]
 const GET_WORD_4: u32 = 0x0072_6070;
+#[cfg(test)]
 const GET_WORD_8: u32 = 0x0044_ddc0;
 /// `00ec7d40` (`cdecl`, one word): `abs`.
 const ABS: u32 = 0x00ec_7d40;
@@ -87,8 +89,16 @@ pub fn grid_array_detach_all(e: &mut Engine, this: Ptr<GridArray>) {
 /// the current centre (read with `00726070` and `0044ddc0`); true when
 /// either difference is non-zero.
 pub fn grid_array_set_center(e: &mut Engine, this: Ptr<GridArray>, x: i32, y: i32) -> bool {
-    let dx = x.wrapping_sub(e.call(GET_WORD_4, &args![this]).i32());
-    let dy = y.wrapping_sub(e.call(GET_WORD_8, &args![this]).i32());
+    let dx = x.wrapping_sub(
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this))
+            .into_ret()
+            .i32(),
+    );
+    let dy = y.wrapping_sub(
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this))
+            .into_ret()
+            .i32(),
+    );
     e.vcall(this.addr(), SLOT_SHIFT, &args![dx, dy]);
     dx != 0 || dy != 0
 }

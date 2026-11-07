@@ -1,5 +1,5 @@
 //! The seam of the typed 64-bit migration (ADR-0012, ADR-0014; docs/ENGINE_CRATE.md, "Typed
-//! code"): the switch, and what later typed code plugs into. No typed game function is here yet.
+//! code"): the switch, and what typed code plugs into. The first typed functions are in [`leaf`].
 //!
 //! A *family* is a group of typed functions that goes on and off together. Each typed function
 //! stays registered at its exe address in the uniform form (`entry!`), so anything that calls it
@@ -40,6 +40,7 @@ use std::sync::{Mutex, OnceLock};
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod diff;
+pub mod leaf;
 
 /// A family's bit in the per-engine flag words. Every family has its own, for good: it is written
 /// in code at each [`typed_call!`](crate::typed_call) of the family.
@@ -103,8 +104,8 @@ pub struct Family {
     pub funcs: fn() -> Vec<(u32, AbiFn)>,
 }
 
-/// The families of this crate. Empty until the first leaf batch.
-pub static FAMILIES: &[&Family] = &[];
+/// The families of this crate.
+pub static FAMILIES: &[&Family] = &[&leaf::LEAVES];
 
 /// Families of the crates above this one ([`provide`]).
 static PROVIDED: Mutex<Vec<&'static Family>> = Mutex::new(Vec::new());
@@ -239,6 +240,10 @@ pub(crate) struct State {
     /// word as an offset into its frame.
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) keep_frames: bool,
+    /// The differential test's direct run: each `typed_call!` that went by address because no family
+    /// the test names holds its address, so the function it names has not run.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) unnamed: std::cell::RefCell<Vec<u32>>,
 }
 
 impl State {
@@ -291,8 +296,13 @@ impl Engine {
         match self.typed.members.get(&addr).copied() {
             Some(bit) if bit == family.bit() => {}
             // The differential test's direct run, for a family the test doesn't name: by address,
-            // as a play run with that family off goes.
-            None if self.typed.forced => return false,
+            // as a play run with that family off goes. The function it names hasn't run, which the
+            // report holds against the test.
+            None if self.typed.forced => {
+                #[cfg(any(test, feature = "test-support"))]
+                self.typed.unnamed.borrow_mut().push(addr);
+                return false;
+            }
             Some(bit) => panic!(
                 "typed_call! at {addr:08x} names {family:?}, but the address is in the family \
                  with bit {bit:#x}"
@@ -445,8 +455,23 @@ pub(crate) fn apply_families(e: &mut Engine, families: &[&Family], spec: Option<
 /// Never at an address in `data/overridable.tsv`: there the call stays `e.call` (the hygiene test
 /// enforces that too). `f`'s crate must be this crate or one below it, or the name does not resolve;
 /// a callee above stays `e.call`.
+///
+/// `typed_call!(FAMILY, ADDR, f(e); words a, b)` is for a callee that takes no parameters and whose
+/// callers push words it never reads (an empty function shared by many signatures): the words are
+/// evaluated, go along by address, as the translations pass them, and stay out of the Rust call.
 #[macro_export]
 macro_rules! typed_call {
+    ($family:expr, $addr:expr, $($f:ident)::+ ($e:ident) ; words $($w:expr),+ $(,)?) => {{
+        let words = $crate::args![$($w),+];
+        if $e.typed_direct($family, $addr) {
+            if cfg!(debug_assertions) && $e.typed_noting_direct() {
+                $e.typed_note_direct($addr, &words);
+            }
+            $($f)::+($e)
+        } else {
+            $crate::abi::RetVal::from_ret($e.call($addr, &words))
+        }
+    }};
     ($family:expr, $addr:expr, $($f:ident)::+ ($e:ident $(, $a:expr)* $(,)?)) => {
         $crate::typed_call!(@bind $family, $addr, [$($f)::+], $e, [], $($a,)*)
     };
@@ -604,10 +629,10 @@ mod tests {
         );
     }
 
-    /// `Engine::new` runs the seam: with the empty table and no switch nothing changes.
+    /// `Engine::new` runs the seam: with no switch a family not past its gate changes nothing.
     #[test]
-    fn engine_new_has_no_family_yet() {
-        assert!(FAMILIES.is_empty());
+    fn engine_new_leaves_a_family_before_its_gate_off() {
+        assert!(FAMILIES.iter().all(|f| !f.past_gate));
         let e = Engine::new();
         assert!(!e.typed.any_allowed());
         assert_eq!(e.typed.direct, 0);
@@ -716,6 +741,39 @@ mod tests {
         let off = engine(typed());
         assert!(on.typed_direct(FAMILY, LEAF));
         assert!(!off.typed_direct(FAMILY, LEAF));
+    }
+
+    /// `typed_call!`'s `; words` form: the words evaluated once and first, passed by address, left out
+    /// of the Rust call, and noted for the differential test as the call by address logs them.
+    #[test]
+    fn words_a_callee_never_reads_go_by_address_only() {
+        fn empty(_: &mut Engine) {}
+        const EMPTY: u32 = 0x0040_1070;
+        let run = |e: &mut Engine| {
+            e.map(0x0200_0000, 0x10);
+            e.mem.set_u32(0x0200_0004, 40);
+            let mut evaluated = 0;
+            let () = crate::typed_call!(FAMILY, EMPTY, empty(e); words {
+                evaluated += 1;
+                e.mem.u32(0x0200_0004)
+            }, 2u32);
+            evaluated
+        };
+        let mut by_address = Engine::new_untyped();
+        by_address.register(EMPTY, |_, _| Ret::default());
+        by_address.call_log = Some(vec![]);
+        assert_eq!(run(&mut by_address), 1);
+        assert_eq!(by_address.call_log.take().unwrap(), [(EMPTY, vec![40, 2])]);
+        let mut direct = Engine::new_untyped();
+        direct.typed.members.insert(EMPTY, FAMILY.bit());
+        direct.typed.allowed = FAMILY.bit();
+        direct.typed_sync();
+        // No function registered: a call by address would stop.
+        assert_eq!(run(&mut direct), 1);
+        direct.call_log = Some(vec![]);
+        direct.typed_force_direct();
+        assert_eq!(run(&mut direct), 1);
+        assert_eq!(direct.call_log.take().unwrap(), [(EMPTY, vec![40, 2])]);
     }
 
     /// `typed_call!`: arguments evaluated once and first (they may read through `e`), floats in two

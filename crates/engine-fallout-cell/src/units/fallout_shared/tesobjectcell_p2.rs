@@ -94,12 +94,16 @@ const CELL_CHILD_NODE: u32 = 0x0045_6fc0;
 const SLOT_CONSTRUCT: u32 = 0x0063_3c90;
 const SLOT_ASSIGN: u32 = 0x0066_b0d0;
 const SLOT_RELEASE: u32 = 0x0045_cec0;
+#[cfg(test)]
 const SLOT_GET: u32 = 0x0055_9450;
 /// `BSSimpleList<T>::PushFront(&item)` on the list in `ECX`.
 const LIST_PUSH_FRONT: u32 = 0x005a_e3d0;
 /// `BSSimpleList` iterator pieces: end test, address of the item, next node.
+#[cfg(test)]
 const LIST_IS_END: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_ITEM_ADDRESS: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// List constructor, clear and destructor (on a local list).
 const LIST_CONSTRUCT: u32 = 0x0096_a2d0;
@@ -110,7 +114,9 @@ const LIST_CONTAINS: u32 = 0x005f_65d0;
 
 /// `TESForm` accessors: `iFormFlags` bit tests (`& 0x800`, `& 0x820`,
 /// `& 0x20000000`), the form id and the type byte.
+#[cfg(test)]
 const FORM_FLAG_800: u32 = 0x0044_0da0;
+#[cfg(test)]
 const FORM_FLAG_20: u32 = 0x0044_0d80;
 const FORM_FLAG_820: u32 = 0x0043_7b90;
 const FORM_FLAG_4000: u32 = 0x0040_77c0;
@@ -118,11 +124,13 @@ const FORM_FLAG_20000000: u32 = 0x0088_5a30;
 const FORM_FLAG_800000: u32 = 0x0047_7ba0;
 const FORM_FLAG_8: u32 = 0x0040_13e0;
 const FORM_TYPE: u32 = 0x0040_1170;
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 const FORM_LOOK_UP: u32 = 0x0048_39c0;
 
 /// The base form of a reference (`BGSSaveFormBuffer::GetForm` is a folded
 /// name for this accessor).
+#[cfg(test)]
 const REFERENCE_GET_BASE_FORM: u32 = 0x007a_f430;
 /// The parent cell of a reference (`+0x40`).
 const REFERENCE_PARENT_CELL: u32 = 0x008d_6f30;
@@ -374,7 +382,9 @@ const CONTAINER_CHANGES_UPDATE: u32 = 0x004c_e380;
 
 /// The 3D's parent (`+0x18`), world bound and bound center.
 const NODE_PARENT: u32 = 0x0096_11e0;
+#[cfg(test)]
 const NODE_GET_WORLD_BOUND: u32 = 0x0043_d450;
+#[cfg(test)]
 const BOUND_CENTER_ADDRESS: u32 = 0x0068_15c0;
 /// `NiAVObject::UpdateProperties` (Xbox PDB), `SetName`, `GetExtraData`.
 const NODE_UPDATE_PROPERTIES: u32 = 0x00a5_a040;
@@ -414,6 +424,7 @@ const LIST_COUNT_IS_ZERO: u32 = 0x0076_b610;
 /// Address `+0xB4` of a room node (its children container); the container's
 /// count (word `+8`) and the iteration step that fills the cursor.
 const ADDRESS_PLUS_B4: u32 = 0x006a_b360;
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 const CHILD_ARRAY_NEXT: u32 = 0x0057_cbe0;
 /// `BSOcclusionPlane::TestIntersection(item, bound)` (Xbox PDB).
@@ -646,6 +657,7 @@ const REFERENCE_SLOT_260: u32 = 0x260;
 /// division of `this` by a float `(this, result, divisor)`, the smaller and
 /// the larger of two floats, the absolute value (through `fabs`), and the
 /// multiplication of a float by the float at `011c3d18`.
+#[cfg(test)]
 const VECTOR3_CONSTRUCT: u32 = 0x0041_6870;
 const VECTOR_ADD: u32 = 0x0043_9e90;
 const VECTOR_SUBTRACT: u32 = 0x0043_9ef0;
@@ -654,8 +666,6 @@ const FLOAT_SMALLER: u32 = 0x0040_ebd0;
 const FLOAT_LARGER: u32 = 0x0040_4010;
 const FLOAT_ABS: u32 = 0x0040_8840;
 const WORLD_SCALE: u32 = 0x0045_87d0;
-/// `ret this`: the default constructor the compiler calls on a vector.
-const TRIVIAL_CONSTRUCT: u32 = 0x0068_15c0;
 /// The three zero floats the code uses as the default position.
 const DEFAULT_VECTOR: u32 = 0x011f_426c;
 /// Floats: `2.0`, the limit `fn_0054c030` scales (`3250.0`), the start value
@@ -966,7 +976,9 @@ fn world_space(e: &mut Engine, cell: Ptr<TESObjectCELL>) -> Ptr {
 }
 
 fn base_form(e: &mut Engine, reference: Ptr) -> Ptr {
-    e.call(REFERENCE_GET_BASE_FORM, &args![reference]).ptr()
+    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+        .into_ret()
+        .ptr()
 }
 
 fn form_type(e: &mut Engine, form: Ptr) -> u32 {
@@ -1447,7 +1459,7 @@ pub fn tes_object_cell_add_reference(
     }
     if e.call(REFERENCE_HAS_VISIBLE_DISTANT, &args![reference])
         .bool()
-        && !e.call(FORM_FLAG_800, &args![reference]).bool()
+        && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
     {
         let count = e.get(this, TESObjectCELL::sNumRefsWithVisibleDistant);
         e.set(
@@ -1491,7 +1503,7 @@ pub fn tes_object_cell_add_reference(
     }
     if !e.get(this, TESObjectCELL::pLoadedData).is_null() {
         let actor = is_actor(e, reference);
-        if (!actor || e.call(FORM_FLAG_800, &args![reference]).bool())
+        if (!actor || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference)))
             && e.call(REFERENCE_IS_SCRIPTED, &args![reference]).bool()
         {
             e.call(CELL_ADD_SCRIPTED_REF, &args![this, reference]);
@@ -1502,7 +1514,7 @@ pub fn tes_object_cell_add_reference(
             e.call(CELL_ADD_ACTIVATING_REF, &args![this, reference]);
         }
     }
-    if !e.call(FORM_FLAG_800, &args![reference]).bool()
+    if !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
         && e.vcall(reference.addr(), REFERENCE_SLOT_GET_3D, &args![])
             .u32()
             != 0
@@ -1771,8 +1783,9 @@ pub fn tes_object_cell_attach_reference_3d(
         }
         if is_interior(e, this) && !e.call(CELL_FLAG_2, &args![this]).bool() {
             let name = e.vcall(this.addr(), CELL_SLOT_GET_NAME, &args![]).u32();
-            let cell_id = e.call(FORM_ID, &args![this]).u32();
-            let reference_id = e.call(FORM_ID, &args![reference]).u32();
+            let cell_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
+            let reference_id =
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             e.call(
                 DEBUG_PRINT,
                 &args![WATERLESS_CELL_MESSAGE, reference_id, cell_id, name],
@@ -2155,13 +2168,25 @@ pub fn fn_005495a0(e: &mut Engine, this: Ptr<TESObjectCELL>) -> bool {
 // Translated from 005495d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The light marker node (`spLightMarkerNode`, `this + 0xB4`) of the cell.
 pub fn fn_005495d0(e: &mut Engine, this: Ptr<TESObjectCELL>) -> Ptr {
-    e.call(SLOT_GET, &args![this.byte_add(0xb4)]).ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0xb4))
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 005495f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The sound marker node (`spSoundMarkerNode`, `this + 0xB8`) of the cell.
 pub fn fn_005495f0(e: &mut Engine, this: Ptr<TESObjectCELL>) -> Ptr {
-    e.call(SLOT_GET, &args![this.byte_add(0xb8)]).ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0xb8))
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 00549610 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2322,8 +2347,8 @@ pub fn fn_005497c0(
     found_out: Ptr,
     check_bounds: bool,
 ) -> bool {
-    let bound = e.call(NODE_GET_WORLD_BOUND, &args![node]).u32();
-    let center = e.call(BOUND_CENTER_ADDRESS, &args![bound]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
+    let center = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
     let mut position = [
         e.mem.u32(center),
         e.mem.u32(center + 4),
@@ -2412,7 +2437,7 @@ fn multi_bound_attach(
             return false;
         }
         let room_node = slot_get(e, room_slot);
-        let bound = e.call(NODE_GET_WORLD_BOUND, &args![node]).u32();
+        let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
         if e.vcall(room_node, ROOM_NODE_SLOT_CONTAINS_BOUND, &args![bound])
             .u32()
             == 0
@@ -2438,12 +2463,12 @@ fn multi_bound_attach(
     let mut multiple = false;
     let mut best = 0u32;
     let array = e.call(ADDRESS_PLUS_B4, &args![children]).u32();
-    if e.call(ARRAY_COUNT, &args![array]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) != 0 {
         // The original builds a `NiFrustumPlanes` and copies the node's
         // frustum here; both only feed a frustum test whose flag is never
         // set, so they are not translated.
         let array = e.call(ADDRESS_PLUS_B4, &args![children]).u32();
-        let mut cursor = e.call(SLOT_GET, &args![array]).u32();
+        let mut cursor = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, array));
         while cursor != 0 {
             let array = e.call(ADDRESS_PLUS_B4, &args![children]).u32();
             let item = e.with_stack(4, |e, cursor_slot| {
@@ -2455,7 +2480,7 @@ fn multi_bound_attach(
             if item == 0 {
                 continue;
             }
-            let bound = e.call(NODE_GET_WORLD_BOUND, &args![node]).u32();
+            let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
             if !e.call(ROOM_TEST_INTERSECTION, &args![item, bound]).bool() {
                 continue;
             }
@@ -2502,7 +2527,7 @@ pub fn fn_0054a050(e: &mut Engine, this: Ptr<TESObjectCELL>) -> Ptr {
 }
 
 fn slot_get(e: &mut Engine, slot: Ptr) -> u32 {
-    e.call(SLOT_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 // Translated from 0054a070 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2625,7 +2650,8 @@ fn place_loaded_3d(
                 let owner = reference_extra_list(e, Ptr::new(key));
                 let mut cursor = e.call(EXTRA_LIST_GET_LINK_LIST, &args![owner]).u32();
                 while cursor != 0 {
-                    let item_address = e.call(LIST_ITEM_ADDRESS, &args![cursor]).u32();
+                    let item_address =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cursor));
                     let item = e.mem.u32(item_address);
                     if item != 0 {
                         let list = reference_extra_list(e, Ptr::new(item));
@@ -2662,7 +2688,7 @@ fn place_loaded_3d(
                             }
                         }
                     }
-                    cursor = e.call(LIST_NEXT, &args![cursor]).u32();
+                    cursor = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cursor));
                 }
             }
         }
@@ -2837,7 +2863,7 @@ fn add_to_portal_graph_of_cell(e: &mut Engine, this: Ptr<TESObjectCELL>, referen
 fn search_portal_graph(e: &mut Engine, this: Ptr<TESObjectCELL>, reference: Ptr) -> bool {
     let graph = e.call(CELL_PORTAL_GRAPH_CREATE, &args![this]).u32();
     let list = e.call(PORTAL_GRAPH_LIST, &args![graph]).u32();
-    let first = e.call(SLOT_GET, &args![list]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     let mut best = 0u32;
     let mut seen = false;
     let mut multiple = false;
@@ -2850,7 +2876,7 @@ fn search_portal_graph(e: &mut Engine, this: Ptr<TESObjectCELL>, reference: Ptr)
             let list = e.call(PORTAL_GRAPH_LIST, &args![graph]).u32();
             let item_address = e.call(CHILD_ARRAY_NEXT, &args![list, cursor]).u32();
             let item = e.mem.u32(item_address);
-            let bound = e.call(NODE_GET_WORLD_BOUND, &args![node_3d]).u32();
+            let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node_3d));
             if e.call(ROOM_TEST_INTERSECTION, &args![item, bound]).bool() {
                 if !seen {
                     seen = true;
@@ -3152,13 +3178,15 @@ pub fn fn_0054afb0(e: &mut Engine, a: Ptr, b: Ptr, c: Ptr) -> Ptr {
             }
         }
         lock_enter(e, Ptr::new(owner));
-        while cursor != 0 && !e.call(LIST_IS_END, &args![cursor]).bool() {
-            let item_address = e.call(LIST_ITEM_ADDRESS, &args![cursor]).u32();
+        while cursor != 0
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, cursor))
+        {
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cursor));
             let current = Ptr::new(e.mem.u32(item_address));
             let base = base_form(e, current);
             if form_type(e, base) == FORM_TYPE_1C
-                && !e.call(FORM_FLAG_20, &args![current]).bool()
-                && !e.call(FORM_FLAG_800, &args![current]).bool()
+                && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, current))
+                && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, current))
                 && !e.call(FORM_FLAG_800000, &args![current]).bool()
             {
                 let base = base_form(e, current);
@@ -3172,21 +3200,24 @@ pub fn fn_0054afb0(e: &mut Engine, a: Ptr, b: Ptr, c: Ptr) -> Ptr {
                     count += 1;
                 }
             }
-            cursor = e.call(LIST_NEXT, &args![cursor]).u32();
+            cursor = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cursor));
         }
         lock_leave(e, Ptr::new(owner));
-        if count > 0 && !e.call(LIST_IS_END, &args![list]).bool() {
+        if count > 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
             let pick = e.call(RANDOM_BELOW, &args![0u32, count]).u32();
             let mut index = 0u32;
             let mut cursor = list.addr();
-            while cursor != 0 && !e.call(LIST_IS_END, &args![cursor]).bool() {
+            while cursor != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, cursor))
+            {
                 if index == pick {
-                    let item_address = e.call(LIST_ITEM_ADDRESS, &args![cursor]).u32();
+                    let item_address =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cursor));
                     result = Ptr::new(e.mem.u32(item_address));
                     break;
                 }
                 index += 1;
-                cursor = e.call(LIST_NEXT, &args![cursor]).u32();
+                cursor = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cursor));
             }
             e.call(LIST_CLEAR, &args![list]);
         }
@@ -3218,14 +3249,14 @@ pub fn fn_0054b260(e: &mut Engine, this: Ptr<TESObjectCELL>, item: Ptr, destinat
     lock_enter(e, this);
     let mut cursor = e.call(CELL_REFERENCE_LIST, &args![this]).u32();
     while cursor != 0 {
-        let item_address = e.call(LIST_ITEM_ADDRESS, &args![cursor]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cursor));
         if e.mem.u32(item_address) == 0 {
             break;
         }
-        let item_address = e.call(LIST_ITEM_ADDRESS, &args![cursor]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cursor));
         let current = Ptr::new(e.mem.u32(item_address));
-        if !e.call(FORM_FLAG_800, &args![current]).bool()
-            && !e.call(FORM_FLAG_20, &args![current]).bool()
+        if !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, current))
+            && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, current))
             && e.call(REFERENCE_GET_OWNER, &args![current]).u32() != 0
             && e.call(REFERENCE_IS_AN_OWNER, &args![current, item, 0u32])
                 .bool()
@@ -3259,7 +3290,7 @@ pub fn fn_0054b260(e: &mut Engine, this: Ptr<TESObjectCELL>, item: Ptr, destinat
                 _ => {}
             }
         }
-        cursor = e.call(LIST_NEXT, &args![cursor]).u32();
+        cursor = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cursor));
     }
     lock_leave(e, this);
 }
@@ -3317,7 +3348,7 @@ pub fn tes_object_cell_save_game_test(e: &mut Engine, this: Ptr<TESObjectCELL>) 
     lock_enter(e, this);
     let mut cursor = e.call(CELL_REFERENCE_LIST, &args![this]).u32();
     while cursor != 0 {
-        let item_address = e.call(LIST_ITEM_ADDRESS, &args![cursor]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cursor));
         let current = Ptr::new(e.mem.u32(item_address));
         let player = e.global::<u32>(PLAYER_POINTER);
         if !current.is_null() && current.addr() != player {
@@ -3342,8 +3373,8 @@ pub fn tes_object_cell_save_game_test(e: &mut Engine, this: Ptr<TESObjectCELL>) 
                 );
             }
             if !actor.is_null()
-                && !e.call(FORM_FLAG_800, &args![actor]).bool()
-                && !e.call(FORM_FLAG_20, &args![actor]).bool()
+                && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
+                && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
             {
                 let constant = e.global::<f32>(SAVE_TEST_CONSTANT);
                 let player = e.global::<u32>(PLAYER_POINTER);
@@ -3351,8 +3382,8 @@ pub fn tes_object_cell_save_game_test(e: &mut Engine, this: Ptr<TESObjectCELL>) 
             }
             if !actor.is_null()
                 && !e.call(ACTOR_IS_ESSENTIAL, &args![actor]).bool()
-                && !e.call(FORM_FLAG_800, &args![actor]).bool()
-                && !e.call(FORM_FLAG_20, &args![actor]).bool()
+                && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
+                && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
                 && !e.vcall(actor.addr(), ACTOR_SLOT_22C, &args![0u32]).bool()
             {
                 let player = e.global::<u32>(PLAYER_POINTER);
@@ -3368,7 +3399,7 @@ pub fn tes_object_cell_save_game_test(e: &mut Engine, this: Ptr<TESObjectCELL>) 
             }
             e.call(SAVE_TEST_FINISH, &args![]);
         }
-        cursor = e.call(LIST_NEXT, &args![cursor]).u32();
+        cursor = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cursor));
     }
     lock_leave(e, this);
 }
@@ -3384,18 +3415,18 @@ fn first_node(e: &mut Engine, cell: Ptr<TESObjectCELL>) -> u32 {
 
 /// The reference a list node holds.
 fn node_item(e: &mut Engine, node: u32) -> Ptr {
-    let address = e.call(LIST_ITEM_ADDRESS, &args![node]).u32();
+    let address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     Ptr::new(e.mem.u32(address))
 }
 
 /// The node after `node`.
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// The list's end test (`008256d0`).
 fn node_is_end(e: &mut Engine, node: u32) -> bool {
-    e.call(LIST_IS_END, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 /// The position of a reference: the address its virtual slot `0x1F4`
@@ -3714,8 +3745,8 @@ pub fn fn_0054bcf0(e: &mut Engine, this: Ptr<TESObjectCELL>, flag: u8) {
                 let list = reference_extra_list(e, item);
                 e.call(SCRIPT_SET_ACTION_FLAG, &args![item, list, 0x1000u32]);
             }
-            if e.call(FORM_FLAG_800, &args![item]).bool()
-                || e.call(FORM_FLAG_20, &args![item]).bool()
+            if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, item))
+                || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, item))
             {
                 continue;
             }
@@ -3828,9 +3859,17 @@ pub fn tes_object_cell_calc_ref_center_point(e: &mut Engine, this: Ptr<TESObject
         lock_enter(e, this);
         let mut count = 0u32;
         let flt_max = e.global::<f32>(FLOAT_MAX);
-        e.call(VECTOR3_CONSTRUCT, &args![min, flt_max, flt_max, flt_max]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, min, flt_max, flt_max, flt_max)
+        );
         let smallest = e.global::<f32>(SMALLEST_NORMAL_FLOAT);
-        e.call(VECTOR3_CONSTRUCT, &args![max, smallest, smallest, smallest]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, max, smallest, smallest, smallest)
+        );
         let mut cursor = first_node(e, this);
         while cursor != 0 {
             let item = node_item(e, cursor);
@@ -3845,7 +3884,7 @@ pub fn tes_object_cell_calc_ref_center_point(e: &mut Engine, this: Ptr<TESObject
                     if count != 0 {
                         let sum = e.call(VECTOR_ADD, &args![min, f + 0x20, max]).u32();
                         let center = e.call(VECTOR_DIVIDE, &args![sum, f + 0x30, two]).u32();
-                        e.call(TRIVIAL_CONSTRUCT, &args![f + 0x40]);
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, f + 0x40));
                         let position = reference_position(e, item);
                         let offset = e
                             .call(VECTOR_SUBTRACT, &args![center, f + 0x50, position])
@@ -3874,7 +3913,11 @@ pub fn tes_object_cell_calc_ref_center_point(e: &mut Engine, this: Ptr<TESObject
                                 let sum = e.call(VECTOR_ADD, &args![min, f + 0x70, max]).u32();
                                 let center =
                                     e.call(VECTOR_DIVIDE, &args![sum, f + 0x80, two]).u32();
-                                e.call(TRIVIAL_CONSTRUCT, &args![f + 0x90]);
+                                typed_call!(
+                                    leaf::FAMILY,
+                                    0x0068_15c0,
+                                    leaf::same_word(e, f + 0x90)
+                                );
                                 let position = reference_position(e, item);
                                 let offset = e
                                     .call(VECTOR_SUBTRACT, &args![center, f + 0xa0, position])
@@ -3892,8 +3935,8 @@ pub fn tes_object_cell_calc_ref_center_point(e: &mut Engine, this: Ptr<TESObject
                         if fix {
                             let (name, id) = name_and_id(e, item);
                             e.call(DEBUG_PRINT, &args![MESSAGE_MOVE_TO_SAFE_PLACE, name, id]);
-                            e.call(TRIVIAL_CONSTRUCT, &args![f + 0xb0]);
-                            e.call(TRIVIAL_CONSTRUCT, &args![f + 0xbc]);
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, f + 0xb0));
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, f + 0xbc));
                             tes_object_cell_get_coc_placement_info(
                                 e,
                                 this,
@@ -3996,7 +4039,7 @@ pub fn tes_object_cell_run_scripts(
         }
         if all == 0
             && e.call(REFERENCE_GET_3D, &args![item]).u32() == 0
-            && !e.call(FORM_FLAG_800, &args![item]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, item))
         {
             continue;
         }
@@ -4104,8 +4147,8 @@ pub fn tes_object_cell_add_furniture_to_list(e: &mut Engine, this: Ptr<TESObject
         let item = node_item(e, cursor);
         if !item.is_null()
             && e.call(REFERENCE_IS_FURNITURE, &args![item]).bool()
-            && !e.call(FORM_FLAG_20, &args![item]).bool()
-            && !e.call(FORM_FLAG_800, &args![item]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, item))
+            && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, item))
         {
             push_front_value(e, list.addr(), item.addr());
         }
@@ -4312,7 +4355,8 @@ pub fn fn_0054cf20(e: &mut Engine, this: Ptr<TESObjectCELL>, form: Ptr, skip_fla
         let base = base_form(e, item);
         cursor = node_next(e, cursor);
         if !base.is_null()
-            && !(skip_flagged != 0 && e.call(FORM_FLAG_20, &args![item]).bool())
+            && !(skip_flagged != 0
+                && typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, item)))
             && base == form
         {
             lock_leave(e, this);
@@ -4342,12 +4386,11 @@ pub fn tes_object_cell_get_coc_placement_info(
     let grid_x = e.call(CELL_GET_DATA_X, &args![this]).u32() as i32;
     let x = grid_x.wrapping_shl(12).wrapping_add(0x800);
     e.with_stack(12, |e, vector| {
-        let result = e
-            .call(
-                VECTOR3_CONSTRUCT,
-                &args![vector, x as f32, y as f32, 0.0f32],
-            )
-            .u32();
+        let result = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, vector, x as f32, y as f32, 0.0f32)
+        );
         copy_vector(e, out_position.addr(), result);
     });
     copy_vector(e, out_rotation.addr(), DEFAULT_VECTOR);
@@ -4396,7 +4439,7 @@ pub fn tes_object_cell_determine_coc_placement(
     let mut cursor = first_node(e, this);
     while cursor != 0 && !node_is_end(e, cursor) {
         let item = node_item(e, cursor);
-        if !e.call(FORM_FLAG_20, &args![item]).bool() {
+        if !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, item)) {
             if marker_24c.is_null()
                 && base_form(e, item).addr() == e.global::<u32>(COC_MARKER_FORM_24C)
                 && usable_position(e, this, item)
@@ -4417,8 +4460,11 @@ pub fn tes_object_cell_determine_coc_placement(
             }
             if !found_package {
                 let teleport = e.call(REFERENCE_GET_TELEPORT_DATA, &args![item]).u32();
-                if teleport != 0 && e.call(SLOT_GET, &args![teleport]).u32() != 0 {
-                    let target = e.call(SLOT_GET, &args![teleport]).u32();
+                if teleport != 0
+                    && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, teleport)) != 0
+                {
+                    let target =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, teleport));
                     let data = e.call(REFERENCE_GET_TELEPORT_DATA, &args![target]).u32();
                     if data != 0 {
                         let position = e.call(TELEPORT_POSITION, &args![data]).u32();
@@ -4595,7 +4641,11 @@ pub fn fn_0054d4b0(
     let guard = e.global::<u32>(WALK_GUARD);
     if guard & 2 == 0 {
         e.set_global(WALK_GUARD, guard | 2);
-        e.call(TRIVIAL_CONSTRUCT, &args![WALK_BEST_POSITION]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, WALK_BEST_POSITION)
+        );
     }
     let mut found = false;
     if e.global::<u32>(WALK_DEPTH) == 0 {
@@ -4665,7 +4715,7 @@ pub fn fn_0054d4b0(
                     }
                 }
             }
-            let mut position = e.call(SLOT_GET, &args![doors]).u32();
+            let mut position = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, doors));
             while position != 0 && !found {
                 let door = e.with_stack(4, |e, slot| {
                     e.mem.set_u32(slot.addr(), position);
@@ -4772,7 +4822,9 @@ pub fn fn_0054da20(
 /// A door reference worth listing: no form flag `0x800` / `0x20`, a base
 /// form of type `0x1C` other than the form in `011ca258`.
 fn is_listed_door(e: &mut Engine, item: Ptr) -> Option<Ptr> {
-    if e.call(FORM_FLAG_800, &args![item]).bool() || e.call(FORM_FLAG_20, &args![item]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, item))
+        || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, item))
+    {
         return None;
     }
     let base = base_form(e, item);
@@ -4856,7 +4908,7 @@ pub fn fn_0054dc00(
         cursor = node_next(e, cursor);
     }
     lock_leave(e, this);
-    e.call(ARRAY_COUNT, &args![list]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list))
 }
 
 // Translated from 0054dcf0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -5181,7 +5233,7 @@ pub fn fn_0054df30(e: &mut Engine, this: Ptr<TESObjectCELL>) -> u8 {
                     }
                 }
             } else if kind == 0x1d {
-                if e.call(FORM_FLAG_20, &args![item]).bool()
+                if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, item))
                     && !e.call(REFERENCE_TEST_565450, &args![item]).bool()
                     && !e.vcall(item.addr(), REFERENCE_SLOT_160, &args![]).bool()
                 {
@@ -5658,14 +5710,14 @@ pub fn tes_object_cell_take_exterior_local_map_picture(
         let scene_root = e.call(GLOBAL_TABLE_ENTRY, &args![0u32]).u32();
 
         let min_max = local(ebp, -0x44);
-        e.call(TRIVIAL_CONSTRUCT, &args![min_max]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, min_max));
         let position = local(ebp, -0x3c);
         for i in 0..3 {
             let word: u32 = e.global(DEFAULT_VECTOR + 4 * i);
             e.mem.set_u32(position.addr() + 4 * i, word);
         }
         let matrix = local(ebp, -0x70);
-        e.call(TRIVIAL_CONSTRUCT, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         let quarter_turn_back: f32 = e.global(0x0101_6b78);
         let quarter_turn: f32 = e.global(0x0101_ff38);
         e.call(
@@ -5837,7 +5889,13 @@ pub fn fn_0054f4d0(e: &mut Engine, flag: u8) {
 // Translated from 0054f4f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The word of the slot at `011deda4`.
 pub fn fn_0054f4f0(e: &mut Engine) -> Ptr {
-    e.call(SLOT_GET, &args![0x011d_eda4u32]).ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_eda4u32)
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 0054f500 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -5865,14 +5923,14 @@ pub fn fn_0054f500(e: &mut Engine, this: Ptr<TESObjectCELL>, cell_x: i32, cell_y
         let scene_root = e.call(GLOBAL_TABLE_ENTRY, &args![0u32]).u32();
 
         let scratch = local(ebp, -0x40);
-        e.call(TRIVIAL_CONSTRUCT, &args![scratch]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, scratch));
         let position = local(ebp, -0x38);
         for i in 0..3 {
             let word: u32 = e.global(DEFAULT_VECTOR + 4 * i);
             e.mem.set_u32(position.addr() + 4 * i, word);
         }
         let matrix = local(ebp, -0x70);
-        e.call(TRIVIAL_CONSTRUCT, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         let angle_source: f32 = e.global(0x0102_e964);
         let angle_divisor: f64 = e.global(0x0101_1590);
         let angle = (angle_source as f64 / angle_divisor) as f32;
@@ -5889,18 +5947,18 @@ pub fn fn_0054f500(e: &mut Engine, this: Ptr<TESObjectCELL>, cell_x: i32, cell_y
 
         // The 3D's world bound: centre and radius, copied.
         let cell_3d = e.call(CELL_GET_3D, &args![this]).u32();
-        let world_bound = e.call(NODE_GET_WORLD_BOUND, &args![cell_3d]).u32();
+        let world_bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, cell_3d));
         let bound = local(ebp, -0x8c);
         for i in 0..4 {
             let word = e.mem.u32(world_bound + 4 * i);
             e.mem.set_u32(bound.addr() + 4 * i, word);
         }
-        let center = e.call(TRIVIAL_CONSTRUCT, &args![bound]).u32();
+        let center = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
         let radius = e.call(BOUND_RADIUS, &args![bound]).f32();
         let center_z = e.mem.f32(center + 8);
         e.mem
             .set_f32(scratch.addr(), (center_z as f64 - radius as f64) as f32);
-        let center = e.call(TRIVIAL_CONSTRUCT, &args![bound]).u32();
+        let center = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
         let radius = e.call(BOUND_RADIUS, &args![bound]).f32();
         let center_z = e.mem.f32(center + 8);
         e.mem
@@ -6115,8 +6173,6 @@ const REGION_DATA_SLOT_ENABLED: u32 = 0x20;
 /// The word at `this + 0x1C` (the map folds `PathingLocation::GetWorldspace`
 /// onto it): a region's list of areas.
 const REGION_AREA_LIST: u32 = 0x0044_1110;
-/// The word at `this + 0x20`.
-const WORD_AT_20: u32 = 0x007a_f430;
 /// The scale one area gives at the point `(this, target, float)` (`ret 8`).
 const REGION_AREA_SCALE: u32 = 0x004f_8560;
 /// The word at `this + 0x624` of the object in the global at `011c3f2c`.
@@ -6132,7 +6188,7 @@ const DOUBLE_ONE: u32 = 0x0101_2070;
 /// One area of a region: its scale at the query, clamped to 1, folded into the
 /// running maximum with [`FLOAT_LARGER`].
 fn fold_area_scale(e: &mut Engine, area: Ptr, target: u32, accumulated: f32) -> f32 {
-    let id = e.call(WORD_AT_20, &args![area]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, area));
     let mut scale = e
         .call(REGION_AREA_SCALE, &args![area, target, id as f32])
         .f32();
@@ -6182,7 +6238,7 @@ pub fn tes_object_cell_get_scale_based_on_location(
         if region.is_null() {
             break;
         }
-        if e.call(FORM_FLAG_20, &args![region]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, region)) {
             node = node_next(e, node);
             continue;
         }
@@ -6253,12 +6309,12 @@ pub fn tes_object_cell_get_scale_based_on_location(
             let group = e.vcall(sub_object, 0x18, &args![data]).u32();
             let id_b = if e.vcall(query.addr(), 0xc, &args![]).u32() != 0 {
                 let linked = e.vcall(query.addr(), 0xc, &args![]).u32();
-                e.call(FORM_ID, &args![linked]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, linked))
             } else {
                 u32::MAX
             };
             let main = e.vcall(query.addr(), 4, &args![]).u32();
-            let id_a = e.call(FORM_ID, &args![main]).u32();
+            let id_a = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, main));
             let tested = e.vcall(group, 0x28, &args![]).u32();
             if e.call(REGION_TEST_IDS, &args![tested, id_a, id_b]).u32() == 0 {
                 node = node_next(e, node);
@@ -6391,7 +6447,11 @@ pub fn tes_object_cell_load_all_temp_data(e: &mut Engine, this: Ptr<TESObjectCEL
         if !file.is_null() && e.call(FILE_IS_MASTER, &args![file]).bool() {
             let mut positioned = false;
             let master_list = e.call(FILE_MASTER_LIST, &args![file]).u32();
-            let offset = if e.call(LIST_IS_END, &args![master_list]).bool() {
+            let offset = if typed_call!(
+                leaf::FAMILY,
+                0x0082_56d0,
+                leaf::both_words_zero(e, master_list)
+            ) {
                 fn_0054de40(e, this)
             } else {
                 0
@@ -6517,7 +6577,11 @@ pub fn fn_00550500(e: &mut Engine, this: Ptr<TESObjectCELL>, file: Ptr) -> bool 
             let mut flagged = false;
             if e.call(FILE_IS_MASTER, &args![file]).bool() {
                 let master_list = e.call(FILE_MASTER_LIST, &args![file]).u32();
-                if !e.call(LIST_IS_END, &args![master_list]).bool() {
+                if !typed_call!(
+                    leaf::FAMILY,
+                    0x0082_56d0,
+                    leaf::both_words_zero(e, master_list)
+                ) {
                     let current = e.call(FILE_CURRENT_RECORD, &args![file]).u32();
                     if e.mem.u32(current + 8) & 0x20 != 0 {
                         flagged = true;
@@ -6606,6 +6670,7 @@ const EXTRA_DATA_9_CONSTRUCT: u32 = 0x0040_f410;
 const EXTRA_LIST_ADD_EXTRA: u32 = 0x0040_ff60;
 const EXTRA_LIST_REMOVE_EXTRA: u32 = 0x0041_0020;
 /// `MiddleHighProcess::GetSavedAcquireObject` (the word at `+0x68`).
+#[cfg(test)]
 const ACTOR_WORD_AT_68: u32 = 0x008d_8520;
 /// The extra data list calls `fn_00551650` and `fn_00551740` make on entry
 /// type 6: set from a string `(list, text)`, and get (`+0xC` of the entry).
@@ -6754,7 +6819,8 @@ pub fn fn_005508b0(e: &mut Engine, this: Ptr<TESObjectCELL>) {
             while index < e.call(NAV_MESH_ARRAY_COUNT, &args![nav_meshes]).u32() {
                 let file = e.with_stack(4, |e, element| {
                     let slot = e.call(NAV_MESH_ARRAY_GET, &args![nav_meshes, element, index]);
-                    let nav_mesh = e.call(SLOT_GET, &args![slot.u32()]).u32();
+                    let nav_mesh =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot.u32()));
                     let file = e.call(FORM_GET_FILE, &args![nav_mesh, u32::MAX]).u32();
                     e.call(NAV_POINTER_RELEASE, &args![element]);
                     file
@@ -6980,7 +7046,8 @@ pub fn fn_00551110(e: &mut Engine, this: Ptr<TESObjectCELL>) -> Ptr {
     while node != 0 {
         let item = node_item(e, node);
         if !item.is_null()
-            && e.call(WORD_AT_20, &args![item]).u32() == e.global::<u32>(MARKER_BASE_FORM_POINTER)
+            && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item))
+                == e.global::<u32>(MARKER_BASE_FORM_POINTER)
         {
             found = item;
             break;
@@ -7007,7 +7074,7 @@ pub fn fn_00551180(e: &mut Engine, this: Ptr<TESObjectCELL>, source: Ptr) -> Ptr
         // `ebp - 0x2c` in the game's frame.
         let position = frame.byte_add(0x10);
         let rotation = frame;
-        e.call(TRIVIAL_CONSTRUCT, &args![position]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
         let mut placed = false;
         if !source.is_null() && e.call(REFERENCE_PARENT_CELL, &args![source]).u32() == this.addr() {
             let address = e
@@ -7024,7 +7091,7 @@ pub fn fn_00551180(e: &mut Engine, this: Ptr<TESObjectCELL>, source: Ptr) -> Ptr
             }
         }
         if !placed {
-            e.call(TRIVIAL_CONSTRUCT, &args![rotation]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
             tes_object_cell_determine_coc_placement(e, this, position, rotation);
         }
         let memory = e.call(ALLOCATE, &args![0x68u32]).u32();
@@ -7040,7 +7107,7 @@ pub fn fn_00551180(e: &mut Engine, this: Ptr<TESObjectCELL>, source: Ptr) -> Ptr
             &args![reference, marker_form],
         );
         let player: u32 = e.global(PLAYER_POINTER);
-        let player_form = e.call(WORD_AT_20, &args![player]).u32();
+        let player_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
         e.call(REFERENCE_SET_OWNER_FORM, &args![reference, player_form]);
         fn_005512f0(e, this, Ptr::new(reference));
         tes_object_cell_add_reference(e, this, Ptr::new(reference), 0);
@@ -7057,7 +7124,8 @@ pub fn fn_00551180(e: &mut Engine, this: Ptr<TESObjectCELL>, source: Ptr) -> Ptr
 /// (`00574b30(target, item, count, 0, 0)`) and marks the item as picked up.
 pub fn fn_005512f0(e: &mut Engine, this: Ptr<TESObjectCELL>, target: Ptr) {
     if target.is_null()
-        || e.call(WORD_AT_20, &args![target]).u32() != e.global::<u32>(MARKER_BASE_FORM_POINTER)
+        || typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target))
+            != e.global::<u32>(MARKER_BASE_FORM_POINTER)
     {
         return;
     }
@@ -7065,12 +7133,15 @@ pub fn fn_005512f0(e: &mut Engine, this: Ptr<TESObjectCELL>, target: Ptr) {
     let mut node = first_node(e, this);
     while node != 0 {
         let item = node_item(e, node);
-        if !item.is_null() && !flag_20(e, item) && !e.call(FORM_FLAG_800, &args![item]).bool() {
+        if !item.is_null()
+            && !flag_20(e, item)
+            && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, item))
+        {
             let mut take = false;
-            let base = e.call(WORD_AT_20, &args![item]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
             let kind = e.call(FORM_TYPE, &args![base]).u8();
             if kind == 0x1e {
-                let base = e.call(WORD_AT_20, &args![item]).u32();
+                let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, item));
                 if e.call(FORM_TYPE_1E_TEST, &args![base]).bool() {
                     take = true;
                 }
@@ -7143,8 +7214,8 @@ pub fn tes_object_cell_set_lowest_process_to_middle_low(
             let actor = dynamic_cast(e, item, RTTI_REFERENCE, RTTI_REFERENCE_CAST_TARGET);
             node = node_next(e, node);
             if !actor.is_null()
-                && !e.call(FORM_FLAG_800, &args![actor]).bool()
-                && e.call(ACTOR_WORD_AT_68, &args![actor]).u32() != 0
+                && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
+                && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
                 && e.call(ACTOR_PROCESS_TYPE, &args![actor]).u32() == 3
             {
                 e.call(
@@ -7210,14 +7281,14 @@ pub fn fn_005516a0(e: &mut Engine, value: u8) {
 // Translated from 005516c0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Bit `0x400` of the form flags: the cell is persistent.
 pub fn fn_005516c0(e: &mut Engine, this: Ptr<TESObjectCELL>) -> bool {
-    e.call(FORM_FLAGS, &args![this]).u32() & 0x400 != 0
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) & 0x400 != 0
 }
 
 // Translated from 005516f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `TESObjectCELL::SetPersistentCell` (Xbox PDB), `ret 4`: sets or clears bit
 /// `0x400` of the form flags (`00403550` writes the word at `+8`).
 pub fn tes_object_cell_set_persistent_cell(e: &mut Engine, this: Ptr<TESObjectCELL>, flag: u8) {
-    let mut flags = e.call(FORM_FLAGS, &args![this]).u32();
+    let mut flags = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     if flag != 0 {
         flags |= 0x400;
     } else {
@@ -7584,7 +7655,7 @@ pub fn fn_00551890(e: &mut Engine, this: Ptr<TESObjectCELL>, time: f32, large_on
             if e.call(WORD_AT_18, &args![node]).u32() == child_4.addr() {
                 continue;
             }
-            let base = e.call(WORD_AT_20, &args![reference]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             if e.call(FORM_TYPE, &args![base]).u32() == 0x25 {
                 let word = fn_00552380(e);
                 if !e.call(NODE_CHECK_004B5FC0, &args![node, word]).bool() {
@@ -7661,9 +7732,9 @@ pub fn fn_00551890(e: &mut Engine, this: Ptr<TESObjectCELL>, time: f32, large_on
                     sky_texture_color(e, source, color.addr());
                 }
             }
-            let base = e.call(WORD_AT_20, &args![reference]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             if e.call(FORM_TYPE, &args![base]).u32() == 0x1e {
-                let base = e.call(WORD_AT_20, &args![reference]).u32();
+                let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                 let packed = e.call(FORM_PACKED_COLOR, &args![base]).u32();
                 let factor: f32 = e.global(COLOR_BYTE_FACTOR);
                 let bytes = [
@@ -7678,8 +7749,10 @@ pub fn fn_00551890(e: &mut Engine, this: Ptr<TESObjectCELL>, time: f32, large_on
                         .set_f32(at, ((*byte as f64 * factor as f64) * old as f64) as f32);
                 }
                 let light = e.call(REFERENCE_LIGHT_SLOT, &args![reference]).u32();
-                if light != 0 && e.call(SLOT_GET, &args![light]).u32() != 0 {
-                    let object = e.call(SLOT_GET, &args![light]).u32();
+                if light != 0
+                    && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, light)) != 0
+                {
+                    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, light));
                     e.call(LIGHT_SET_COLOR, &args![object, color]);
                 }
             }

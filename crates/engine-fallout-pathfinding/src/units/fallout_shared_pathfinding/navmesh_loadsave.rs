@@ -160,9 +160,11 @@ const REF_OBJECT_ENTRY_CALL: u32 = 0x0040_1970;
 const REF_OBJECT_DELETED_CALL: u32 = 0x0040_f6e0;
 /// Tests `TESForm::iFormFlags & 0x20` (the flag `TESForm::SetDelete` sets,
 /// see `00693fe0`).
+#[cfg(test)]
 const FORM_FLAG_20: u32 = 0x0044_0d80;
 /// Tests `TESForm::iFormFlags & 0x800` (the flag `TESForm::SetDisabled`
 /// changes, see `00694500`).
+#[cfg(test)]
 const FORM_FLAG_800: u32 = 0x0044_0da0;
 /// `TESForm::LoadForm` (engine map).
 const FORM_LOAD_FORM: u32 = 0x0048_5110;
@@ -179,6 +181,7 @@ const FORM_ADD_COMPILE_INDEX: u32 = 0x0048_5d50;
 /// Looks a form up by id (cdecl).
 const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// The word at +0x0C (a form's `iFormID`).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// The word at +0x24 (the mesh's parent cell).
 const GET_PARENT_CELL: u32 = 0x0059_bb30;
@@ -190,16 +193,19 @@ const PRINT: u32 = 0x005b_5e40;
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 const STRING_DESTRUCT: u32 = 0x0040_37d0;
 const STRING_PRINTF: u32 = 0x0040_6f60;
+#[cfg(test)]
 const DEREFERENCE: u32 = 0x0055_9450;
 /// `TES::GetNavMeshInfoMap` (engine map).
 const TES_GET_NAV_MESH_INFO_MAP: u32 = 0x0045_af00;
 /// `BSSimpleArray` size (the word at +8).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `BSSimpleArray` element addresses: 12-byte (`006a1440`), 16-byte
 /// (`00558dd0`), 2-byte (`005eeda0`) and 4-byte (`00877a30`) elements.
 const ELEMENT_12: u32 = 0x006a_1440;
 const ELEMENT_16: u32 = 0x0055_8dd0;
 const ELEMENT_2: u32 = 0x005e_eda0;
+#[cfg(test)]
 const ELEMENT_4: u32 = 0x0087_7a30;
 /// `BSSimpleArray<BGSBodyPart *>::AddUninitialized` (engine map; the code
 /// is the one shared by every 4-byte element array): appends `*value`.
@@ -298,11 +304,11 @@ fn word(e: &Engine, address: u32) -> u32 {
 }
 
 fn flag_20(e: &mut Engine, form: u32) -> bool {
-    e.call(FORM_FLAG_20, &args![form]).bool()
+    typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, form))
 }
 
 fn array_size(e: &mut Engine, array: u32) -> u32 {
-    e.call(ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 fn nav_mesh_info_map(e: &mut Engine) -> u32 {
@@ -311,7 +317,7 @@ fn nav_mesh_info_map(e: &mut Engine) -> u32 {
 }
 
 fn form_id(e: &mut Engine, form: u32) -> u32 {
-    e.call(GET_FORM_ID, &args![form]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
 }
 
 /// A temporary `BSStringT` filled by the mesh's virtual slot `+0x90`
@@ -321,7 +327,7 @@ fn with_detailed_string(e: &mut Engine, mesh: u32, f: impl FnOnce(&mut Engine, u
         let text = text.addr();
         e.call(STRING_CONSTRUCT, &args![text]);
         e.vcall(mesh, 0x90, &args![text]);
-        let chars = e.call(DEREFERENCE, &args![text]).u32();
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         f(e, chars);
         e.call(STRING_DESTRUCT, &args![text]);
     });
@@ -791,7 +797,11 @@ fn load_upgrade(e: &mut Engine, this: Ptr<NavMesh>, version: i32, old_portals: u
         let count = array_size(e, old_portals) as i32;
         let mut index = count.wrapping_sub(1);
         while index >= 0 {
-            let item = e.call(ELEMENT_4, &args![old_portals, index]).u32();
+            let item = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, old_portals, index)
+            );
             let info = word(e, item) & 0xffff;
             e.call(MESH_DELETE_EXTRA_EDGE_INFO, &args![mesh, info]);
             index -= 1;
@@ -894,9 +904,11 @@ fn load_upgrade(e: &mut Engine, this: Ptr<NavMesh>, version: i32, old_portals: u
                         break;
                     }
                     let info = e.get(this, NavMesh::pNavMeshInfo).addr();
-                    let item = e
-                        .call(ELEMENT_4, &args![info + INFO_ARRAY_24, position])
-                        .u32();
+                    let item = typed_call!(
+                        leaf::FAMILY,
+                        0x0087_7a30,
+                        leaf::array_element(e, info + INFO_ARRAY_24, position)
+                    );
                     if word(e, item) == word(e, edge_info + 4) {
                         let info = e.get(this, NavMesh::pNavMeshInfo).addr();
                         e.call(ARRAY_REMOVE_4, &args![info + INFO_ARRAY_24, position, 1u32]);
@@ -1133,7 +1145,7 @@ pub fn fn_00693dc0(e: &mut Engine, this: Ptr) {
 /// for it beforehand; otherwise calls `00699b60`.
 pub fn fn_00693e60(e: &mut Engine, this: Ptr<NavMesh>) {
     let mesh = this.addr();
-    if e.call(FORM_FLAG_800, &args![mesh]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, mesh)) {
         let info = e.call(MESH_GET_INFO, &args![mesh]).ptr();
         fn_00693ef0(e, info, true);
     }
@@ -1176,7 +1188,7 @@ pub fn nav_mesh_get_form_detailed_string(e: &mut Engine, this: Ptr<NavMesh>, res
         if cell != 0 {
             e.vcall(cell, 0x90, &args![text]);
         }
-        let chars = e.call(DEREFERENCE, &args![text]).u32();
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         let triangles = array_size(e, mesh + MESH_TRIANGLES);
         let id = form_id(e, mesh);
         e.call(
@@ -1196,7 +1208,9 @@ pub fn nav_mesh_get_form_detailed_string(e: &mut Engine, this: Ptr<NavMesh>, res
 /// info is deleted from the `NavMeshInfoMap`.
 pub fn fn_00693fe0(e: &mut Engine, this: Ptr<NavMesh>, value: u8) {
     let mesh = this.addr();
-    let current = e.call(FORM_FLAG_20, &args![mesh]).u8();
+    let current = typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, mesh))
+        .into_ret()
+        .u8();
     if value != current {
         let mut altered = 1u8;
         let source = e.call(FORM_GET_FILE, &args![mesh, 0u32]).u32();
@@ -1326,7 +1340,7 @@ pub fn fn_006942c0(e: &mut Engine, this: Ptr<NavMesh>, id: u32) {
 // Translation incomplete: 006942e0 - the exception-unwinding frame is not translated.
 pub fn fn_006942e0(e: &mut Engine, this: Ptr<NavMesh>, target: Ptr) {
     let mesh = this.addr();
-    let other = |e: &mut Engine| e.call(DEREFERENCE, &args![target]).u32();
+    let other = |e: &mut Engine| typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, target));
     let target_mesh = other(e);
     let cell = word(e, mesh + MESH_PARENT_CELL);
     e.mem.set_u32(target_mesh + MESH_PARENT_CELL, cell);
@@ -1445,14 +1459,16 @@ pub fn nav_mesh_set_disable_nav_mesh(e: &mut Engine, id: u32, disable: u8) -> bo
             e.call(MESH_POINTER_DESTRUCT, &args![slot]);
             return false;
         }
-        let mesh = e.call(DEREFERENCE, &args![slot]).u32();
-        let current = e.call(FORM_FLAG_800, &args![mesh]).u8();
+        let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
+        let current = typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, mesh))
+            .into_ret()
+            .u8();
         if current != disable {
-            let mesh = e.call(DEREFERENCE, &args![slot]).u32();
+            let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
             e.call(FORM_SET_DISABLED, &args![mesh, disable]);
             fn_00693ef0(e, info, disable != 0);
             if disable == 0 {
-                let mesh = e.call(DEREFERENCE, &args![slot]).u32();
+                let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
                 e.call(MESH_ENABLED_CALL, &args![mesh]);
             }
         }
@@ -1469,7 +1485,7 @@ pub fn fn_00694620(e: &mut Engine, this: Ptr<NavMesh>, value: u32) {
     e.call(0x0045_34f0, &args![mesh, value]);
     let info = e.get(this, NavMesh::pNavMeshInfo);
     if info.addr() != 0 {
-        let flag = e.call(FORM_FLAG_800, &args![mesh]).bool();
+        let flag = typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, mesh));
         let info = e.get(this, NavMesh::pNavMeshInfo);
         fn_00693ef0(e, info, flag);
     }
@@ -1730,7 +1746,11 @@ pub fn fn_00694f80(e: &mut Engine, this: Array, destination: Array) {
 pub fn fn_00694fe0(e: &mut Engine, this: Array, destination: Array) {
     copy_array(e, this, destination, fn_00695230, |e, index, buffer| {
         let source = buffer.wrapping_add(index.wrapping_mul(4));
-        let target = e.call(ELEMENT_4, &args![destination, index]).u32();
+        let target = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, destination, index)
+        );
         e.call(POINTER_ASSIGN, &args![target, source]);
     });
 }

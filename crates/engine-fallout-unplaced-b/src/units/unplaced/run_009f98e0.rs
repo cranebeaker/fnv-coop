@@ -210,6 +210,7 @@ const WIDE_STRING_DUPLICATE: u32 = 0x009f_d0a0;
 const ALLOCATOR_MAKE_009FD5A0: u32 = 0x009f_d5a0;
 const REQUEST_FINISH_009FE3F0: u32 = 0x009f_e3f0;
 const RETURN_ZERO_00A38DE0: u32 = 0x00a3_8de0;
+#[cfg(test)]
 const RETURN_ZERO_00E7CD40: u32 = 0x00e7_cd40;
 
 /// 100-nanosecond units per second (`0x989680`).
@@ -1905,7 +1906,7 @@ pub fn fn_009fd460(e: &mut Engine, this: Ptr, value: u32) -> u32 {
 /// stack words).
 pub fn fn_009fd480(e: &mut Engine, this: Ptr) -> u32 {
     set_field(e, this, 0xa0, 0);
-    e.call(RETURN_ZERO_00E7CD40, &args![this]).u32()
+    typed_call!(leaf::FAMILY, 0x00e7_cd40, leaf::zero(e, this))
 }
 
 // Translated from 009fd490 (decompiled, FalloutNV.exe 1.4.0.525)

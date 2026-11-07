@@ -130,6 +130,7 @@ const SAVE_FORM_ID: u32 = 0x0086_5df0;
 /// the size and a flag word).
 const SAVE_DATA: u32 = 0x0086_5e50;
 /// A `TESForm` getter (`0084e3a0`) whose result `00469860` checks.
+#[cfg(test)]
 const FORM_VALUE_0084E3A0: u32 = 0x0084_e3a0;
 /// A `TESDataHandler` check (`00469860`, the data handler and the value).
 const DATA_HANDLER_CHECK_00469860: u32 = 0x0046_9860;
@@ -199,7 +200,7 @@ pub fn actor_package_save_game(e: &mut Engine, this: Ptr, buffer: Ptr) {
         let package_type = bytes.addr();
         let data_type = bytes.addr() + 1;
         let package = e.mem.u32(base);
-        let value = e.call(FORM_VALUE_0084E3A0, &args![package]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, package));
         let data_handler = e.global::<u32>(DATA_HANDLER);
         if e.call(DATA_HANDLER_CHECK_00469860, &args![data_handler, value])
             .bool()
@@ -344,7 +345,7 @@ pub fn fn_008c61a0(e: &mut Engine, this: Ptr, word: u32) -> u32 {
     let mut size = 4u32;
     if e.mem.u32(base) != 0 {
         let package = e.mem.u32(base);
-        let id = e.call(FORM_VALUE_0084E3A0, &args![package]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, package));
         if word & FOLDED_MASK != 0 && data_handler_check(e, id) {
             let package = e.mem.u32(base);
             e.call(PACKAGE_TYPE, &args![package]);
@@ -376,7 +377,7 @@ pub fn fn_008c6250(e: &mut Engine, this: Ptr, word: u32) {
         e.mem.set_u32(id_at, 0);
         if e.mem.u32(base) != 0 {
             let package = e.mem.u32(base);
-            let id = e.call(FORM_VALUE_0084E3A0, &args![package]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, package));
             e.mem.set_u32(id_at, id);
         }
         let save_load = e.global::<u32>(SAVE_LOAD_GAME);
@@ -497,7 +498,7 @@ pub fn actor_package_init_load_game(e: &mut Engine, this: Ptr, word: u32, _unuse
             actor_package_init_from_package(e, this, Ptr::new(cast), 0);
         } else {
             let package = e.mem.u32(base);
-            let id = e.call(FORM_VALUE_0084E3A0, &args![package]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, package));
             if data_handler_check(e, id) {
                 let package = e.mem.u32(base);
                 e.vcall(package, 0x158, &args![]);
@@ -552,7 +553,7 @@ pub fn actor_package_load_game_ov2(e: &mut Engine, this: Ptr, buffer: Ptr) {
             if kind != -1 {
                 let package = e.call(CREATE_PACKAGE, &args![i32::from(kind)]).u32();
                 e.mem.set_u32(base, package);
-                let new_id = e.call(FORM_VALUE_0084E3A0, &args![package]).u32();
+                let new_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, package));
                 let changed = e.global::<u32>(CHANGED_FORMS);
                 let id = e.mem.u32(id_at);
                 e.call(ADD_CHANGED_FORM_ID, &args![changed, id, new_id]);
@@ -640,7 +641,7 @@ pub fn actor_package_init_load_game_ov2(e: &mut Engine, this: Ptr, buffer: Ptr) 
         e.mem.set_u32(base, package);
     } else if e.mem.u32(base) != 0 {
         let package = e.mem.u32(base);
-        let id = e.call(FORM_VALUE_0084E3A0, &args![package]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, package));
         if data_handler_check(e, id) {
             let package = e.mem.u32(base);
             e.vcall(package, 0x64, &args![buffer]);
@@ -697,7 +698,7 @@ pub fn actor_package_finish_load_game(e: &mut Engine, this: Ptr, buffer: Ptr) {
         fn_008c6920(e, this, 0, 0);
     } else if e.mem.u32(base) != 0 {
         let package = e.mem.u32(base);
-        let id = e.call(FORM_VALUE_0084E3A0, &args![package]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, package));
         if data_handler_check(e, id) {
             let package = e.mem.u32(base);
             e.vcall(package, 0x84, &args![buffer]);
@@ -724,7 +725,7 @@ pub fn actor_package_finish_load_game(e: &mut Engine, this: Ptr, buffer: Ptr) {
         .mem
         .u32(PACKAGE_TYPE_NAMES.wrapping_add(kind.wrapping_mul(4)));
     let package = e.mem.u32(base);
-    let id = e.call(FORM_VALUE_0084E3A0, &args![package]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, package));
     let package = e.mem.u32(base);
     let name = e.vcall(package, 0x130, &args![]).u32();
     e.call(

@@ -356,6 +356,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
 }
 
 /// `00440d80` (`thiscall`): a `bool` of the reference that ends the effect.
+#[cfg(test)]
 const REFERENCE_FLAG: u32 = 0x0044_0d80;
 /// `00441110` (`thiscall`): the temporary effect's object whose cell `0041fd00` (`RET 4`)
 /// takes; `0084e3a0` (`thiscall`): the word at +0xC (the cell); `TESObjectCELL::Get3D`
@@ -363,6 +364,7 @@ const REFERENCE_FLAG: u32 = 0x0044_0d80;
 /// cell's root node.
 const EFFECT_OBJECT_00441110: u32 = 0x0044_1110;
 const SET_CELL_0041FD00: u32 = 0x0041_fd00;
+#[cfg(test)]
 const WORD_AT_C: u32 = 0x0084_e3a0;
 const CELL_GET_3D: u32 = 0x0054_5cb0;
 const NODE_PARENT: u32 = 0x0096_11e0;
@@ -406,7 +408,7 @@ pub fn magic_hit_effect_update(e: &mut Engine, this: Ptr<MagicHitEffect>, time: 
         return false;
     }
     let target = e.get(this, MagicHitEffect::pTarget);
-    if e.call(REFERENCE_FLAG, &args![target]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, target)) {
         return false;
     }
     let age = x87_load32(e.get(this, MagicHitEffect::fAge));
@@ -431,22 +433,22 @@ pub fn fn_0081bc70(e: &mut Engine, this: Ptr, node: u32) {
     let object = e.call(EFFECT_OBJECT_00441110, &args![this]).u32();
     let cell = e.call(REFERENCE_CELL_008D6F30, &args![object]).u32();
     e.call(SET_CELL_0041FD00, &args![this, cell]);
-    if node == 0 || e.call(WORD_AT_C, &args![this]).u32() == 0 {
+    if node == 0 || typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == 0 {
         return;
     }
-    let cell = e.call(WORD_AT_C, &args![this]).u32();
+    let cell = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     if e.call(CELL_GET_3D, &args![cell]).u32() == 0 {
         return;
     }
     if e.call(NODE_PARENT, &args![node]).u32() != 0 {
-        let cell = e.call(WORD_AT_C, &args![this]).u32();
+        let cell = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let cell_3d = e.call(CELL_GET_3D, &args![cell]).u32();
         let parent = e.call(NODE_PARENT, &args![node]).u32();
         if cell_3d == e.call(NODE_PARENT, &args![parent]).u32() {
             return;
         }
     }
-    let cell = e.call(WORD_AT_C, &args![this]).u32();
+    let cell = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let root = e.call(CELL_ROOT_NODE, &args![cell]).u32();
     e.vcall(root, 0xdc, &args![node, 1u32]);
 }

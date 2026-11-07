@@ -23,10 +23,13 @@ const LIST_DESTROY: u32 = 0x0046_ffb0;
 /// `TESTopic::CreateConversation` (engine map), cdecl (four words).
 const TOPIC_CREATE_CONVERSATION: u32 = 0x0061_b440;
 /// thiscall on a list node: whether it is empty.
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// thiscall on a list node: answers the node itself.
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
 /// thiscall on a list node: the next node (+4).
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// thiscall on a list: removes the head node (`0063f7b0`).
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -48,12 +51,12 @@ const SAVE_BUFFER_WRITE: u32 = 0x0086_5e50;
 const PRECACHE_RESPONSES: u32 = 0x0083_d130;
 
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let at = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(at)
 }
 
 fn node_is_empty(e: &mut Engine, node: u32) -> bool {
-    e.call(LIST_NODE_IS_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 // Translated from 0083b850 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -132,7 +135,7 @@ pub fn conversation_get_dialogue_item_index(e: &mut Engine, this: Ptr, item: u32
             return index;
         }
         index = index.wrapping_add(1);
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(PRINT_MESSAGE, &args![ITEM_NOT_FOUND_MESSAGE]);
     0
@@ -154,7 +157,7 @@ pub fn conversation_save_game(e: &mut Engine, this: Ptr, buffer: u32) {
             e.call(DIALOGUE_ITEM_SAVE_GAME, &args![item, buffer]);
             count += 1;
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SAVE_VARIABLE_SIZED, &args![buffer, count, mark]);
     let index = if e.mem.u32(base + CURRENT_ITEM) != 0 {
@@ -181,7 +184,7 @@ pub fn conversation_precache_sounds(e: &mut Engine, this: Ptr) {
             let item = node_item(e, node);
             e.call(PRECACHE_RESPONSES, &args![item]);
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -193,14 +196,14 @@ pub fn conversation_next_item(e: &mut Engine, this: Ptr) -> bool {
     let at = this.addr() + CURRENT_ITEM;
     if e.mem.u32(at) != 0 {
         let node = e.mem.u32(at);
-        let next = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         e.mem.set_u32(at, next);
     }
     if e.mem.u32(at) == 0 {
         return false;
     }
     let node = e.mem.u32(at);
-    let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(item) != 0
 }
 
@@ -446,6 +449,7 @@ const SETTING_BYTE_ADDRESS: u32 = 0x0040_8d60;
 /// The form lookup by id (`004839c0`, `cdecl`).
 const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// The trace print (`0040fbe0`, `cdecl`, a format and its words).
+#[cfg(test)]
 const TRACE_PRINT: u32 = 0x0040_fbe0;
 /// The block header word `"KOLB"` (`0x424c4f4b`).
 const BLOCK_HEADER: u32 = 0x424c_4f4b;
@@ -547,7 +551,7 @@ pub fn conversation_get_dialogue_item_by_index(e: &mut Engine, this: Ptr, index:
             return node_item(e, node);
         }
         at = at.wrapping_add(1);
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(PRINT_MESSAGE, &args![INDEX_TOO_LARGE_MESSAGE]);
     0
@@ -572,7 +576,7 @@ pub fn fn_0083bb30(e: &mut Engine, this: Ptr) -> u16 {
         let item = node_item(e, node);
         let item_size = e.call(ITEM_SAVE_SIZE, &args![item]).u32() as u16;
         size = size.wrapping_add(item_size);
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     size = size.wrapping_add(2);
     if tracing(e) {
@@ -581,23 +585,9 @@ pub fn fn_0083bb30(e: &mut Engine, this: Ptr) -> u16 {
         let length = u32::from(size).wrapping_sub(u32::from(start));
         if info != 0 {
             let (id, name, flags) = form_words(e, info);
-            e.call(
-                TRACE_PRINT,
-                &args![
-                    TEXT_SAVE_SIZE_FORM,
-                    length,
-                    id,
-                    name,
-                    flags,
-                    0xc0u32,
-                    SOURCE_FILE_0107DB20
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words TEXT_SAVE_SIZE_FORM, length, id, name, flags, 0xc0u32, SOURCE_FILE_0107DB20);
         } else {
-            e.call(
-                TRACE_PRINT,
-                &args![TEXT_SAVE_SIZE, length, 0xc0u32, SOURCE_FILE_0107DB20],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words TEXT_SAVE_SIZE, length, 0xc0u32, SOURCE_FILE_0107DB20);
         }
     }
     size
@@ -644,7 +634,7 @@ pub fn fn_0083bc80(e: &mut Engine, this: Ptr) {
             e.call(ITEM_SAVE, &args![item]);
             let n = e.mem.u16(count).wrapping_add(1);
             e.mem.set_u16(count, n);
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let n = e.mem.u16(count);
         e.mem.set_u16(count_place, n);
@@ -664,23 +654,9 @@ pub fn fn_0083bc80(e: &mut Engine, this: Ptr) {
             let length = end.wrapping_sub(start);
             if info != 0 {
                 let (id, name, flags) = form_words(e, info);
-                e.call(
-                    TRACE_PRINT,
-                    &args![
-                        TEXT_SAVE_GAME_FORM,
-                        length,
-                        id,
-                        name,
-                        flags,
-                        0xe1u32,
-                        SOURCE_FILE_0107DB20
-                    ],
-                );
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words TEXT_SAVE_GAME_FORM, length, id, name, flags, 0xe1u32, SOURCE_FILE_0107DB20);
             } else {
-                e.call(
-                    TRACE_PRINT,
-                    &args![TEXT_SAVE_GAME, length, 0xe1u32, SOURCE_FILE_0107DB20],
-                );
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words TEXT_SAVE_GAME, length, 0xe1u32, SOURCE_FILE_0107DB20);
             }
         }
         if has_block_headers(e) {
@@ -847,7 +823,7 @@ pub fn fn_0083c220(e: &mut Engine, this: Ptr) {
     while node != 0 && !node_is_empty(e, node) {
         let item = node_item(e, node);
         e.call(ITEM_0083CDF0, &args![item]);
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -886,7 +862,7 @@ pub fn fn_0083c420(e: &mut Engine, this: Ptr, value: u32) {
         if item != 0 {
             e.call(ITEM_0083D0D0, &args![item, value]);
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 

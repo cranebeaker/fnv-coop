@@ -7,6 +7,7 @@ use crate::prelude::*;
 /// `CombatGoal`'s vtable (`0108d440`, named by its RTTI locator).
 const COMBAT_GOAL_VTABLE: u32 = 0x0108_d440;
 /// Returns the address of a list head's item (`006815c0`, `thiscall`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// Removes the head of a list (`0063f7b0`, `thiscall`).
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -26,11 +27,11 @@ fn drain(e: &mut Engine, list: u32) {
         return;
     }
     loop {
-        let slot = e.call(NODE_ITEM, &args![list]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![list]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let entry = e.mem.u32(slot);
         e.call(OPERATOR_DELETE, &args![entry]);
         e.call(LIST_REMOVE_HEAD, &args![list]);

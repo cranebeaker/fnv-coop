@@ -42,6 +42,7 @@ const CASTER_AS_ACTOR: u32 = 0x0081_5410;
 /// The effect's target (`0059bb30`) and caster (`0045cd60`), thiscall on
 /// the effect (folded code: the words at +0x24 and +0x28).
 const EFFECT_TARGET: u32 = 0x0059_bb30;
+#[cfg(test)]
 const EFFECT_CASTER: u32 = 0x0045_cd60;
 /// The effect's magnitude (`00495460`, a float in `ST0`; folded code).
 const EFFECT_MAGNITUDE: u32 = 0x0049_5460;
@@ -71,6 +72,7 @@ const WORD_CALL_008D0600: u32 = 0x008d_0600;
 const ACTOR_TEST_00493BB0: u32 = 0x0049_3bb0;
 /// Thiscall on the actor: a word (`008d8520`, folded code), whose virtual
 /// slot +0x33c `Finish` calls.
+#[cfg(test)]
 const ACTOR_MEMBER_008D8520: u32 = 0x008d_8520;
 const SLOT_33C: u32 = 0x33c;
 /// `ActiveEffect::SaveGame` (`008050d0`) and `ActiveEffect::LoadGame`
@@ -172,8 +174,8 @@ fn target_and_caster(e: &mut Engine, this: Ptr) -> (u32, u32) {
     } else {
         0
     };
-    let caster = if e.call(EFFECT_CASTER, &args![this]).u32() != 0 {
-        let caster = e.call(EFFECT_CASTER, &args![this]).u32();
+    let caster = if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this)) != 0 {
+        let caster = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
         e.call(CASTER_AS_ACTOR, &args![caster]).u32()
     } else {
         0
@@ -215,10 +217,10 @@ pub fn turn_undead_effect_finish(e: &mut Engine, this: Ptr) {
         return;
     }
     e.vcall(target, SLOT_ACTOR_434, &args![caster]);
-    if caster == 0 || e.call(ACTOR_MEMBER_008D8520, &args![target]).u32() == 0 {
+    if caster == 0 || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target)) == 0 {
         return;
     }
-    let word = e.call(ACTOR_MEMBER_008D8520, &args![target]).u32();
+    let word = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
     e.vcall(
         word,
         SLOT_33C,

@@ -21,6 +21,7 @@ pub fn bs_face_gen_model_scalar_deleting_destructor(e: &mut Engine, this: Ptr, f
 /// `NiPointer<T>::get` (`00559450`), `NiPointer<T>::operator=` (`0066b0d0`, one word), the
 /// `NiPointer` constructor from a raw pointer (`00633c90`, one word) and destructor
 /// (`0045cec0`) (`thiscall`).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const NI_POINTER_FROM_RAW: u32 = 0x0063_3c90;
@@ -139,7 +140,7 @@ layout! {
 
 /// `NiPointer<T>::get` on the pointer at `slot`.
 fn pointer_get(e: &mut Engine, slot: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// `NiPointer<T>::operator=` on the pointer at `slot`.
@@ -154,7 +155,7 @@ fn vector_construct(e: &mut Engine, this: u32, buy: u32) -> u32 {
     e.with_stack(4, |e, slot| {
         let slot = slot.addr();
         e.mem.set_u32(slot, this);
-        e.call(ALLOCATOR_CONSTRUCT, &args![slot]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, slot));
         let allocator = e.mem.u32(slot);
         e.call(VECTOR_BASE_CONSTRUCT, &args![this, allocator]);
     });
@@ -371,6 +372,7 @@ const MORPH_DATA_HEAD_CONSTRUCT: u32 = 0x0066_0ba0;
 /// `vector constructor iterator` (`00401050`, `stdcall`) with the trivial element
 /// constructor `006815c0`; `NiPoint3::NiPoint3(x, y, z)` (`00416870`).
 const VECTOR_CONSTRUCT: u32 = 0x0040_1050;
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// `NiObject::Clone_ov2` (`00a5d680`), `NiObject::CreateDeepCopy` (`00a5d510`, one word:
 /// the `NiPointer` to fill), the skin data setter (`004addc0`, one word), the morph extra
@@ -657,12 +659,11 @@ fn keep_additional_vertices(e: &mut Engine, this: Ptr<BSFaceGenModel>, tri: u32)
             words[word as usize] = x87_quiet_bits(e.mem.u32(vertex + 4 * word));
         }
         e.with_stack(12, |e, point| {
-            let made = e
-                .call(
-                    POINT3_CONSTRUCT,
-                    &args![point.addr(), words[0], words[1], words[2]],
-                )
-                .u32();
+            let made = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, point.addr(), words[0], words[1], words[2])
+            );
             let data = mesh(e);
             let target = e.mem.u32(data + 0x14).wrapping_add(index.wrapping_mul(0xc));
             for word in 0..3 {
@@ -1069,7 +1070,6 @@ const EGT_DATA_LOAD: u32 = 0x0065_9780;
 /// The morph extra data of a geometry (`00653430`, `cdecl`) and its additional vertices
 /// (`0084e3a0`, `+0xc`) and count (`0065b3e0` with 0, `+0x10`).
 const MORPH_EXTRA_DATA: u32 = 0x0065_3430;
-const EXTRA_VERTICES: u32 = 0x0084_e3a0;
 /// The strided vertex iterator: constructor (`00534550`), element read (`00534570`: index,
 /// the point to fill); the geometry data's lock (`00a67360`, one word), its vertex iterator
 /// (`00a67410`: the iterator to fill), unlock (`00a673d0`), `NiGeometryData::MarkAsChanged`
@@ -1244,7 +1244,7 @@ pub fn fn_0065a970(
     }
     let extra_data = e.call(MORPH_EXTRA_DATA, &args![geometry]).u32();
     let extra = if extra_data != 0 {
-        e.call(EXTRA_VERTICES, &args![extra_data]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, extra_data))
     } else {
         0
     };
@@ -1362,7 +1362,11 @@ fn apply_morph(
     let mut vertex = 0u32;
     while vertex.wrapping_add(3) < count {
         for point in 0..4 {
-            e.call(ALLOCATOR_CONSTRUCT, &args![points + 0xc * point]);
+            typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, points + 0xc * point)
+            );
         }
         if extra != 0 {
             for word in 0..12 {
@@ -1402,7 +1406,7 @@ fn apply_morph(
         vertex = vertex.wrapping_add(4);
     }
     while vertex < count {
-        e.call(ALLOCATOR_CONSTRUCT, &args![points]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, points));
         if extra != 0 {
             for word in 0..3 {
                 let value = e.mem.u32(extra + 4 * word);

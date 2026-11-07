@@ -88,7 +88,7 @@ fn take_element(e: &mut Engine, this: Ptr, iterator: u32, second: u32, result: u
     e.vcall(owner, 0x30, &args![word, second]);
     let element = e.call(ITERATOR_ELEMENT, &args![iterator]).u32();
     e.call(STORE_RESULT, &args![result, element.wrapping_add(4)]);
-    e.call(0x0040_fbe0, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     let element = e.call(ITERATOR_ELEMENT, &args![iterator]).u32();
     e.call(ELEMENT_SKIPPED, &args![element]).bool()
 }
@@ -113,12 +113,12 @@ pub fn fn_00906af0(e: &mut Engine, this: Ptr, key: u32, second: u32, result: u32
         let current = e.call(ITERATOR_NODE, &args![iterator]).u32();
         let slot = e.mem.u32(base.wrapping_add(8));
         e.mem.set_u32(slot, current);
-        e.call(0x0040_fbe0, &args![]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
         let current = e.call(ITERATOR_NODE, &args![iterator]).u32();
         e.call(0x006e_cba0, &args![temp, 0u32, current]);
         let stored = e.mem.u32(base.wrapping_add(0x10));
-        let stored = e.call(0x0055_9450, &args![stored]).u32();
-        let made = e.call(0x0055_9450, &args![temp]).u32();
+        let stored = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, stored));
+        let made = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, temp));
         if stored != made {
             continue;
         }
@@ -182,6 +182,7 @@ pub fn fn_00906c10(e: &mut Engine, this: Ptr, key: u32, second: u32, result: u32
 const CURSOR_NODE: u32 = 0x0044_dec0;
 const NODE_RECORD: u32 = 0x0044_df00;
 const MAKE_TAGGED: u32 = 0x006e_cba0;
+#[cfg(test)]
 const TAGGED_VALUE: u32 = 0x0055_9450;
 const COMPARE_SWAP: u32 = 0x0044_91c0;
 const RETIRE_NODE: u32 = 0x0052_92a0;
@@ -191,6 +192,7 @@ const POINTER_CONSTRUCT: u32 = 0x0044_e370;
 const POINTER_RELEASE: u32 = 0x0044_cbf0;
 const NODE_MARKED: u32 = 0x0044_dff0;
 const POINTER_MATCHES: u32 = 0x004b_0460;
+#[cfg(test)]
 const BARRIER: u32 = 0x0040_fbe0;
 
 /// The lock-free list's working words in the inner object: the cursor
@@ -223,8 +225,8 @@ pub fn fn_009066d0(e: &mut Engine, this: Ptr, key: u32, value: u32) -> bool {
             e.call(MAKE_TAGGED, &args![unmarked, 0u32, node]);
             let node = e.call(CURSOR_NODE, &args![at + NEXT]).u32();
             e.call(MAKE_TAGGED, &args![marked, 1u32, node]);
-            let expected = e.call(TAGGED_VALUE, &args![unmarked]).u32();
-            let wanted = e.call(TAGGED_VALUE, &args![marked]).u32();
+            let expected = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, unmarked));
+            let wanted = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, marked));
             let record = e.call(NODE_RECORD, &args![at + CURRENT]).u32();
             if e.call(COMPARE_SWAP, &args![record + 8, wanted, expected])
                 .bool()
@@ -234,8 +236,8 @@ pub fn fn_009066d0(e: &mut Engine, this: Ptr, key: u32, value: u32) -> bool {
         }
         let node = e.call(CURSOR_NODE, &args![at + CURRENT]).u32();
         e.call(MAKE_TAGGED, &args![current, 0u32, node]);
-        let expected = e.call(TAGGED_VALUE, &args![current]).u32();
-        let wanted = e.call(TAGGED_VALUE, &args![unmarked]).u32();
+        let expected = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, current));
+        let wanted = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, unmarked));
         let slot = e.mem.u32(at + CURSOR_RECORD);
         if e.call(COMPARE_SWAP, &args![slot, wanted, expected]).bool() {
             let node = e.call(CURSOR_NODE, &args![at + CURRENT]).u32();
@@ -285,7 +287,7 @@ pub fn fn_00906820(e: &mut Engine, this: Ptr, key: u32, value: u32) -> bool {
             let node = e.call(CURSOR_NODE, &args![at + cursor]).u32();
             let hazard = e.mem.u32(at + slot);
             e.mem.set_u32(hazard, node);
-            e.call(BARRIER, &[]);
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
         };
         'restart: loop {
             e.mem.set_u32(at + CURSOR_RECORD, bucket);
@@ -295,8 +297,8 @@ pub fn fn_00906820(e: &mut Engine, this: Ptr, key: u32, value: u32) -> bool {
             let node = e.call(CURSOR_NODE, &args![at + CURRENT]).u32();
             e.call(MAKE_TAGGED, &args![first, 0u32, node]);
             let record = e.mem.u32(at + CURSOR_RECORD);
-            let stored = e.call(TAGGED_VALUE, &args![record]).u32();
-            if stored != e.call(TAGGED_VALUE, &args![first]).u32() {
+            let stored = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, record));
+            if stored != typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first)) {
                 continue 'restart;
             }
             loop {
@@ -307,9 +309,9 @@ pub fn fn_00906820(e: &mut Engine, this: Ptr, key: u32, value: u32) -> bool {
                 let next = e.mem.u32(record + 8);
                 e.mem.set_u32(at + NEXT, next);
                 publish(e, NEXT, 4);
-                let read = e.call(TAGGED_VALUE, &args![at + NEXT]).u32();
+                let read = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + NEXT));
                 let record = e.call(NODE_RECORD, &args![at + CURRENT]).u32();
-                if read != e.call(TAGGED_VALUE, &args![record + 8]).u32() {
+                if read != typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, record + 8)) {
                     continue 'restart;
                 }
                 let node = e.call(CURSOR_NODE, &args![at + CURRENT]).u32();
@@ -317,8 +319,8 @@ pub fn fn_00906820(e: &mut Engine, this: Ptr, key: u32, value: u32) -> bool {
                 let node = e.call(CURSOR_NODE, &args![at + CURRENT]).u32();
                 e.call(MAKE_TAGGED, &args![check, 0u32, node]);
                 let record = e.mem.u32(at + CURSOR_RECORD);
-                let stored = e.call(TAGGED_VALUE, &args![record]).u32();
-                if stored != e.call(TAGGED_VALUE, &args![check]).u32() {
+                let stored = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, record));
+                if stored != typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, check)) {
                     e.call(POINTER_RELEASE, &args![pointer]);
                     continue 'restart;
                 }
@@ -333,8 +335,10 @@ pub fn fn_00906820(e: &mut Engine, this: Ptr, key: u32, value: u32) -> bool {
                 } else {
                     let node = e.call(CURSOR_NODE, &args![at + NEXT]).u32();
                     e.call(MAKE_TAGGED, &args![unmarked, 0u32, node]);
-                    let expected = e.call(TAGGED_VALUE, &args![check]).u32();
-                    let wanted = e.call(TAGGED_VALUE, &args![unmarked]).u32();
+                    let expected =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, check));
+                    let wanted =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, unmarked));
                     let slot = e.mem.u32(at + CURSOR_RECORD);
                     if !e.call(COMPARE_SWAP, &args![slot, wanted, expected]).bool() {
                         e.call(POINTER_RELEASE, &args![pointer]);

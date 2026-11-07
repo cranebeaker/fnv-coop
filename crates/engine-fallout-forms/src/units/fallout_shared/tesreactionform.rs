@@ -21,8 +21,10 @@ pub fn tes_reaction_form_clear_data_component(e: &mut Engine, this: Ptr) {
 /// `BaseProcess::GetActorPackageThatIsRunning`).
 const REACTION_LIST: u32 = 0x0071_7e50;
 /// `006815c0` (`ECX` = list node): the address of the node's item.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`ECX` = list node): the next node, or 0.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `0063f7b0` (`ECX` = list node): removes the node's item.
 const NODE_REMOVE: u32 = 0x0063_f7b0;
@@ -45,7 +47,7 @@ fn reaction_list(e: &mut Engine, this: Ptr) -> u32 {
 
 /// `*006815c0(node)`: the node's item.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let at = e.call(NODE_ITEM, &args![node]).u32();
+    let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(at)
 }
 
@@ -107,22 +109,22 @@ pub fn tes_reaction_form_init_item(e: &mut Engine, this: Ptr, owner: Ptr) {
             let form = e.call(0x0048_39c0, &args![id]).u32();
             e.mem.set_u32(item, form);
             if e.mem.u32(item) != 0 {
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 continue;
             }
             let name = e.vcall(owner.addr(), 0x130, &[]).u32();
-            let owner_id = e.call(0x0084_e3a0, &args![owner]).u32();
+            let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             let id = e.mem.u32(id_at);
             e.call(
                 0x005b_5e40,
                 &args![MISSING_REACTION_FORM, id, owner_id, name],
             );
-            let has_next = e.call(NODE_NEXT, &args![node]).u32() != 0;
+            let has_next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node)) != 0;
             if has_next || previous == 0 {
                 e.call(NODE_REMOVE, &args![node]);
             } else {
                 e.call(LIST_REMOVE, &args![previous, item_at]);
-                node = e.call(NODE_NEXT, &args![previous]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
             }
             let freed = e.mem.u32(item_at);
             e.call(FREE, &args![freed]);
@@ -138,7 +140,7 @@ fn find_reaction(e: &mut Engine, this: Ptr, form: u32) -> u32 {
         if e.mem.u32(item) == form {
             return item;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     0
 }
@@ -266,7 +268,7 @@ pub fn fn_0048c9d0(e: &mut Engine, this: Ptr, buffer: Ptr) {
             e.call(0x0086_5e50, &args![buffer, item + 8, 4u32, 0u32]);
             count = count.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(0x0086_5ff0, &args![buffer, count, start]);
 }
@@ -278,14 +280,17 @@ const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const TYPE_BASE_FORM_COMPONENT: u32 = 0x0118_3040;
 const TYPE_TES_REACTION_FORM: u32 = 0x0118_6b30;
 /// `008256d0` (`ECX` = list node): whether the node holds no item.
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `005ae3d0` (`ECX` = list, the address of an item, `RET 4`): adds the item.
 const LIST_ADD_ITEM: u32 = 0x005a_e3d0;
 /// `005ae380` (`ECX` = list node): the number of nodes with an item.
 const LIST_COUNT: u32 = 0x005a_e380;
 /// `00440d80` (`ECX` = form): whether bit 0x20 of its flags word (+8) is set.
+#[cfg(test)]
 const FORM_FLAG_20: u32 = 0x0044_0d80;
 /// The form-id getter (`0084e3a0`, `ECX` = form: the word at +0xc).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `00401500`: the byte at `011c54ba` (whether saved words are byte-swapped);
 /// `005a6b10` (`ECX` = three words): byte-swaps each of them.
@@ -319,6 +324,7 @@ const SIZE_REPORT_SETTING: u32 = 0x011d_e4e8;
 const SETTING_BYTE_ADDRESS: u32 = 0x0040_8d60;
 /// `Error` (engine map, `0040fbe0`; cdecl, varargs) and the debug print
 /// (`005b5e40`; cdecl, varargs).
+#[cfg(test)]
 const ERROR_REPORT: u32 = 0x0040_fbe0;
 const DEBUG_PRINT: u32 = 0x005b_5e40;
 /// A form's vtable slot `+0x130` (no stack words): its name.
@@ -409,23 +415,9 @@ fn report_saved_size(e: &mut Engine, (form_format, format): (u32, u32), size: u3
         let word = e.mem.u32(record + 5);
         let name = e.vcall(form, FORM_NAME_SLOT, &[]).u32();
         let id = e.mem.u32(record);
-        e.call(
-            ERROR_REPORT,
-            &args![
-                form_format,
-                size,
-                id,
-                name,
-                word,
-                line,
-                REACTION_FORM_SOURCE_FILE
-            ],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words form_format, size, id, name, word, line, REACTION_FORM_SOURCE_FILE);
     } else {
-        e.call(
-            ERROR_REPORT,
-            &args![format, size, line, REACTION_FORM_SOURCE_FILE],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words format, size, line, REACTION_FORM_SOURCE_FILE);
     }
 }
 
@@ -458,9 +450,9 @@ pub fn fn_0048bb70(e: &mut Engine, this: Ptr) {
         while node != 0 && node_item(e, node) != 0 {
             let item = node_item(e, node);
             let form = e.mem.u32(item);
-            if !e.call(FORM_FLAG_20, &args![form]).bool() {
+            if !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, form)) {
                 let form = e.mem.u32(item);
-                let id = e.call(FORM_ID, &args![form]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 e.mem.set_u32(record.addr(), id);
                 let modifier = e.mem.u32(item + 4);
                 e.mem.set_u32(record.addr() + 4, modifier);
@@ -474,7 +466,7 @@ pub fn fn_0048bb70(e: &mut Engine, this: Ptr) {
                     e.call(SWAP_THREE_WORDS, &args![record]);
                 }
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 }
@@ -504,10 +496,10 @@ pub fn tes_reaction_form_copy_component(e: &mut Engine, this: Ptr, other: u32) {
                 e.mem.set_u32(copy + offset, word);
             }
             e.call(LIST_ADD, &args![target, copy_at]);
-            if e.call(NODE_NEXT, &args![target]).u32() != 0 {
-                target = e.call(NODE_NEXT, &args![target]).u32();
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, target)) != 0 {
+                target = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, target));
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 }
@@ -540,10 +532,10 @@ pub fn tes_reaction_form_compare_component(e: &mut Engine, this: Ptr, other: u32
         } else if a != 0 || b != 0 {
             return true;
         }
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
-        mine = e.call(NODE_NEXT, &args![mine]).u32();
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
     }
-    theirs != 0 && !e.call(NODE_IS_EMPTY, &args![theirs]).bool()
+    theirs != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, theirs))
 }
 
 // Translated from 0048c0b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -649,7 +641,7 @@ pub fn fn_0048c400(e: &mut Engine, this: Ptr, flags: u32) {
             let item = node_item(e, node);
             if item != 0 {
                 let form = e.mem.u32(item);
-                let id = e.call(FORM_ID, &args![form]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 e.mem.set_u32(id_at, id);
                 let save = save_load_object(e);
                 e.call(SAVE_NUMERIC_ID, &args![save, id_at, 4u32]);
@@ -657,7 +649,7 @@ pub fn fn_0048c400(e: &mut Engine, this: Ptr, flags: u32) {
                 let count = e.mem.u16(count_at).wrapping_add(1);
                 e.mem.set_u16(count_at, count);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let count = e.mem.u16(count_at);
         e.mem.set_u16(count_slot, count);
@@ -855,10 +847,10 @@ pub fn fn_0048c930(e: &mut Engine, this: Ptr, flags: u32, _unused_2: u32) {
                 e.call(NODE_REMOVE, &args![node]);
                 e.call(FREE, &args![item]);
             } else {
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         } else {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
 }

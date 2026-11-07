@@ -12,6 +12,7 @@ const LIST_CONSTRUCT: u32 = 0x0068_0890;
 /// +0x28 (`011a4288`).
 const KIND_TABLE: u32 = 0x011a_4288;
 /// Returns the address of a list head's item (`006815c0`, `thiscall`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// Removes the head of a list (`0063f7b0`, `thiscall`).
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -58,11 +59,11 @@ fn drain(e: &mut Engine, list: u32) {
         return;
     }
     loop {
-        let slot = e.call(NODE_ITEM, &args![list]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![list]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let entry = e.mem.u32(slot);
         e.call(OPERATOR_DELETE, &args![entry]);
         e.call(LIST_REMOVE_HEAD, &args![list]);
@@ -111,6 +112,7 @@ const ACCESSOR_CONSTRUCT: u32 = 0x0053_4550;
 const ACCESSOR_GET: u32 = 0x0053_4570;
 const ACCESSOR_SET: u32 = 0x0065_b390;
 const SKIN_VERTEX_COUNT: u32 = 0x0047_d370;
+#[cfg(test)]
 const VERTICES: u32 = 0x007a_f430;
 const VERTEX_COUNT: u32 = 0x004a_8ae0;
 const SECOND_ARRAY: u32 = 0x0055_b980;
@@ -141,7 +143,11 @@ pub fn fn_00979510(
     sixth: u32,
 ) -> bool {
     let at = this.addr();
-    if !e.call(0x0082_56d0, &args![at + 0x88]).bool() {
+    if !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, at + 0x88)
+    ) {
         return false;
     }
     let extra = e.call(0x0041_81e0, &args![this]).u32();
@@ -241,12 +247,12 @@ pub fn fn_009795e0(e: &mut Engine, _this: Ptr, node: u32, scale: f32) {
             return;
         }
     }
-    if e.call(VERTICES, &args![data]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data)) == 0 {
         return;
     }
     let mut index = 0i32;
     while index < i32::from(e.call(VERTEX_COUNT, &args![data]).u16()) {
-        let vertices = e.call(VERTICES, &args![data]).u32();
+        let vertices = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data));
         let y = vertices.wrapping_add((index as u32).wrapping_mul(0xc)) + 4;
         let value = scaled(e.mem.u32(y));
         e.mem.set_u32(y, value);
@@ -321,10 +327,10 @@ pub fn fn_00979840(e: &mut Engine, _this: Ptr, node: u32) -> f32 {
             return f32::from_bits(x87_quiet_bits(longest));
         }
     }
-    if e.call(VERTICES, &args![data]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data)) != 0 {
         let mut index = 0i32;
         while index < i32::from(e.call(VERTEX_COUNT, &args![data]).u16()) {
-            let vertices = e.call(VERTICES, &args![data]).u32();
+            let vertices = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data));
             let entry = vertices.wrapping_add((index as u32).wrapping_mul(0xc));
             take(&mut longest, e.mem.u32(entry + 4));
             index += 1;

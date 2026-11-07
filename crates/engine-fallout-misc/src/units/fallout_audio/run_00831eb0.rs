@@ -13,6 +13,7 @@
 use crate::prelude::*;
 
 /// The getter `00726070` (`ECX` = object): the word at +4.
+#[cfg(test)]
 const INNER_OBJECT: u32 = 0x0072_6070;
 /// The method run on the member at +0x104 (`009fc990`, `this` and two
 /// words).
@@ -29,8 +30,11 @@ const VTABLE_AT_10: u32 = 0x0107_cd54;
 
 /// The inner object of the interface at `interface` (`this - 0xC` of it).
 fn inner(e: &mut Engine, interface: Ptr) -> u32 {
-    e.call(INNER_OBJECT, &args![interface.addr().wrapping_sub(0xc)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, interface.addr().wrapping_sub(0xc))
+    )
 }
 
 // Translated from 00831eb0 (decompiled, FalloutNV.exe 1.4.0.525)

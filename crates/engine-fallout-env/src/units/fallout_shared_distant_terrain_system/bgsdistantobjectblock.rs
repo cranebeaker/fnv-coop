@@ -92,6 +92,7 @@ const FREE: u32 = 0x0040_1030;
 /// cdecl (buffer, size, format, ...): formatted print into the buffer.
 const PRINT_FORMATTED: u32 = 0x0040_6d00;
 /// thiscall on an `NiPointer`: the object it holds.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// thiscall (pointer, object): `NiPointer` assignment.
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
@@ -104,8 +105,10 @@ const POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 /// thiscall: `NiPointer` destructor.
 const POINTER_DESTROY: u32 = 0x0045_cec0;
 /// thiscall on a list node: answers the node itself.
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
 /// thiscall on a list node: the next node (+4).
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// thiscall (list, &item): adds the item to a `BSSimpleList`.
 const SIMPLE_LIST_ADD: u32 = 0x0090_5820;
@@ -199,6 +202,7 @@ const QUEUED_FILE_C3CF60: u32 = 0x00c3_cf60;
 /// `QueuedFileEntry::GetFile` (engine map), thiscall (entry, 0, 1).
 const QUEUED_FILE_GET_FILE: u32 = 0x00c3_cff0;
 /// thiscall on the entry: its file name (`0045cd60`).
+#[cfg(test)]
 const QUEUED_FILE_NAME: u32 = 0x0045_cd60;
 /// The other file-name builders (not functions of this list).
 const BUILD_BLOCK_FILE_NAME_PA: u32 = 0x006f_5690;
@@ -230,7 +234,7 @@ const MESH_SLOT_28: u32 = 0x28;
 const PRINT_MESSAGE: u32 = 0x005b_5e40;
 
 fn pointer(e: &mut Engine, at: u32) -> u32 {
-    e.call(POINTER_GET, &args![at]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at))
 }
 
 /// The parent node of a block's meshes: `004ea9c0` on the object of the
@@ -372,7 +376,7 @@ pub fn fn_006f5800(e: &mut Engine, this: Ptr, stinger: bool) -> u32 {
 pub fn fn_006f5840(e: &mut Engine) {
     let mut node = BLOCKS_LOADED;
     while node != 0 {
-        let at = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let block = e.mem.u32(at);
         if block != 0 && !e.call(BLOCK_SKIP_CHECK, &args![block]).bool() {
             for stinger in [false, true] {
@@ -384,7 +388,7 @@ pub fn fn_006f5840(e: &mut Engine) {
                 }
             }
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -552,12 +556,12 @@ pub fn fn_006f60c0(e: &mut Engine, this: Ptr) {
 pub fn fn_006f6100(e: &mut Engine, this: Ptr) -> bool {
     let mut node = BLOCKS_LOADED;
     while node != 0 {
-        let at = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let block = e.mem.u32(at);
         if block != 0 && block == this.addr() {
             return true;
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }
@@ -1042,7 +1046,7 @@ pub fn bgs_distant_object_block_load_task_run(e: &mut Engine, this: Ptr) {
         let file = e.call(QUEUED_FILE_GET_FILE, &args![base, 0u32, 1u32]).u32();
         let mut found = true;
         if file == 0 {
-            let name = e.call(QUEUED_FILE_NAME, &args![base]).u32();
+            let name = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, base));
             if e.call(FILE_EXISTS, &args![name, 0u32, 6u32, 1u32]).u32() == 0 {
                 found = false;
             }
@@ -1050,7 +1054,7 @@ pub fn bgs_distant_object_block_load_task_run(e: &mut Engine, this: Ptr) {
         e.with_stack(0x5d4, |e, stream| {
             e.call(STREAM_CONSTRUCT, &args![stream]);
             let loaded = found && {
-                let name = e.call(QUEUED_FILE_NAME, &args![base]).u32();
+                let name = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, base));
                 e.call(STREAM_LOAD, &args![stream, name, file]).bool()
             };
             if loaded {

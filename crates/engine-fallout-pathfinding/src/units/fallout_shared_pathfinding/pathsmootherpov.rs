@@ -30,9 +30,11 @@ const ALLOCATE: u32 = 0x0040_1000;
 /// `00401030(block)` (cdecl): the game's heap release.
 const DEALLOCATE: u32 = 0x0040_1030;
 /// `0044ddc0(array)`: the array's word at +8 (its element count).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `006815c0(this)`: returns `this` (`mov eax, ecx`); the code calls it as a
 /// constructor of points and handles and as an accessor.
+#[cfg(test)]
 const SELF: u32 = 0x0068_15c0;
 /// `006240d0(this)`: the edge handle constructor the code runs on
 /// `PathSmootherPOV::EdgeHandle` and `PathEdgeVert::Edge` (body not read).
@@ -51,6 +53,7 @@ const POINT_CROSS: u32 = 0x004b_3800;
 /// when its length is at most 1e-6).
 const POINT_UNIT_CROSS: u32 = 0x0053_d1a0;
 /// `004b6190(this, other)`: dot product (ST0).
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 /// `004a0c10(this)`: scales the point to unit length (zeroes it when its
 /// length is at most 1e-6).
@@ -66,6 +69,7 @@ const POINT_LENGTH_SQUARED: u32 = 0x004a_7290;
 /// `BSSimpleArray<BGSBodyPart*>::AddUninitialized`, is the folded body).
 const ARRAY_APPEND_WORD: u32 = 0x007c_b2e0;
 /// `00877a30(array, index)`: address of word element `index`.
+#[cfg(test)]
 const ARRAY_WORD_AT: u32 = 0x0087_7a30;
 /// `0084b5c0(array, count)`: the engine map's
 /// `BSSimpleArray<Actor*>::SetReservedSize` (folded body).
@@ -77,6 +81,7 @@ const EDGE_VERT_ARRAY_RESERVE: u32 = 0x006f_9790;
 /// pass 1, the search set-up 0).
 const ARRAY_CLEAR: u32 = 0x0084_54f0;
 /// `0084e3a0(array)`: a count of the avoid-node array (body not read).
+#[cfg(test)]
 const ARRAY_COUNT_0084E3A0: u32 = 0x0084_e3a0;
 /// `0059bb30(navmesh)`: the word at +0x24 (the mesh's cell).
 const NAVMESH_CELL: u32 = 0x0059_bb30;
@@ -168,8 +173,10 @@ const ADD_RECORD: u32 = 0x006c_f4c0;
 /// `004a7bd0(this)`: the float at +0x18 (ST0).
 const FLOAT_18: u32 = 0x004a_7bd0;
 /// `007af430(this)`: the word at +0x20.
+#[cfg(test)]
 const WORD_20: u32 = 0x007a_f430;
 /// `00559450(this)`: the word at +0.
+#[cfg(test)]
 const WORD_0: u32 = 0x0055_9450;
 /// `006a1400(list, index)`: element `index` (body not read).
 const OBSTACLE_AT: u32 = 0x006a_1400;
@@ -429,7 +436,7 @@ fn copy3(e: &mut Engine, dst: u32, src: u32) {
 }
 
 fn size(e: &mut Engine, array: u32) -> u32 {
-    e.call(ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 fn f64_at(e: &Engine, addr: u32) -> f64 {
@@ -688,9 +695,11 @@ pub fn fn_006ad770(
         };
         e.call(ARRAY_SET_RESERVED, &args![s + AVOID_NODE_POVS, reserve]);
         let edge_count = size(e, edges.addr());
-        let avoid = e
-            .call(ARRAY_COUNT_0084E3A0, &args![s + AVOID_NODE_POVS])
-            .u32();
+        let avoid = typed_call!(
+            leaf::FAMILY,
+            0x0084_e3a0,
+            leaf::word_at_c(e, s + AVOID_NODE_POVS)
+        );
         let all = avoid
             .wrapping_add(edge_count.wrapping_mul(2))
             .wrapping_add(2);
@@ -766,7 +775,11 @@ pub fn fn_006ad770(
         }
         let mut i = 0u32;
         while i < size(e, s + ALL_POVS) {
-            let slot = e.call(ARRAY_WORD_AT, &args![s + ALL_POVS, i]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, s + ALL_POVS, i)
+            );
             let pov = e.mem.u32(slot);
             e.call(DEALLOCATE, &args![pov]);
             i += 1;
@@ -873,8 +886,8 @@ pub fn fn_006ae120(e: &mut Engine, this: Ptr<PathSmootherPOV>) -> Ptr<PathSmooth
     copy3(e, p + 4, ZERO_POINT);
     e.mem.set_f32(p + 0x10, 0.0);
     e.call(EDGE_HANDLE_CONSTRUCT, &args![p + POV_EDGE_HANDLE]);
-    e.call(SELF, &args![p + POV_EDGE1]);
-    e.call(SELF, &args![p + POV_EDGE2]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p + POV_EDGE1));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p + POV_EDGE2));
     e.mem.set_f32(p + 0x38, 1.0);
     this
 }
@@ -1085,7 +1098,11 @@ fn link_other_side(e: &mut Engine, s: u32, side: u32, other: u32, povs: u32) {
                     let candidate = fn_006b3120(e, Ptr::new(s + other), j).addr();
                     let vert = fn_006b3120(e, Ptr::new(s + side), i).addr();
                     let index = e.mem.u32(vert + 0x1c);
-                    let slot = e.call(ARRAY_WORD_AT, &args![s + povs, index]).u32();
+                    let slot = typed_call!(
+                        leaf::FAMILY,
+                        0x0087_7a30,
+                        leaf::array_element(e, s + povs, index)
+                    );
                     let pov = e.mem.u32(slot);
                     let value = e.mem.u32(candidate + 0x1c);
                     e.mem.set_u32(pov + 0x40, value);
@@ -1135,7 +1152,7 @@ pub fn fn_006aeb00(e: &mut Engine, this: Ptr<PathSmootherPOVSearch>, vert: Ptr, 
 /// `SafeSQueue` constructor): the `PathEdgeVert` constructor: `006815c0` on
 /// the vertex handle and `006240d0` on the edge handle (+8). Returns `this`.
 pub fn fn_006aeb70(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(SELF, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     e.call(EDGE_HANDLE_CONSTRUCT, &args![this.addr() + 8]);
     this
 }
@@ -1175,8 +1192,8 @@ pub fn fn_006aeba0(
     with_frame(e, 0xa0, |e, l| {
         let p = vert_position(e, verts, index);
         copy3(e, l.at(0x18), p);
-        e.call(SELF, &args![l.at(0x44)]);
-        e.call(SELF, &args![l.at(0x38)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x44)));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x38)));
         if index == 0 {
             e.call(POINT_SUB, &args![s + START, l.at(0x54), l.at(0x18)]);
             copy3(e, l.at(0x44), l.at(0x54));
@@ -1206,7 +1223,13 @@ pub fn fn_006aeba0(
                 .u32()
         };
         copy3(e, l.at(0x2c), turn);
-        let dot = e.call(POINT_DOT, &args![l.at(0x38), l.at(0x44)]).f64() as f32;
+        let dot = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, l.at(0x38), l.at(0x44))
+        )
+        .into_ret()
+        .f64() as f32;
         let turn_z = f64::from(e.mem.f32(l.at(0x24)));
         let corner = if index == 0 || index == size(e, verts.addr()).wrapping_sub(1) {
             true
@@ -1271,7 +1294,7 @@ fn obstacle_pov(
     e.mem.set_u32(slot, pov);
     e.mem.set_u32(pov, kind);
     zero_edges(e, pov);
-    let position = e.call(SELF, &args![obstacle]).u32();
+    let position = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, obstacle));
     copy3(e, pov + 4, position);
     e.mem.set_f32(pov + 0x38, cost);
     let mut radius = e.call(FLOAT_18, &args![obstacle]).f64();
@@ -1300,17 +1323,17 @@ pub fn fn_006aefc0(e: &mut Engine, this: Ptr<PathSmootherPOVSearch>) {
         let request = e.mem.u32(s + 0x2058);
         let obstacles = e.call(REQUEST_OBSTACLES, &args![request]).u32();
         fn_006b37b0(e, Ptr::new(l.at(0x10)), obstacles);
-        if e.call(WORD_0, &args![l.at(0x10)]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, l.at(0x10))) != 0 {
             let mut i = 0u32;
             loop {
-                let list = e.call(WORD_0, &args![l.at(0x10)]).u32();
+                let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, l.at(0x10)));
                 if i >= size(e, list) {
                     break;
                 }
-                let list = e.call(WORD_0, &args![l.at(0x10)]).u32();
+                let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, l.at(0x10)));
                 let obstacle = e.call(OBSTACLE_AT, &args![list, i]).u32();
                 obstacle_pov(e, s, l.at(0x18), obstacle, 4, 1.0, None, i);
-                if e.call(WORD_20, &args![obstacle]).u32() == 2 {
+                if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, obstacle)) == 2 {
                     let cost = x87_quiet(e.mem.f32(TEN));
                     obstacle_pov(e, s, l.at(0x20), obstacle, 5, cost, Some(D_0_25), i);
                 }
@@ -1352,7 +1375,7 @@ pub fn fn_006af2b0(e: &mut Engine, this: Ptr<PathSmootherPOVSearch>) {
         }
         let mut i = 0u32;
         while i < size(e, meshes) {
-            let slot = e.call(ARRAY_WORD_AT, &args![meshes, i]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, meshes, i));
             let navmesh = e.mem.u32(slot);
             let mut j = 0u32;
             while j < e.call(NAVMESH_AVOID_NODE_COUNT, &args![navmesh]).u32() {
@@ -1361,7 +1384,7 @@ pub fn fn_006af2b0(e: &mut Engine, this: Ptr<PathSmootherPOVSearch>) {
                 e.mem.set_u32(pov, 4);
                 zero_edges(e, pov);
                 let node = e.call(NAVMESH_AVOID_NODE, &args![navmesh, j]).u32();
-                let position = e.call(SELF, &args![node]).u32();
+                let position = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 copy3(e, pov + 4, position);
                 set_cost_factor_one(e, pov);
                 let node = e.call(NAVMESH_AVOID_NODE, &args![navmesh, j]).u32();
@@ -1717,7 +1740,7 @@ pub fn fn_006afcc0(e: &mut Engine, this: Ptr<PathSmootherPOVSearch>, retry_faile
             return;
         }
         let reach = e.call(0x0058_9850, &args![l.at(0xd8)]).f64() as f32;
-        e.call(SELF, &args![l.at(0xec)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0xec)));
         let cos = e.call(0x004e_4470, &args![x87_quiet(heading)]).f64();
         e.mem.set_f32(l.at(0xec), (cos * f64::from(reach)) as f32);
         let sin = e.call(0x004e_44b0, &args![x87_quiet(heading)]).f64();
@@ -1854,7 +1877,13 @@ pub fn fn_006b05f0(
             let tri = u32::from(e.mem.u16(l.at(0x68)));
             let mesh = e.mem.u32(l.at(0x6c));
             e.call(NAVMESH_TRIANGLE_VECTOR, &args![mesh, l.at(0x84), tri]);
-            let dot = e.call(POINT_DOT, &args![l.at(0x78), l.at(0x84)]).f64();
+            let dot = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, l.at(0x78), l.at(0x84))
+            )
+            .into_ret()
+            .f64();
             if dot < f64_at(e, D_0_9) {
                 add_crossing(e, s, l);
             }
@@ -1865,8 +1894,8 @@ pub fn fn_006b05f0(
 
 /// The crossing point step of `006b05f0` (frame of `006b05f0`).
 fn add_crossing(e: &mut Engine, s: u32, l: Frame) {
-    e.call(SELF, &args![l.at(0xbc)]);
-    e.call(SELF, &args![l.at(0xb0)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0xbc)));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0xb0)));
     let edge_word = e.mem.u32(l.at(0x54));
     let tri = u32::from(e.mem.u16(l.at(0x58)));
     let mesh = e.mem.u32(l.at(0x5c));
@@ -1874,7 +1903,7 @@ fn add_crossing(e: &mut Engine, s: u32, l: Frame) {
         NAVMESH_EDGE_ENDS,
         &args![mesh, tri, edge_word, l.at(0xbc), l.at(0xb0)],
     );
-    e.call(SELF, &args![l.at(0xa4)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0xa4)));
     let crossing = l.at(0xa4);
     if !e
         .call(
@@ -1948,7 +1977,7 @@ pub fn fn_006b0a60(
     direction: u32,
 ) -> Ptr {
     with_frame(e, 0x10, |e, l| {
-        e.call(SELF, &args![l.at(0xc)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0xc)));
         let x = x87_quiet_bits(e.mem.u32(angle.addr()));
         let y = x87_quiet_bits(e.mem.u32(angle.addr() + 4));
         let (first, second) = if direction == 0 {
@@ -1980,7 +2009,11 @@ fn connect_range(
     let mut failures = 0;
     let mut i = start;
     while i < count {
-        let slot = e.call(ARRAY_WORD_AT, &args![s + array, i]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, s + array, i)
+        );
         let pov = Ptr::new(e.mem.u32(slot));
         let ok = fn_006b0f40(e, this, node, pov, connections);
         if limit && !ok {
@@ -2217,8 +2250,8 @@ enum Way {
 fn start_inside_target(e: &mut Engine, l: Frame, target: u32) {
     e.mem.set_f32(l.at(0x78), 0.0);
     let length = e.call(0x0045_7910, &args![l.at(0x80)]).f64() as f32;
-    e.call(SELF, &args![l.at(0x8c)]);
-    e.call(SELF, &args![l.at(0x98)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x8c)));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x98)));
     let r = e.mem.f32(target + 0x10);
     if f64::from(length) < f64::from(r) * e.mem.f64(0x0101_1588) {
         copy3(e, l.at(0x8c), l.at(0x80));
@@ -2229,7 +2262,11 @@ fn start_inside_target(e: &mut Engine, l: Frame, target: u32) {
         let root = e.call(0x0040_19b0, &args![x87_quiet(rest)]).f64() as f32;
         let x = x87_quiet_bits(e.mem.u32(l.at(0x80)));
         let minus_y = x87_quiet_bits(e.mem.u32(l.at(0x7c))) ^ 0x8000_0000;
-        e.call(0x0041_6870, &args![l.at(0xac), minus_y, x, 0.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, l.at(0xac), minus_y, x, 0.0f32)
+        );
         scale_assign(e, l.at(0xac), root);
         let along = e
             .call(
@@ -2606,8 +2643,8 @@ pub fn fn_006b1970(e: &mut Engine, this: Ptr<PathSmootherPOVSearch>) -> bool {
 /// locations (+0x10, +0x28). Returns `this`.
 pub fn fn_006b1d80(e: &mut Engine, this: Ptr) -> Ptr {
     let p = this.addr();
-    e.call(SELF, &args![p]);
-    e.call(SELF, &args![p + 8]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p + 8));
     e.call(LOCATION_RECORD_CONSTRUCT, &args![p + 0x10]);
     e.call(LOCATION_RECORD_CONSTRUCT, &args![p + 0x28]);
     this
@@ -2859,7 +2896,7 @@ pub fn path_smoother_pov_search_check_segment_against_nav_mesh(
                     NAVMESH_GET_EDGE_VERTICES,
                     &args![mesh, l.at(0x94), tri, exit],
                 );
-                e.call(SELF, &args![l.at(0x8c)]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x8c)));
                 let a = e.mem.u32(l.at(0x94));
                 let b = e.mem.u32(l.at(0x90));
                 e.call(
@@ -3132,10 +3169,10 @@ pub fn path_smoother_pov_search_triple_check_segment_against_nav_mesh(
         e.call(POINT_SUB, &args![to, l.at(0xb0), location.addr() + 0xc]);
         copy3(e, l.at(0x8c), l.at(0xb0));
         e.call(POINT_NORMALIZE, &args![l.at(0x8c)]);
-        e.call(SELF, &args![l.at(0x5c)]);
-        e.call(SELF, &args![l.at(0x34)]);
-        e.call(SELF, &args![l.at(0x80)]);
-        e.call(SELF, &args![l.at(0x28)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x5c)));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x34)));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x80)));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x28)));
         let walker = request_radius(e, s);
         let walker_squared = request_radius(e, s) * walker;
         let squared = e.call(POINT_LENGTH_SQUARED, &args![l.at(0xb0)]).f64();
@@ -3295,7 +3332,11 @@ pub fn fn_006b2c00(
         }
         let mut i = 0u32;
         while i < size(e, s + AVOID_NODE_POVS) {
-            let slot = e.call(ARRAY_WORD_AT, &args![s + AVOID_NODE_POVS, i]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, s + AVOID_NODE_POVS, i)
+            );
             let avoid = e.mem.u32(slot);
             i += 1;
             e.mem.set_u32(l.at(0x8), avoid);
@@ -3311,8 +3352,8 @@ pub fn fn_006b2c00(
             e.call(0x0069_8580, &args![l.at(0x30), from, to]);
             e.call(0x0069_85c0, &args![l.at(0x68)]);
             e.call(0x006b_ac20, &args![l.at(0x78), l.at(0x30), l.at(0x68)]);
-            e.call(SELF, &args![l.at(0x14)]);
-            e.call(SELF, &args![l.at(0x44)]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x14)));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x44)));
             if avoid_section(e, l, from, to).is_none() {
                 continue;
             }
@@ -3364,8 +3405,8 @@ pub fn fn_006b2fc0(e: &mut Engine, this: Ptr<PathSmootherPOVSearch>, target: Ptr
             if i >= size(e, edges) {
                 break;
             }
-            e.call(SELF, &args![l.at(0x14)]);
-            e.call(SELF, &args![l.at(0x20)]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x14)));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.at(0x20)));
             let edge = edge_edge(e, edges, i);
             let triangle = edge_triangle(e, edges, i);
             let navmesh = edge_navmesh(e, edges, i);
@@ -3890,7 +3931,11 @@ fn search_loop(e: &mut Engine, this: Ptr<AStarSearch>, queue: Ptr, scrap: Ptr) -
         e.vcall(p, 4, &args![node, scrap]);
         let mut index = 0u32;
         while index < size(e, scrap.addr()) {
-            let slot = e.call(ARRAY_WORD_AT, &args![scrap, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, scrap, index)
+            );
             let child = e.mem.u32(slot);
             e.call(0x006a_1fb0, &args![queue, child]);
             let node = e.get(this, AStarSearch::pLastSearchedNode);

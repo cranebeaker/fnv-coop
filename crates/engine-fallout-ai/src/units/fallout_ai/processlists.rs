@@ -70,8 +70,10 @@ const ARRAY_DESTRUCT: u32 = 0x0096_a950;
 const PROCESS_ARRAY_OF: u32 = 0x0071_7e50;
 
 /// `BSSimpleList::Item`: address of the node's item.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `BSSimpleList::Next`: the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `BSSimpleList` constructor (zeroes item and next).
 const LIST_CONSTRUCT: u32 = 0x0096_a2d0;
@@ -84,6 +86,7 @@ const LIST_REMOVE: u32 = 0x0090_5330;
 /// `BSSimpleList` pop-front (removes the first node, `this` = list).
 const LIST_POP_FRONT: u32 = 0x0063_f7b0;
 /// `BSSimpleList` is-empty test.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `BSSimpleList` clear (frees the nodes behind the head).
 const LIST_CLEAR: u32 = 0x0047_0470;
@@ -103,12 +106,14 @@ pub(crate) const LOCK_LEAVE: u32 = 0x0040_fba0;
 pub(crate) const LOCK_TRY_ENTER: u32 = 0x0078_d200;
 
 /// The process (`pCurrentProcess`, +0x68) of an actor.
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// `MobileObject::GetCurrentProcessType` (Xbox PDB): the actor's process level.
 const ACTOR_PROCESS_LEVEL: u32 = 0x0093_1850;
 /// `MobileObject::GetDesiredProcessLevel` (Xbox PDB).
 const ACTOR_DESIRED_LEVEL: u32 = 0x0093_34b0;
 /// A process's current level (`0045cd60`, reads +0x28 of the process).
+#[cfg(test)]
 const PROCESS_LEVEL: u32 = 0x0045_cd60;
 /// The actor's 3D node accessor: vtable slot 0x1d0 (argument 0).
 const SLOT_GET_NODE: u32 = 0x1d0;
@@ -296,11 +301,11 @@ fn array_object(e: &mut Engine, array: u32, index: u32) -> u32 {
 }
 
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    e.call(NODE_ITEM, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
 }
 
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// The value of a node's item (`*BSSimpleList::Item(node)`).
@@ -314,7 +319,7 @@ fn is_actor(e: &mut Engine, object: u32) -> bool {
 }
 
 fn actor_process(e: &mut Engine, actor: u32) -> u32 {
-    e.call(ACTOR_PROCESS, &args![actor]).u32()
+    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
 }
 
 fn extra_list(e: &mut Engine, object: u32) -> u32 {
@@ -399,7 +404,7 @@ pub fn bsscrap_array_effect_task_data_reallocate(
     let new_buffer = e
         .call(0x00aa_54a0, &args![heap, count.wrapping_mul(12), alignment])
         .u32();
-    let size = e.call(0x0044_ddc0, &args![this]).u32();
+    let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     e.call(
         0x0040_1460,
         &args![new_buffer, old_buffer, size.wrapping_mul(12)],
@@ -519,8 +524,8 @@ pub fn processlists_parallel_update_animation_scenegraph(e: &mut Engine, this: P
 /// elements: `0087cf10` builds `task` from the callback, the array and its
 /// size, `00c44c90` hands it to the task manager.
 fn run_scrap_task(e: &mut Engine, scrap: u32, task: u32, callback: u32) {
-    if e.call(0x0044_ddc0, &args![scrap]).u32() != 0 {
-        let queued = e.call(0x0044_ddc0, &args![scrap]).u32();
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, scrap)) != 0 {
+        let queued = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, scrap));
         e.call(0x0087_cf10, &args![task, callback, scrap, queued]);
         let manager: u32 = e.global(TASK_MANAGER);
         e.call(0x00c4_4c90, &args![manager, task]);
@@ -586,8 +591,8 @@ fn actor_is_processable(e: &mut Engine, actor: u32) -> bool {
     let cell = e.call(0x008d_6f30, &args![actor]).u32();
     let node = e.vcall(actor, SLOT_GET_NODE, &[]).u32();
     node != 0
-        && !e.call(0x0044_0d80, &args![actor]).bool()
-        && !e.call(0x0044_0da0, &args![actor]).bool()
+        && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
+        && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
         && cell != 0
         && e.call(0x0045_0ff0, &args![cell]).bool()
 }
@@ -941,7 +946,11 @@ pub fn fn_0096d520(e: &mut Engine) {
     e.call(LIST_CLEAR, &args![all]);
     list_delete(e, all);
     let remaining = e.mem.u32(followers + 0xc);
-    if e.call(LIST_IS_EMPTY, &args![remaining]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, remaining)
+    ) {
         let extra = extra_list(e, player);
         e.call(0x0042_2720, &args![extra]);
     }
@@ -1105,7 +1114,8 @@ pub fn fn_0096db30(e: &mut Engine, _this: Ptr<ProcessLists>, delta: f32, flag: u
     let mut index = array_head(e, array, level);
     while index < array_tail(e, array, level) {
         let object = array_object(e, array, index);
-        let skip = object != 0 && e.call(0x0057_6d30, &args![object]).bool();
+        let skip = object != 0
+            && typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, object));
         if !skip {
             if object != 0 && is_actor(e, object) {
                 if level != 0 {
@@ -1198,8 +1208,8 @@ pub fn fn_0096dcb0(e: &mut Engine, _this: Ptr<ProcessLists>, list: u32) {
         if actor != 0
             && actor != player(e)
             && actor_process(e, actor) != 0
-            && !e.call(0x0044_0d80, &args![actor]).bool()
-            && !e.call(0x0044_0da0, &args![actor]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
+            && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
             && !e.call(0x0049_3bb0, &args![actor]).bool()
         {
             advance_actor_for_fast_travel(e, actor);
@@ -1223,13 +1233,13 @@ pub fn processlists_process_high_actors_for_fast_travel(e: &mut Engine, this: Pt
         let object = array_object(e, array, index);
         if object != 0
             && is_actor(e, object)
-            && !e.call(0x0057_6d30, &args![object]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, object))
             && (e.call(0x008d_6f30, &args![object]).u32() != 0
                 || e.call(0x0057_5d70, &args![object]).u32() != 0)
             && object != player(e)
             && actor_process(e, object) != 0
-            && !e.call(0x0044_0d80, &args![object]).bool()
-            && !e.call(0x0044_0da0, &args![object]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, object))
+            && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, object))
             && !e.call(0x0049_3bb0, &args![object]).bool()
         {
             advance_actor_for_fast_travel(e, object);
@@ -1267,7 +1277,9 @@ pub fn fn_0096e150(e: &mut Engine, this: Ptr<ProcessLists>, list: u32, flag: u8)
             processlists_add_actor_to_temp_change_list(e, this, found);
             continue;
         }
-        if e.call(0x0044_0d80, &args![found]).bool() || e.call(0x0044_0da0, &args![found]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, found))
+            || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, found))
+        {
             if actor_process(e, found) != 0 && e.call(LOCK_TRY_ENTER, &args![LOCK]).bool() {
                 let level = e.call(ACTOR_PROCESS_LEVEL, &args![found]).u32();
                 e.call(
@@ -1550,7 +1562,7 @@ pub fn processlists_add_actor_to_temp_change_list(
     if process == 0 {
         return;
     }
-    let level = e.call(PROCESS_LEVEL, &args![process]).u32();
+    let level = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process));
     let desired = e.call(ACTOR_DESIRED_LEVEL, &args![actor]).u32();
     let add = e.vcall(actor, SLOT_0X22C, &args![0u32]).bool()
         || level != desired
@@ -1558,7 +1570,7 @@ pub fn processlists_add_actor_to_temp_change_list(
             let process = actor_process(e, actor);
             e.vcall(process, 0x360, &[]).bool()
         }
-        || e.call(0x0044_0d80, &args![actor]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
         || {
             let player = player(e);
             e.call(0x0094_df60, &args![player]).bool()
@@ -1591,7 +1603,7 @@ pub fn fn_0096e9b0(e: &mut Engine, this: Ptr<ProcessLists>) {
         if is_actor(e, object) {
             found = node_value(e, node);
         }
-        if found != 0 && !e.call(0x0057_6d30, &args![found]).bool() {
+        if found != 0 && !typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, found)) {
             let process = actor_process(e, found);
             if process != 0 && e.vcall(process, 0x27c, &[]).u32() != 0 {
                 let leader = e.call(0x0088_1650, &args![found]).u32();
@@ -1650,7 +1662,11 @@ pub fn processlists_change_process_level_temp_list(e: &mut Engine, this: Ptr<Pro
         }
         node = node_next(e, node);
         let current = temp_actor(e);
-        if e.call(0x0057_6d30, &args![current]).bool() {
+        if typed_call!(
+            leaf::FAMILY,
+            0x0057_6d30,
+            leaf::form_flag_200000(e, current)
+        ) {
             continue;
         }
         if let Step::Restart = handle_temp_change_actor(e, this, high) {
@@ -1720,7 +1736,7 @@ fn delete_temp_actor_under_lock(e: &mut Engine) {
 /// finds none.
 fn temp_actor_has_no_file(e: &mut Engine) -> bool {
     let actor = temp_actor(e);
-    e.call(0x0044_0d80, &args![actor]).bool()
+    typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
         && e.call(0x0048_4e60, &args![actor, 0xffff_ffffu32]).u32() == 0
 }
 
@@ -1730,7 +1746,9 @@ fn temp_actor_has_no_file(e: &mut Engine) -> bool {
 /// whether the model-loader test held.
 fn release_loaded_model_actor(e: &mut Engine, array: u32) -> bool {
     let actor = temp_actor(e);
-    if !(e.call(0x0044_0d80, &args![actor]).bool() || e.call(0x0044_0da0, &args![actor]).bool()) {
+    if !(typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor)))
+    {
         return false;
     }
     let actor = temp_actor(e);
@@ -1824,7 +1842,9 @@ fn handle_temp_change_actor(e: &mut Engine, this: Ptr<ProcessLists>, high: u32) 
 
     // Case 3.
     let current = temp_actor(e);
-    if e.call(0x0044_0da0, &args![current]).bool() && e.call(LOCK_TRY_ENTER, &args![LOCK]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, current))
+        && e.call(LOCK_TRY_ENTER, &args![LOCK]).bool()
+    {
         remove_temp_actor_from_array(e, array);
         let current = temp_actor(e);
         e.call(0x0093_1e80, &args![current]);
@@ -1839,7 +1859,7 @@ fn handle_temp_change_actor(e: &mut Engine, this: Ptr<ProcessLists>, high: u32) 
     let menu_other = talking && e.call(0x0070_2640, &[]).u32() != 0x3f1;
     if !menu_other {
         let current = temp_actor(e);
-        if e.call(0x0044_ddc0, &args![current]).u32() & 0x2_0000 == 0 {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, current)) & 0x2_0000 == 0 {
             return Step::Next;
         }
         let current = temp_actor(e);
@@ -1873,13 +1893,15 @@ fn handle_temp_change_actor(e: &mut Engine, this: Ptr<ProcessLists>, high: u32) 
             let process = actor_process(e, current);
             e.vcall(process, 0x364, &args![0u32]);
             let process = actor_process(e, current);
-            let level = e.call(PROCESS_LEVEL, &args![process]).u32();
+            let level = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process));
             e.call(ARRAY_ADD_ACTOR, &args![array, current, level]);
         }
     } else {
         e.vcall(current, 0x260, &[]);
         let current = temp_actor(e);
-        if current != 0 && e.call(0x0044_ddc0, &args![current]).u32() & 0x2_0000 != 0 {
+        if current != 0
+            && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, current)) & 0x2_0000 != 0
+        {
             e.vcall(current, SLOT_SET_NEED_TO_CHANGE_PROCESS, &args![0u32]);
         }
     }
@@ -1895,7 +1917,7 @@ fn delete_dead_actor(e: &mut Engine, head: u32, high: u32) {
     let extra = extra_list(e, high);
     let dropped = e.call(0x0041_df90, &args![extra]).u32();
     if dropped != 0 {
-        while !e.call(LIST_IS_EMPTY, &args![dropped]).bool() {
+        while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, dropped)) {
             let item = node_value(e, dropped);
             let extra = extra_list(e, item);
             e.call(0x0041_de40, &args![extra, 0u32]);
@@ -1956,7 +1978,9 @@ pub fn fn_0096f450(e: &mut Engine, this: Ptr<ProcessLists>, a: u32, b: u32) -> u
             }
             if e.vcall(high, 0x2c8, &[]).u32() != 0 {
                 let holder = e.vcall(high, 0x2c8, &[]).u32();
-                if e.call(0x0084_e3a0, &args![holder]).u32() == a && b != high {
+                if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, holder)) == a
+                    && b != high
+                {
                     if result == 0 {
                         result = list_new(e);
                     }
@@ -1992,7 +2016,10 @@ pub fn fn_00970810(e: &mut Engine, _this: Ptr<ProcessLists>, target: u32) {
     while index < array_tail(e, array, 3) {
         let object = array_object(e, array, index);
         let mut actor = 0u32;
-        if object != 0 && is_actor(e, object) && !e.call(0x0057_6d30, &args![object]).bool() {
+        if object != 0
+            && is_actor(e, object)
+            && !typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, object))
+        {
             actor = object;
         }
         if actor != 0 {
@@ -2008,7 +2035,10 @@ pub fn fn_00970810(e: &mut Engine, _this: Ptr<ProcessLists>, target: u32) {
                 let mut level_zero_or_one = 0u32;
                 if actor_process(e, actor) != 0 {
                     let process = actor_process(e, actor);
-                    let level = e.call(PROCESS_LEVEL, &args![process]).i32();
+                    let level =
+                        typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process))
+                            .into_ret()
+                            .i32();
                     if (0..=1).contains(&level) {
                         level_zero_or_one = actor_process(e, actor);
                     }
@@ -2070,8 +2100,11 @@ fn clear_location_reference(e: &mut Engine, package: u32, target: u32) {
 fn end_package_if_target(e: &mut Engine, high: u32, process: u32, target: u32) {
     let holder = e.vcall(process, 0x20c, &[]).u32();
     let mut hit = e.call(0x0088_1650, &args![high]).u32() == target;
-    if !hit && holder != 0 && e.call(0x0067_1d10, &args![holder]).u32() != 0 {
-        let inner = e.call(0x0067_1d10, &args![holder]).u32();
+    if !hit
+        && holder != 0
+        && typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, holder)) != 0
+    {
+        let inner = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, holder));
         hit = e.call(0x0068_0020, &args![inner]).u32() == target;
     }
     if !hit {
@@ -2215,7 +2248,8 @@ pub fn fn_0096f600(e: &mut Engine, this: Ptr<ProcessLists>, target: u32, flag: u
         let object = array_object(e, array, index);
         let mut high = 0u32;
         let mut other = 0u32;
-        if object != 0 && !e.call(0x0057_6d30, &args![object]).bool() {
+        if object != 0 && !typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, object))
+        {
             if is_actor(e, object) {
                 high = object;
             } else if e.vcall(object, 0x224, &[]).bool() {
@@ -2258,11 +2292,11 @@ pub fn fn_0096f600(e: &mut Engine, this: Ptr<ProcessLists>, target: u32, flag: u
 
     // The objects of the temp list.
     let mut node = this.addr() + TEMP_SHOULD_MOVE_LIST;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let mut high = 0u32;
         let mut other = 0u32;
         let item = node_value(e, node);
-        if item != 0 && !e.call(0x0057_6d30, &args![item]).bool() {
+        if item != 0 && !typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, item)) {
             let object = node_value(e, node);
             if is_actor(e, object) {
                 high = node_value(e, node);
@@ -2340,7 +2374,11 @@ fn forget_reference_in_level_three_actor(
         if process == 0 {
             return;
         }
-        if e.call(PROCESS_LEVEL, &args![process]).i32() < 2 {
+        if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process))
+            .into_ret()
+            .i32()
+            < 2
+        {
             e.vcall(process, 0x2c4, &args![target, 3u32]);
             e.vcall(process, 0x260, &args![target]);
             e.vcall(process, 0x7b0, &args![target]);
@@ -2360,7 +2398,9 @@ fn forget_reference_in_level_three_actor(
             let package = e.vcall(process, 0x20c, &[]).u32();
             if package != 0 {
                 let holder = e.vcall(process, 0x278, &[]).u32();
-                if holder != 0 && e.call(0x0044_ddc0, &args![holder]).u32() == target {
+                if holder != 0
+                    && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, holder)) == target
+                {
                     e.call(0x0088_1680, &args![high, 0u32]);
                 } else if e.call(PACKAGE_TYPE, &args![package]).u32() == 0x1c
                     && e.call(0x008d_80e0, &args![package]).u32() == target
@@ -2397,7 +2437,7 @@ fn forget_reference_in_level_three_actor(
         if is_actor(e, target) && e.vcall(process, 0x3d0, &[]).u32() == second_base_of(target) {
             e.vcall(process, 0x3d4, &args![0u32]);
         }
-        if e.call(PROCESS_LEVEL, &args![process]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == 0 {
             e.vcall(process, 0xac, &[]);
         }
         if e.call(0x004f_d380, &args![high]).u32() == target {
@@ -2467,7 +2507,7 @@ fn forget_reference_in_temp_list_actor(
                 e.vcall(current, 0x3d4, &args![0u32]);
             }
         }
-        if e.call(PROCESS_LEVEL, &args![process]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == 0 {
             e.vcall(process, 0xac, &[]);
         }
         if e.call(0x004f_d380, &args![high]).u32() == target {
@@ -2514,7 +2554,10 @@ pub fn processlists_get_actor_ref_in_high(
     let mut index = 0u32;
     while index < array_tail(e, array, 0) {
         let object = array_object(e, array, index);
-        if object != 0 && found == 0 && !e.call(0x0057_6d30, &args![object]).bool() {
+        if object != 0
+            && found == 0
+            && !typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, object))
+        {
             let mut actor = 0u32;
             if is_actor(e, object) {
                 actor = object;
@@ -2522,7 +2565,7 @@ pub fn processlists_get_actor_ref_in_high(
             if actor != 0 {
                 let mut form = 0u32;
                 if e.vcall(actor, 0x218, &[]).bool() {
-                    form = e.call(0x007a_f430, &args![actor]).u32();
+                    form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
                 }
                 if form != 0 && base == form {
                     found = actor;
@@ -2655,14 +2698,14 @@ pub fn fn_00970d50(e: &mut Engine, this: Ptr<ProcessLists>) {
         if actor != 0 {
             let extra = extra_list(e, actor);
             e.call(0x005a_c190, &args![actor, extra]);
-            if !e.call(0x0044_0d80, &args![actor]).bool()
-                && e.call(0x007a_f430, &args![actor]).u32() != 0
+            if !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
+                && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor)) != 0
                 && e.vcall(actor + 0xa4, 8, &args![0x10u32]).i32() > 0
             {
                 e.call(0x0089_3340, &args![actor, 0u32]);
             } else {
-                if !e.call(0x0044_0d80, &args![actor]).bool()
-                    && e.call(0x007a_f430, &args![actor]).u32() != 0
+                if !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
+                    && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor)) != 0
                     && e.vcall(actor + 0xa4, 8, &args![0x10u32]).i32() <= 0
                 {
                     e.call(0x008a_1800, &args![actor, 2u32]);
@@ -2714,10 +2757,10 @@ pub fn processlists_distance_list_compare_fn(e: &mut Engine, first: u32, second:
 /// translated.
 pub fn fn_00970f60(e: &mut Engine, this: Ptr<ProcessLists>, reference: u32) -> u32 {
     let array = mob_process_array(this);
-    let actor = e.call(0x0084_e3a0, &args![reference]).u32();
+    let actor = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
     if actor != 0
-        && (e.call(0x0044_0da0, &args![actor]).bool()
-            || e.call(0x0044_0d80, &args![actor]).bool()
+        && (typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
+            || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
             || e.vcall(actor, SLOT_0X22C, &args![1u32]).bool())
     {
         return 0;
@@ -2752,7 +2795,7 @@ pub fn fn_00970f60(e: &mut Engine, this: Ptr<ProcessLists>, reference: u32) -> u
             && !e.vcall(candidate, 0x234, &[]).bool()
             && candidate != actor
             && !e.vcall(candidate, SLOT_0X22C, &args![0u32]).bool()
-            && !e.call(0x0044_0da0, &args![candidate]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, candidate))
         {
             let level = e.with_stack(4, |e, flag| {
                 e.call(
@@ -2843,7 +2886,7 @@ fn go_between_hears(e: &mut Engine, nodes: u32, actor: u32, cell: u32) -> bool {
         if reference != 0 {
             let holder = e.call(0x0056_8e50, &args![reference]).u32();
             if holder != 0 {
-                let location = e.call(0x0055_9450, &args![holder]).u32();
+                let location = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                 let location_cell = e.call(0x008d_6f30, &args![location]).u32();
                 let mut near = location_cell == cell;
                 if !near && e.call(0x008d_6f30, &args![location]).u32() == 0 {
@@ -2882,7 +2925,7 @@ pub fn processlists_send_actors_yell_alarm(
 ) -> u32 {
     let array = mob_process_array(this);
     let list = list_new(e);
-    let target = e.call(0x0084_e3a0, &args![reference]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
     let target_cell = e.call(0x008d_6f30, &args![target]).u32();
     let target_space = e.call(0x0057_5d70, &args![target]).u32();
     e.call(0x0063_2d20, &args![reference, 1u32]);
@@ -2899,8 +2942,8 @@ pub fn processlists_send_actors_yell_alarm(
         index = index.wrapping_add(1);
         if actor == 0
             || e.vcall(actor, SLOT_0X22C, &args![0u32]).bool()
-            || e.call(0x0044_0da0, &args![actor]).bool()
-            || e.call(0x0044_0d80, &args![actor]).bool()
+            || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
+            || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
             || e.vcall(actor, SLOT_0X22C, &args![0u32]).bool()
         {
             continue;
@@ -3156,7 +3199,9 @@ fn crime_list(e: &Engine, this: Ptr<ProcessLists>, kind: i32) -> u32 {
 
 /// The kind of a crime (the dword at +4; `00726070`).
 fn crime_kind(e: &mut Engine, crime: u32) -> i32 {
-    e.call(NODE_NEXT, &args![crime]).i32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, crime))
+        .into_ret()
+        .i32()
 }
 
 /// The list of actors that know a crime (`009e32d0`, the dword at +0x38).
@@ -3166,7 +3211,7 @@ fn crime_known_by(e: &mut Engine, crime: u32) -> u32 {
 
 /// Whether a list node is empty: no item and no next node (`008256d0`).
 fn list_is_empty(e: &mut Engine, list: u32) -> bool {
-    e.call(LIST_IS_EMPTY, &args![list]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list))
 }
 
 // Translated from 00971fd0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -3210,7 +3255,7 @@ pub fn fn_00971fd0(e: &mut Engine, this: Ptr<ProcessLists>, age: f32) -> u32 {
             }
             known = node_next(e, known);
         }
-        let victim = e.call(0x0044_ddc0, &args![crime]).u32();
+        let victim = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, crime));
         if victim != 0 && is_actor(e, victim) {
             let extra = extra_list(e, victim);
             let player_crimes = e.call(0x0041_cf00, &args![extra]).u32();
@@ -3365,7 +3410,7 @@ pub fn fn_009724e0(e: &mut Engine, this: Ptr<ProcessLists>, kind: i32, value: u3
         let item = node_item(e, node);
         let crime = e.mem.u32(item);
         node = node_next(e, node);
-        if e.call(PROCESS_LEVEL, &args![crime]).u32() == value {
+        if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, crime)) == value {
             found = crime;
         }
     }
@@ -3396,8 +3441,8 @@ pub fn fn_00972570(
         let item = node_item(e, node);
         let crime = e.mem.u32(item);
         node = node_next(e, node);
-        if e.call(0x0084_e3a0, &args![crime]).u32() == actor
-            && e.call(0x0044_ddc0, &args![crime]).u32() == victim
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime)) == actor
+            && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, crime)) == victim
         {
             found = crime;
         }
@@ -3437,9 +3482,14 @@ pub fn fn_00972600(
         let crime = e.mem.u32(item);
         node = node_next(e, node);
         if (crime_kind(e, crime) == kind || kind == -1)
-            && e.call(0x0084_e3a0, &args![crime]).u32() == actor
-            && (e.call(0x0044_ddc0, &args![crime]).u32() == victim || victim == 0)
-            && (value == -1 || e.call(PROCESS_LEVEL, &args![crime]).i32() == value)
+            && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime)) == actor
+            && (typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, crime)) == victim
+                || victim == 0)
+            && (value == -1
+                || typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, crime))
+                    .into_ret()
+                    .i32()
+                    == value)
             && (extra == 0 || e.call(0x009e_b9a0, &args![crime, extra]).bool())
         {
             return true;
@@ -3545,9 +3595,9 @@ pub fn fn_00972840(e: &mut Engine, _this: Ptr<ProcessLists>, target: u32, keep_p
             e.vcall(actor, 0x434, &args![target]);
         } else if keep_package == 0 && e.call(0x008a_61b0, &args![actor]).bool() {
             let package = e.call(0x0093_44a0, &args![actor]).u32();
-            if e.call(0x0067_1d10, &args![package]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package)) != 0 {
                 let package = e.call(0x0093_44a0, &args![actor]).u32();
-                let holder = e.call(0x0067_1d10, &args![package]).u32();
+                let holder = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
                 let reference = e.call(0x0068_0020, &args![holder]).u32();
                 if reference == target || target == 0 {
                     e.call(0x0088_1680, &args![actor, 0u32]);
@@ -3604,7 +3654,7 @@ pub fn fn_00972aa0(e: &mut Engine, this: Ptr<ProcessLists>, actor: u32) {
             }
             let item = node_item(e, node);
             let crime = e.mem.u32(item);
-            if e.call(0x0084_e3a0, &args![crime]).u32() == actor {
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime)) == actor {
                 let mut known = crime_known_by(e, crime);
                 while known != 0 && !list_is_empty(e, known) {
                     let item = node_item(e, known);
@@ -3742,7 +3792,7 @@ pub fn processlists_place_actors_in_beds_or_chairs(e: &mut Engine, this: Ptr<Pro
             continue;
         }
         let process = actor_process(e, actor);
-        if e.call(PROCESS_LEVEL, &args![process]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) != 0 {
             continue;
         }
         e.call(0x008c_3c40, &args![actor, 0u32, 0u32]);
@@ -3792,7 +3842,7 @@ pub fn processlists_place_actors_in_beds_or_chairs(e: &mut Engine, this: Ptr<Pro
             } else {
                 location_reference
             };
-            let base = e.call(0x007a_f430, &args![chosen]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, chosen));
             if e.call(0x0050_9420, &args![base]).bool() {
                 sleep = 1;
             }
@@ -3817,7 +3867,8 @@ pub fn processlists_place_actors_in_beds_or_chairs(e: &mut Engine, this: Ptr<Pro
                 if e.call(0x0057_5ca0, &args![furniture]).u32() == space
                     && furniture_allowed(e, furniture, actor)
                 {
-                    let base = e.call(0x007a_f430, &args![furniture]).u32();
+                    let base =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, furniture));
                     if e.call(0x0050_9420, &args![base]).bool() {
                         marker_index = first_free_marker(e, furniture);
                         if marker_index == -1
@@ -3855,7 +3906,8 @@ pub fn processlists_place_actors_in_beds_or_chairs(e: &mut Engine, this: Ptr<Pro
                     && furniture != 0
                     && furniture_allowed(e, furniture, actor)
                 {
-                    let base = e.call(0x007a_f430, &args![furniture]).u32();
+                    let base =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, furniture));
                     if e.call(0x0050_93f0, &args![base]).bool() {
                         marker_index = first_free_marker(e, furniture);
                         if marker_index == -1
@@ -3929,6 +3981,7 @@ const NI_POINTER_LIST_PUSH: u32 = 0x0052_a9b0;
 const NI_POINTER_LIST_IS_EMPTY: u32 = 0x004a_4460;
 /// The effect a node of a `NiPointer` list holds: `00559450` on the node's
 /// item address (`006815c0`).
+#[cfg(test)]
 const NI_POINTER_VALUE: u32 = 0x0055_9450;
 /// `GarbageCollector::Add_ov3(effect)` (Xbox PDB, cdecl).
 const GARBAGE_COLLECTOR_ADD: u32 = 0x0086_8490;
@@ -3941,7 +3994,7 @@ const SET_CURRENT_SPELL: u32 = 0x0041_fd00;
 /// The effect held by a node of `GlobalTempEffectList` or `MagicEffectList`.
 fn effect_of_node(e: &mut Engine, node: u32) -> u32 {
     let item = node_item(e, node);
-    e.call(NI_POINTER_VALUE, &args![item]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item))
 }
 
 /// Removes `effect` from the list headed by `list` through a `NiPointer`
@@ -4128,7 +4181,7 @@ pub fn fn_00973710(
         if !skip
             && actor != 0
             && !e.vcall(actor, SLOT_0X22C, &args![0u32]).bool()
-            && !e.call(0x0044_0da0, &args![actor]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
             && !e.call(0x0043_7bd0, &args![actor]).bool()
         {
             let player_ref = player(e);
@@ -4221,7 +4274,7 @@ pub fn fn_00973ab0(e: &mut Engine, this: Ptr<ProcessLists>, reference: u32) -> u
             actor = object;
         }
         if actor != 0 && e.call(0x0057_85e0, &args![reference, actor, 1u32]).bool() {
-            let form = e.call(0x007a_f430, &args![reference]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             let base = e.call(0x0041_81e0, &args![actor]).u32();
             if e.call(0x0047_f600, &args![base.wrapping_add(0x90), form])
                 .bool()
@@ -4259,7 +4312,7 @@ pub fn fn_00973d50(e: &mut Engine, this: Ptr<ProcessLists>, value: u32) -> bool 
         let object = array_object(e, array, index);
         index = index.wrapping_add(1);
         if object != 0 && e.call(0x0057_4900, &args![object]).bool() {
-            let form = e.call(0x007a_f430, &args![object]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, object));
             if e.call(0x0051_6bf0, &args![form]).u32() == value {
                 return true;
             }
@@ -4380,7 +4433,7 @@ pub fn fn_009740a0(e: &mut Engine, this: Ptr<ProcessLists>, reference: u32) {
         let mut previous = 0u32;
         while node != 0 && !e.call(NI_POINTER_LIST_IS_EMPTY, &args![node]).bool() {
             let effect = effect_of_node(e, node);
-            if e.call(0x0084_e3a0, &args![effect]).u32() == reference {
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect)) == reference {
                 e.call(SET_CURRENT_SPELL, &args![effect, 0u32]);
                 e.call(GARBAGE_COLLECTOR_ADD, &args![effect]);
                 node = drop_effect_node(e, node, previous, effect);
@@ -4546,8 +4599,8 @@ pub fn fn_009746c0(e: &mut Engine, this: Ptr<ProcessLists>, delta: f32) {
                 node = node_next(e, node);
             }
         }
-        if e.call(0x0044_ddc0, &args![array.addr()]).u32() != 0 {
-            let count = e.call(0x0044_ddc0, &args![array.addr()]).u32();
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array.addr())) != 0 {
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array.addr()));
             e.with_stack(0x20, |e, task| {
                 e.call(
                     0x0087_cf10,
@@ -4557,7 +4610,9 @@ pub fn fn_009746c0(e: &mut Engine, this: Ptr<ProcessLists>, delta: f32) {
                 e.call(0x00c4_4c90, &args![manager, task.addr()]);
             });
             let mut position = 0u32;
-            while position < e.call(0x0044_ddc0, &args![array.addr()]).u32() {
+            while position
+                < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array.addr()))
+            {
                 let record = e.call(0x006a_7af0, &args![array.addr(), position]).u32();
                 if e.mem.u8(record + 9) != 0 {
                     let effect = e.mem.u32(record);
@@ -4685,7 +4740,7 @@ pub fn processlists_finish_magic_shader_hit_effect(
     let list = this.addr() + MAGIC_EFFECT_LIST;
     for_each_effect_of_type(e, list, EFFECT_TYPE_011DC804, |e, effect| {
         if effect_worldspace(e, effect) == worldspace
-            && e.call(0x0067_1d10, &args![effect]).u32() == shader
+            && typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, effect)) == shader
         {
             e.call(EFFECT_SET_FLAG_0X24, &args![effect, 1u32]);
         }
@@ -4699,7 +4754,7 @@ pub fn processlists_finish_magic_shader_hit_effect(
 pub fn fn_00974af0(e: &mut Engine, this: Ptr<ProcessLists>, shader: u32) {
     let list = this.addr() + MAGIC_EFFECT_LIST;
     for_each_effect_of_type(e, list, EFFECT_TYPE_011DC804, |e, effect| {
-        if e.call(0x0067_1d10, &args![effect]).u32() == shader {
+        if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, effect)) == shader {
             e.call(EFFECT_SET_FLAG_0X24, &args![effect, 1u32]);
         }
     });
@@ -4776,7 +4831,9 @@ pub fn processlists_find_and_cleanup_weapon_shader_hit_effect(
             && fn_00974d90(e, Ptr::new(effect)) != 0
             && !e.call(0x0054_3c30, &args![effect]).bool()
         {
-            if e.call(0x0067_1d10, &args![effect]).u32() == shader && found == 0 {
+            if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, effect)) == shader
+                && found == 0
+            {
                 found = effect;
             } else {
                 e.call(EFFECT_SET_FLAG_0X24, &args![effect, 1u32]);
@@ -4857,12 +4914,12 @@ pub fn processlists_stop_all_actors_in_dialog(e: &mut Engine, this: Ptr<ProcessL
 /// `009bec50(0.0)` answers true.
 pub fn fn_00975080(e: &mut Engine, this: Ptr<ProcessLists>) {
     let list = this.addr() + PROJECTILE_POST_PROCESS_LIST;
-    if e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         return;
     }
     let mut previous = list;
     let mut node = list;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let item = node_value(e, node);
         let mut remove = false;
         let projectile = e
@@ -4965,11 +5022,11 @@ pub fn fn_00975320(e: &mut Engine, this: Ptr<ProcessLists>, reference: u32) {
         let list: u32 = e.mem.u32(this.addr() + GLOBAL_CRIME_LIST_ARRAY + 4 * i);
         let mut node = list;
         let mut previous = 0u32;
-        while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let item = node_value(e, node);
             let mut removed = false;
-            if e.call(0x0084_e3a0, &args![item]).u32() == reference
-                || e.call(0x0044_ddc0, &args![item]).u32() == reference
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item)) == reference
+                || typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item)) == reference
             {
                 if previous != 0 {
                     list_remove_value(e, previous, item);
@@ -5001,7 +5058,7 @@ pub fn fn_00975450(e: &mut Engine, this: Ptr<ProcessLists>) -> u16 {
         let list: u32 = e.mem.u32(this.addr() + GLOBAL_CRIME_LIST_ARRAY + 4 * i);
         size = size.wrapping_add(2);
         let mut node = list;
-        while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let item = node_value(e, node);
             size = size.wrapping_add(e.call(0x009e_bb80, &args![item]).u16());
             node = node_next(e, node);
@@ -5025,7 +5082,9 @@ pub fn processlists_save_game(e: &mut Engine, this: Ptr<ProcessLists>) {
             let position = e.call(STREAM_POSITION, &args![stream]).u32();
             e.call(STREAM_WRITE, &args![stream, count_slot.addr(), 2u32]);
             let mut node: u32 = e.mem.u32(this.addr() + GLOBAL_CRIME_LIST_ARRAY + 4 * i);
-            while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
                 let item = node_value(e, node);
                 e.call(0x009e_bca0, &args![item]);
                 count = count.wrapping_add(1);
@@ -5315,8 +5374,8 @@ pub fn processlists_update_3d_after_resting(e: &mut Engine, this: Ptr<ProcessLis
             let navigator: u32 = e.global(0x011c_3b3c);
             if e.vcall(actor, SLOT_GET_NODE, &[]).u32() == 0
                 && !e.call(0x0044_5750, &args![navigator, actor]).bool()
-                && !e.call(0x0044_0da0, &args![actor]).bool()
-                && !e.call(0x0044_0d80, &args![actor]).bool()
+                && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
+                && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
                 && e.call(ACTOR_CELL, &args![actor]).u32() != 0
             {
                 let cell = e.call(ACTOR_CELL, &args![actor]).u32();
@@ -5426,7 +5485,11 @@ pub fn processlists_flush_non_persistent_actors(
         index = index.wrapping_add(1);
     }
     if mode == 1 {
-        let near_only = e.call(LIST_IS_EMPTY, &args![far_list]).bool();
+        let near_only = typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, far_list)
+        );
         let current = if near_only { near_list } else { far_list };
         while current != 0 && node_value(e, current) != 0 {
             let actor = node_value(e, current);
@@ -5490,7 +5553,7 @@ pub fn fn_009764a0(e: &mut Engine, this: Ptr<ProcessLists>, flag: u8) -> bool {
         if actor != 0
             && actor != player
             && !e.vcall(actor, SLOT_0X22C, &args![0u32]).bool()
-            && !e.call(0x0044_0da0, &args![actor]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
         {
             if actor_process(e, actor) != 0 {
                 let process = actor_process(e, actor);
@@ -5536,8 +5599,8 @@ fn clear_created_package_references(e: &mut Engine, package: u32, high: u32, tar
     {
         return;
     }
-    if e.call(0x0067_1d10, &args![package]).u32() != 0 {
-        let inner = e.call(0x0067_1d10, &args![package]).u32();
+    if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package)) != 0 {
+        let inner = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
         if e.call(0x0068_0020, &args![inner]).u32() == target {
             e.call(0x0067_2fc0, &args![package, 0u32]);
         }
@@ -5558,9 +5621,9 @@ fn end_package_when_targeted(e: &mut Engine, high: u32, process: u32, target: u3
     let mut hit = e.call(0x0088_1650, &args![high]).u32() == target;
     if !hit && e.vcall(process, 0x20c, &[]).u32() != 0 {
         let holder = e.vcall(process, 0x20c, &[]).u32();
-        if e.call(0x0067_1d10, &args![holder]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, holder)) != 0 {
             let holder = e.vcall(process, 0x20c, &[]).u32();
-            let inner = e.call(0x0067_1d10, &args![holder]).u32();
+            let inner = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, holder));
             hit = e.call(0x0068_0020, &args![inner]).u32() == target;
         }
     }
@@ -5670,7 +5733,8 @@ pub fn fn_00976680(e: &mut Engine, this: Ptr<ProcessLists>, target: u32) {
     while index < array_tail(e, array, 3) {
         last_object = array_object(e, array, index);
         let object = last_object;
-        if object != 0 && !e.call(0x0057_6d30, &args![object]).bool() {
+        if object != 0 && !typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, object))
+        {
             if is_actor(e, object) {
                 let high = object;
                 let process = actor_process(e, high);
@@ -5698,7 +5762,7 @@ pub fn fn_00976680(e: &mut Engine, this: Ptr<ProcessLists>, target: u32) {
                 }
             } else if e.vcall(object, 0x224, &[]).bool() {
                 e.call(0x009c_4c80, &args![object, target]);
-                if e.call(0x0044_0da0, &args![object]).bool()
+                if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, object))
                     && array_object(e, array, index) != object
                 {
                     index = index.wrapping_sub(1);
@@ -5712,14 +5776,14 @@ pub fn fn_00976680(e: &mut Engine, this: Ptr<ProcessLists>, target: u32) {
 
     // The objects of the temp list.
     let mut node = this.addr() + TEMP_SHOULD_MOVE_LIST;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let item = node_value(e, node);
         let high = if is_actor(e, item) {
             node_value(e, node)
         } else {
             0
         };
-        if high == 0 || e.call(0x0057_6d30, &args![high]).bool() {
+        if high == 0 || typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, high)) {
             if e.vcall(last_object, 0x224, &[]).bool() {
                 e.call(0x009c_4c80, &args![last_object, target]);
             } else if e.vcall(last_object, 0x220, &[]).bool() {
@@ -5797,13 +5861,19 @@ pub fn fn_00977130(e: &mut Engine, this: Ptr<ProcessLists>, delta: f32) {
         let mut index = 0u32;
         while index < array_tail(e, array, 0) {
             let object = array_object(e, array, index);
-            if object != 0 && is_actor(e, object) && !e.call(0x0057_6d30, &args![object]).bool() {
+            if object != 0
+                && is_actor(e, object)
+                && !typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, object))
+            {
                 seen += 1;
                 let actor = object;
                 if e.call(0x004f_8960, &args![actor]).i32() == 2 {
                     let process = actor_process(e, actor);
                     if process != 0
-                        && e.call(PROCESS_LEVEL, &args![process]).i32() == 0
+                        && typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process))
+                            .into_ret()
+                            .i32()
+                            == 0
                         && e.vcall(process, 0x610, &[]).u32() == 0
                         && !e.vcall(actor, 0x160, &[]).bool()
                         && !e.call(0x0057_7de0, &args![actor]).bool()
@@ -5813,7 +5883,11 @@ pub fn fn_00977130(e: &mut Engine, this: Ptr<ProcessLists>, delta: f32) {
                         let mut add = true;
                         if e.call(0x0056_ac90, &args![actor]).u32() != 0 {
                             let inner = e.call(0x0056_ac90, &args![actor]).u32();
-                            add = e.call(LIST_IS_EMPTY, &args![inner]).bool();
+                            add = typed_call!(
+                                leaf::FAMILY,
+                                0x0082_56d0,
+                                leaf::both_words_zero(e, inner)
+                            );
                         }
                         if add {
                             collected += 1;
@@ -5842,7 +5916,7 @@ pub fn fn_00977130(e: &mut Engine, this: Ptr<ProcessLists>, delta: f32) {
             if flag {
                 let mut node = list;
                 while node != 0
-                    && !e.call(LIST_IS_EMPTY, &args![node]).bool()
+                    && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
                     && collected >= minimum_collected
                 {
                     let actor = node_value(e, node);
@@ -5857,7 +5931,9 @@ pub fn fn_00977130(e: &mut Engine, this: Ptr<ProcessLists>, delta: f32) {
                 let mut best = 0u32;
                 let mut best_value: f32 = e.global(0x0101_6970);
                 let mut node = list;
-                while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+                while node != 0
+                    && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+                {
                     let actor = node_value(e, node);
                     if actor != 0 {
                         let mut better = true;
@@ -6317,7 +6393,10 @@ pub fn fn_009781d0(e: &mut Engine, this: Ptr<ProcessLists>, delta: f32) {
     let mut index = 0u32;
     while index < array_tail(e, array, 0) {
         let object = array_object(e, array, index);
-        if object != 0 && is_actor(e, object) && !e.call(0x0057_6d30, &args![object]).bool() {
+        if object != 0
+            && is_actor(e, object)
+            && !typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, object))
+        {
             let actor = object;
             e.call(0x008b_a600, &args![actor]);
             let process = actor_process(e, actor);
@@ -6481,7 +6560,7 @@ pub fn fn_009785d0(e: &mut Engine, this: Ptr<ProcessLists>) {
 /// into the head) and steps on otherwise, as the game does.
 pub fn fn_00978660(e: &mut Engine, this: Ptr<ProcessLists>, reference: u32) {
     let list = this.addr() + REFERENCE_MUZZLE_FLASH_LIST;
-    if e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         return;
     }
     let mut node = list;
@@ -6518,7 +6597,10 @@ pub fn fn_00978740(e: &mut Engine, this: Ptr<ProcessLists>, description: u32, re
     let list = this.addr() + REFERENCE_MUZZLE_FLASH_LIST;
     let mut found = 0u32;
     let mut node = list;
-    while found == 0 && node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while found == 0
+        && node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+    {
         let item = node_value(e, node);
         if item != 0 {
             let key_a = e.call(MUZZLE_FLASH_KEY_A, &args![item]).u32();
@@ -6561,7 +6643,7 @@ pub fn fn_00978740(e: &mut Engine, this: Ptr<ProcessLists>, description: u32, re
 /// whose flag getter (`009373f0`, read before the update) returns zero.
 pub fn fn_00978890(e: &mut Engine, this: Ptr<ProcessLists>, delta: f32) {
     let list = this.addr() + REFERENCE_MUZZLE_FLASH_LIST;
-    if e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         return;
     }
     let mut node = list;
@@ -6597,7 +6679,7 @@ pub fn fn_00978990(e: &mut Engine, this: Ptr) -> u32 {
     let mut node = this.addr();
     while node != 0 {
         let item = node_item(e, node);
-        if e.call(0x0055_9450, &args![item]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) != 0 {
             count = count.wrapping_add(1);
         }
         node = node_next(e, node);

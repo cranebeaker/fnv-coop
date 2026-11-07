@@ -11,6 +11,7 @@ const TYPE_BASE_FORM_COMPONENT: u32 = 0x0118_3040;
 /// RTTI type descriptor `.?AVBGSTouchSpellForm@@`.
 const TYPE_BGS_TOUCH_SPELL_FORM: u32 = 0x0118_6a8c;
 /// `00726070` (`thiscall`): the word at +4.
+#[cfg(test)]
 const GET_WORD_4: u32 = 0x0072_6070;
 /// `006ecd40` (`thiscall`, one word): stores it at +4 (the engine map's
 /// name, `CombatProcedureAttackMelee::Initialize`, is a folded body).
@@ -42,7 +43,7 @@ pub fn fn_0047bdd0(e: &mut Engine, this: Ptr, other: Ptr) {
     if source == 0 {
         return;
     }
-    let value = e.call(GET_WORD_4, &args![source]).u32();
+    let value = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source));
     e.call(SET_WORD_4, &args![this, value]);
     let short = e.call(GET_SHORT_8, &args![source]).u16();
     e.call(SET_SHORT_8, &args![this, u32::from(short)]);
@@ -70,8 +71,8 @@ pub fn fn_0047be30(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
     if cast == 0 {
         return true;
     }
-    let mine = e.call(GET_WORD_4, &args![this]).u32();
-    let theirs = e.call(GET_WORD_4, &args![cast]).u32();
+    let mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
+    let theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cast));
     if mine != theirs {
         return true;
     }

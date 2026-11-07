@@ -44,10 +44,13 @@ const LIST_REMOVE_ENTRY: u32 = 0x0090_5330;
 /// Test on a list node (`004a4460`); a non-zero result ends the walks here.
 const LIST_NODE_IS_EMPTY: u32 = 0x004a_4460;
 /// Returns its `this` (`006815c0`): the address of a list node's item.
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
 /// Returns the word at +4 (`00726070`): the next list node.
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// Returns the word at +0 (`00559450`): the object a pointer holder holds.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// Pointer holder constructor (`00633c90`): stores its argument, adds a
 /// reference when it is not null.
@@ -184,8 +187,8 @@ pub fn fn_004ee1e0(e: &mut Engine, this: Ptr<BGSDecalNode>) {
     let list = e.get(this, BGSDecalNode::pDecalList);
     if !list.is_null() {
         while !e.call(LIST_NODE_IS_EMPTY, &args![list]).bool() {
-            let item = e.call(LIST_NODE_ITEM, &args![list]).u32();
-            let object = e.call(POINTER_GET, &args![item]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
             fn_004ee2e0(e, object);
             bs_simple_list_remove_head(e, list);
         }
@@ -330,16 +333,16 @@ pub fn bgs_decal_node_on_visible(e: &mut Engine, this: Ptr<BGSDecalNode>, argume
     }
     let mut cursor = e.get(this, BGSDecalNode::pDecalList).addr();
     while cursor != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![cursor]).bool() {
-        let item = e.call(LIST_NODE_ITEM, &args![cursor]).u32();
-        let object = e.call(POINTER_GET, &args![item]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cursor));
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
         let node = e.vcall(object, 0x98, &[]).u32();
         e.with_stack(4, |e, holder| {
             e.call(POINTER_CONSTRUCT, &args![holder, node]);
-            if e.call(POINTER_GET, &args![holder]).u32() != 0 {
-                let target = e.call(POINTER_GET, &args![holder]).u32();
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) != 0 {
+                let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                 e.call(OBJECT_CULL, &args![target, argument]);
             }
-            cursor = e.call(LIST_NODE_NEXT, &args![cursor]).u32();
+            cursor = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cursor));
             e.call(POINTER_DESTRUCT, &args![holder]);
         });
     }
@@ -385,12 +388,12 @@ pub fn fn_004ee770(e: &mut Engine, this: Ptr<BGSDecalNode>) {
 pub fn fn_004ee7d0(e: &mut Engine) {
     let mut node = DECAL_NODE_LIST;
     while node != 0 {
-        let item_address = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         if item != 0 {
             fn_004ee770(e, Ptr::new(item));
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 

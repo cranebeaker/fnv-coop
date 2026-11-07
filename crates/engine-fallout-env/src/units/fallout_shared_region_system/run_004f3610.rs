@@ -26,6 +26,7 @@ pub fn fn_004f3660(e: &mut Engine, this: Ptr<TESRegionDataManager>) -> Ptr<TESRe
 }
 
 /// `006815c0` (`thiscall`, no stack word): the address of a node's item.
+#[cfg(test)]
 const NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
 
 // Translated from 004f3610 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -39,11 +40,11 @@ pub fn fn_004f3610(e: &mut Engine, node: u32) -> bool {
         if node == 0 {
             return true;
         }
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             return true;
         }
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         if !e.vcall(item, 0x20, &args![]).bool() {
             return false;

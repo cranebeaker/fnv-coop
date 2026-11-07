@@ -103,7 +103,7 @@ pub fn bg_auto_water_generate_polygons(e: &mut Engine, cell: Ptr) {
         e.call(0x0040_4eb0, &args![timer, 0x1d, 1, 0x0101_e018, 0x20a]);
         loop {
             let points = e.mem.u32(0x011c_57ac);
-            if e.call(0x0044_ddc0, &args![points]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, points)) == 0 {
                 break;
             }
             let allocation = e.call(0x0040_1000, &args![0x10]).u32();
@@ -126,7 +126,9 @@ pub fn bg_auto_water_generate_polygons(e: &mut Engine, cell: Ptr) {
                 let mut index = 0i32;
                 loop {
                     let points = e.mem.u32(0x011c_57ac);
-                    if index >= e.call(0x0044_ddc0, &args![points]).u32() as i32 {
+                    if index
+                        >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, points)) as i32
+                    {
                         break;
                     }
                     for (destination, point_index) in
@@ -152,7 +154,8 @@ pub fn bg_auto_water_generate_polygons(e: &mut Engine, cell: Ptr) {
                         }
                         let tolerance = e.global::<f32>(0x0101_3ea4);
                         let neighbor = if end == 0x006c_ed90 {
-                            let count = e.call(0x0044_ddc0, &args![chain]).u32();
+                            let count =
+                                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, chain));
                             e.call(0x006a_7af0, &args![chain, count.wrapping_sub(2)])
                                 .u32()
                         } else {
@@ -223,7 +226,7 @@ pub fn bg_auto_water_generate_polygons(e: &mut Engine, cell: Ptr) {
         }
         if e.mem.u32(0x011c_57b0) != 0 {
             let list = e.mem.u32(0x011c_57b0);
-            let mut outer = e.call(0x0055_9450, &args![list]).u32();
+            let mut outer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
             while outer != 0 {
                 let list = e.mem.u32(0x011c_57b0);
                 let next_outer = e.call(0x007b_52d0, &args![list, outer]).u32();
@@ -231,7 +234,7 @@ pub fn bg_auto_water_generate_polygons(e: &mut Engine, cell: Ptr) {
                 let payload = e.call(0x0063_17a0, &args![list, outer]).u32();
                 let first_polygon = e.mem.u32(payload);
                 let list = e.mem.u32(0x011c_57b0);
-                let mut inner = e.call(0x0055_9450, &args![list]).u32();
+                let mut inner = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
                 while inner != 0 {
                     let list = e.mem.u32(0x011c_57b0);
                     let next_inner = e.call(0x007b_52d0, &args![list, inner]).u32();
@@ -282,7 +285,11 @@ fn auto_water_cell_offset(e: &mut Engine, cell: Ptr, output: Ptr) {
             .call(0x0053_5b30, &args![land, points.addr() + 12, 0])
             .u32();
         let x = e.mem.f32(second);
-        e.call(0x0041_6870, &args![output, x, y, height]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, output, x, y, height)
+        );
     });
 }
 
@@ -360,8 +367,16 @@ pub fn bg_auto_water_gather_line_segments(e: &mut Engine, cell: Ptr) {
                 {
                     continue;
                 }
-                e.call(0x0041_6870, &args![water_point, 0.0f32, 0.0f32, height]);
-                e.call(0x0041_6870, &args![normal, 0.0f32, 0.0f32, 1.0f32]);
+                typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, water_point, 0.0f32, 0.0f32, height)
+                );
+                typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, normal, 0.0f32, 0.0f32, 1.0f32)
+                );
                 e.call(0x00a6_9990, &args![plane, normal, water_point]);
                 let mut edge_bits = [0; 3];
                 for (vertex, bits) in vertices.into_iter().zip(edge_bits.iter_mut()) {
@@ -370,7 +385,7 @@ pub fn bg_auto_water_gather_line_segments(e: &mut Engine, cell: Ptr) {
                     let z = e.mem.f32(vertex.addr() + 8);
                     *bits = bg_auto_water_which_cell_edge(e, cell, x, y, z);
                 }
-                e.call(0x0068_15c0, &args![intersection]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, intersection));
                 let mut count = 0u16;
                 let mut endpoint_seen = false;
                 let mut coplanar_seen = false;
@@ -484,12 +499,12 @@ pub fn bg_auto_water_gather_line_segments(e: &mut Engine, cell: Ptr) {
             let mut index = 0i32;
             loop {
                 let array = e.call(0x0055_8dd0, &args![boundaries, side]).u32();
-                let size = e.call(0x0044_ddc0, &args![array]).u32() as i32;
+                let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) as i32;
                 if index >= size {
                     break;
                 }
                 let array = e.call(0x0055_8dd0, &args![boundaries, side]).u32();
-                let size = e.call(0x0044_ddc0, &args![array]).u32() as i32;
+                let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) as i32;
                 if index.wrapping_add(1) < size {
                     for point_index in [index, index.wrapping_add(1)] {
                         let array = e.call(0x0055_8dd0, &args![boundaries, side]).u32();
@@ -524,7 +539,7 @@ pub fn bg_auto_water_generate_placeable_water(e: &mut Engine, cell: Ptr) {
             auto_water_cell_offset(e, cell, offset);
             let mut havok_initialized = false;
             let list = e.mem.u32(0x011c_57b0);
-            let mut node = e.call(0x0055_9450, &args![list]).u32();
+            let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
             while node != 0 {
                 let list = e.mem.u32(0x011c_57b0);
                 let next = e.call(0x007b_52d0, &args![list, node]).u32();
@@ -624,14 +639,25 @@ pub fn bg_auto_water_generate_placeable_water(e: &mut Engine, cell: Ptr) {
                         let half = ((maximum[axis] as f64 - minimum[axis] as f64) / divisor) as f32;
                         half_extents[axis] = e.call(0x0040_8840, &args![half]).f32();
                     }
-                    e.call(
+                    typed_call!(
+                        leaf::FAMILY,
                         0x0041_6870,
-                        &args![extent, half_extents[0], half_extents[1], half_extents[2]],
+                        leaf::point3_new(
+                            e,
+                            extent,
+                            half_extents[0],
+                            half_extents[1],
+                            half_extents[2]
+                        )
                     );
                     let center_z = (maximum[2] as f64 - e.mem.f32(extent.addr() + 8) as f64) as f32;
                     let center_y = (maximum[1] as f64 - e.mem.f32(extent.addr() + 4) as f64) as f32;
                     let center_x = (maximum[0] as f64 - e.mem.f32(extent.addr()) as f64) as f32;
-                    e.call(0x0041_6870, &args![center, center_x, center_y, center_z]);
+                    typed_call!(
+                        leaf::FAMILY,
+                        0x0041_6870,
+                        leaf::point3_new(e, center, center_x, center_y, center_z)
+                    );
                     e.call(0x0063_c8a0, &args![center, offset]);
                     e.vcall(bounds, 0xb8, &args![center]);
                     e.call(0x0043_9680, &args![bounds, extent]);
@@ -765,7 +791,7 @@ pub fn fn_0049eed0(e: &mut Engine, collection: Ptr, target: Ptr) -> bool {
         if index >= count {
             return false;
         }
-        let array = e.call(0x0055_9450, &args![collection]).u32();
+        let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, collection));
         let point = e.call(0x006a_7af0, &args![array, index as u32]).u32();
         let equal = e.with_stack(0x18, |e, scratch| {
             for offset in [0, 4, 8] {
@@ -792,10 +818,12 @@ pub fn fn_0049eed0(e: &mut Engine, collection: Ptr, target: Ptr) -> bool {
 // Translated from 0049ec60 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Resolves the form associated with the save buffer embedded at `this+0xb8`.
 pub fn fn_0049ec60(e: &mut Engine, this: Ptr) -> u32 {
-    let buffer = e
-        .call(0x0055_9450, &args![this.addr().wrapping_add(0xb8)])
-        .u32();
-    e.call(0x007a_f430, &args![buffer]).u32()
+    let buffer = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(0xb8))
+    );
+    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, buffer))
 }
 
 // Translated from 0049ec80 (decompiled, FalloutNV.exe 1.4.0.525)

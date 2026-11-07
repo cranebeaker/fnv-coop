@@ -33,6 +33,7 @@ const POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const POINTER_ASSIGN_POINTER: u32 = 0x006e_5cc0;
 const POINTER_DESTRUCT: u32 = 0x0045_cec0;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `00401000` / `00401030`: the game's `operator new` and `operator delete` (`cdecl`).
 const ALLOCATE: u32 = 0x0040_1000;
@@ -92,6 +93,7 @@ const POINT_LIGHT_CONSTRUCTOR: u32 = 0x00a7_d670;
 /// `005e3fc0` (`thiscall`): the light form's colour (bytes red, green, blue).
 const LIGHT_COLOR: u32 = 0x005e_3fc0;
 /// `00416870` (`thiscall`, `RET 0xC`): sets a point's three `float`s.
+#[cfg(test)]
 const POINT_SET: u32 = 0x0041_6870;
 /// `255.0` (`float`, `01023cd8`).
 const COLOR_SCALE: u32 = 0x0102_3cd8;
@@ -115,8 +117,11 @@ const PLAYER: u32 = 0x011d_ea3c;
 const PLAYER_NODE: u32 = 0x0095_0bb0;
 /// The effect-list walk: `008256d0` (a node is empty: item and next both null),
 /// `006815c0` (the node's item slot), `00726070` (the next node).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `00810fd0` (`thiscall`): the word at +0x98 of the effect setting (its archetype).
 const SETTING_ARCHETYPE: u32 = 0x0081_0fd0;
@@ -137,8 +142,11 @@ fn target_actor(e: &mut Engine, this: Ptr) -> u32 {
 }
 
 fn light(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(POINTER_GET, &args![this.addr().wrapping_add(0x48)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(0x48))
+    )
 }
 
 /// The address of a `float` setting's value.
@@ -325,7 +333,11 @@ pub fn light_effect_attach_light(e: &mut Engine, this: Ptr) {
     let green = x87_store32(f64::from((color & 0xffff) >> 8 & 0xff));
     let blue = x87_store32(f64::from(color >> 16 & 0xff));
     e.with_stack(0x0c, |e, diffuse| {
-        e.call(POINT_SET, &args![diffuse, red, green, blue]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, diffuse, red, green, blue)
+        );
         let scale = x87_quiet_bits(e.mem.u32(COLOR_SCALE));
         fn_0080ed20(e, diffuse, f32::from_bits(scale));
         let current = light(e, this);
@@ -337,7 +349,11 @@ pub fn light_effect_attach_light(e: &mut Engine, this: Ptr) {
     let scale_value = setting_value(e, RADIUS_SCALE_SETTING);
     let radius = x87_store32(x87_mul(x87_load32(e.mem.u32(scale_value)), sum));
     e.with_stack(0x0c, |e, point| {
-        e.call(POINT_SET, &args![point, radius, 0.0f32, 0.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, radius, 0.0f32, 0.0f32)
+        );
         let current = light(e, this);
         e.call(LIGHT_SET_RADIUS, &args![current, point]);
     });
@@ -376,7 +392,7 @@ pub fn light_effect_attach_light(e: &mut Engine, this: Ptr) {
     };
     e.with_stack(4, |e, holder| {
         e.call(POINTER_CONSTRUCT, &args![holder, parent]);
-        let node = e.call(POINTER_GET, &args![holder]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         let current = light(e, this);
         e.vcall(node, 0xdc, &args![current, 1u32]);
         let current = light(e, this);
@@ -445,8 +461,8 @@ pub fn light_effect_attach_best_light_effect(e: &mut Engine, target: u32) {
     }
     let mut best = 0u32;
     let mut node = e.vcall(target, 8, &[]).u32();
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect = e.mem.u32(item);
         if effect != 0 {
             let setting = e.call(EFFECT_SETTING, &args![effect]).u32();
@@ -472,7 +488,7 @@ pub fn light_effect_attach_best_light_effect(e: &mut Engine, target: u32) {
                 }
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if best != 0 {
         light_effect_attach_light(e, Ptr::new(best));

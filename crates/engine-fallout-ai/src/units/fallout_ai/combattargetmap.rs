@@ -142,8 +142,6 @@ pub fn fn_009a4420(e: &mut Engine, this: Ptr) {
 const ACTOR_ARRAY_VTABLE: u32 = 0x0108_4fec;
 /// `operator new` (`00401000`, `cdecl(size)`).
 const OPERATOR_NEW: u32 = 0x0040_1000;
-/// `NiPointer` getter (`00559450`, `thiscall`: the word at `this`).
-const POINTER_GET: u32 = 0x0055_9450;
 /// The memory-context scope guard: constructor `00404eb0(guard, 0x2b, 1, file, line)`,
 /// destructor `00404ee0(guard)`.
 const SCOPE_GUARD_ENTER: u32 = 0x0040_4eb0;
@@ -163,16 +161,16 @@ const MAP_REMOVE_AT: u32 = 0x0040_5430;
 /// (`0045cec0`) and the array (`008c1cb0`).
 pub fn fn_009a3db0(e: &mut Engine, this: Ptr) {
     let geometry = this.addr() + 0x10;
-    if e.call(POINTER_GET, &args![geometry]).u32() != 0 {
-        let node = e.call(POINTER_GET, &args![geometry]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, geometry)) != 0 {
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, geometry));
         if e.call(0x0096_11e0, &args![node]).u32() != 0 {
             if !e.call(0x008c_7aa0, &args![]).bool() {
-                let node = e.call(POINTER_GET, &args![geometry]).u32();
+                let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, geometry));
                 let parent = e.call(0x0096_11e0, &args![node]).u32();
-                let child = e.call(POINTER_GET, &args![geometry]).u32();
+                let child = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, geometry));
                 e.vcall(parent, 0xe8, &args![child]);
             } else {
-                let child = e.call(POINTER_GET, &args![geometry]).u32();
+                let child = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, geometry));
                 let owner = e.call(0x0045_37b0, &args![]).u32();
                 e.call(0x0087_ac60, &args![owner, child]);
             }
@@ -258,14 +256,14 @@ pub fn fn_009a4120(e: &mut Engine, this: Ptr, target: u32, attacker: u32) {
         let mut index = 0u32;
         loop {
             let data = e.mem.u32(found.addr());
-            if index >= e.call(0x0044_ddc0, &args![data]).u32() {
+            if index >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, data)) {
                 return;
             }
             let data = e.mem.u32(found.addr());
             let entry = e.call(0x006a_7ad0, &args![data, index]).u32();
             if e.mem.u32(entry) == attacker {
                 let data = e.mem.u32(found.addr());
-                if e.call(0x0044_ddc0, &args![data]).u32() == 1 {
+                if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, data)) == 1 {
                     let data = e.mem.u32(found.addr());
                     if data != 0 {
                         fn_009a3fb0(e, Ptr::new(data), 1);

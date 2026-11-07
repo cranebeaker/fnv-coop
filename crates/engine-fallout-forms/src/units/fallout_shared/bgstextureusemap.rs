@@ -40,14 +40,18 @@ const LIST_COUNT: u32 = 0x005a_e380;
 /// returns.
 const OBJECT_TEXT: u32 = 0x0043_b1b0;
 /// `008256d0` (`this` = list node): whether the node holds no item.
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (`this` = list node): the address of its item.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`this` = list node): the word at +4, the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `00440e30` (`this` = form): a text of the form's.
 const FORM_TEXT: u32 = 0x0044_0e30;
 /// `TESForm`'s form id getter (`0084e3a0`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `"%s\t%d bytes\t%i users\r\n"`.
 const TEXTURE_LINE: u32 = 0x0101_f534;
@@ -131,11 +135,11 @@ fn write_texture(e: &mut Engine, file: Ptr, texture: u32, data: u32) {
         );
         e.call(BS_FILE_WRITE_STRING, &args![file, text, 1u32]);
         let mut node = data + 8;
-        while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let form = e.mem.u32(item);
-            node = e.call(NODE_NEXT, &args![node]).u32();
-            let form_id = e.call(FORM_ID, &args![form]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             let slot_text = e.vcall(form, 0x130, &[]).u32();
             let form_text = e.call(FORM_TEXT, &args![form]).u32();
             e.call(

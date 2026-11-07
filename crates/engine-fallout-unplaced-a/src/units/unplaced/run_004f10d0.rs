@@ -21,7 +21,9 @@ const COPY_LIST_004F3470: u32 = 0x004f_3470;
 /// The list helpers: an entry's item word address (`006815c0`), the next entry
 /// (`00726070`), and the store into an entry (`005ae3d0`, one stack word: the address of
 /// the item word).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 const NODE_STORE: u32 = 0x005a_e3d0;
 /// `004f80c0` (`ECX` = an entry, one stack word): a copy of the entry.
@@ -57,17 +59,17 @@ pub fn fn_004f10d0(e: &mut Engine, this: Ptr, target: u32) -> u32 {
     e.call(COPY_LIST_004F3470, &args![mine, theirs]);
     e.with_stack(4, |e, slot| {
         while node != 0 {
-            let item_address = e.call(NODE_ITEM, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item_address) == 0 {
                 break;
             }
-            let item_address = e.call(NODE_ITEM, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_address);
             let copy = e.call(ENTRY_COPY, &args![item, 0u32]).u32();
             e.mem.set_u32(slot.addr(), copy);
             let list = e.call(ENTRY_LIST_00441110, &args![target]).u32();
             e.call(NODE_STORE, &args![list, slot]);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
     target
@@ -89,16 +91,16 @@ pub fn fn_004f11e0(e: &mut Engine, this: Ptr) -> bool {
         return false;
     }
     while node != 0 {
-        let item_address = e.call(NODE_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             break;
         }
-        let item_address = e.call(NODE_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         if e.call(ENTRY_TEST_004F81E0, &args![item, 1u32]).u8() == 0 {
             return false;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     true
 }

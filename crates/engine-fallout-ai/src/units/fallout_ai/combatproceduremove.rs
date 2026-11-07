@@ -111,6 +111,7 @@ const BASE_LOAD_GAME: u32 = 0x0099_6ef0;
 /// called on this object.
 const GET_COMBAT_STATE: u32 = 0x0058_6150;
 /// `00559450`: the pointer a `NiPointer` holds (the word at its address).
+#[cfg(test)]
 const SMART_POINTER_GET: u32 = 0x0055_9450;
 /// `0066b0d0` (`__thiscall`): assigns the pointer to the `NiPointer`.
 const SMART_POINTER_SET: u32 = 0x0066_b0d0;
@@ -342,11 +343,15 @@ const SLOT_POSITION: u32 = 0x1f4;
 /// routes; `0084e3a0`: its id (also `BGSWorldLocation::pSpace`).
 const HAS_NAME: u32 = 0x0047_4cb0;
 const FALLBACK_NAME: u32 = 0x0055_d520;
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `00440da0` / `00440d80` (AL): the reference is disabled / deleted.
+#[cfg(test)]
 const REF_DISABLED: u32 = 0x0044_0da0;
+#[cfg(test)]
 const REF_DELETED: u32 = 0x0044_0d80;
 /// `006815c0`: returns its `this` (a constructor-like identity).
+#[cfg(test)]
 const IDENTITY: u32 = 0x0068_15c0;
 /// `006377e0`: the address `+0xc8` of the object; `004f8960`: the word at
 /// `+0x108`; `0068efb0` / `006d3100`: get / set the word at `+0x104`;
@@ -596,10 +601,11 @@ pub fn create_path_ov2(e: &mut Engine, this: Ptr<CombatProcedureMove>, avoid: u3
                 .bool()
             && e.get(this, CombatProcedureMove::iLocation) != 8
         {
-            let record_space = e.call(FORM_ID, &args![record + 8]).u32();
+            let record_space =
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, record + 8));
             let attacker_space = e.call(GET_SPACE, &args![attacker]).u32();
             if record_space == attacker_space {
-                let point = e.call(IDENTITY, &args![record + 8]).u32();
+                let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, record + 8));
                 for i in 0..3 {
                     let word = e.mem.u32(point + i * 4);
                     e.mem.set_u32(goal + i * 4, word);
@@ -629,7 +635,11 @@ pub fn create_path_ov2(e: &mut Engine, this: Ptr<CombatProcedureMove>, avoid: u3
             let face = ebp - 0x21c;
             let pathing = ebp - 0x244;
             let minus_one = e.global::<f32>(MINUS_ONE);
-            let location = e.call(IDENTITY, &args![this_addr + DESTINATION]).u32();
+            let location = typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, this_addr + DESTINATION)
+            );
             e.call(
                 COMPUTE_FACE_TARGET_LOCATION,
                 &args![face, attacker, target_ref.addr(), location, minus_one],
@@ -642,7 +652,11 @@ pub fn create_path_ov2(e: &mut Engine, this: Ptr<CombatProcedureMove>, avoid: u3
             if e.call(PATHING_LOCATION_IS_VALID, &args![pathing, radius])
                 .bool()
             {
-                let location = e.call(IDENTITY, &args![this_addr + DESTINATION]).u32();
+                let location = typed_call!(
+                    leaf::FAMILY,
+                    0x0068_15c0,
+                    leaf::same_word(e, this_addr + DESTINATION)
+                );
                 let line_of_sight = e
                     .call(
                         CALCULATE_LOS,
@@ -661,7 +675,7 @@ pub fn create_path_ov2(e: &mut Engine, this: Ptr<CombatProcedureMove>, avoid: u3
                         SET_LOCATION_FROM_PATHING,
                         &args![this_addr + CURRENT_DESTINATION, face],
                     );
-                    let array = e.call(SMART_POINTER_GET, &args![avoid]).u32();
+                    let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, avoid));
                     if array == 0 {
                         let block = e.call(ALLOCATE, &args![0x18u32]).u32();
                         let created = if block != 0 {
@@ -681,7 +695,7 @@ pub fn create_path_ov2(e: &mut Engine, this: Ptr<CombatProcedureMove>, avoid: u3
                             &args![node_slot, position, radius_b, radius_a],
                         )
                         .u32();
-                    let array = e.call(SMART_POINTER_GET, &args![avoid]).u32();
+                    let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, avoid));
                     e.call(AVOID_ARRAY_ADD, &args![array, node]);
                 }
             }
@@ -713,13 +727,17 @@ pub fn create_path_ov2(e: &mut Engine, this: Ptr<CombatProcedureMove>, avoid: u3
         if negated {
             target_radius = -target_radius;
         }
-        let array = e.call(SMART_POINTER_GET, &args![avoid]).u32();
-        let space = e
-            .call(FORM_ID, &args![this_addr + CURRENT_DESTINATION])
-            .u32();
-        let location = e
-            .call(IDENTITY, &args![this_addr + CURRENT_DESTINATION])
-            .u32();
+        let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, avoid));
+        let space = typed_call!(
+            leaf::FAMILY,
+            0x0084_e3a0,
+            leaf::word_at_c(e, this_addr + CURRENT_DESTINATION)
+        );
+        let location = typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this_addr + CURRENT_DESTINATION)
+        );
         e.call(
             BUILD_REQUEST,
             &args![attacker, chosen, location, space, target_radius, array],
@@ -784,8 +802,12 @@ pub fn create_avoid_node_array(e: &mut Engine, this: Ptr<CombatProcedureMove>, o
     if kind >= 0 {
         if kind > 1 {
             if kind == 4 {
-                let array = e.call(SMART_POINTER_GET, &args![out]).u32();
-                let location = e.call(IDENTITY, &args![this_addr + DESTINATION]).u32();
+                let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, out));
+                let location = typed_call!(
+                    leaf::FAMILY,
+                    0x0068_15c0,
+                    leaf::same_word(e, this_addr + DESTINATION)
+                );
                 let source = e.call(AVOID_NODE_SOURCE, &args![controller.addr()]).u32();
                 let result = e
                     .call(
@@ -801,8 +823,12 @@ pub fn create_avoid_node_array(e: &mut Engine, this: Ptr<CombatProcedureMove>, o
     }
     let kind = e.get(this, CombatProcedureMove::iLocation);
     if kind_flag(e, KIND_TABLE_AVOID, kind) != 0 {
-        let array = e.call(SMART_POINTER_GET, &args![out]).u32();
-        let location = e.call(IDENTITY, &args![this_addr + DESTINATION]).u32();
+        let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, out));
+        let location = typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this_addr + DESTINATION)
+        );
         let source = e.call(AVOID_NODE_SOURCE, &args![controller.addr()]).u32();
         let result = e
             .call(
@@ -933,13 +959,21 @@ pub fn display_debug_text(
         }
         _ => {}
     }
-    let destination = e.call(IDENTITY, &args![this_addr + DESTINATION]).u32();
+    let destination = typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this_addr + DESTINATION)
+    );
     let point = [
         e.mem.f32(destination),
         e.mem.f32(destination + 4),
         e.mem.f32(destination + 8),
     ];
-    let space = e.call(FORM_ID, &args![this_addr + DESTINATION]).u32();
+    let space = typed_call!(
+        leaf::FAMILY,
+        0x0084_e3a0,
+        leaf::word_at_c(e, this_addr + DESTINATION)
+    );
     let mut named = false;
     if space != 0 {
         let controller = e.get(this, CombatProcedureMove::pCombatController);
@@ -969,7 +1003,7 @@ pub fn display_debug_text(
         } else {
             e.call(FALLBACK_NAME, &args![target.addr()]).u32()
         };
-        let id = e.call(FORM_ID, &args![target.addr()]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, target.addr()));
         let values = args![name, id, point[0] as f64, point[1] as f64, point[2] as f64];
         print_line(e, printer, x, y, TEXT_TARGET, &values);
     }
@@ -1025,12 +1059,11 @@ pub fn save_game(e: &mut Engine, this: Ptr<CombatProcedureMove>, buffer: u32) {
         &args![buffer, t + LOOK_AT_POSITION, 0xcu32, 0u32],
     );
     e.call(SAVE_BYTES, &args![buffer, t + 0x54, 1u32, 0u32]);
-    let queued = e
-        .call(
-            SMART_POINTER_GET,
-            &args![t + CombatProcedureMove::spQueuedPathingRequest.off],
-        )
-        .u32();
+    let queued = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, t + CombatProcedureMove::spQueuedPathingRequest.off)
+    );
     e.set(
         this,
         CombatProcedureMove::bHasQueuedPathingRequest,
@@ -1143,12 +1176,20 @@ fn update_initializing(e: &mut Engine, f: &MoveFrame) {
 fn update_queued_request(e: &mut Engine, f: &MoveFrame) -> bool {
     let t = f.at();
     let queued_address = t + CombatProcedureMove::spQueuedPathingRequest.off;
-    if e.call(SMART_POINTER_GET, &args![queued_address]).u32() == 0
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, queued_address)
+    ) == 0
         || e.call(IS_WAITING_ON_PATH, &args![f.attacker]).bool()
     {
         return false;
     }
-    let request = e.call(SMART_POINTER_GET, &args![queued_address]).u32();
+    let request = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, queued_address)
+    );
     if e.vcall(request, SLOT_TYPE, &args![]).u32() == 8
         && e.call(REQUEST_BYTE_E1, &args![request]).bool()
     {
@@ -1177,7 +1218,7 @@ fn update_queued_request(e: &mut Engine, f: &MoveFrame) -> bool {
                 true,
             );
             let spot = f.local(0x38);
-            e.call(IDENTITY, &args![spot]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, spot));
             let cover = e.call(COMBAT_STATE_COVER, &args![f.combat_state]).u32();
             let controller = e.get(f.this, CombatProcedureMove::pCombatController);
             e.call(
@@ -1248,8 +1289,16 @@ fn update_path_failed(e: &mut Engine, f: &MoveFrame) {
         if e.get(f.this, CombatProcedureMove::iLocation) == 1
             && e.get(f.this, CombatProcedureMove::eState) != 2
         {
-            let first = e.call(IDENTITY, &args![t + DESTINATION]).u32();
-            let second = e.call(IDENTITY, &args![t + CURRENT_DESTINATION]).u32();
+            let first = typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, t + DESTINATION)
+            );
+            let second = typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, t + CURRENT_DESTINATION)
+            );
             if e.call(POINTS_NEAR, &args![second, first]).bool() {
                 e.call(
                     ADD_UNREACHABLE_LOCATION,
@@ -1343,7 +1392,11 @@ fn update_follow_target(e: &mut Engine, f: &MoveFrame) -> bool {
                     {
                         retarget = true;
                     } else {
-                        let location = e.call(IDENTITY, &args![t + CURRENT_DESTINATION]).u32();
+                        let location = typed_call!(
+                            leaf::FAMILY,
+                            0x0068_15c0,
+                            leaf::same_word(e, t + CURRENT_DESTINATION)
+                        );
                         if !e
                             .call(
                                 CHECK_COVER_SAFE,
@@ -1408,7 +1461,7 @@ fn update_cover_search(e: &mut Engine, f: &MoveFrame) -> bool {
         let word = e.mem.u32(position + i * 4);
         e.mem.set_u32(current + i * 4, word);
     }
-    e.call(IDENTITY, &args![next]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, next));
     let mut total = 0.0f32;
     let mut done = false;
     let mut node = node;
@@ -1446,7 +1499,7 @@ fn update_cover_search(e: &mut Engine, f: &MoveFrame) -> bool {
         }
         avoid_created = true;
         e.call(SEARCH_CONSTRUCT, &args![search]);
-        let array = e.call(SMART_POINTER_GET, &args![avoid]).u32();
+        let array = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, avoid));
         let kind = e.get(f.this, CombatProcedureMove::iLocation);
         let found = e
             .call(
@@ -1461,7 +1514,7 @@ fn update_cover_search(e: &mut Engine, f: &MoveFrame) -> bool {
                 true,
             );
             e.call(RESERVE_COVER_LOCATION, &args![f.combat_state]);
-            e.call(IDENTITY, &args![cover_point]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cover_point));
             let cover = e.call(COMBAT_STATE_COVER, &args![f.combat_state]).u32();
             let controller = e.get(f.this, CombatProcedureMove::pCombatController);
             e.call(
@@ -1516,7 +1569,7 @@ fn update_arrival(e: &mut Engine, f: &MoveFrame) {
                 PATHING_LOCATION_NEW_FROM_POINT,
                 &args![pathing, t + DESTINATION],
             );
-            let location = e.call(IDENTITY, &args![place]).u32();
+            let location = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, place));
             if e.call(CHECK_LINE_OF_SIGHT, &args![pathing, location, 0u32, 0u32])
                 .bool()
             {
@@ -1562,8 +1615,15 @@ fn update_moving(e: &mut Engine, f: &MoveFrame) {
     }
     let target_ref = e.get(f.this, CombatProcedureMove::pTargetRef);
     if !target_ref.is_null()
-        && (e.call(REF_DISABLED, &args![target_ref.addr()]).bool()
-            || e.call(REF_DELETED, &args![target_ref.addr()]).bool())
+        && (typed_call!(
+            leaf::FAMILY,
+            0x0044_0da0,
+            leaf::form_flag_800(e, target_ref.addr())
+        ) || typed_call!(
+            leaf::FAMILY,
+            0x0044_0d80,
+            leaf::form_flag_20(e, target_ref.addr())
+        ))
     {
         e.call(FAIL_PROCEDURE, &args![t, MESSAGE_TARGET_GONE]);
         return;
@@ -1630,7 +1690,11 @@ fn update_hiding(e: &mut Engine, f: &MoveFrame) {
                 .bool()
             && e.call(TIMER_EXPIRED, &args![t + CHECK_COVER_TIMER]).bool()
         {
-            let location = e.call(IDENTITY, &args![t + CURRENT_DESTINATION]).u32();
+            let location = typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, t + CURRENT_DESTINATION)
+            );
             if !e
                 .call(
                     CHECK_COVER_SAFE,

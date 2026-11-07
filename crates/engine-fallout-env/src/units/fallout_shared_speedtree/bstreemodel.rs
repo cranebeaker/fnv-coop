@@ -89,6 +89,7 @@ const OPERATOR_DELETE: u32 = 0x0040_1030;
 const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const NI_POINTER_DESTRUCT: u32 = 0x0045_cec0;
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `` `eh vector constructor iterator' `` (`00ec782f`) and destructor
 /// iterator (`00ec5fce`) (stdcall).
@@ -210,7 +211,7 @@ const TWO: u32 = 0x0101_1590;
 
 /// The word an `NiPointer` at `slot` holds (through `00559450`).
 fn pointer(e: &mut Engine, slot: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// A float setting's value in `ST0` (the float copied through the x87
@@ -1070,7 +1071,7 @@ pub fn bs_tree_model_update(e: &mut Engine, this: Ptr<BSTreeModel>, node: Ptr) {
         let point = record + 0x134;
         let angles = record + 0x140;
         e.call(GEOMETRY_CONSTRUCTOR, &args![record]);
-        e.call(POINT_CONSTRUCTOR, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         e.mem.set_u32(angles, 0);
         if node.is_null()
             || e.vcall(n, NODE_HAS_PARENT_SLOT, &args![]).u32() == 0
@@ -1463,9 +1464,11 @@ const MEMORY_FILL: u32 = 0x0040_3d30;
 const INDEX_SET_CONSTRUCTOR: u32 = 0x0047_4790;
 const INDEX_SET_ADD: u32 = 0x0096_a610;
 const INDEX_SET_SIZE: u32 = 0x0065_8930;
+#[cfg(test)]
 const INDEX_SET_AT: u32 = 0x0087_7a30;
 const INDEX_SET_DESTRUCTOR: u32 = 0x0047_3f00;
 const ARRAY_CONSTRUCTOR: u32 = 0x0040_1050;
+#[cfg(test)]
 const POINT3_CONSTRUCTOR: u32 = 0x0041_6870;
 const POINT2_CONSTRUCTOR: u32 = 0x0045_2dc0;
 const COLOR_CONSTRUCTOR: u32 = 0x0041_4430;
@@ -1518,7 +1521,11 @@ fn copy_point3(e: &mut Engine, scratch: u32, floats: u32, index: u32, target: u3
         )
     };
     let (x, y, z) = (word(e, 0), word(e, 1), word(e, 2));
-    let point = e.call(POINT3_CONSTRUCTOR, &args![scratch, x, y, z]).u32();
+    let point = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, scratch, x, y, z)
+    );
     for i in 0..3 {
         let value = e.mem.u32(point + i * 4);
         e.mem.set_u32(target.wrapping_add(i * 4), value);
@@ -1660,7 +1667,11 @@ pub fn bs_tree_model_fn_00667470(e: &mut Engine, this: Ptr<BSTreeModel>) {
             e.call(OPERATOR_DELETE, &args![used]);
             let mut entry: u16 = 0;
             while u32::from(entry) < e.call(INDEX_SET_SIZE, &args![set]).u32() {
-                let at = e.call(INDEX_SET_AT, &args![set, u32::from(entry)]).u32();
+                let at = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, set, u32::from(entry))
+                );
                 let original = e.mem.u32(at);
                 let mut k: u32 = 0;
                 while k < u32::from(e.mem.u16(length)) {
@@ -1691,7 +1702,11 @@ pub fn bs_tree_model_fn_00667470(e: &mut Engine, this: Ptr<BSTreeModel>) {
                 };
             let mut entry: u16 = 0;
             while u32::from(entry) < e.call(INDEX_SET_SIZE, &args![set]).u32() {
-                let at = e.call(INDEX_SET_AT, &args![set, u32::from(entry)]).u32();
+                let at = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, set, u32::from(entry))
+                );
                 let original = e.mem.u32(at);
                 let three = original.wrapping_mul(3);
                 let two = original.wrapping_mul(2);
@@ -1722,7 +1737,11 @@ pub fn bs_tree_model_fn_00667470(e: &mut Engine, this: Ptr<BSTreeModel>) {
             let colors = new_point_array(e, count, 0x10);
             let mut entry: u16 = 0;
             while u32::from(entry) < e.call(INDEX_SET_SIZE, &args![set]).u32() {
-                let at = e.call(INDEX_SET_AT, &args![set, u32::from(entry)]).u32();
+                let at = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, set, u32::from(entry))
+                );
                 let original = e.mem.u32(at);
                 let word = e
                     .mem
@@ -3472,6 +3491,7 @@ const SHADER_MANAGER_PREPARE_OBJECT: u32 = 0x00b5_7e30;
 /// `004030b0` (`thiscall`, no words): an object of the shape, kept when its
 /// `008d8520` (`thiscall`, no words) is 1 to 5.
 const SHAPE_OBJECT_004030B0: u32 = 0x0040_30b0;
+#[cfg(test)]
 const OBJECT_COUNT_008D8520: u32 = 0x008d_8520;
 /// `0043c4b0` (`cdecl`, no words): the object whose virtual slot `+0xec`
 /// takes the shape, and on which `00e74120` (`thiscall`) runs.
@@ -3581,8 +3601,14 @@ pub fn fn_00669500(e: &mut Engine, this: Ptr<BSTreeModel>, tree: u32) {
         // Kept when its count is 1 to 5 (the count asked again for the
         // upper bound).
         let kept = if object != 0
-            && e.call(OBJECT_COUNT_008D8520, &args![object]).i32() >= 1
-            && e.call(OBJECT_COUNT_008D8520, &args![object]).i32() <= 5
+            && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, object))
+                .into_ret()
+                .i32()
+                >= 1
+            && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, object))
+                .into_ret()
+                .i32()
+                <= 5
         {
             object
         } else {

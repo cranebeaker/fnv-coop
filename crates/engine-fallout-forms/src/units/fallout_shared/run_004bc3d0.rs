@@ -31,6 +31,7 @@ const VALUE_PAIR_SECOND_011FD878: u32 = 0x011f_d878;
 const VALUE_SINGLE_011FD880: u32 = 0x011f_d880;
 
 /// Reads a dword through a pointer (`ECX` = the object; returns `*this`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// Returns a pointer to the value byte of a `Setting` in `ECX`.
 const SETTING_VALUE_BYTE: u32 = 0x0040_8d60;
@@ -70,7 +71,11 @@ pub fn fn_004bc3e0(e: &mut Engine) -> u32 {
 /// Returns the pointer held by the global slot `011c73b4` (`*slot`, through
 /// `00559450`).
 pub fn fn_004bc3f0(e: &mut Engine) -> u32 {
-    e.call(POINTER_GET, &args![GLOBAL_POINTER_SLOT]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, GLOBAL_POINTER_SLOT)
+    )
 }
 
 // Translated from 004bc400 (decompiled, FalloutNV.exe 1.4.0.525)

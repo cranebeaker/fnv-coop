@@ -485,6 +485,7 @@ const SAVE_SWAPS_BYTES: u32 = 0x0040_1500;
 /// (`00658930`), the address of an element (`00877a30`, `RET 4`: the index)
 /// and the add of an element by address (`009938d0`, `RET 4`).
 const LIST_COUNT: u32 = 0x0065_8930;
+#[cfg(test)]
 const LIST_ELEMENT: u32 = 0x0087_7a30;
 const LIST_APPEND: u32 = 0x0099_38d0;
 /// `__RTDynamicCast` (`00ec43fb`, cdecl, five words) and the type
@@ -511,6 +512,7 @@ const RANDOM: u32 = 0x0048_7f50;
 /// `00664840` (cdecl, a byte): the object whose `+0xc` string `0051cee0`
 /// answers the first word of (`00559450`).
 const OBJECT_00664840: u32 = 0x0066_4840;
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `004a7090` (`thiscall`): `BSTextureSet`'s destructor body.
 const TEXTURE_SET_DESTRUCT: u32 = 0x004a_7090;
@@ -533,6 +535,7 @@ const TREE_SOURCE_FILE: u32 = 0x0102_bef0;
 /// Vector, texture-coordinate and colour setters (`thiscall` on a stack
 /// temporary, answering it): `00416870` (`RET 0xc`, three floats),
 /// `00452dc0` (`RET 8`, two floats), `00414430` (`RET 0x10`, four floats).
+#[cfg(test)]
 const POINT_SET: u32 = 0x0041_6870;
 const TEXTURE_COORDINATE_SET: u32 = 0x0045_2dc0;
 const COLOR_SET: u32 = 0x0041_4430;
@@ -576,6 +579,7 @@ const MODEL_LOADER_QUEUE: u32 = 0x0044_7980;
 const DISTANT_RECORD_CONSTRUCT: u32 = 0x00b5_7e70;
 const DISTANT_ADD: u32 = 0x00b5_9ae0;
 /// The form-id getter (`0084e3a0`, `thiscall`: the word at +0xc).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 
 // Translated from 0051bfb0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -607,7 +611,11 @@ pub fn tes_object_tree_save(e: &mut Engine, this: Ptr) {
         e.call(MEMSET, &args![block, 0u32, bytes]);
         let mut index = 0u32;
         while index < count {
-            let at = e.call(LIST_ELEMENT, &args![list, index]).u32();
+            let at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, list, index)
+            );
             let word = e.mem.u32(at);
             if word != 0 {
                 e.mem
@@ -663,9 +671,11 @@ pub fn fn_0051c140(e: &mut Engine, this: Ptr, other: u32) {
     e.call(LIST_CLEAR, &args![this.addr() + LIST_OFFSET]);
     let mut index = 0u32;
     while index < count {
-        let element = e
-            .call(LIST_ELEMENT, &args![source + LIST_OFFSET, index])
-            .u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, source + LIST_OFFSET, index)
+        );
         e.call(LIST_APPEND, &args![this.addr() + LIST_OFFSET, element]);
         index += 1;
     }
@@ -707,12 +717,16 @@ pub fn fn_0051c220(e: &mut Engine, this: Ptr, other: u32) -> bool {
     }
     let mut index = 0u32;
     while index < count {
-        let mine = e
-            .call(LIST_ELEMENT, &args![this.addr() + LIST_OFFSET, index])
-            .u32();
-        let theirs = e
-            .call(LIST_ELEMENT, &args![source + LIST_OFFSET, index])
-            .u32();
+        let mine = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, this.addr() + LIST_OFFSET, index)
+        );
+        let theirs = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, source + LIST_OFFSET, index)
+        );
         if e.mem.u32(mine) != e.mem.u32(theirs) {
             return true;
         }
@@ -738,7 +752,11 @@ pub fn fn_0051c360(e: &mut Engine, this: Ptr) -> u32 {
         return 0;
     }
     let index = e.call(RANDOM, &[]).u32() % count;
-    let at = e.call(LIST_ELEMENT, &args![list, index]).u32();
+    let at = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, list, index)
+    );
     e.mem.u32(at)
 }
 
@@ -764,7 +782,11 @@ const BILLBOARD_NORMALS: [NormalFloat; 36] = {
 /// `00416870` on `temporary` with three float words; its answer's three
 /// words are copied to `to`.
 fn set_point(e: &mut Engine, temporary: u32, to: u32, (x, y, z): (u32, u32, u32)) {
-    let at = e.call(POINT_SET, &args![temporary, x, y, z]).u32();
+    let at = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, temporary, x, y, z)
+    );
     for offset in [0u32, 4, 8] {
         let word = e.mem.u32(at + offset);
         e.mem.set_u32(to + offset, word);
@@ -932,7 +954,7 @@ pub fn tes_object_tree_build_distant_3d(e: &mut Engine, this: Ptr, upright: u8) 
         tes_object_tree_create_billboard_geom_data(e, this, upright, geometry);
         let block = e.call(NI_NEW, &args![0xc4u32]).u32();
         let shape = if block != 0 {
-            let data = e.call(FIRST_WORD, &args![geometry]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, geometry));
             e.call(TRI_SHAPE_CONSTRUCT, &args![block, data]).u32()
         } else {
             0
@@ -988,7 +1010,11 @@ pub fn tes_object_tree_build_distant_3d(e: &mut Engine, this: Ptr, upright: u8) 
 /// `00664840(1)` answers (engine map: no name; cdecl, no arguments).
 pub fn fn_0051cee0(e: &mut Engine) -> u32 {
     let object = e.call(OBJECT_00664840, &args![1u32]).u32();
-    e.call(FIRST_WORD, &args![object.wrapping_add(0xc)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, object.wrapping_add(0xc))
+    )
 }
 
 // Translated from 0051d220 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1115,13 +1141,13 @@ pub fn tes_object_tree_create_distant_3d(
             return;
         }
         let mut node = 0u32;
-        let id = e.call(FORM_ID, &args![this]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         if e.call(DISTANT_FORM_CHECK, &args![id]).u32() as u8 == 0 {
             tes_object_tree_get_billboard_texture_filename(e, this, Ptr::new(name));
             e.call(TEXTURE_PATH, &args![name, path, 0x104u32]);
             e.call(POINTER_CONSTRUCT, &args![texture, 0u32]);
             e.call(GET_TEXTURE, &args![path, texture]);
-            if e.call(FIRST_WORD, &args![texture]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture)) == 0 {
                 let block = e.call(ALLOCATE, &args![0x1cu32]).u32();
                 let queued = if block != 0 {
                     fn_0051d2c0(
@@ -1154,7 +1180,7 @@ pub fn tes_object_tree_create_distant_3d(
             e.call(POINTER_RELEASE, &args![texture]);
         }
         e.call(DISTANT_RECORD_CONSTRUCT, &args![record]);
-        let id = e.call(FORM_ID, &args![this]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         e.mem.set_u32(record + 8, id);
         e.mem.set_u32(record + 4, node);
         e.mem.set_u32(record, 0);

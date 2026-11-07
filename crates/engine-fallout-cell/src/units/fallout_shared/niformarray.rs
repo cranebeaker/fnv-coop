@@ -5,8 +5,10 @@
 use crate::prelude::*;
 
 /// The array's element count (`0084e3a0`, on the array).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0084_e3a0;
 /// The address of element `i` (`00877a30`, on the array, one word).
+#[cfg(test)]
 const ARRAY_AT: u32 = 0x0087_7a30;
 
 // Translated from 004d6100 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -15,11 +17,11 @@ const ARRAY_AT: u32 = 0x0087_7a30;
 pub fn ni_form_array_get_index_for_form(e: &mut Engine, this: Ptr, form: u32) -> i32 {
     let mut index = -1i32;
     if form != 0 {
-        let count = e.call(ARRAY_COUNT, &args![this]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         if count != 0 {
             let mut i = 0u32;
             while i < count {
-                let slot = e.call(ARRAY_AT, &args![this, i]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, this, i));
                 if e.mem.u32(slot) == form {
                     index = i as i32;
                     break;
@@ -36,8 +38,12 @@ pub fn ni_form_array_get_index_for_form(e: &mut Engine, this: Ptr, form: u32) ->
 /// end.
 pub fn ni_form_array_get_form_at(e: &mut Engine, this: Ptr, index: u32) -> u32 {
     let mut form = 0;
-    if index < e.call(ARRAY_COUNT, &args![this]).u32() {
-        let slot = e.call(ARRAY_AT, &args![this, index]).u32();
+    if index < typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) {
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, this, index)
+        );
         form = e.mem.u32(slot);
     }
     form

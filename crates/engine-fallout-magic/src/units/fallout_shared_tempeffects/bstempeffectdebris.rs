@@ -53,12 +53,15 @@ const VTABLE_LIST_BASE_01069968: u32 = 0x0106_9968;
 /// The list of debris effects (`.data`).
 const DEBRIS_LIST_011D6A74: u32 = 0x011d_6a74;
 /// `00559450` (thiscall, no stack words): the object a smart pointer holds.
+#[cfg(test)]
 const POINTER_GET_00559450: u32 = 0x0055_9450;
 /// `0066b0d0` (thiscall, one word): assigns a smart pointer.
 const POINTER_SET_0066B0D0: u32 = 0x0066_b0d0;
 /// `0084e3a0` (thiscall, no stack words) and `0044ddc0` (thiscall, no stack words): the list
 /// getters the unit calls on `this` and on the list (first node, count).
+#[cfg(test)]
 const GETTER_0084E3A0: u32 = 0x0084_e3a0;
+#[cfg(test)]
 const LIST_HEAD_0044DDC0: u32 = 0x0044_ddc0;
 /// `006317a0` (thiscall, one word: a node): the address of a node's item.
 const NODE_ITEM_006317A0: u32 = 0x0063_17a0;
@@ -142,8 +145,11 @@ pub fn fn_00682c40(
 
 /// The object `sp3D` holds (`00559450` on `this + 0x18`; Xbox PDB field name).
 fn debris_node(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(POINTER_GET_00559450, &args![this.addr() + 0x18])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x18)
+    )
 }
 
 // Translated from 00682d10 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -197,10 +203,12 @@ pub fn fn_00682d10(
             e.call(0x004a_d270, &args![cloning]);
         });
     }
-    if debris_node(e, this) == 0 || e.call(GETTER_0084E3A0, &args![base]).u32() == 0 {
+    if debris_node(e, this) == 0
+        || typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, base)) == 0
+    {
         return;
     }
-    let holder = e.call(GETTER_0084E3A0, &args![base]).u32();
+    let holder = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, base));
     let target = e.call(0x0054_97a0, &args![holder]).u32();
     if target != 0 {
         let node = debris_node(e, this);
@@ -378,7 +386,7 @@ pub fn fn_00683190(e: &mut Engine, this: Ptr, object: u32) {
     if target == 0 {
         return;
     }
-    let outer = e.call(GETTER_0084E3A0, &args![base]).u32();
+    let outer = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, base));
     if outer == 0 {
         return;
     }
@@ -427,9 +435,11 @@ pub fn fn_00683330(e: &mut Engine, debris: u32) {
     let list = Ptr::new(DEBRIS_LIST_011D6A74);
     e.with_stack(4, |e, node| {
         let mut done = false;
-        let first = e
-            .call(LIST_HEAD_0044DDC0, &args![DEBRIS_LIST_011D6A74])
-            .u32();
+        let first = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, DEBRIS_LIST_011D6A74)
+        );
         e.mem.set_u32(node.addr(), first);
         while e.mem.u32(node.addr()) != 0 && !done {
             let current = e.mem.u32(node.addr());
@@ -458,17 +468,27 @@ pub fn fn_006833b0(e: &mut Engine) {
     {
         return;
     }
-    let count = e.call(GETTER_0084E3A0, &args![DEBRIS_LIST_011D6A74]).u32();
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0084_e3a0,
+        leaf::word_at_c(e, DEBRIS_LIST_011D6A74)
+    );
     let limit_at = e.call(0x0043_d4d0, &args![0x011c_f3e4u32]).u32();
     if count <= e.mem.u32(limit_at) {
         return;
     }
-    let count = e.call(GETTER_0084E3A0, &args![DEBRIS_LIST_011D6A74]).u32();
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0084_e3a0,
+        leaf::word_at_c(e, DEBRIS_LIST_011D6A74)
+    );
     let limit_at = e.call(0x0043_d4d0, &args![0x011c_f3e4u32]).u32();
     let mut excess = count.wrapping_sub(e.mem.u32(limit_at)) as i32;
-    let mut node = e
-        .call(LIST_HEAD_0044DDC0, &args![DEBRIS_LIST_011D6A74])
-        .u32();
+    let mut node = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, DEBRIS_LIST_011D6A74)
+    );
     while node != 0 && excess > 0 {
         let item_at = e
             .call(NODE_ITEM_006317A0, &args![DEBRIS_LIST_011D6A74, node])
@@ -643,6 +663,7 @@ pub fn fn_00683850(e: &mut Engine, this: Ptr) {
 const DEALLOCATE: u32 = 0x0040_1030;
 /// `006815c0` (unnamed in the engine map; no stack word): run on the
 /// matrix local before it is filled.
+#[cfg(test)]
 const LOCAL_INIT_006815C0: u32 = 0x0068_15c0;
 /// `00457990` (unnamed in the engine map; no stack word; ST0 result): a
 /// value of the vector local (with its third component zeroed first).
@@ -701,7 +722,7 @@ pub fn fn_00682b00(
             let word = e.mem.u32(direction.addr() + 4 * i);
             e.mem.set_u32(vector + 4 * i, word);
         }
-        e.call(LOCAL_INIT_006815C0, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         let z = x87_quiet_bits(e.mem.u32(vector + 8));
         e.mem.set_u32(vector + 8, x87_store32(0.0));
         let value = e.call(VECTOR_VALUE_00457990, &args![vector]).f64();

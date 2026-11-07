@@ -121,6 +121,7 @@ const FADE_FORM_TYPE: u32 = 0x1e;
 /// `NiPointer` construction from a raw pointer (`00633c90`,
 /// thiscall(raw)), its pointer (`00559450`) and destructor (`0040c110`).
 const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 const NI_POINTER_DESTRUCT: u32 = 0x0040_c110;
 /// The model loader singleton (a pointer global).
@@ -165,6 +166,7 @@ const NODE_SET_LIST: u32 = 0x0098_4f60;
 /// The list compared against in `005101e0` (`00726070` on the object at
 /// `011c3f2c`).
 const LIST_HOLDER: u32 = 0x011c_3f2c;
+#[cfg(test)]
 const HOLDER_LIST: u32 = 0x0072_6070;
 
 /// String helpers: the length of a C string (`0044a670`, cdecl), the
@@ -194,14 +196,14 @@ pub fn fn_0050fe50(e: &mut Engine, this: Ptr, reference: Ptr) -> u32 {
     let path = e.call(OBJECT_MODEL_PATH, &args![this, reference]).u32();
     let mut result = 0u32;
     if !reference.is_null() && e.call(REFERENCE_TEST_444ED0, &args![reference]).bool() {
-        let form = e.call(GET_7AF430, &args![reference]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         if e.call(FORM_TYPE, &args![form]).u32() != FADE_FORM_TYPE {
             return e.with_stack(4, |e, model| {
                 e.call(NI_POINTER_CONSTRUCT, &args![model, 0u32]);
                 let loader = e.global::<u32>(MODEL_LOADER);
                 e.call(MODEL_LOADER_FIND_MODEL, &args![loader, path, model]);
-                if e.call(NI_POINTER_GET, &args![model]).u32() != 0 {
-                    let found = e.call(NI_POINTER_GET, &args![model]).u32();
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model)) != 0 {
+                    let found = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model));
                     e.call(MODEL_CALL_92C870, &args![found]);
                 }
                 let block = e.call(ALLOCATE_AA13E0, &args![BS_FADE_NODE_SIZE]).u32();
@@ -227,10 +229,12 @@ pub fn fn_0050fe50(e: &mut Engine, this: Ptr, reference: Ptr) -> u32 {
                     e.call(NI_POINTER_CONSTRUCT, &args![model, 0u32]);
                     let loader = e.global::<u32>(MODEL_LOADER);
                     e.call(MODEL_LOADER_FIND_MODEL, &args![loader, name, model]);
-                    if e.call(NI_POINTER_GET, &args![model]).u32() != 0 {
-                        let found = e.call(NI_POINTER_GET, &args![model]).u32();
+                    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model)) != 0 {
+                        let found =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model));
                         e.call(MODEL_CALL_92C870, &args![found]);
-                        let found = e.call(NI_POINTER_GET, &args![model]).u32();
+                        let found =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model));
                         result = e.call(MODEL_NODE_43B230, &args![found]).u32();
                         let count = e.global::<u32>(SCALED_MODEL_COUNT).wrapping_add(1);
                         e.set_global(SCALED_MODEL_COUNT, count);
@@ -310,7 +314,7 @@ pub fn fn_00510130(e: &mut Engine, this: Ptr, node: u32) {
 /// next; the count grows and the node's list is set (`00984f60(this)`).
 pub fn fn_005101e0(e: &mut Engine, this: Ptr, previous: u32, node: u32) -> u32 {
     let holder = e.global::<u32>(LIST_HOLDER);
-    let list = e.call(HOLDER_LIST, &args![holder]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, holder));
     if this.addr() == list {
         e.call(FORM_TYPE, &args![node]);
     }

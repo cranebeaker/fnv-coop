@@ -15,7 +15,9 @@ const QUEST_FLAG_BIT_3: u32 = 0x0060_d5e0;
 const STAGE_ITEM_LIST: u32 = 0x0071_7e50;
 /// `006815c0` returns the node (its first word is the item); `00726070`
 /// gives the next node.
+#[cfg(test)]
 const RETURN_THIS: u32 = 0x0068_15c0;
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// The stage item's "set done" (`0060fb60`, one stack word: the flag).
 const ITEM_SET_DONE: u32 = 0x0060_fb60;
@@ -35,9 +37,9 @@ pub fn fn_0060f4a0(e: &mut Engine, this: Ptr<TESQuestStage>, quest: Ptr<TESQuest
     e.set(this, TESQuestStage::bIsDone, 1);
     let mut node = e.call(STAGE_ITEM_LIST, &args![this]).u32();
     while node != 0 {
-        let first = e.call(RETURN_THIS, &args![node]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(first);
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if item != 0 {
             e.call(ITEM_SET_DONE, &args![item, u32::from(force)]);
         }

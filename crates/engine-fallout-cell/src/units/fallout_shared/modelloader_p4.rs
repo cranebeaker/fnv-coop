@@ -622,6 +622,7 @@ const EXCHANGE_STEP: u32 = 0x0044_e820;
 /// Tagged-pointer constructor, `__thiscall(out, tag, pointer)`
 /// (`006ecba0`), and its reader `__thiscall(tagged) -> value` (`00559450`).
 const TAGGED_CONSTRUCT: u32 = 0x006e_cba0;
+#[cfg(test)]
 const TAGGED_VALUE: u32 = 0x0055_9450;
 /// The pointer part (bit 0 cleared) of the tagged word at `this`,
 /// `__thiscall(this) -> pointer` (`0044dec0`), and its twin `0044df00`.
@@ -639,8 +640,11 @@ const EXCHANGE_FINISH: u32 = 0x0052_9000;
 /// collection `__thiscall(collection) -> node` (`0044faa0`), and the next
 /// node of the collection `__thiscall(collection, node) -> node`
 /// (`0044fac0`).
+#[cfg(test)]
 const SETTING_LIST_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 const COLLECTION_FIRST: u32 = 0x0044_faa0;
 const COLLECTION_NEXT: u32 = 0x0044_fac0;
@@ -648,6 +652,7 @@ const COLLECTION_NEXT: u32 = 0x0044_fac0;
 /// string comparison `__cdecl(a, b) -> int` (`00404dc0`), the warning
 /// `__cdecl(format, ...)` (`00c335a0`, `SettingWarning` in the Xbox PDB), and
 /// the duplicate-key message (`01017780`).
+#[cfg(test)]
 const SETTING_KEY: u32 = 0x0044_ddc0;
 const STRING_COMPARE: u32 = 0x0040_4dc0;
 const SETTING_WARNING: u32 = 0x00c3_35a0;
@@ -1065,8 +1070,8 @@ pub fn fn_0044d3f0(e: &mut Engine, this: Ptr, a: u32, b: u32) -> bool {
             e.call(TAGGED_CONSTRUCT, &args![first, 0u32, pointer]);
             let pointer = e.call(TAGGED_POINTER, &args![this.byte_add(0x18)]).u32();
             e.call(TAGGED_CONSTRUCT, &args![second, 1u32, pointer]);
-            let old = e.call(TAGGED_VALUE, &args![first]).u32();
-            let new = e.call(TAGGED_VALUE, &args![second]).u32();
+            let old = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
+            let new = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, second));
             let target = e
                 .call(TAGGED_POINTER_TWIN, &args![this.byte_add(0x14)])
                 .u32();
@@ -1078,8 +1083,8 @@ pub fn fn_0044d3f0(e: &mut Engine, this: Ptr, a: u32, b: u32) -> bool {
         }
         let pointer = e.call(TAGGED_POINTER, &args![this.byte_add(0x14)]).u32();
         e.call(TAGGED_CONSTRUCT, &args![third, 0u32, pointer]);
-        let replacement = e.call(TAGGED_VALUE, &args![third]).u32();
-        let old = e.call(TAGGED_VALUE, &args![first]).u32();
+        let replacement = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, third));
+        let old = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
         let word_at_0x10 = e.mem.u32(this.addr() + 0x10);
         if e.call(COMPARE_EXCHANGE, &args![word_at_0x10, old, replacement])
             .bool()
@@ -1281,20 +1286,24 @@ pub fn setting_collection_list_setting_add(e: &mut Engine, this: Ptr, setting: u
         SETTING_ADD_LINE,
         |e| {
             let list = this.byte_add(SETTINGS_LIST_OFFSET);
-            if !e.call(SETTING_LIST_IS_EMPTY, &args![list]).bool() {
+            if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
                 let mut node = list.addr();
                 while node != 0 {
-                    let item_slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+                    let item_slot =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let existing = e.mem.u32(item_slot);
-                    let new_key = e.call(SETTING_KEY, &args![setting]).u32();
-                    let existing_key = e.call(SETTING_KEY, &args![existing]).u32();
+                    let new_key =
+                        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, setting));
+                    let existing_key =
+                        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, existing));
                     let order = e.call(STRING_COMPARE, &args![existing_key, new_key]).i32();
                     if order == 0 {
-                        let key = e.call(SETTING_KEY, &args![setting]).u32();
+                        let key =
+                            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, setting));
                         e.call(SETTING_WARNING, &args![DUPLICATE_KEY_MESSAGE, key]);
                         return;
                     }
-                    node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                    node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 }
             }
             e.with_stack(4, |e, argument| {
@@ -1341,7 +1350,7 @@ pub fn setting_collection_list_setting_get_viewer_strings(
             while node != 0 {
                 // `006815c0` takes no argument and leaves the pushed word
                 // for the call that follows it.
-                let item_slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+                let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let setting = e.mem.u32(item_slot);
                 e.call(SETTING_GET_VIEWER_STRINGS, &args![setting, argument]);
                 node = e.call(COLLECTION_NEXT, &args![this, node]).u32();

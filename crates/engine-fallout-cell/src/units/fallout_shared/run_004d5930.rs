@@ -19,6 +19,7 @@ const COMBINE_0040EBD0: u32 = 0x0040_ebd0;
 /// count).
 const MEMCPY: u32 = 0x0040_1460;
 /// `00559450`: the word at `this` (a string's text).
+#[cfg(test)]
 const WORD_AT_ZERO: u32 = 0x0055_9450;
 /// `00406d30`: copies a C string into a buffer (`cdecl`: buffer, size,
 /// text).
@@ -102,7 +103,7 @@ pub fn fn_004d5a90(e: &mut Engine, this: Ptr<LipSynchAnim>) -> f32 {
 /// with `path` unchanged, when it has no `.`.
 pub fn fn_004d5ad0(e: &mut Engine, path: Ptr) -> bool {
     e.with_stack(0x10c, |e, buffer| {
-        let text = e.call(WORD_AT_ZERO, &args![path]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, path));
         e.call(STRING_COPY_INTO, &args![buffer, 0x104u32, text]);
         let dot = e.call(STRING_FIND_LAST, &args![buffer, 0x2eu32]).u32();
         if dot == 0 {

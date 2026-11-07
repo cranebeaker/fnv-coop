@@ -25,6 +25,7 @@ const HELD_OBJECT: u32 = 0x004a_e750;
 const OWNER_OF: u32 = 0x004b_5a20;
 /// `0044ddc0` (unnamed in the engine map): `thiscall`, plain `RET`; answers a word (flags, as
 /// `0062a510` tests bit 5 of it).
+#[cfg(test)]
 const WORD_OF: u32 = 0x0044_ddc0;
 /// `TESObjectREFR::FindReferenceFor3D` (engine map name of `0056f930`): `cdecl`, one word; its
 /// answer is not used.
@@ -53,6 +54,7 @@ const STATE_OF: u32 = 0x0047_2380;
 const ELEMENT_RELEASE: u32 = 0x009b_c8f0;
 /// `006815c0` (unnamed in the engine map): `thiscall`, plain `RET`; answers the address of the
 /// held word.
+#[cfg(test)]
 const HELD_WORD: u32 = 0x0068_15c0;
 /// `bhkCollisionObject::GetbhkCollisionObject` (Xbox PDB), `0043b610`: `cdecl`, one word.
 const GET_COLLISION_OBJECT: u32 = 0x0043_b610;
@@ -61,9 +63,11 @@ const GET_COLLISION_OBJECT: u32 = 0x0043_b610;
 const RIGID_BODY_OF: u32 = 0x006f_a820;
 /// `008256d0` (unnamed in the engine map): `thiscall` on a list node, plain `RET`; answers a byte
 /// that ends the walk.
+#[cfg(test)]
 const NODE_IS_END: u32 = 0x0082_56d0;
 /// `00726070` (`fallout/interface/menumanager.cpp` in the engine map): `thiscall` on a list
 /// node, plain `RET`; the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The list of records `0062a7e0` keeps.
 const RECORD_LIST: u32 = 0x011c_c408;
@@ -138,9 +142,11 @@ pub fn tes_arrow_target_listener_scalar_deleting_destructor(
 /// Unnamed in the engine map. `fastcall`: the word held by the member at `+0x88` (`006815c0`
 /// answers its address).
 pub fn fn_0062a670(e: &mut Engine, this: Ptr) -> u32 {
-    let held = e
-        .call(HELD_WORD, &args![this.addr().wrapping_add(0x88)])
-        .u32();
+    let held = typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr().wrapping_add(0x88))
+    );
     e.mem.u32(held)
 }
 
@@ -160,7 +166,7 @@ fn release_arrows_of(e: &mut Engine, entity: u32, check_flag: bool) {
     let word = if owner == 0 {
         0
     } else {
-        e.call(WORD_OF, &args![owner]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, owner))
     };
     // The answer is kept in a local the code never reads.
     e.call(FIND_REFERENCE_FOR_3D, &args![word]);
@@ -173,7 +179,8 @@ fn release_arrows_of(e: &mut Engine, entity: u32, check_flag: bool) {
             && element != 0
             && e.call(HAS_FLAG, &args![element, 0x80u32]).u8() != 0
             && e.call(TYPE_OF, &args![element]).u32() == 0x3d
-            && (!check_flag || e.call(WORD_OF, &args![element]).u32() & 0x20 == 0)
+            && (!check_flag
+                || typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, element)) & 0x20 == 0)
         {
             let target = fn_0062a670(e, Ptr::new(element));
             if e.mem.u32(target.wrapping_add(0x1c)) == entity
@@ -272,18 +279,29 @@ pub fn fn_0062a7e0(e: &mut Engine, source: u32, object: u32) {
         let at = |x: u32| frame.addr().wrapping_add(0x1a0).wrapping_sub(x);
         let record_word = at(0x18);
         e.mem.set_u32(record_word, 0);
-        if e.call(NODE_IS_END, &args![RECORD_LIST]).u8() == 0 {
+        if typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, RECORD_LIST)
+        )
+        .into_ret()
+        .u8()
+            == 0
+        {
             let mut node = RECORD_LIST;
             while node != 0
-                && e.call(NODE_IS_END, &args![node]).u8() == 0
+                && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+                    .into_ret()
+                    .u8()
+                    == 0
                 && e.mem.u32(record_word) == 0
             {
-                let item = e.call(HELD_WORD, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let record = e.mem.u32(item);
                 if record != 0 && e.mem.u32(record) == body {
                     e.mem.set_u32(record_word, record);
                 }
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
         if e.mem.u32(record_word) == 0 {
@@ -325,11 +343,11 @@ pub fn fn_0062a7e0(e: &mut Engine, source: u32, object: u32) {
         let weight_bits = x87_quiet_bits(e.mem.u32(weight));
         e.call(VECTOR_SPLAT, &args![weight_vector, weight_bits]);
         e.call(VECTOR_MUL, &args![translation, weight_vector]);
-        e.call(HELD_WORD, &args![center]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, center));
         e.vcall(body, BODY_CENTER_SLOT, &args![center]);
         e.call(VECTOR_SPLAT, &args![mass_vector, mass]);
         e.call(VECTOR_MUL, &args![center, mass_vector]);
-        e.call(HELD_WORD, &args![sum]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, sum));
         e.call(VECTOR_ADD, &args![sum, center, translation]);
         let weight = e.call(FLOAT_HOLDER, &args![FLOAT_OWNER]).u32();
         let total = x87_add(x87_load32(mass), x87_m32(e.mem.u32(weight)));

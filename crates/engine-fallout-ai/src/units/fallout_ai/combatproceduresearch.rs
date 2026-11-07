@@ -165,8 +165,8 @@ pub fn fn_009da550(e: &mut Engine, this: Ptr, out: Ptr) -> Ptr {
 /// `NiPointer` at +0xd4 of `this`, rounded to a float; -1 (`01012054`) without one.
 pub fn fn_009da570(e: &mut Engine, this: Ptr) -> f32 {
     let pointer = this.addr() + 0xd4;
-    let bits = if e.call(0x0055_9450, &args![pointer]).u32() != 0 {
-        let handler = e.call(0x0055_9450, &args![pointer]).u32();
+    let bits = if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
+        let handler = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         x87_store32(e.call(0x004a_7bd0, &args![handler]).f64())
     } else {
         x87_quiet_bits(e.mem.u32(0x0101_2054))
@@ -265,11 +265,11 @@ const SEARCH_SUMMARY_FORMAT: u32 = 0x0109_1f40;
 /// `double` argument (`FLD`, `FSTP qword`), in the order x, y, z (each through its own call,
 /// z first as the exe pushes them).
 fn point_doubles(e: &mut Engine, location: u32) -> [f64; 3] {
-    let point = e.call(0x0068_15c0, &args![location]).u32();
+    let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
     let z = x87_load32(e.mem.u32(point + 8));
-    let point = e.call(0x0068_15c0, &args![location]).u32();
+    let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
     let y = x87_load32(e.mem.u32(point + 4));
-    let point = e.call(0x0068_15c0, &args![location]).u32();
+    let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
     let x = x87_load32(e.mem.u32(point));
     [x, y, z]
 }
@@ -292,7 +292,7 @@ fn print_investigate_location(e: &mut Engine, this: Ptr, printer: u32, first: u3
     let location = this.addr() + SEARCH_INVESTIGATE_LOCATION;
     let [x, y, z] = point_doubles(e, location);
     e.vcall(printer, 0x14, &args![first, second, POINT_FORMAT, x, y, z]);
-    let space = e.call(0x0084_e3a0, &args![location]).u32();
+    let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, location));
     let name = e.vcall(space, 0x130, &args![]).u32();
     e.vcall(printer, 0x14, &args![first, second, SPACE_FORMAT, name]);
 }
@@ -373,7 +373,7 @@ pub fn combat_procedure_search_display_debug_text(
             if looking_start > area_start {
                 let space = e.with_stack(0x10, |e, location| {
                     let location = fn_009d9f60(e, Ptr::new(group), location).addr();
-                    e.call(0x0084_e3a0, &args![location]).u32()
+                    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, location))
                 });
                 let attacker_space = e.call(0x0057_5ca0, &args![attacker]).u32();
                 if space != attacker_space {
@@ -637,7 +637,8 @@ pub fn combat_procedure_search_update(e: &mut Engine, this: Ptr) {
                 let looking_start = e.call(0x006a_7f50, &args![me + SEARCH_LOOKING_TIMER]).f64();
                 if looking_start > area_start {
                     let location = fn_009d9f60(e, Ptr::new(group), Ptr::new(update.local(0x5b8)));
-                    let space = e.call(0x0084_e3a0, &args![location]).u32();
+                    let space =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, location));
                     if space != e.call(0x0057_5ca0, &args![attacker]).u32() {
                         return;
                     }
@@ -682,8 +683,8 @@ fn search_start(e: &mut Engine, update: &SearchUpdate) {
     if far_enough {
         e.call(PATHING_REQUEST_CONSTRUCT, &args![update.local(0xdc)]);
         let radius = x87_quiet_bits(e.mem.u32(ONE_HUNDRED_TWENTY_EIGHT));
-        let space = e.call(0x0084_e3a0, &args![location]).u32();
-        let point = e.call(0x0068_15c0, &args![location]).u32();
+        let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, location));
+        let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
         let accepted = update.request_goal(e, 0xdc, point, space, radius, |e, request| {
             e.call(0x008e_7c50, &args![request, 0u32]);
         });
@@ -743,7 +744,7 @@ fn search_start(e: &mut Engine, update: &SearchUpdate) {
     }
     let center = fn_009d9f60(e, Ptr::new(group), Ptr::new(update.local(0x1ac))).addr();
     if update.grid != 0 {
-        let space = e.call(0x0084_e3a0, &args![center]).u32();
+        let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, center));
         if space == e.call(0x0057_5ca0, &args![attacker]).u32() {
             search_with_line_of_sight(e, update, location);
             return;
@@ -762,8 +763,8 @@ fn search_start(e: &mut Engine, update: &SearchUpdate) {
             .bool()
         {
             let radius = x87_quiet_bits(e.mem.u32(ONE_HUNDRED_TWENTY_EIGHT));
-            let space = e.call(0x0084_e3a0, &args![center]).u32();
-            let point = e.call(0x0068_15c0, &args![center]).u32();
+            let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, center));
+            let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, center));
             if !update.request_goal(e, 0x26c, point, space, radius, |_, _| {}) {
                 update.fail(e, NO_PATH_TO_CENTER);
                 e.call(PATHING_REQUEST_DESTRUCT, &args![request]);
@@ -810,14 +811,14 @@ fn search_with_line_of_sight(e: &mut Engine, update: &SearchUpdate, location: u3
     let target = e.call(0x0070_58c0, &args![update.state]).u32();
     if target != 0 && matches!(e.mem.u8(target), 1..=3) {
         let distance = e.call(0x009a_0b00, &args![update.state]).f64();
-        let point = e.call(0x0068_15c0, &args![target + 8]).u32();
+        let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, target + 8));
         let (x, y, z) = (e.mem.u32(point), e.mem.u32(point + 4), e.mem.u32(point + 8));
         e.call(0x006e_5a40, &args![request, x, y, z, x87_store32(distance)]);
     }
     if location != 0 {
-        let space = e.call(0x0084_e3a0, &args![location]).u32();
+        let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, location));
         if space == e.call(0x0057_5ca0, &args![attacker]).u32() {
-            let point = e.call(0x0068_15c0, &args![location]).u32();
+            let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
             let goal = update.local(0x58c);
             let goal = e.call(0x006d_ce10, &args![goal, point, attacker]).u32();
             e.call(0x006d_1bc0, &args![request, goal]);
@@ -890,7 +891,7 @@ fn search_moving(e: &mut Engine, update: &SearchUpdate) {
                 0x006d_d220,
                 &args![location, update.field(SEARCH_INVESTIGATE_LOCATION)],
             );
-            let point = e.call(0x0068_15c0, &args![own]).u32();
+            let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, own));
             if e.call(0x006d_7490, &args![location, point, 0u32, 0u32])
                 .bool()
             {
@@ -1053,7 +1054,8 @@ fn search_line_of_sight(e: &mut Engine, update: &SearchUpdate) {
                     e.call(0x0042_fb00, &args![mesh]);
                     if e.call(0x006d_d610, &args![location, mesh]).bool() {
                         let triangle = u32::from(e.call(0x006d_f760, &args![location]).u16());
-                        let navmesh = e.call(0x0055_9450, &args![mesh]).u32();
+                        let navmesh =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mesh));
                         let kind = e.call(0x006d_8910, &args![navmesh, triangle]).u8() as i8;
                         let too_far = |e: &mut Engine, setting: u32| {
                             let first = e.call(0x0040_3e20, &args![setting]).u32();

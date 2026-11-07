@@ -101,6 +101,7 @@ const FLOAT_TO_INT: u32 = 0x00ec_62c0;
 /// The process of an actor (`008d8520`: the word at `+0x68`; the engine map
 /// names it `MiddleHighProcess::GetSavedAcquireObject`, but the body is the
 /// folded getter of `Actor::pCurrentProcess`).
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// `MobileObject::GetCurrentPackage` (Xbox PDB name, `009344a0`).
 const CURRENT_PACKAGE: u32 = 0x0093_44a0;
@@ -121,6 +122,7 @@ const IS_FLEEING: u32 = 0x008a_6650;
 const ACTOR_PREDICATE_493BB0: u32 = 0x0049_3bb0;
 /// The word at `+0x08` of an object (`0044ddc0`; a folded getter, used here
 /// for the form of a worn item and for the count of a list).
+#[cfg(test)]
 const WORD_AT_8: u32 = 0x0044_ddc0;
 /// The getter of the extra-data list of a reference (`005d43c0`: `this + 0x44`).
 const EXTRA_DATA_LIST: u32 = 0x005d_43c0;
@@ -167,10 +169,13 @@ const TYPE_CLOTHING: u32 = 0x0118_6fcc;
 const CLOTHING_CAP_COMPARE: u32 = 0x0101_7a40;
 const CLOTHING_CAP_VALUE: u32 = 0x0101_6410;
 /// The first word at `+4` of the structure (`00726070`).
+#[cfg(test)]
 const READ_WORD_AT_4: u32 = 0x0072_6070;
 /// The word at `+0x20` of a reference (`007af430`).
+#[cfg(test)]
 const WORD_AT_20: u32 = 0x007a_f430;
 /// A list element getter (`00559450`): the word at `+0` of its `this`.
+#[cfg(test)]
 const WORD_AT_0: u32 = 0x0055_9450;
 
 /// Offset of the structure inside the form that `fn_008d1e50` reads from.
@@ -181,7 +186,7 @@ fn process_of(e: &Engine, this: Ptr<Character>) -> u32 {
 }
 
 fn acquire_process(e: &mut Engine, this: Ptr<Character>) -> u32 {
-    e.call(ACTOR_PROCESS, &args![this]).u32()
+    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this))
 }
 
 // Translated from 008d1e50 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -189,9 +194,12 @@ fn acquire_process(e: &mut Engine, this: Ptr<Character>) -> u32 {
 /// the word at `+4` of the structure at `+0x10c` of the form at `this + 0x20`
 /// (`007af430`, then `00726070`).
 pub fn fn_008d1e50(e: &mut Engine, this: Ptr<Character>) -> u32 {
-    let form = e.call(WORD_AT_20, &args![this]).u32();
-    e.call(READ_WORD_AT_4, &args![form + FORM_SUBSTRUCTURE])
-        .u32()
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
+    typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, form + FORM_SUBSTRUCTURE)
+    )
 }
 
 // Translated from 008d1e70 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -305,7 +313,7 @@ fn add_worn_armour(
         if item == 0 {
             continue;
         }
-        let form = e.call(WORD_AT_8, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let armour = e
             .call(
                 RT_DYNAMIC_CAST,
@@ -642,11 +650,11 @@ fn start_interrupt_package(
         e.call(0x007b_3fa0, &args![package_target, 1u32]);
     }
     e.call(0x0098_4f60, &args![package, target_flag]);
-    let package_target = e.call(0x0067_1d10, &args![package]).u32();
+    let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     e.call(0x0068_00b0, &args![package_target, 0u32]);
-    let package_target = e.call(0x0067_1d10, &args![package]).u32();
+    let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     e.call(0x0068_0110, &args![package_target, target]);
-    let package_target = e.call(0x0067_1d10, &args![package]).u32();
+    let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     e.call(0x0040_3550, &args![package_target, 0u32]);
     let acquired = acquire_process(e, this);
     e.vcall(acquired, 0x28, &args![]);
@@ -717,7 +725,7 @@ pub fn character_get_clothing_value(e: &mut Engine, this: Ptr<Character>) -> f32
             if item == 0 {
                 continue;
             }
-            let form = e.call(WORD_AT_8, &args![item]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             let armour = e
                 .call(
                     RT_DYNAMIC_CAST,
@@ -730,7 +738,7 @@ pub fn character_get_clothing_value(e: &mut Engine, this: Ptr<Character>) -> f32
                     ],
                 )
                 .u32();
-            let form = e.call(WORD_AT_8, &args![item]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             let clothing = e
                 .call(
                     RT_DYNAMIC_CAST,
@@ -1138,11 +1146,20 @@ pub fn fn_008d3550(e: &mut Engine, this: Ptr<Character>, delta: f32) {
 /// Unnamed: the count of the array at `this + 0x38`: zero when its head
 /// (`00559450`, the word at `+0`) is null, else the word at `+8` of the head.
 pub fn fn_008d3ed0(e: &mut Engine, this: Ptr) -> u32 {
-    if e.call(WORD_AT_0, &args![this.addr() + 0x38]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x38)
+    ) == 0
+    {
         0
     } else {
-        let head = e.call(WORD_AT_0, &args![this.addr() + 0x38]).u32();
-        e.call(WORD_AT_8, &args![head]).u32()
+        let head = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.addr() + 0x38)
+        );
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, head))
     }
 }
 
@@ -1151,7 +1168,11 @@ pub fn fn_008d3ed0(e: &mut Engine, this: Ptr) -> u32 {
 /// (`00559450` for the head, then `008d3f40`). The game pushes `index`
 /// before the head getter, which does not pop it; the second call reads it.
 pub fn fn_008d3f10(e: &mut Engine, this: Ptr, index: u32) -> Ptr {
-    let head = e.call(WORD_AT_0, &args![this.addr() + 0x38]).u32();
+    let head = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x38)
+    );
     fn_008d3f40(e, Ptr::new(head), index)
 }
 
@@ -1221,7 +1242,7 @@ pub fn character_reset_3d(e: &mut Engine, this: Ptr<Character>) {
         e.vcall(pipboy, 0x24, &args![]);
     }
     let process = process_of(e, this);
-    if e.call(0x0045_cd60, &args![process]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == 0 {
         e.call(0x0088_54b0, &args![process, 0.0f32]);
     }
 }

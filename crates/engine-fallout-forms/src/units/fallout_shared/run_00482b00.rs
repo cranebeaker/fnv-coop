@@ -17,7 +17,9 @@ const INITIALIZE_DATA_COMPONENT: u32 = 0x0048_2c80;
 /// removal `00905330` (`thiscall (list, &item)`).
 const ALLOCATE: u32 = 0x0040_1000;
 const LIST_CONSTRUCTOR: u32 = 0x0096_a2d0;
+#[cfg(test)]
 const ITEM_OF: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NEXT_NODE: u32 = 0x0072_6070;
 const APPEND: u32 = 0x005a_e3d0;
 const REMOVE: u32 = 0x0090_5330;
@@ -35,7 +37,7 @@ pub fn fn_00482c50(e: &mut Engine, this: Ptr) -> Ptr {
 
 /// The node's item address (`006815c0`).
 fn item(e: &mut Engine, node: u32) -> u32 {
-    e.call(ITEM_OF, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
 }
 
 /// The word at the node's item address.
@@ -46,7 +48,7 @@ fn item_word(e: &mut Engine, node: u32) -> u32 {
 
 /// The next node (`00726070`).
 fn next(e: &mut Engine, node: u32) -> u32 {
-    e.call(NEXT_NODE, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 // Translated from 00482b00 (decompiled, FalloutNV.exe 1.4.0.525)

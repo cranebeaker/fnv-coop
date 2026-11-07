@@ -58,6 +58,7 @@ pub(crate) const VSLOT_GET_POSITION: u32 = 0x1f4;
 /// Reads `[this + 0x20]` (`TESObjectREFR`'s base form; the engine map names
 /// this body `BGSSaveFormBuffer::GetForm` because the linker folded the
 /// identical code).
+#[cfg(test)]
 pub(crate) const REF_GET_BASE_FORM: u32 = 0x007a_f430;
 /// Same body as [`REF_GET_BASE_FORM`], in `extradatalist.cpp`: the actor's
 /// base form.
@@ -65,6 +66,7 @@ pub(crate) const ACTOR_GET_BASE_FORM: u32 = 0x0041_81e0;
 /// `TESForm::cFormType` (byte at `+0x04`) of the form in ECX.
 pub(crate) const FORM_GET_TYPE: u32 = 0x0040_1170;
 /// True when the `TESForm` in ECX has flag `0x800` (`iFormFlags` at `+0x08`).
+#[cfg(test)]
 pub(crate) const FORM_HAS_FLAG_0800: u32 = 0x0044_0da0;
 /// `TESObjectREFR::HasContainer` (Xbox PDB): non-zero when the reference's
 /// base form holds items.
@@ -80,10 +82,13 @@ pub(crate) const FORM_TYPE_TERMINAL: u32 = 0x17;
 pub(crate) const FORM_LIST_GET_LIST: u32 = 0x0050_0940;
 /// `BSSimpleList` node helpers (`this` is the node): true for an empty
 /// list's head node (item and next both null) ...
+#[cfg(test)]
 pub(crate) const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// ... the address of the node's item field (returns `this`) ...
+#[cfg(test)]
 pub(crate) const LIST_NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
 /// ... and the next node (`[this + 4]`).
+#[cfg(test)]
 pub(crate) const LIST_NODE_NEXT: u32 = 0x0072_6070;
 
 /// `InventoryChanges::GetInventoryChanges` (Xbox PDB), cdecl, one reference
@@ -98,6 +103,7 @@ pub(crate) const ITEM_COUNT_FILTER: u32 = 0x00ec_7d40;
 /// True when the `Actor`'s middle-high process exists (`this` the actor;
 /// the engine map names it `MiddleHighProcess::GetSavedAcquireObject`
 /// because of identical code folding).
+#[cfg(test)]
 pub(crate) const ACTOR_GET_PROCESS: u32 = 0x008d_8520;
 /// `ActorValue::GetActorValueScriptName` (Xbox PDB), cdecl.
 pub(crate) const ACTOR_VALUE_SCRIPT_NAME: u32 = 0x0066_eac0;
@@ -187,6 +193,7 @@ pub(crate) const REF_GET_EXTRA_DATA_LIST: u32 = 0x005d_43c0;
 /// `ExtraDataList::GetReferencePointer` (Xbox PDB).
 pub(crate) const EXTRA_DATA_LIST_GET_REFERENCE_POINTER: u32 = 0x0041_c8d0;
 /// `[this + 0x0c]` of a reference: the id `GetInventoryItem` takes.
+#[cfg(test)]
 pub(crate) const REF_GET_ITEM_ID: u32 = 0x0084_e3a0;
 /// `TESObjectREFR::GetInventoryItem` (Xbox PDB): `this` and (base form,
 /// item id).
@@ -356,6 +363,7 @@ pub(crate) const GET_Z_ANGLE_FROM_VECTOR: u32 = 0x004b_13c0;
 pub(crate) const ANIMATION_SPECIAL_IDLE_DONE_PLAYING: u32 = 0x0049_85f0;
 /// `[this + 0x08]` of the weapon data returned by [`VSLOT_PROCESS_WEAPON_DATA`]:
 /// the weapon form.
+#[cfg(test)]
 pub(crate) const WEAPON_DATA_GET_FORM: u32 = 0x0044_ddc0;
 /// The global at `0x011ca278`: the form `IsWeaponInList` falls back on when
 /// no weapon is equipped.
@@ -470,6 +478,7 @@ pub(crate) const MOBILE_OBJECT_IS_TALKING: u32 = 0x0092_f160;
 /// `[this + 0x68]` (`highprocess.cpp` body, the engine map names it
 /// `MiddleHighProcess::GetSavedAcquireObject`): on the `TES` global it is
 /// `TES::pSky` (Xbox PDB `+0x68`).
+#[cfg(test)]
 pub(crate) const TES_GET_SKY: u32 = 0x008d_8520;
 /// `[this + 0xcc]` of the sky, a `float` in ST0 (`tes.cpp`).
 pub(crate) const SKY_GET_WIND_SPEED: u32 = 0x0045_36e0;
@@ -548,6 +557,7 @@ pub(crate) const ACTOR_MAGIC_TARGET_OFFSET: u32 = 0x94;
 /// The object at `0x011f2250` (`this` of `VATS::GetCurrentAction`).
 pub(crate) const VATS: u32 = 0x011f_2250;
 /// `[this + 0x08]` (same body as [`WEAPON_DATA_GET_FORM`]): the VATS mode.
+#[cfg(test)]
 pub(crate) const VATS_GET_MODE: u32 = 0x0044_ddc0;
 /// The mode value `GetVATSTargetHeight` requires.
 pub(crate) const VATS_MODE_TARGETING: u32 = 4;
@@ -570,9 +580,11 @@ pub(crate) const NODE_FIND_BY_NAME: u32 = 0x004a_ae30;
 pub(crate) const NODE_GET_WORLD_POSITION: u32 = 0x0045_bb80;
 /// `NiAVObject::GetWorldBound` (Xbox PDB): `[this + 0x20]`, or the default
 /// bound at `0x011f4288` when null.
+#[cfg(test)]
 pub(crate) const NODE_GET_WORLD_BOUND: u32 = 0x0043_d450;
 /// Returns `this` (same body as [`LIST_NODE_ITEM_ADDRESS`]); called on a
 /// local vector and on the bound, whose first field is its center.
+#[cfg(test)]
 pub(crate) const RETURN_THIS: u32 = 0x0068_15c0;
 /// `tesobjectrefr.cpp`: `this` the reference and a number; asks the
 /// reference's extra data list (`0x0041b3a0`), byte result.
@@ -611,8 +623,10 @@ pub(crate) const PROCEDURE_FLEEING: u32 = 10;
 pub(crate) const PACKAGE_GET_NUMBER: u32 = 0x004f_d3c0;
 /// `[this + 0x0c]` of the object of `+0x274` (same body as
 /// [`REF_GET_ITEM_ID`]).
+#[cfg(test)]
 pub(crate) const PROCEDURE_OBJECT_GET_ID: u32 = 0x0084_e3a0;
 /// `[this + 0x08]` of the object of `+0x274` (same body as [`VATS_GET_MODE`]).
+#[cfg(test)]
 pub(crate) const PROCEDURE_OBJECT_GET_VALUE: u32 = 0x0044_ddc0;
 /// The two package types `fn_005a1770` distinguishes.
 pub(crate) const PACKAGE_TYPE_WITH_PROCESS_OBJECT: u32 = 0xe;
@@ -726,9 +740,13 @@ pub(crate) fn npc_base_form_of(e: &mut Engine, reference: Ptr) -> Ptr {
     if reference.is_null() {
         return Ptr::NULL;
     }
-    let base = e.call(REF_GET_BASE_FORM, &args![reference]).ptr::<()>();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+        .into_ret()
+        .ptr::<()>();
     if e.call(FORM_GET_TYPE, &args![base]).u32() == FORM_TYPE_NPC {
-        e.call(REF_GET_BASE_FORM, &args![reference]).ptr()
+        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+            .into_ret()
+            .ptr()
     } else {
         Ptr::NULL
     }
@@ -767,9 +785,13 @@ pub(crate) fn base_form_of_type(e: &mut Engine, reference: Ptr, form_type: u32) 
     if reference.is_null() {
         return Ptr::NULL;
     }
-    let base = e.call(REF_GET_BASE_FORM, &args![reference]).ptr::<()>();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+        .into_ret()
+        .ptr::<()>();
     if e.call(FORM_GET_TYPE, &args![base]).u32() == form_type {
-        e.call(REF_GET_BASE_FORM, &args![reference]).ptr()
+        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+            .into_ret()
+            .ptr()
     } else {
         Ptr::NULL
     }
@@ -1042,7 +1064,7 @@ pub fn fn_0059c4f0(
 ) -> bool {
     let actor = actor_of(e, reference);
     if !actor.is_null() {
-        let value = if !e.call(FORM_HAS_FLAG_0800, &args![actor]).bool() {
+        let value = if !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor)) {
             // ActorValueOwner at Actor+0xa4
             e.vcall(actor.addr() + 0xa4, 0xc, &args![actor_value]).f64()
         } else {
@@ -1097,7 +1119,7 @@ pub fn fn_0059c680(
 ) -> bool {
     let actor = actor_of(e, reference);
     if !actor.is_null() {
-        let value = if !e.call(FORM_HAS_FLAG_0800, &args![actor]).bool() {
+        let value = if !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor)) {
             e.vcall(actor.addr() + 0xa4, 0x20, &args![actor_value])
                 .f64()
         } else {
@@ -1463,7 +1485,7 @@ pub fn script_get_disabled_condition_function(
 ) -> bool {
     if !reference.is_null() {
         set_result(e, result, 0.0);
-        let disabled = (e.call(FORM_HAS_FLAG_0800, &args![reference]).bool()
+        let disabled = (typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
             && !e.call(0x005a_a680, &args![reference]).bool())
             || e.call(0x005a_a630, &args![reference]).bool();
         if disabled {
@@ -1504,7 +1526,9 @@ pub fn script_get_locked_condition_function(
                 set_result(e, result, 1.0);
             }
         } else {
-            let base = e.call(REF_GET_BASE_FORM, &args![reference]).ptr::<()>();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+                .into_ret()
+                .ptr::<()>();
             if e.call(FORM_GET_TYPE, &args![base]).u32() == FORM_TYPE_TERMINAL {
                 // PlayerCharacter::GetTerminalAccess (Xbox PDB)
                 let player: u32 = e.global(PLAYER);
@@ -1513,7 +1537,8 @@ pub fn script_get_locked_condition_function(
                     let two: f64 = e.global(0x0101_1590);
                     set_result(e, result, two);
                 } else {
-                    let terminal = e.call(REF_GET_BASE_FORM, &args![reference]).u32();
+                    let terminal =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                     // BGSTerminal::IsUnlocked (Xbox PDB)
                     if !e.call(0x0050_1ae0, &args![terminal, reference]).bool() {
                         set_result(e, result, 1.0);
@@ -1548,9 +1573,12 @@ pub fn script_get_lock_level_condition_function(
             let level = e.call(0x0043_0a10, &args![lock, reference]).i32();
             set_result(e, result, level as f64);
         } else {
-            let base = e.call(REF_GET_BASE_FORM, &args![reference]).ptr::<()>();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+                .into_ret()
+                .ptr::<()>();
             if e.call(FORM_GET_TYPE, &args![base]).u32() == FORM_TYPE_TERMINAL {
-                let terminal = e.call(REF_GET_BASE_FORM, &args![reference]).u32();
+                let terminal =
+                    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                 // BGSTerminal::IsUnlocked (Xbox PDB)
                 if e.call(0x0050_1ae0, &args![terminal, reference]).bool() {
                     let minus_one: f64 = e.global(0x0101_a6b0);
@@ -1649,7 +1677,9 @@ pub fn script_get_clothing_value_condition_function(
 ) -> bool {
     let mut character = Ptr::NULL;
     if !reference.is_null() {
-        let base = e.call(REF_GET_BASE_FORM, &args![reference]).ptr::<()>();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+            .into_ret()
+            .ptr::<()>();
         if e.call(FORM_GET_TYPE, &args![base]).u32() == FORM_TYPE_NPC {
             character = reference;
         }
@@ -1732,10 +1762,10 @@ pub fn script_same_faction_condition_function(
         // The faction list of the actor's base data (+0x30).
         let mut node = e.call(0x005d_8a70, &args![actor_base + 0x30]).ptr::<()>();
         while !node.is_null()
-            && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
             && e.mem.f64(result.addr()) != 1.0
         {
-            let item_address = e.call(LIST_NODE_ITEM_ADDRESS, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             // The node's item is a faction rank record whose first field is
             // the faction (read without a null check, as the game does).
             let faction_rank = e.mem.u32(item_address);
@@ -1749,7 +1779,9 @@ pub fn script_same_faction_condition_function(
                     set_result(e, result, 1.0);
                 }
             }
-            node = e.call(LIST_NODE_NEXT, &args![node]).ptr();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
+                .into_ret()
+                .ptr();
         }
     }
     if trace_enabled(e) {
@@ -1832,12 +1864,12 @@ pub fn script_get_detected_condition_function(
     let subject = actor_of(e, target);
     if !detector.is_null()
         && !subject.is_null()
-        && !e
-            .call(ACTOR_GET_PROCESS, &args![detector])
+        && !typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, detector))
+            .into_ret()
             .ptr::<()>()
             .is_null()
-        && !e
-            .call(ACTOR_GET_PROCESS, &args![subject])
+        && !typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, subject))
+            .into_ret()
             .ptr::<()>()
             .is_null()
     {
@@ -1859,7 +1891,7 @@ pub fn script_get_detected_condition_function(
         if detection_level > 0 {
             set_result(e, result, 1.0);
         }
-        let process = e.call(ACTOR_GET_PROCESS, &args![subject]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, subject));
         let light = e.vcall(process, 0x734, &args![]).f64();
         light_level = e.call(FTOL, &args![light]).i32();
     }
@@ -1935,10 +1967,14 @@ pub fn script_get_item_count_condition_function(
             && e.call(FORM_GET_TYPE, &args![form]).u32() == FORM_TYPE_FORM_LIST
         {
             let mut node = e.call(FORM_LIST_GET_LIST, &args![form]).ptr::<()>();
-            while !node.is_null() && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-                let item_address = e.call(LIST_NODE_ITEM_ADDRESS, &args![node]).u32();
+            while !node.is_null()
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
+                let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(item_address);
-                node = e.call(LIST_NODE_NEXT, &args![node]).ptr();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
+                    .into_ret()
+                    .ptr();
                 if e.vcall(entry, VSLOT_IS_BOUND_OBJECT, &args![]).bool() {
                     let count = e
                         .call(INVENTORY_GET_OBJECT_COUNT, &args![inventory, entry])
@@ -1975,7 +2011,7 @@ pub fn script_get_equipped_condition_function(
         let mut node: Ptr = Ptr::NULL;
         if e.call(FORM_GET_TYPE, &args![item]).u32() == FORM_TYPE_FORM_LIST {
             node = e.call(FORM_LIST_GET_LIST, &args![item]).ptr();
-            let item_address = e.call(LIST_NODE_ITEM_ADDRESS, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             item = Ptr::new(e.mem.u32(item_address));
         }
         while !item.is_null() {
@@ -1990,12 +2026,14 @@ pub fn script_get_equipped_condition_function(
                 }
             }
             if !node.is_null() {
-                node = e.call(LIST_NODE_NEXT, &args![node]).ptr();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
+                    .into_ret()
+                    .ptr();
             }
             item = if node.is_null() {
                 Ptr::NULL
             } else {
-                let item_address = e.call(LIST_NODE_ITEM_ADDRESS, &args![node]).u32();
+                let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 Ptr::new(e.mem.u32(item_address))
             };
         }
@@ -2157,7 +2195,9 @@ pub fn script_get_furniture_marker_id_condition_function(
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
     if !actor.is_null() {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).ptr::<()>();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+            .into_ret()
+            .ptr::<()>();
         let marker_id = e
             .vcall(process.addr(), VSLOT_PROCESS_FURNITURE_MARKER_ID, &args![])
             .u32();
@@ -2184,7 +2224,9 @@ pub fn script_is_current_furniture_ref_condition_function(
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
     if !actor.is_null() {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).ptr::<()>();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+            .into_ret()
+            .ptr::<()>();
         let current = e
             .vcall(process.addr(), VSLOT_PROCESS_FURNITURE_REFERENCE, &args![])
             .ptr::<()>();
@@ -2213,18 +2255,22 @@ pub fn script_is_current_furniture_obj_condition_function(
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
     if !actor.is_null() && !form.is_null() {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).ptr::<()>();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+            .into_ret()
+            .ptr::<()>();
         let furniture = e
             .vcall(process.addr(), VSLOT_PROCESS_FURNITURE_REFERENCE, &args![])
             .ptr::<()>();
         if !furniture.is_null() {
             if e.call(FORM_GET_TYPE, &args![form]).u32() == FORM_TYPE_FURNITURE {
-                let base = e.call(REF_GET_BASE_FORM, &args![furniture]).ptr::<()>();
+                let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, furniture))
+                    .into_ret()
+                    .ptr::<()>();
                 if base == form {
                     set_result(e, result, 1.0);
                 }
             } else if e.call(FORM_GET_TYPE, &args![form]).u32() == FORM_TYPE_FORM_LIST {
-                let base = e.call(REF_GET_BASE_FORM, &args![furniture]).u32();
+                let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, furniture));
                 let listed = e.with_stack(4, |e, local| {
                     e.mem.set_u32(local.addr(), base);
                     let list = e.call(FORM_LIST_GET_LIST, &args![form]).ptr::<()>();
@@ -2297,8 +2343,8 @@ pub fn fn_0059e1a0(e: &mut Engine, _reference: Ptr, form: Ptr, variable: u32, re
             let owner = e
                 .call(EXTRA_DATA_LIST_GET_REFERENCE_POINTER, &args![extra_list])
                 .ptr::<()>();
-            let item_id = e.call(REF_GET_ITEM_ID, &args![form]).u32();
-            let base = e.call(REF_GET_BASE_FORM, &args![form]).u32();
+            let item_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, form));
             let item = e
                 .call(REF_GET_INVENTORY_ITEM, &args![owner, base, item_id])
                 .ptr::<()>();
@@ -2750,7 +2796,9 @@ pub fn script_get_is_creature_condition_function(
 ) -> bool {
     set_result(e, result, 0.0);
     if !reference.is_null() {
-        let base = e.call(REF_GET_BASE_FORM, &args![reference]).ptr::<()>();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+            .into_ret()
+            .ptr::<()>();
         if e.call(FORM_GET_TYPE, &args![base]).u32() == FORM_TYPE_CREATURE {
             set_result(e, result, 1.0);
         }
@@ -3053,14 +3101,20 @@ pub fn script_get_is_voice_type_condition_function(
             e.global::<u32>(VOICE_TYPE_CACHE_VOICE)
         } else {
             let mut found = 0u32;
-            let base = e.call(REF_GET_BASE_FORM, &args![reference]).ptr::<()>();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+                .into_ret()
+                .ptr::<()>();
             let base_type = e.call(FORM_GET_TYPE, &args![base]).i32();
             if base_type == FORM_TYPE_VOICE_SOURCE as i32 {
-                let base = e.call(REF_GET_BASE_FORM, &args![reference]).ptr::<()>();
+                let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+                    .into_ret()
+                    .ptr::<()>();
                 found = e.call(FORM_GET_VOICE_TYPE, &args![base]).u32();
             } else if base_type > 0x29 && base_type <= FORM_TYPE_CREATURE as i32 {
                 // The component at +0x30 of the NPC_ / CREA base form.
-                let base = e.call(REF_GET_BASE_FORM, &args![reference]).ptr::<()>();
+                let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+                    .into_ret()
+                    .ptr::<()>();
                 found = e
                     .vcall(
                         base.addr() + 0x30,
@@ -3140,10 +3194,14 @@ pub(crate) fn equipped_weapon_of(e: &mut Engine, process: Ptr) -> Ptr {
         .vcall(process.addr(), VSLOT_PROCESS_WEAPON_DATA, &args![])
         .ptr::<()>();
     let mut weapon = Ptr::NULL;
-    if !data.is_null() && e.call(WEAPON_DATA_GET_FORM, &args![data]).u32() != 0 {
-        let form = e.call(WEAPON_DATA_GET_FORM, &args![data]).ptr::<()>();
+    if !data.is_null() && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, data)) != 0 {
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, data))
+            .into_ret()
+            .ptr::<()>();
         if e.call(FORM_GET_TYPE, &args![form]).u32() == FORM_TYPE_WEAPON {
-            weapon = e.call(WEAPON_DATA_GET_FORM, &args![data]).ptr();
+            weapon = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, data))
+                .into_ret()
+                .ptr();
         }
     }
     weapon
@@ -3264,7 +3322,7 @@ pub fn script_get_is_id_condition_function(
                 )
                 .u32();
             if base == 0 {
-                base = e.call(REF_GET_BASE_FORM, &args![reference]).u32();
+                base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             }
             e.set_global::<u32>(IS_ID_CACHE_REFERENCE, reference.addr());
             e.set_global::<u32>(IS_ID_CACHE_BASE, base);
@@ -3303,7 +3361,7 @@ pub fn script_is_in_list_condition_function(
             )
             .u32();
         if base == 0 {
-            base = e.call(REF_GET_BASE_FORM, &args![reference]).u32();
+            base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         }
         if base != 0 {
             let listed = e.with_stack(4, |e, local| {
@@ -3900,10 +3958,12 @@ pub fn script_is_weapon_in_list_condition_function(
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
     if !actor.is_null()
-        && e.call(ACTOR_GET_PROCESS, &args![actor]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
         && !list_form.is_null()
     {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).ptr::<()>();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+            .into_ret()
+            .ptr::<()>();
         let mut weapon = equipped_weapon_of(e, process);
         if weapon.is_null() {
             weapon = Ptr::new(e.global::<u32>(FALLBACK_WEAPON));
@@ -4011,7 +4071,7 @@ pub fn script_get_knocked_state_condition_function(
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
     if !actor.is_null() {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let object = e
             .call(
                 RT_DYNAMIC_CAST,
@@ -4053,8 +4113,10 @@ pub fn script_get_weapon_anim_type_condition_function(
 ) -> bool {
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
-    if !actor.is_null() && e.call(ACTOR_GET_PROCESS, &args![actor]).u32() != 0 {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).ptr::<()>();
+    if !actor.is_null() && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+            .into_ret()
+            .ptr::<()>();
         let weapon = equipped_weapon_of(e, process);
         if weapon.is_null() {
             set_result(e, result, 1.0);
@@ -4087,9 +4149,13 @@ pub fn script_is_weapon_skill_type_condition_function(
 ) -> bool {
     set_result(e, result, 0.0);
     let mut weapon: Ptr = Ptr::NULL;
-    let base = e.call(REF_GET_BASE_FORM, &args![reference]).ptr::<()>();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+        .into_ret()
+        .ptr::<()>();
     if e.call(FORM_GET_TYPE, &args![base]).u32() == FORM_TYPE_WEAPON {
-        weapon = e.call(REF_GET_BASE_FORM, &args![reference]).ptr();
+        weapon = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+            .into_ret()
+            .ptr();
     }
     if weapon.is_null() {
         if skill == 0x2d {
@@ -4122,7 +4188,7 @@ pub fn script_get_current_ai_package_condition_function(
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
     if !actor.is_null()
-        && e.call(ACTOR_GET_PROCESS, &args![actor]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
         && e.call(MOBILE_GET_CURRENT_PACKAGE, &args![actor]).u32() != 0
     {
         let package = e
@@ -4318,13 +4384,15 @@ pub fn fn_005a1210(
     set_result(e, result, 0.0);
     let actor = actor_of(e, reference);
     if !actor.is_null()
-        && e.call(ACTOR_GET_PROCESS, &args![actor]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
         && e.call(MOBILE_GET_CURRENT_PACKAGE, &args![actor]).u32() != 0
     {
         let package = e
             .call(MOBILE_GET_CURRENT_PACKAGE, &args![actor])
             .ptr::<()>();
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).ptr::<()>();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+            .into_ret()
+            .ptr::<()>();
         let group = e.call(PACKAGE_GET_PROCEDURE_GROUP, &args![package]).u32();
         let index = e
             .vcall(process.addr(), VSLOT_PROCESS_PROCEDURE_INDEX, &args![])
@@ -4350,7 +4418,8 @@ pub fn fn_005a1210(
                 if !object.is_null() {
                     let kind = e.mem.u32(object.addr() + 4);
                     if kind == 3 {
-                        let value = e.call(PROCEDURE_OBJECT_GET_VALUE, &args![object]).u32();
+                        let value =
+                            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object));
                         let slot = value.wrapping_add(1);
                         if slot < 7 {
                             let entry =
@@ -4402,13 +4471,17 @@ pub fn fn_005a1770(
         if !package.is_null() {
             let kind = e.call(PACKAGE_GET_TYPE, &args![package]).u32();
             if kind == PACKAGE_TYPE_WITH_PROCESS_OBJECT {
-                let process = e.call(ACTOR_GET_PROCESS, &args![actor]).ptr::<()>();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
+                    .into_ret()
+                    .ptr::<()>();
                 if !process.is_null() {
                     let object = e
                         .vcall(process.addr(), VSLOT_PROCESS_PROCEDURE_OBJECT, &args![])
                         .ptr::<()>();
                     if !object.is_null() {
-                        let id = e.call(PROCEDURE_OBJECT_GET_ID, &args![object]).i32();
+                        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object))
+                            .into_ret()
+                            .i32();
                         set_result(e, result, id as f64);
                     }
                 }
@@ -4438,10 +4511,12 @@ pub fn script_get_wind_speed_condition_function(
 ) -> bool {
     set_result(e, result, 0.0);
     let tes = e.global::<u32>(TES);
-    if tes == 0 || e.call(TES_GET_SKY, &args![tes]).u32() == 0 {
+    if tes == 0 || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes)) == 0 {
         return false;
     }
-    let sky = e.call(TES_GET_SKY, &args![tes]).ptr::<()>();
+    let sky = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes))
+        .into_ret()
+        .ptr::<()>();
     let speed = e.call(SKY_GET_WIND_SPEED, &args![sky]).f64();
     set_result(e, result, speed);
     if trace_enabled(e) {
@@ -5067,7 +5142,9 @@ pub fn script_get_vats_mode_condition_function(
     result: Ptr,
 ) -> bool {
     set_result(e, result, 0.0);
-    let mode = e.call(VATS_GET_MODE, &args![VATS]).i32();
+    let mode = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, VATS))
+        .into_ret()
+        .i32();
     set_result(e, result, mode as f64);
     if trace_enabled(e) {
         // "VATS Mode >> %0.2f"
@@ -5090,7 +5167,7 @@ pub fn script_get_vats_target_height_condition_function(
     result: Ptr,
 ) -> bool {
     set_result(e, result, 0.0);
-    if e.call(VATS_GET_MODE, &args![VATS]).u32() == VATS_MODE_TARGETING {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, VATS)) == VATS_MODE_TARGETING {
         let action = e.call(VATS_GET_CURRENT_ACTION, &args![VATS]).ptr::<()>();
         if !action.is_null() {
             let action_type = e.mem.u32(action.addr());
@@ -5102,7 +5179,7 @@ pub fn script_get_vats_target_height_condition_function(
                         .vcall(target.addr(), VSLOT_REF_GET_NODE, &args![])
                         .ptr::<()>();
                     e.with_stack(12, |e, vector| {
-                        e.call(RETURN_THIS, &args![vector]);
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
                     });
                     let mut target_z = None;
                     if body_part != 0xffff_ffff
@@ -5139,8 +5216,14 @@ pub fn script_get_vats_target_height_condition_function(
                     let target_z = match target_z {
                         Some(z) => z,
                         None if !node.is_null() => {
-                            let bound = e.call(NODE_GET_WORLD_BOUND, &args![node]).ptr::<()>();
-                            let center = e.call(RETURN_THIS, &args![bound]).ptr::<()>();
+                            let bound =
+                                typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node))
+                                    .into_ret()
+                                    .ptr::<()>();
+                            let center =
+                                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound))
+                                    .into_ret()
+                                    .ptr::<()>();
                             e.mem.f32(center.addr() + 8)
                         }
                         None => {

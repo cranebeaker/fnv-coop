@@ -25,6 +25,7 @@ const FREE: u32 = 0x0040_1030;
 const MOBILE_OBJECT_CONSTRUCT: u32 = 0x0092_eb50;
 const REFERENCE_0046A010: u32 = 0x0046_a010;
 const HIGH_PROCESS_CONSTRUCT: u32 = 0x008d_7510;
+#[cfg(test)]
 const FORM_OF_007AF430: u32 = 0x007a_f430;
 const SET_OBJECT_REFERENCE: u32 = 0x0057_5690;
 /// The vtables the constructor stores (`0107b394` at +0, `0107b388` at +0x18); both carry
@@ -73,7 +74,7 @@ pub fn fn_0081dbb0(e: &mut Engine, this: Ptr) -> Ptr {
         0
     };
     e.mem.set_u32(base + 0x68, process);
-    let form = e.call(FORM_OF_007AF430, &args![this]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
     e.call(SET_OBJECT_REFERENCE, &args![this, form]);
     this
 }

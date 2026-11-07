@@ -381,7 +381,9 @@ pub fn tes_caravan_deck_load(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
                     let card = e.call(0x0048_39c0, &args![resolved]).u32();
                     e.mem.set_u32(card_slot, card);
                     let list = e.mem.u32(base + 0x24);
-                    if list == 0 || e.call(0x0082_56d0, &args![list]).bool() {
+                    if list == 0
+                        || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list))
+                    {
                         e.call(0x0072_6c60, &args![list, card_slot]);
                     } else {
                         e.call(0x005a_e3d0, &args![list, card_slot]);

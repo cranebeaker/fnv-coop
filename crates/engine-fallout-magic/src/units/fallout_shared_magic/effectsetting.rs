@@ -88,6 +88,7 @@ const GET_FILE: u32 = 0x0048_4e60;
 /// Form lookup by id (`004839c0`, cdecl, one word).
 const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// Form id getter of a form (`0084e3a0`, thiscall).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// `TESForm` flag test `0058cba0(form, mask)` (bool).
 const TEST_FORM_FLAGS: u32 = 0x0058_cba0;
@@ -140,7 +141,9 @@ const WARNING: u32 = 0x005b_5e40;
 /// `BSSimpleList` helpers: `006815c0(node)` returns the address of the
 /// node's item, `00726070(node)` the next node, `00470470(list)` empties
 /// the list, `005ae3d0(list, &item)` adds an item, `005ae380(list)` counts.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 const LIST_CLEAR: u32 = 0x0047_0470;
 const LIST_ADD: u32 = 0x005a_e3d0;
@@ -152,6 +155,7 @@ const FTOL: u32 = 0x00ec_62c0;
 /// two comparisons `StrCmp` picks from (cdecl `(text, other)`), and the
 /// string setter `00489100(component, text)` (the engine map names it
 /// `TESSoundFile::SetSoundFile`, a folded body).
+#[cfg(test)]
 const STRING_C_STR: u32 = 0x0055_9450;
 const GET_FULL_NAME_COPY: u32 = 0x0040_46b0;
 const STRING_DESTROY: u32 = 0x0040_37d0;
@@ -166,6 +170,7 @@ const GET_ARCHETYPE: u32 = 0x0081_0fd0;
 /// (entry 0: "Value Modifier").
 const ARCHETYPE_NAMES: u32 = 0x0118_3320;
 /// CRT floating-point helpers used by `fabs`.
+#[cfg(test)]
 const CTRLFP: u32 = 0x00ed_5abb;
 const SPTYPE: u32 = 0x00ed_5981;
 const HANDLE_QNAN1: u32 = 0x00ed_5837;
@@ -262,7 +267,7 @@ fn form_id_or_zero(e: &mut Engine, form: u32) -> u32 {
     if form == 0 {
         0
     } else {
-        e.call(GET_FORM_ID, &args![form]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
     }
 }
 
@@ -309,14 +314,14 @@ pub fn effect_setting_save(e: &mut Engine, this: Ptr<EffectSetting>) {
 
     let mut node = this.byte_add(COUNTER_EFFECTS).addr();
     while node != 0 {
-        let item_at = e.call(NODE_ITEM, &args![node]).u32();
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_at);
         if item == 0 {
             break;
         }
-        let id = e.call(GET_FORM_ID, &args![item]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
         e.call(ADD_CHUNK_U32, &args![SIG_ESCE, id]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(CLOSE_FORM, &args![this]);
 }
@@ -477,7 +482,7 @@ fn resolve_reference(
             .u32();
         e.call(setter, &args![this, cast]);
         if e.call(getter, &args![this]).u32() == 0 {
-            let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(this.addr(), 0x130, &[]).u32();
             let id = e.mem.u32(id_at.addr());
             e.call(WARNING, &args![message, id, name, form_id]);
@@ -511,7 +516,7 @@ pub fn effect_setting_init_item(e: &mut Engine, this: Ptr<EffectSetting>) {
                 let form = e.call(LOOKUP_FORM, &args![id]).u32();
                 e.set(this, EffectSetting::pAssociatedItem, form);
                 if e.get(this, EffectSetting::pAssociatedItem) == 0 {
-                    let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+                    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                     let name = e.vcall(this.addr(), 0x130, &[]).u32();
                     let id = e.mem.u32(id_at.addr());
                     e.call(WARNING, &args![MSG_ASSOCIATED_ITEM, id, name, form_id]);
@@ -609,15 +614,15 @@ pub fn fn_004082f0(e: &mut Engine, this: Ptr<EffectSetting>, other: Ptr) -> bool
     let mut mine = this.byte_add(COUNTER_EFFECTS).addr();
     let mut theirs = effect.byte_add(COUNTER_EFFECTS).addr();
     while mine != 0 && theirs != 0 {
-        let at = e.call(NODE_ITEM, &args![mine]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
         let my_item = e.mem.u32(at);
-        let at = e.call(NODE_ITEM, &args![theirs]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         let their_item = e.mem.u32(at);
         if my_item != their_item {
             return true;
         }
-        mine = e.call(NODE_NEXT, &args![mine]).u32();
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
     }
     false
 }
@@ -656,7 +661,7 @@ pub fn fn_00408600(e: &mut Engine, this: Ptr<EffectSetting>, node: Ptr) {
     e.set(this, EffectSetting::iNumCounterEffects, 0);
     let mut node = node.addr();
     while node != 0 {
-        let at = e.call(NODE_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(at);
         if item == 0 {
             break;
@@ -671,7 +676,7 @@ pub fn fn_00408600(e: &mut Engine, this: Ptr<EffectSetting>, node: Ptr) {
             EffectSetting::iNumCounterEffects,
             count.wrapping_add(1),
         );
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -864,12 +869,12 @@ pub fn fn_00408a60(e: &mut Engine, index: u32) -> Ptr {
 /// (`00404dc0` when `flag` is set, `00408b20` otherwise); with a null side
 /// it is 0 when both are null, 1 when only `other` is, -1 otherwise.
 pub fn bs_string_t_char_str_cmp(e: &mut Engine, this: Ptr, other: Ptr, flag: bool) -> i32 {
-    if !other.is_null() && e.call(STRING_C_STR, &args![this]).u32() != 0 {
-        let text = e.call(STRING_C_STR, &args![this]).u32();
+    if !other.is_null() && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) != 0 {
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         let compare = if flag { COMPARE_CASE } else { COMPARE_NO_CASE };
         return e.call(compare, &args![text, other]).i32();
     }
-    if other.is_null() && e.call(STRING_C_STR, &args![this]).u32() == 0 {
+    if other.is_null() && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) == 0 {
         return 0;
     }
     if other.is_null() {
@@ -886,21 +891,27 @@ pub fn bs_string_t_char_str_cmp(e: &mut Engine, this: Ptr, other: Ptr, flag: boo
 /// restoring), a quiet NaN through `__handle_qnan1(0x15, x, cw)`, anything
 /// else through `__except1(8, 0x15, x, x + 1, cw)`.
 pub fn fabs(e: &mut Engine, x: f64) -> f64 {
-    let saved = e.call(CTRLFP, &args![0x133fu32, 0xffffu32]).u32();
+    let saved = typed_call!(
+        leaf::FAMILY,
+        0x00ed_5abb,
+        leaf::ctrlfp(e, 0x133fu32, 0xffffu32)
+    )
+    .into_ret()
+    .u32();
     let high = (x.to_bits() >> 48) as u32;
     if high & 0x7ff0 != 0x7ff0 {
         let result = f64::from_bits(x.to_bits() & !(1u64 << 63));
-        e.call(CTRLFP, &args![saved, 0xffffu32]);
+        typed_call!(leaf::FAMILY, 0x00ed_5abb, leaf::ctrlfp(e, saved, 0xffffu32));
         return result;
     }
     let loaded = quiet_f64(x);
     match e.call(SPTYPE, &args![loaded]).i32() {
         1 => {
-            e.call(CTRLFP, &args![saved, 0xffffu32]);
+            typed_call!(leaf::FAMILY, 0x00ed_5abb, leaf::ctrlfp(e, saved, 0xffffu32));
             loaded
         }
         2 => {
-            e.call(CTRLFP, &args![saved, 0xffffu32]);
+            typed_call!(leaf::FAMILY, 0x00ed_5abb, leaf::ctrlfp(e, saved, 0xffffu32));
             -loaded
         }
         3 => e.call(HANDLE_QNAN1, &args![0x15u32, loaded, saved]).f64(),

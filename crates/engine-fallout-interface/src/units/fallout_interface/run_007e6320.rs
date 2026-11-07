@@ -27,6 +27,7 @@ const ENTERED_TEXT: u32 = 0x011d_aed8;
 const TEXT_EDIT_CLASS: i32 = 0x41b;
 
 /// Returns the word at +4 of its argument (`Menu::pMenu`).
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 /// Sets a float trait from an integer (tile, trait id, integer).
 const SET_TRAIT_FROM_INT: u32 = 0x0070_0320;
@@ -253,7 +254,7 @@ pub fn fn_007e6320(e: &mut Engine, prompt: u32, start_text: u32, text_check: u32
             return true;
         }
     }
-    if menu != 0 && e.call(WORD_AT_FOUR, &args![menu]).u32() != 0 {
+    if menu != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
         e.vcall(menu, 0, &args![1u32]);
     }
     false
@@ -279,7 +280,7 @@ pub fn fn_007e65b0(e: &mut Engine) {
         return;
     }
     let this = singleton(e);
-    let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     e.call(SET_TRAIT_FROM_INT, &args![tile, TRAIT_0X1772, 1i32]);
     let this = singleton(e);
     e.call(MENU_START_FADE_OUT, &args![this]);

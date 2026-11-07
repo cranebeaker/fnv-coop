@@ -109,7 +109,7 @@ layout! {
 /// confirmed.
 pub fn fn_006ff4c0(e: &mut Engine, this: Ptr) {
     let node = this.addr();
-    let level = e.call(0x0072_6070, &args![this]).u32();
+    let level = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     let parent = e.mem.u32(node);
     let target = e.call(0x0059_bb30, &args![parent]).u32();
     let payload = e.mem.u32(node + 0x14);
@@ -117,11 +117,11 @@ pub fn fn_006ff4c0(e: &mut Engine, this: Ptr) {
         let height = e.mem.u16(node + 0xa) as u32;
         let width = e.mem.u16(node + 0x8) as u32;
         let key = e.mem.u32(node + 4);
-        let first = e.call(0x0055_9450, &args![this]).u32();
-        let second = e.call(0x0055_9450, &args![first]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
+        let second = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
         e.call(0x006f_6270, &args![payload, second, key, width, height]);
     } else {
-        let level = e.call(0x0072_6070, &args![this]).u32();
+        let level = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         let parent = e.mem.u32(node);
         let target = e.call(0x0059_bb30, &args![parent]).u32();
         if level > target {

@@ -53,9 +53,12 @@ const TILE_READ_FILE: u32 = 0x00a0_1b00;
 const TILE_SET_INT: u32 = 0x0070_0320;
 /// `BSSimpleList` node accessors: the address of a node's item word
 /// (`006815c0`, no arguments) and the next node (`00726070`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `BSSimpleList::IsEmpty` (`008256d0`), the list is `this`.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `NiTPointerList` iterator step: `(list, &position)` returns the address
 /// of the current element and advances `position` (`00683520`, `RET 4`).
@@ -156,11 +159,13 @@ fn text_to_trait(e: &mut Engine, name: u32) -> u32 {
 }
 
 fn node_item(e: &mut Engine, node: u32) -> Ptr {
-    e.call(NODE_ITEM, &args![node]).ptr()
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
+        .into_ret()
+        .ptr()
 }
 
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 // Translated from 00723030 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -190,7 +195,7 @@ pub fn list_box_init_tile_position(e: &mut Engine, this: Ptr<ListBox>, tile: Ptr
     let mut height = tile_value(e, tile, TRAIT_HEIGHT);
     if height == 0.0 {
         let children = tile.byte_add(4);
-        let first = e.call(NODE_NEXT, &args![children]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, children));
         let found = e.with_stack(4, |e, position| {
             e.mem.set_u32(position.addr(), first);
             let mut found = Ptr::NULL;
@@ -340,7 +345,15 @@ fn highlight_outside(e: &mut Engine, container: Ptr, highlighted: Ptr) -> (bool,
 /// tile's `eListIndex` trait equals `index`; 0 when the list is empty or no
 /// item matches.
 pub fn list_box_get_at(e: &mut Engine, this: Ptr<ListBox>, index: u32, by_position: u8) -> Ptr {
-    if e.call(LIST_IS_EMPTY, &args![this.byte_add(4)]).u8() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.byte_add(4))
+    )
+    .into_ret()
+    .u8()
+        != 0
+    {
         return Ptr::NULL;
     }
     let mut node = if this.is_null() { 0 } else { this.addr() + 4 };
@@ -698,7 +711,7 @@ fn start_menu_create_body(e: &mut Engine, frame: u32, flag_a: u8, flag_b: u8) ->
     let manager = e.call(INTERFACE_MANAGER_GETTER, &args![]).u32();
     let root = e.call(MENUS_ROOT_GETTER, &args![manager]).u32();
     let list = root + 4;
-    let first = e.call(FIRST_WORD, &args![list]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     let blocked = 'scan: {
         let position = Ptr::<()>::new(frame + 0x3c);
         e.mem.set_u32(position.addr(), first);
@@ -712,7 +725,7 @@ fn start_menu_create_body(e: &mut Engine, frame: u32, flag_a: u8, flag_b: u8) ->
             } else {
                 e.call(TILE_GET_MENU, &args![tile]).u32()
             };
-            if menu != 0 && e.call(NODE_NEXT, &args![menu]).u32() != 0 {
+            if menu != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
                 let state = e.call(MENU_FADE_STATE, &args![menu]).u32();
                 if state == 8 || state == 2 {
                     let stacking = tile_value(e, Ptr::new(tile), TRAIT_STACKING_TYPE);
@@ -758,7 +771,7 @@ fn start_menu_create_body(e: &mut Engine, frame: u32, flag_a: u8, flag_b: u8) ->
             return true;
         }
     }
-    if menu != 0 && e.call(NODE_NEXT, &args![menu]).u32() != 0 {
+    if menu != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
         e.vcall(menu, 0, &args![1u32]);
     }
     e.call(TILE_UNLOCK, &args![]);
@@ -801,7 +814,9 @@ const FIND_CLOSE: u32 = 0x00fd_f064;
 /// at `011dab88`): size getter (`0044ddc0`, the word at `+8`) and element
 /// address (`00877a30`, `RET 4`).
 const OPTIONS_ARRAY: u32 = 0x011d_ab88;
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// `ListBox<StartMenu::Option_P>::AddItem(option, 0, 0, 0)` (Ghidra name),
 /// `RET 0x10`.
@@ -992,7 +1007,7 @@ fn start_menu_create_inner_body(
         handle != 0xffff_ffff
     };
 
-    let count = e.call(ARRAY_SIZE, &args![OPTIONS_ARRAY]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, OPTIONS_ARRAY));
     let mut index = 0;
     while index < count {
         let mut item = 0u32;
@@ -1450,7 +1465,7 @@ pub fn fn_007cc6d0(_e: &mut Engine) -> u32 {
 /// (0x10 / 0x30 bytes, null when the allocation fails) appended to
 /// `pOptionsA` / `pUserOptionsA`.
 pub fn start_menu_create_menu_elements(e: &mut Engine) {
-    if e.call(FIRST_WORD, &args![STRING_A]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, STRING_A)) == 0 {
         let text = e.call(SETTING_STRING, &args![SETTING_STRING_A]).u32();
         e.call(STRING_SET, &args![STRING_A, text, 0u32]);
         e.call(STRING_UPDATE, &args![STRING_A]);
@@ -1541,7 +1556,7 @@ pub fn fn_007ce690(e: &mut Engine, this: Ptr) {
 pub fn fn_007ce6b0(e: &mut Engine) {
     for array in [OPTIONS_ARRAY, USER_OPTIONS_ARRAY] {
         let mut index = 0;
-        while index < e.call(ARRAY_SIZE, &args![array]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
             let option = option_in(e, array, index);
             if option != 0 {
                 e.vcall(option, 0, &args![1u32]);
@@ -1554,7 +1569,11 @@ pub fn fn_007ce6b0(e: &mut Engine) {
 }
 
 fn option_in(e: &mut Engine, array: u32, index: u32) -> u32 {
-    let slot = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    );
     e.mem.u32(slot)
 }
 
@@ -1607,6 +1626,7 @@ const SAVE_ENTRY_IS_CORRUPT: u32 = 0x0084_6b30;
 /// `00a25920` (an object getter), `008d8520`, `00af2640` (Ghidra:
 /// `BSSystemUtility::QInstance`), `005dfa10` and `00af28f0`.
 const DLC_GETTER: u32 = 0x00a2_5920;
+#[cfg(test)]
 const DLC_STEP_A: u32 = 0x008d_8520;
 const DLC_INSTANCE: u32 = 0x00af_2640;
 const DLC_STEP_B: u32 = 0x005d_fa10;
@@ -1667,7 +1687,7 @@ pub fn start_menu_close(e: &mut Engine, delete_on_fade: u8) {
         if e.call(START_MENU_FLAG_1, &args![]).bool() {
             e.call(SET_PAUSE_MENU_MODE, &args![0u32]);
         }
-        let hidden = e.call(FIRST_WORD, &args![SCRIPT_LIST]).u32();
+        let hidden = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, SCRIPT_LIST));
         e.with_stack(4, |e, position| {
             e.mem.set_u32(position.addr(), hidden);
             while e.mem.u32(position.addr()) != 0 {
@@ -1885,14 +1905,14 @@ pub fn start_menu_do_click(e: &mut Engine, this: Ptr<StartMenu>, code: i32, tile
             == -1
     {
         let getter = e.call(DLC_GETTER, &args![]).u32();
-        let step = e.call(DLC_STEP_A, &args![getter]).u32();
+        let step = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, getter));
         // 007ceedd pushes `step` before the no-argument getter 00af2640; the
         // word is popped by 00af28f0 (RET 4, which never reads it).
         let instance = e.call(DLC_INSTANCE, &args![]).u32();
         let next = e.call(DLC_STEP_B, &args![instance]).u32();
         e.call(DLC_OPEN, &args![next, step]);
     }
-    let parent = e.call(TILE_PARENT, &args![tile]).u32();
+    let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
     let item = e
         .call(LIST_BOX_GET_ITEM, &args![this.byte_add(0x114), parent])
         .u32();
@@ -2179,6 +2199,7 @@ const FN_007CFDC0: u32 = 0x007c_fdc0;
 const FN_007CFE40: u32 = 0x007c_fe40;
 /// Tile accessor shared by several handlers: the word at `+0x28` of a tile
 /// (`Tile::pParent`'s slot in the exe, `0045cd60`).
+#[cfg(test)]
 const TILE_PARENT: u32 = 0x0045_cd60;
 /// `NiTPointerList`/`BSSimpleList` head pointer getter used on a form
 /// (`00500940`) and the node iteration of `006815c0`/`00726070` (above).
@@ -2366,13 +2387,13 @@ pub fn start_menu_do_still_down(e: &mut Engine, this: Ptr<StartMenu>, code: i32,
     if user_option == 0 {
         return;
     }
-    let parent = e.call(TILE_PARENT, &args![tile]).u32();
+    let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
     let highlighted = e.vcall(options.addr(), 4, &args![]).u32();
     if parent != highlighted {
         return;
     }
     let old = e.mem.u32(user_option + 0x14);
-    let parent = e.call(TILE_PARENT, &args![tile]).u32();
+    let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
     let scale = f64::from(tile_value(e, Ptr::new(parent), TRAIT_USER_3));
     let manager = e.call(INTERFACE_MANAGER_GETTER, &args![]).u32();
     let width = e.call(MANAGER_WIDTH, &args![manager]).i32();
@@ -2405,11 +2426,11 @@ pub fn start_menu_do_still_down(e: &mut Engine, this: Ptr<StartMenu>, code: i32,
 pub fn start_menu_do_enter(e: &mut Engine, this: Ptr<StartMenu>, _unused_1: u32, tile: Ptr) {
     let options = this.byte_add(0x114);
     if !tile.is_null() {
-        let parent = e.call(TILE_PARENT, &args![tile]).u32();
+        let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
         if parent != 0 {
-            let parent = e.call(TILE_PARENT, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             if e.call(LIST_BOX_HAS_TILE, &args![options, parent]).bool() {
-                let parent = e.call(TILE_PARENT, &args![tile]).u32();
+                let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
                 e.vcall(options.addr(), 0, &args![parent]);
             }
         }
@@ -2735,7 +2756,7 @@ pub fn fn_007cfe40(e: &mut Engine, tile: Ptr, item: Ptr) {
         } else {
             format_key_text(e, text, FORMAT_NUMBER, key_word);
         }
-        let characters = e.call(FIRST_WORD, &args![text]).u32();
+        let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         e.call(
             TILE_SET_STRING,
             &args![tile, TRAIT_USER_1, characters, 1u32],
@@ -2896,7 +2917,7 @@ pub fn fn_007d0550(e: &mut Engine) {
         let module = e.mem.u32(slot.addr());
         if module != 0 && e.call(MOD_IS_ACTIVE, &args![module]).bool() {
             let name_slot = fn_007d0660(e, Ptr::new(module));
-            let name = e.call(FIRST_WORD, &args![name_slot]).u32();
+            let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name_slot));
             e.call(INT_LIST_ADD_ITEM, &args![downloads, 0u32, name, 0u32, 0u32]);
         }
         node = node_next(e, node);
@@ -3310,9 +3331,11 @@ const FN_00401170: u32 = 0x0040_1170;
 const TYPE_DESCRIPTOR_QUEST: u32 = 0x0118_6500;
 const TYPE_DESCRIPTOR_BOUND_OBJECT: u32 = 0x0118_3108;
 const TYPE_DESCRIPTOR_NPC: u32 = 0x0118_3a1c;
+#[cfg(test)]
 const GET_FORM: u32 = 0x007a_f430;
 const FN_0060C9C0: u32 = 0x0060_c9c0;
 const FN_004581C0: u32 = 0x0045_81c0;
+#[cfg(test)]
 const ERROR_CALL: u32 = 0x0040_fbe0;
 const MEDIA_CLOSE: u32 = 0x0083_04a0;
 const FN_00788A90: u32 = 0x0078_8a90;
@@ -3426,7 +3449,7 @@ pub fn fn_007d0bf0(e: &mut Engine) {
     let root = e.call(MENUS_ROOT_GETTER, &args![manager]).u32();
     let model = e.call(TILE_MODEL, &args![root]).u32();
     e.call(FN_00450F90, &args![model, 1u32]);
-    let word = e.call(TILE_PARENT, &args![manager]).u32();
+    let word = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, manager));
     let model = e.call(TILE_MODEL, &args![word]).u32();
     e.call(FN_00450F90, &args![model, 1u32]);
     e.call(FN_00713FB0, &args![manager, 0u32, 0u32]);
@@ -4513,13 +4536,13 @@ fn show_save_message(e: &mut Engine, title_setting: u32) {
 /// item. Returns the node (0 when the list is empty).
 fn save_manager_first_node(e: &mut Engine) -> u32 {
     let manager = e.global::<u32>(CALLBACK_OWNER);
-    e.call(FIRST_WORD, &args![manager]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, manager))
 }
 
 /// The item of the manager's first node.
 fn save_manager_first_item(e: &mut Engine) -> u32 {
     let node = save_manager_first_node(e);
-    let item = e.call(NODE_ITEM, &args![node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(item)
 }
 
@@ -4609,7 +4632,7 @@ pub fn start_menu_confirm_new_game(e: &mut Engine) {
     let player = e.global::<u32>(GLOBAL_OBJECT_011DEA3C);
     e.call(FN_007ADCC0, &args![player, 0u32]);
     let player = e.global::<u32>(GLOBAL_OBJECT_011DEA3C);
-    let base = e.call(GET_FORM, &args![player]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
     let npc = e
         .call(
             RT_DYNAMIC_CAST,
@@ -4629,7 +4652,7 @@ pub fn start_menu_confirm_new_game(e: &mut Engine) {
     let tile = e.mem.u32(loading + 0x54);
     e.call(TILE_SET_INT, &args![tile, TRAIT_VISIBLE, 1u32]);
     e.call(FN_004581C0, &args![1u32]);
-    e.call(ERROR_CALL, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     e.call(SET_DIALOG_FLAG, &args![0u32]);
     e.call(MEDIA_CLOSE, &args![]);
     if e.call(DLC_GETTER, &args![]).u32() != 0 {
@@ -4685,7 +4708,7 @@ pub fn fn_007d3470(e: &mut Engine) {
     let player = e.global::<u32>(GLOBAL_OBJECT_011DEA3C);
     if player != 0 && e.call(START_MENU_FLAG_1, &args![]).bool() {
         let player = e.global::<u32>(GLOBAL_OBJECT_011DEA3C);
-        let base = e.call(GET_FORM, &args![player]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
         let npc = e
             .call(
                 RT_DYNAMIC_CAST,

@@ -39,11 +39,13 @@ const SLEEP: u32 = 0x0040_fca0;
 /// `00413f40(node)`: the address of the node's data (`node + 8`).
 const NODE_DATA: u32 = 0x0041_3f40;
 /// `00416870(out, x, y, z)`: builds a 3-float vector at `out`.
+#[cfg(test)]
 const VECTOR_SET: u32 = 0x0041_6870;
 /// `00439ef0(this, out, other)`: `out = this - other` for 3-float vectors,
 /// returns `out`.
 const VECTOR_SUBTRACT: u32 = 0x0043_9ef0;
 /// `0044ddc0(array)`: a `BSSimpleArray`'s `iSize` (`+8`).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `00457990(vector)`: the vector's length, in ST0.
 const VECTOR_LENGTH: u32 = 0x0045_7990;
@@ -96,6 +98,7 @@ const GET_TRIANGLE: u32 = 0x0055_82f0;
 const DOOR_TEST_57B460: u32 = 0x0057_b460;
 /// `006815c0(this)`: an empty constructor (returns `this`) the code runs on
 /// its two edge-vertex locals.
+#[cfg(test)]
 const VECTOR_CONSTRUCT: u32 = 0x0068_15c0;
 /// `0068f0c0(mesh, triangle, edge, out_a, out_b)`: the two vertices of the
 /// triangle's edge.
@@ -176,13 +179,12 @@ const FIND_PREDICATE: u32 = 0x009a_3830;
 const DESTROY_ELEMENTS: u32 = 0x0072_ba80;
 /// `0073cb80(request)`: the request's `bCantOpenDoors` (`+0x98`).
 const REQUEST_CANT_OPEN_DOORS: u32 = 0x0073_cb80;
-/// `007af430(door)`: the word at `+0x20` (the door's base form).
-const DOOR_BASE_FORM: u32 = 0x007a_f430;
 /// `007cb2e0(array, &item)`: appends the word at `item` to the array.
 const ARRAY_ADD: u32 = 0x007c_b2e0;
 /// `008454f0(array, free_buffer)`: empties a `BSSimpleArray`.
 const ARRAY_CLEAR: u32 = 0x0084_54f0;
 /// `00877a30(array, index)`: the address of element `index` of a word array.
+#[cfg(test)]
 const ARRAY_ELEMENT_4: u32 = 0x0087_7a30;
 /// `00982610(heap)`: the node heap's destructor.
 const NODE_HEAP_DESTRUCT: u32 = 0x0098_2610;
@@ -447,15 +449,29 @@ pub fn fn_006a6b70(
     if !high_level_solution.is_null() {
         let infos = e.mem.alloc(0x10);
         let pointer = e.mem.alloc(4);
-        let count = e.call(ARRAY_SIZE, &args![high_level_solution]).u32();
+        let count = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, high_level_solution)
+        );
         e.call(LOCAL_ARRAY_CONSTRUCT, &args![infos, count]);
         let mut index = 0u32;
-        while index < e.call(ARRAY_SIZE, &args![high_level_solution]).u32() {
+        while index
+            < typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, high_level_solution)
+            )
+        {
             e.call(LOCAL_POINTER_CONSTRUCT, &args![pointer]);
             let element = fn_006a7ad0(e, high_level_solution, index);
             let info = e.mem.u32(element);
             if e.call(INFO_TEST_69AD00, &args![info, pointer]).bool() {
-                let slot = e.call(ARRAY_ELEMENT_4, &args![infos, index]).u32();
+                let slot = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, infos, index)
+                );
                 e.call(LOCAL_POINTER_ASSIGN, &args![slot, pointer]);
             }
             e.call(LOCAL_POINTER_DESTRUCT, &args![pointer]);
@@ -491,7 +507,7 @@ pub fn fn_006a6eb0(e: &mut Engine, this: Ptr, out: Ptr) -> Ptr {
     let x = x87_quiet_bits(e.mem.u32(this.addr() + 0x8));
     let y = x87_quiet_bits(e.mem.u32(this.addr() + 0xc));
     let z = x87_quiet_bits(e.mem.u32(this.addr() + 0x10));
-    e.call(VECTOR_SET, &args![out, x, y, z]);
+    typed_call!(leaf::FAMILY, 0x0041_6870, leaf::point3_new(e, out, x, y, z));
     out
 }
 
@@ -744,7 +760,7 @@ fn connect_edge(
                     return;
                 }
             }
-            let base = e.call(DOOR_BASE_FORM, &args![door]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, door));
             if e.call(IS_MINIMAL_USE, &args![base]).bool() {
                 door_cost = float_global(e, HUNDRED);
             }
@@ -786,7 +802,7 @@ fn connect_edge(
     let bad_nodes = e.get(this, NavMeshSearch::pBadNodes);
     if !bad_nodes.is_null() {
         let mut index = 0u32;
-        while index < e.call(ARRAY_SIZE, &args![bad_nodes]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, bad_nodes)) {
             let link = fn_006a7af0(e, bad_nodes, index);
             if e.mem.u16(link + 4) == e.get(node, AStarNode::sTriangle) {
                 let link = fn_006a7af0(e, bad_nodes, index);
@@ -847,8 +863,12 @@ fn connect_edge(
         if found {
             let mut sum = 0.0f32;
             let mut index = 0u32;
-            while index < e.call(ARRAY_SIZE, &args![array]).u32() {
-                let slot = e.call(ARRAY_ELEMENT_4, &args![array, index]).u32();
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
+                let slot = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, array, index)
+                );
                 let avoid_node = e.mem.u32(slot);
                 let value = e.call(STATIC_AVOID_NODE_COST, &args![avoid_node]).f64();
                 sum = (value + sum as f64) as f32;
@@ -859,8 +879,8 @@ fn connect_edge(
         fn_006a7f90(e, array);
     }
 
-    e.call(VECTOR_CONSTRUCT, &args![l.vertex_a]);
-    e.call(VECTOR_CONSTRUCT, &args![l.vertex_b]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.vertex_a));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l.vertex_b));
     let other_edge = e.mem.u32(l.neighbour_edge);
     e.call(
         GET_EDGE_VERTICES,
@@ -1046,7 +1066,11 @@ pub fn nav_mesh_search_is_goal_node(
 // Translated from 006a7ad0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The address of element `index` of a word array (`00877a30`).
 pub fn fn_006a7ad0(e: &mut Engine, this: Ptr, index: u32) -> u32 {
-    e.call(ARRAY_ELEMENT_4, &args![this, index]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, this, index)
+    )
 }
 
 // Translated from 006a7af0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1307,8 +1331,12 @@ pub fn fn_006a8010(e: &mut Engine, this: Ptr<AStarSearchNavMesh>) -> Ptr<AStarNo
             let current = e.get(this, last);
             e.vcall(this.addr(), 0x4, &args![current, connections]);
             let mut index = 0u32;
-            while index < e.call(ARRAY_SIZE, &args![connections]).u32() {
-                let slot = e.call(ARRAY_ELEMENT_4, &args![connections, index]).u32();
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, connections)) {
+                let slot = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, connections, index)
+                );
                 let connection: Ptr<AStarNode> = Ptr::new(e.mem.u32(slot));
                 fn_006a8490(e, queue, connection);
                 let current = e.get(this, last);

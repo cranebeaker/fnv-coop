@@ -8,7 +8,11 @@ use crate::prelude::*;
 /// The address of an array's first element (no name in the engine map):
 /// `00877a30` on `this` with index 0, whose `EAX` the callers read.
 pub fn fn_006df160(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(0x0087_7a30, &args![this, 0u32]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, this, 0u32)
+    )
 }
 
 /// This unit's translated functions, by exe address.

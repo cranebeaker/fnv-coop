@@ -8,14 +8,17 @@ use crate::prelude::*;
 const FORM_TYPE_BYTE: u32 = 0x0040_1170;
 /// `00726070` (unnamed in the engine map): `thiscall`; the dword at `this + 4` (a list node's
 /// next).
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// `00500940` (unnamed in the engine map): `thiscall`; `this + 0x18` (the first node of a
 /// container's list).
 const LIST_FIRST_NODE_AT_18: u32 = 0x0050_0940;
 /// `008256d0` (unnamed in the engine map): `thiscall` on a list node, whether the node is empty
 /// (no item and no next).
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0`: returns `this` (the address of a node's item pointer).
+#[cfg(test)]
 const LIST_NODE_ITEM_SLOT: u32 = 0x0068_15c0;
 
 // Translated from 00480db0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -65,17 +68,20 @@ pub fn tes_biped_model_form_fills_biped_slot(
     }
     let mut filled = (1u32.wrapping_shl(slot & 0x1f) & e.mem.u32(flags)) != 0;
     if !filled && !container.is_null() {
-        let head = e.call(LIST_NEXT, &args![container]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, container));
         if head != 0 {
             let mut node = e.call(LIST_FIRST_NODE_AT_18, &args![head]).u32();
-            while !filled && node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-                let item_slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+            while !filled
+                && node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
+                let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let form = e.mem.u32(item_slot);
                 let part = tes_biped_model_form_get_form_as_biped_model(e, Ptr::new(form));
                 if !part.is_null() {
                     filled = tes_biped_model_form_fills_biped_slot(e, part, slot, flag, Ptr::NULL);
                 }
-                node = e.call(LIST_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
     }
@@ -171,8 +177,8 @@ pub fn tes_biped_model_form_add_to_biped(
         e.call(0x0063_3c90, &args![pointer, 0u32]);
         let loader = e.global::<u32>(MODEL_LOADER);
         e.call(0x0044_72a0, &args![loader, name, pointer]);
-        if e.call(0x0055_9450, &args![pointer]).u32() != 0 {
-            let found = e.call(0x0055_9450, &args![pointer]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
+            let found = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             let object = e.call(0x0043_b230, &args![found]).u32();
             let actor = e.call(0x0043_f010, &args![biped]).u32();
             e.call(0x008b_bc40, &args![actor, object]);

@@ -10,7 +10,9 @@ use crate::prelude::*;
 /// `004ae750` (`thiscall` on the pointer, no arguments; the map's name for it is a folded
 /// one), `00444d00` (`thiscall`, `(bit)`, answers a byte), and the others named where used.
 const TEST_FLAGS_004FD420: u32 = 0x004f_d420;
+#[cfg(test)]
 const LIST_EMPTY_008256D0: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_FIRST_006815C0: u32 = 0x0068_15c0;
 const OBJECT_004181E0: u32 = 0x0041_81e0;
 const CONVERT_004AE750: u32 = 0x004a_e750;
@@ -41,6 +43,7 @@ const FLOAT_OF_00408840: u32 = 0x0040_8840;
 const PROJECTILE_PROCESS_IMPACTS: u32 = 0x009c_1b70;
 const HOLDER_011F2250: u32 = 0x011f_2250;
 const HOLDER_GET_00441110: u32 = 0x0044_1110;
+#[cfg(test)]
 const HOLDER_GET_007AF430: u32 = 0x007a_f430;
 const HOLDER_SET_009C8B90: u32 = 0x009c_8b90;
 const HOLDER_SET_009C8C40: u32 = 0x009c_8c40;
@@ -104,9 +107,11 @@ pub fn fn_009b8a20(e: &mut Engine, this: Ptr) {
         e.mem.set_u32(state, 4);
         return;
     }
-    if e.call(LIST_EMPTY_008256D0, &args![this.addr() + 0x88])
-        .bool()
-    {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.addr() + 0x88)
+    ) {
         return;
     }
     e.mem.set_u32(state, 1);
@@ -148,8 +153,8 @@ pub fn fn_009b8900(
     sixth: u32,
 ) -> bool {
     let list = this.addr() + 0x88;
-    let allowed = e.call(LIST_EMPTY_008256D0, &args![list]).bool() || {
-        let item = e.call(LIST_FIRST_006815C0, &args![list]).u32();
+    let allowed = typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) || {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let record = e.mem.u32(item);
         e.mem.u8(record.wrapping_add(0x28)) != 0
     };
@@ -200,9 +205,11 @@ pub fn fn_009b8900(
 pub fn fn_009b8b10(e: &mut Engine, this: Ptr) -> bool {
     let mut processed = false;
     if e.mem.u8(this.addr() + 0x90) == 0
-        && !e
-            .call(LIST_EMPTY_008256D0, &args![this.addr() + 0x88])
-            .bool()
+        && !typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, this.addr() + 0x88)
+        )
     {
         let mut go = true;
         if e.call(TEST_BIT_00444D00, &args![this, 1u32]).bool() {
@@ -228,7 +235,12 @@ pub fn fn_009b8b10(e: &mut Engine, this: Ptr) -> bool {
         if e.call(HOLDER_GET_00441110, &args![HOLDER_011F2250]).u32() == this.addr() {
             e.call(HOLDER_SET_009C8B90, &args![HOLDER_011F2250, 0u32]);
         }
-        if e.call(HOLDER_GET_007AF430, &args![HOLDER_011F2250]).u32() == this.addr() {
+        if typed_call!(
+            leaf::FAMILY,
+            0x007a_f430,
+            leaf::word_at_20(e, HOLDER_011F2250)
+        ) == this.addr()
+        {
             e.call(HOLDER_SET_009C8C40, &args![HOLDER_011F2250, 0u32]);
         }
         let update = match e.mem.u32(this.addr() + STATE).wrapping_sub(1) {
@@ -289,6 +301,7 @@ const TWO_FLOAT: u32 = 0x0101_62c0;
 /// `00525340` (unnamed, `tesobjectweap.cpp`): `cdecl`, one word; normalizes the point.
 const NORMALIZE: u32 = 0x0052_5340;
 /// `NiPoint3::Dot` (`004b6190`, Xbox PDB): `thiscall`, one word (`RET 4`); `ST0`.
+#[cfg(test)]
 const DOT: u32 = 0x004b_6190;
 /// `00439e90` / `00439ef0` / `0045bb20` (unnamed): `thiscall`, two words (`RET 8`): an out
 /// point and a point (sum, difference) or a float (scaled).
@@ -322,6 +335,7 @@ const CALLEE_00408820: u32 = 0x0040_8820;
 const CALLEE_00631070: u32 = 0x0063_1070;
 /// `00416870` (unnamed, `extradatalist.cpp`): `thiscall`, three floats (`RET 0xc`);
 /// constructs a point.
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 
 /// `Projectile` limb-cut state (`fn_009b90b0`): the function-local `static float` at
@@ -333,6 +347,7 @@ const STATIC_GUARD: u32 = 0x011f_201c;
 const VATS_OWNER: u32 = 0x011d_df38;
 const VATS_TEST: u32 = 0x0042_ce10;
 /// `00726070` (unnamed): `thiscall`; the list's next node (also a count of the ray hits).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `10.0` (`float`, `0x01017b78`), `512.0` (`0x010231a0`), `1024.0` (`0x010236e0`) and
 /// `0.5` (`0x01016248`).
@@ -348,7 +363,9 @@ const EXTRA_LIST: u32 = 0x005d_43c0;
 const DISMEMBER_EXTRA: u32 = 0x0042_e8c0;
 /// `0044ddc0` / `00877a30` (unnamed): an array's count (`+8`) and the address of element
 /// `index` (`RET 4`).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// The table of limb node names (`0x01196d6c`, one word per part).
 const LIMB_NAMES: u32 = 0x0119_6d6c;
@@ -550,15 +567,15 @@ fn build_filter(e: &mut Engine, this: Ptr, filter: u32, controller_slot: u32, so
 fn aim(e: &mut Engine, this: Ptr, locals: [u32; 5]) {
     let [position, direction, matrix, looking, product] = locals;
     let p = this.addr();
-    e.call(LIST_FIRST_006815C0, &args![position]);
-    e.call(LIST_FIRST_006815C0, &args![direction]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
     let source = e.vcall(p, 0x1f4, &[]).u32();
     let words = e.mem.bytes(source, 0xc);
     e.mem.write(position, &words);
-    e.call(LIST_FIRST_006815C0, &args![matrix]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
     let facing = e.vcall(p, 0x2bc, &args![0u32]).f64();
     e.call(MATRIX_ROTATION, &args![matrix, x87_store32(facing)]);
-    e.call(LIST_FIRST_006815C0, &args![looking]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, looking));
     let look = e.call(GET_LOOKING, &args![this]).f64();
     e.call(MAKE_X_ROTATION, &args![looking, x87_store32(look)]);
     let result = e
@@ -592,7 +609,15 @@ fn reflect_velocity(e: &mut Engine, this: Ptr, node: u32, impact: u32) {
         e.mem.write(reflected, &words);
         e.call(NORMALIZE, &args![reflected]);
         e.call(NORMALIZE, &args![impact + 0x10]);
-        let dot = x87_store32(e.call(DOT, &args![impact + 0x10, reflected]).f64());
+        let dot = x87_store32(
+            typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, impact + 0x10, reflected)
+            )
+            .into_ret()
+            .f64(),
+        );
         let along = e
             .call(
                 FLOAT_TIMES_POINT,
@@ -638,14 +663,27 @@ pub fn fn_009b8c90(e: &mut Engine, this: Ptr) -> bool {
     if e.vcall(p, 0x1d0, &[]).u32() == 0 {
         return true;
     }
-    if e.call(LIST_EMPTY_008256D0, &args![p + 0x88]).u8() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, p + 0x88)
+    )
+    .into_ret()
+    .u8()
+        != 0
+    {
         return true;
     }
-    if e.call(HOLDER_GET_007AF430, &args![HOLDER_011F2250]).u32() == p {
+    if typed_call!(
+        leaf::FAMILY,
+        0x007a_f430,
+        leaf::word_at_20(e, HOLDER_011F2250)
+    ) == p
+    {
         e.call(HOLDER_SET_009C8C40, &args![HOLDER_011F2250, 0u32]);
     }
     let node = e.vcall(p, 0x1d0, &[]).u32();
-    let slot = e.call(LIST_FIRST_006815C0, &args![p + 0x88]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p + 0x88));
     let impact = e.mem.u32(slot);
     e.call(SET_FLAG, &args![this, 4u32, 1u32]);
     e.vcall(p, 0x2a4, &[]);
@@ -683,7 +721,7 @@ pub fn fn_009b8c90(e: &mut Engine, this: Ptr) -> bool {
             let value = e.mem.u32(ZERO_POINT + 4 * word);
             e.mem.set_u32(spin + 4 * word, value);
         }
-        e.call(LIST_FIRST_006815C0, &args![inverse]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, inverse));
         let own = e.vcall(p, 0x1d0, &[]).u32();
         let transform = e.call(WORLD_TRANSFORM, &args![own]).u32();
         e.call(MATRIX_INVERSE, &args![transform, inverse]);
@@ -704,9 +742,10 @@ pub fn fn_009b8c90(e: &mut Engine, this: Ptr) -> bool {
         e.call(NORMALIZE, &args![local]);
         let x = x87_load32(e.mem.u32(local));
         let z = x87_load32(e.mem.u32(local + 8));
-        e.call(
-            POINT3_CONSTRUCT,
-            &args![side, x87_store32(-z), 0.0f32.to_bits(), x87_store32(-x)],
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, side, x87_store32(-z), 0.0f32.to_bits(), x87_store32(-x))
         );
         let node_transform = e.call(WORLD_TRANSFORM, &args![node]).u32();
         let turned = e
@@ -782,18 +821,26 @@ pub fn fn_009b90b0(e: &mut Engine, this: Ptr) {
 /// The body of `fn_009b90b0` after the static and the VATS test.
 fn fn_009b90b0_cut(e: &mut Engine, this: Ptr, in_vats: bool) -> CutEnd {
     let p = this.addr();
-    if e.call(LIST_EMPTY_008256D0, &args![p + 0x88]).u8() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, p + 0x88)
+    )
+    .into_ret()
+    .u8()
+        != 0
+    {
         return CutEnd::GiveUp;
     }
     let node = e.vcall(p, 0x1d0, &[]).u32();
     let children = e.vcall(node, 0xc, &[]).u32();
-    let slot = e.call(LIST_FIRST_006815C0, &args![p + 0x88]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p + 0x88));
     let mut impact = e.mem.u32(slot);
     e.mem.set_u32(p + 0x158, x87_quiet_bits(e.mem.u32(TEN)));
     if e.mem.u32(p + STATE) == 4 {
-        impact = if e.call(NODE_NEXT, &args![p + 0x88]).u32() != 0 {
-            let next = e.call(NODE_NEXT, &args![p + 0x88]).u32();
-            let slot = e.call(LIST_FIRST_006815C0, &args![next]).u32();
+        impact = if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, p + 0x88)) != 0 {
+            let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, p + 0x88));
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, next));
             e.mem.u32(slot)
         } else {
             0
@@ -818,12 +865,20 @@ fn fn_009b90b0_cut(e: &mut Engine, this: Ptr, in_vats: bool) -> CutEnd {
     let extra = e.call(DISMEMBER_EXTRA, &args![extra_list]).u32();
     let mut cut_before = false;
     let mut index = 0u32;
-    while index < e.call(ARRAY_COUNT, &args![extra + 0x20]).u32() {
-        let entry_slot = e.call(ARRAY_ELEMENT, &args![extra + 0x20, index]).u32();
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, extra + 0x20)) {
+        let entry_slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, extra + 0x20, index)
+        );
         let entry = e.mem.u32(entry_slot);
         let wanted = i32::from(e.mem.i8(impact + 0x24));
         if i32::from(e.mem.u8(entry)) == wanted {
-            let entry_slot = e.call(ARRAY_ELEMENT, &args![extra + 0x20, index]).u32();
+            let entry_slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, extra + 0x20, index)
+            );
             let entry = e.mem.u32(entry_slot);
             if e.mem.u8(entry + 1) != 0 {
                 cut_before = true;
@@ -963,7 +1018,7 @@ fn fn_009b90b0_cut(e: &mut Engine, this: Ptr, in_vats: bool) -> CutEnd {
                 if !in_vats {
                     e.call(SET_LOCATION_ON_REFERENCE, &args![this, impact + 0x4]);
                     let vector = at(0xcc0);
-                    e.call(LIST_FIRST_006815C0, &args![vector]);
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
                     e.call(VECTOR_FROM_POINT, &args![vector, impact + 0x4]);
                     let controller = e.call(GET_CHAR_CONTROLLER, &args![this]).u32();
                     e.call(SET_CONTROLLER_POSITION, &args![controller, vector]);
@@ -994,7 +1049,12 @@ fn fn_009b90b0_cut(e: &mut Engine, this: Ptr, in_vats: bool) -> CutEnd {
                 .u32();
             e.call(POINT_SCALE_INTO, &args![scaled, at(0xcd0), two]);
             e.call(ADD_VELOCITY, &args![children, at(0xcd0), 1u32]);
-            if e.call(HOLDER_GET_007AF430, &args![HOLDER_011F2250]).u32() == p {
+            if typed_call!(
+                leaf::FAMILY,
+                0x007a_f430,
+                leaf::word_at_20(e, HOLDER_011F2250)
+            ) == p
+            {
                 e.call(HOLDER_SET_009C8C40, &args![HOLDER_011F2250, 0u32]);
             }
         }
@@ -1044,7 +1104,11 @@ fn hinge_and_test(
     if e.call(RAY_CAST, &args![ray, limb, 0u32, 1u32]).u8() != 0 {
         let holder = e.call(RAY_HITS, &args![ray]).u32();
         let hits = e.call(MEMBER_AT_10, &args![holder]).u32();
-        if e.call(NODE_NEXT, &args![hits]).i32() > 0 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, hits))
+            .into_ret()
+            .i32()
+            > 0
+        {
             let holder = e.call(RAY_HITS, &args![ray]).u32();
             let hits = e.call(MEMBER_AT_10, &args![holder]).u32();
             let hit = e.call(HIT_AT, &args![hits, 0u32]).u32();
@@ -1086,17 +1150,17 @@ fn hinge_and_test(
     let converted = e.call(CONVERT_004AE750, &args![own_body]).u32();
     let transform = e.call(BODY_TRANSFORM, &args![converted]).u32();
     e.call(TRANSFORM_FROM, &args![own_frame, transform]);
-    let rotation = e.call(LIST_FIRST_006815C0, &args![hit_frame]).u32();
+    let rotation = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, hit_frame));
     e.call(RENORMALIZE, &args![rotation]);
-    let rotation = e.call(LIST_FIRST_006815C0, &args![own_frame]).u32();
+    let rotation = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, own_frame));
     e.call(RENORMALIZE, &args![rotation]);
     let column = at(0x6dc);
-    e.call(LIST_FIRST_006815C0, &args![column]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, column));
     let own_node = e.vcall(p, 0x1d0, &[]).u32();
     let transform = e.call(WORLD_TRANSFORM, &args![own_node]).u32();
     e.call(MATRIX_COLUMN, &args![transform, 1u32, column]);
     let axis = at(0x6f0);
-    e.call(LIST_FIRST_006815C0, &args![axis]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, axis));
     e.call(VECTOR_FROM, &args![axis, column]);
     e.call(VECTOR_NORMALIZE, &args![axis]);
     let node_transform = at(0x724);
@@ -1114,7 +1178,7 @@ fn hinge_and_test(
         &args![node_transform, at(0x748), at(0x730)],
     );
     let pivot_vector = at(0x760);
-    e.call(LIST_FIRST_006815C0, &args![pivot_vector]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, pivot_vector));
     e.call(VECTOR_FROM_POINT, &args![pivot_vector, at(0x748)]);
     fn_009ba3d0(e, Ptr::new(hinge), hit_frame, own_frame, pivot_vector, axis);
     let block = e.call(ALLOCATE, &args![0x10u32]).u32();
@@ -1178,7 +1242,11 @@ fn hinge_and_test(
     while !stuck {
         let holder = e.call(RAY_HITS, &args![ray]).u32();
         let hits = e.call(MEMBER_AT_10, &args![holder]).u32();
-        if index >= e.call(NODE_NEXT, &args![hits]).i32() {
+        if index
+            >= typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, hits))
+                .into_ret()
+                .i32()
+        {
             break;
         }
         let holder = e.call(RAY_HITS, &args![ray]).u32();

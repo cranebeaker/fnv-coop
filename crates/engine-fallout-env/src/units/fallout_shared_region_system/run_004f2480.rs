@@ -14,14 +14,17 @@ pub fn fn_004f2770(_e: &mut Engine, this: Ptr) -> u32 {
 /// `00413f40` (`thiscall`, no stack word): a list's first node.
 const LIST_HEAD: u32 = 0x0041_3f40;
 /// `006815c0` (`thiscall`, no stack word): the address of a node's item.
+#[cfg(test)]
 const NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
 /// `00726070` (`thiscall`, no stack word): the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `00564f00` (`thiscall`): whether the reference is flagged as an imposter.
 const IS_IMPOSTER: u32 = 0x0056_4f00;
 /// `00564f40` (`thiscall`, `RET 4`): sets that flag (called with 1).
 const SET_IMPOSTER: u32 = 0x0056_4f40;
 /// `0084e3a0` (`thiscall`): the form's id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `005b5e40` (cdecl, variable arguments): a warning line with a category.
 const WARNING: u32 = 0x005b_5e40;
@@ -54,13 +57,13 @@ const DATA_LIST_FIND: u32 = 0x004f_35b0;
 pub fn fn_004f2480(e: &mut Engine, this: Ptr, visible: u8, force: u8) {
     let mut node = e.call(LIST_HEAD, &args![this]).u32();
     while node != 0 {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) != 0 {
-            let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_address);
             fn_004f24e0(e, Ptr::new(item), visible, force);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -82,7 +85,7 @@ pub fn fn_004f24e0(e: &mut Engine, reference: Ptr, visible: u8, force: u8) {
     let r = reference.addr();
     if !e.call(IS_IMPOSTER, &args![r]).bool() {
         e.call(SET_IMPOSTER, &args![r, 1u32]);
-        let id = e.call(FORM_ID, &args![r]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, r));
         let name = e.vcall(r, 0x130, &args![]).u32();
         e.call(WARNING, &args![0xeu32, NOT_AN_IMPOSTER_FORMAT, name, id]);
     }
@@ -131,7 +134,7 @@ pub fn fn_004f2640(e: &mut Engine, form: u32) -> bool {
         regions.wrapping_add(4)
     };
     let empty = node == 0 || {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.mem.u32(item_address) == 0
     };
     if empty {
@@ -150,11 +153,11 @@ pub fn fn_004f2640(e: &mut Engine, form: u32) -> bool {
         };
     }
     while node != 0 {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             break;
         }
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let region = e.mem.u32(item_address);
         if region != 0 {
             let list = e.call(REGION_DATA_LIST, &args![region]).u32();
@@ -162,18 +165,20 @@ pub fn fn_004f2640(e: &mut Engine, form: u32) -> bool {
             if data != 0 {
                 let mut entry = e.call(LIST_HEAD, &args![data]).u32();
                 while entry != 0 {
-                    let item_address = e.call(NODE_ITEM_ADDRESS, &args![entry]).u32();
+                    let item_address =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, entry));
                     if e.mem.u32(item_address) != 0 {
-                        let item_address = e.call(NODE_ITEM_ADDRESS, &args![entry]).u32();
+                        let item_address =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, entry));
                         if e.mem.u32(item_address) == form {
                             return true;
                         }
                     }
-                    entry = e.call(NODE_NEXT, &args![entry]).u32();
+                    entry = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                 }
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }

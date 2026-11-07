@@ -210,7 +210,7 @@ pub fn fn_008c5b10(e: &mut Engine, owner: u32, actor_value: u32, old: f32, delta
 /// vector, and its result goes to [`fn_008c5df0`] on `this`.
 pub fn fn_008c5d90(e: &mut Engine, this: Ptr, value: u32) {
     e.with_stack(0x18, |e, local| {
-        e.call(0x0068_15c0, &args![local]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
         let built = e.call(0x004a_3e00, &args![local, value]).u32();
         fn_008c5df0(e, this, built);
     });
@@ -243,14 +243,18 @@ pub fn fn_008c5e70(e: &mut Engine, this: Ptr) {
 /// `008d8520` (`thiscall`, no stack words; the engine map's name
 /// `MiddleHighProcess::GetSavedAcquireObject` is folded code): the object whose slot `+0x52c`
 /// [`fn_008c51f0`] asks.
+#[cfg(test)]
 const GET_008D8520: u32 = 0x008d_8520;
 /// The vtable slot `+0x52c` of `008d8520`'s object (no stack words).
 const SLOT_52C: u32 = 0x52c;
 /// `008256d0` (`thiscall` on a list node, no stack words; a `bool` in `AL`): ends the scan.
+#[cfg(test)]
 const LIST_IS_EMPTY_008256D0: u32 = 0x0082_56d0;
 /// `006815c0` (`thiscall` on a list node, no stack words): the address of the node's item.
+#[cfg(test)]
 const LIST_ITEM_006815C0: u32 = 0x0068_15c0;
 /// `00726070` (`thiscall` on a list node, no stack words): the next node.
+#[cfg(test)]
 const LIST_FOLLOWING_NODE: u32 = 0x0072_6070;
 /// `007df1d0` (`thiscall` on the effect, no stack words) and `00403e60` (`thiscall` on its
 /// answer, one stack word: here 0x40000; a `bool` in `AL`).
@@ -277,22 +281,22 @@ const ACTIVE_EFFECT_DISPEL: u32 = 0x0080_4210;
 /// (`ActiveEffect::Dispel(1)`) and the answer becomes `true`.
 pub fn fn_008c51f0(e: &mut Engine, this: Ptr) -> bool {
     let mut dispelled = false;
-    let object = e.call(GET_008D8520, &args![this]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
     if object == 0 {
         return false;
     }
-    let object = e.call(GET_008D8520, &args![this]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
     if e.vcall(object, SLOT_52C, &args![]).u32() == 0 {
         return false;
     }
-    let object = e.call(GET_008D8520, &args![this]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
     let target = e.vcall(object, SLOT_52C, &args![]).u32();
     let mut node = e.vcall(target + 0x94, 8, &args![]).u32();
     while node != 0 {
-        if e.call(LIST_IS_EMPTY_008256D0, &args![node]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             break;
         }
-        let slot = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect = e.mem.u32(slot);
         if effect != 0 {
             let flags = e.call(EFFECT_GET_007DF1D0, &args![effect]).u32();
@@ -323,7 +327,7 @@ pub fn fn_008c51f0(e: &mut Engine, this: Ptr) -> bool {
                 }
             }
         }
-        node = e.call(LIST_FOLLOWING_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     dispelled
 }

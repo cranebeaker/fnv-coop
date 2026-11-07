@@ -82,8 +82,11 @@ const QUEST_FLAG_2: u32 = 0x0059_e400;
 const QUEST_FLAG_ENABLED: u32 = 0x0045_5620;
 /// `008256d0`: true for an empty list node. `00726070`: a node's next
 /// pointer / a component's second word. `006815c0`: returns `this`.
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
+#[cfg(test)]
 const RETURN_THIS: u32 = 0x0068_15c0;
 /// `00717e50`: `this + 4` (the item list of a stage).
 const STAGE_ITEM_LIST: u32 = 0x0071_7e50;
@@ -238,16 +241,16 @@ fn quest_data(this: Ptr<TESQuest>) -> Ptr<QuestData> {
 /// The item of a list node: `006815c0` returns the node, whose first word
 /// is the item.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let node = e.call(RETURN_THIS, &args![node]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(node)
 }
 
 fn node_is_empty(e: &mut Engine, node: u32) -> bool {
-    e.call(NODE_IS_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(WORD_AT_4, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 // Translated from 0060caf0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -293,11 +296,24 @@ pub fn fn_0060cba0(e: &mut Engine, this: Ptr<TESQuest>) {
         return;
     }
     e.call(SCRIPTABLE_INIT_ITEM, &args![base + SCRIPTABLE, this]);
-    if e.call(WORD_AT_4, &args![base + SCRIPTABLE]).u32() != 0 {
-        let script = e.call(WORD_AT_4, &args![base + SCRIPTABLE]).u32();
+    if typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, base + SCRIPTABLE)
+    ) != 0
+    {
+        let script = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, base + SCRIPTABLE)
+        );
         let locals = e.call(SCRIPT_CREATE_LOCALS, &args![script]).u32();
         e.set(this, TESQuest::pScriptLocals, Ptr::new(locals));
-        let script = e.call(WORD_AT_4, &args![base + SCRIPTABLE]).u32();
+        let script = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, base + SCRIPTABLE)
+        );
         e.call(SCRIPT_SET_OWNER, &args![script, this]);
         if e.get(this, TESQuest::pScriptLocals) != Ptr::NULL {
             e.call(FORCE_CHANGE, &args![this, CHANGE_SCRIPT_LOCALS]);
@@ -604,11 +620,20 @@ pub fn fn_0060d4b0(e: &mut Engine, this: Ptr<TESQuestStageItem>, index: u8) {
 /// with 0, the locals, 0 and 0.
 pub fn fn_0060d4d0(e: &mut Engine, this: Ptr<TESQuest>) {
     let base = this.addr();
-    if e.call(WORD_AT_4, &args![base + SCRIPTABLE]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, base + SCRIPTABLE)
+    ) == 0
+    {
         return;
     }
     let locals = e.get(this, TESQuest::pScriptLocals);
-    let script = e.call(WORD_AT_4, &args![base + SCRIPTABLE]).u32();
+    let script = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, base + SCRIPTABLE)
+    );
     e.call(SCRIPT_RUN, &args![script, 0u32, locals, 0u32, 0u32]);
 }
 

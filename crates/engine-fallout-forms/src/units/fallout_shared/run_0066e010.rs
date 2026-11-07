@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// `006815c0` (`thiscall`, no stack word): called on +8 first (its result is not used).
+#[cfg(test)]
 const PREPARE_POINT: u32 = 0x0068_15c0;
 /// `00436aa0` (`thiscall`, no stack word; unit `fallout shared/extradataobjects.cpp`): the
 /// address of the reference's three-word position.
@@ -13,6 +14,7 @@ const REFERENCE_POSITION: u32 = 0x0043_6aa0;
 const ZERO_POINT: u32 = 0x011f_426c;
 /// `008d8520` (`thiscall`, no stack word; engine map
 /// `MiddleHighProcess::GetSavedAcquireObject`, a folded body).
+#[cfg(test)]
 const REFERENCE_PROCESS: u32 = 0x008d_8520;
 /// The running counter `0066e010` numbers its records with (`011d60cc`).
 const RECORD_COUNTER: u32 = 0x011d_60cc;
@@ -31,7 +33,7 @@ const LIST_ADD: u32 = 0x005a_e3d0;
 /// (`005ae3d0`, given the address of a local holding `this`). Returns `this`.
 pub fn fn_0066e010(e: &mut Engine, this: Ptr, reference: u32) -> Ptr {
     let base = this.addr();
-    e.call(PREPARE_POINT, &args![base + 8]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 8));
     e.mem.set_u32(base, reference);
     let source = if e.mem.u32(base) != 0 {
         let stored = e.mem.u32(base);
@@ -45,7 +47,7 @@ pub fn fn_0066e010(e: &mut Engine, this: Ptr, reference: u32) -> Ptr {
     }
     e.mem.set_u32(base + 4, 0);
     let process = if e.mem.u32(base) != 0 {
-        e.call(REFERENCE_PROCESS, &args![reference]).u32()
+        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference))
     } else {
         0
     };

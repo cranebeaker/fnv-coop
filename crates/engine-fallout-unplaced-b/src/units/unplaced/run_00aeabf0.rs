@@ -1902,7 +1902,6 @@ fn second_buffer(e: &mut Engine, this: Ptr, at: &dyn Fn(u32) -> u32) -> u8 {
 /// point), length (`00457990`) and dot product (`NiPoint3::Dot`, `004b6190`, `RET 4`).
 const POINT_SUBTRACT: u32 = 0x0043_9ef0;
 const POINT_LENGTH: u32 = 0x0045_7990;
-const POINT_DOT: u32 = 0x004b_6190;
 /// `BSGameSound::vBeamEnd` (Xbox PDB) `+0x17c`.
 const BEAM_END: u32 = 0x17c;
 /// The scale from game units to DirectSound's (`double` at `010a3be8`).
@@ -2065,7 +2064,15 @@ fn beam_point(e: &mut Engine, this: Ptr, point: [u32; 3]) -> [u32; 3] {
             let value = e.mem.u32(result + 4 * axis);
             e.mem.set_u32(relative + 4 * axis, value);
         }
-        let along = x87_store32(e.call(POINT_DOT, &args![relative, direction]).f64());
+        let along = x87_store32(
+            typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, relative, direction)
+            )
+            .into_ret()
+            .f64(),
+        );
         if !parity_even(fpu_compare(x87_load32(along), double_at(e, ZERO_01012060)) & 0x41) {
             point = [
                 field(e, this, POSITION),
@@ -2074,7 +2081,15 @@ fn beam_point(e: &mut Engine, this: Ptr, point: [u32; 3]) -> [u32; 3] {
             ];
             return;
         }
-        let length = x87_store32(e.call(POINT_DOT, &args![direction, direction]).f64());
+        let length = x87_store32(
+            typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, direction, direction)
+            )
+            .into_ret()
+            .f64(),
+        );
         if fpu_compare(x87_load32(along), x87_load32(length)) & 0x01 == 0 {
             point = [
                 field(e, this, BEAM_END),

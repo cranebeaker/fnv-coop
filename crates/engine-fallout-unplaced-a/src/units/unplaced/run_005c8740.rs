@@ -8,6 +8,7 @@ use crate::prelude::*;
 const PARSE_PARAMETERS: u32 = 0x005a_ccb0;
 /// A reference test (`00440da0`, `modelloader.cpp`; thiscall, a `bool`):
 /// the command gives up on a reference for which it answers true.
+#[cfg(test)]
 const REFERENCE_TEST_00440DA0: u32 = 0x0044_0da0;
 /// `PackageLocation::PackageLocation` (`0067f030`), `SetLocReference`
 /// (`0067f3c0`, one word) and the destructor (`0067f110`); a location is
@@ -23,6 +24,7 @@ const IS_PENDING_FADE_DISABLED: u32 = 0x005a_a6d0;
 /// `TESObjectREFR::Activate` (`00573170`, thiscall, four words).
 const ACTIVATE: u32 = 0x0057_3170;
 /// `MiddleHighProcess::GetSavedAcquireObject` (`008d8520`, engine map).
+#[cfg(test)]
 const GET_SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// `MobileObject::GetCurrentPackage` (`009344a0`, engine map), the
 /// package's type (`0041ca90`) and the setter `005c8a30` (engine map
@@ -96,8 +98,16 @@ pub fn fn_005c8740(
     );
     if this_obj == 0
         || target == 0
-        || e.call(REFERENCE_TEST_00440DA0, &args![this_obj]).u32() & 0xff != 0
-        || e.call(REFERENCE_TEST_00440DA0, &args![target]).u32() & 0xff != 0
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, this_obj))
+            .into_ret()
+            .u32()
+            & 0xff
+            != 0
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, target))
+            .into_ret()
+            .u32()
+            & 0xff
+            != 0
     {
         return true;
     }
@@ -128,8 +138,16 @@ pub fn fn_005c8740(
         };
         let refused = actor == 0
             || other == 0
-            || e.call(REFERENCE_TEST_00440DA0, &args![actor]).u32() & 0xff != 0
-            || e.call(REFERENCE_TEST_00440DA0, &args![other]).u32() & 0xff != 0
+            || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
+                .into_ret()
+                .u32()
+                & 0xff
+                != 0
+            || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, other))
+                .into_ret()
+                .u32()
+                & 0xff
+                != 0
             || e.vcall(actor, SLOT_214, &args![]).u32() == 9
             || e.call(IS_PENDING_FADE_DISABLED, &args![actor]).u32() & 0xff != 0
             || e.call(IS_PENDING_FADE_DISABLED, &args![other]).u32() & 0xff != 0;
@@ -138,8 +156,8 @@ pub fn fn_005c8740(
         } else if actor == e.global::<u32>(PLAYER) {
             let player = e.global::<u32>(PLAYER);
             e.call(ACTIVATE, &args![other, player, 0u32, 0u32, 1u32]);
-        } else if e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32() != 0
-            && e.call(GET_SAVED_ACQUIRE_OBJECT, &args![other]).u32() != 0
+        } else if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
+            && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, other)) != 0
         {
             e.vcall(
                 actor,

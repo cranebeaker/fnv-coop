@@ -339,6 +339,7 @@ const LIST_SORT: u32 = 0x0083_fd60;
 /// `ListBoxItem(this, tile, &data)` constructor (`007a62e0`).
 const LIST_ITEM_CONSTRUCT: u32 = 0x007a_62e0;
 /// Returns the node's own address: the address of its item (`006815c0`).
+#[cfg(test)]
 const LIST_NODE_SELF: u32 = 0x0068_15c0;
 /// `(node, next)`: stores the next pointer at +4 (`006ecd40`).
 const LIST_NODE_SET_NEXT: u32 = 0x006e_cd40;
@@ -351,10 +352,12 @@ const LIST_NODE_ITEM_SLOT: u32 = 0x0063_17a0;
 /// `(list) -> [list] + 8` (`0073ac90`).
 const LIST_HEAD_ITEM_SLOT: u32 = 0x0073_ac90;
 /// `(object) -> [object + 4]` (`00726070`).
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// `(object) -> object + 0xC` (`0048d150`).
 const LIST_FIRST_NODE: u32 = 0x0048_d150;
 /// `BSSimpleList::IsEmpty` on the list at the object (`008256d0`).
+#[cfg(test)]
 const LIST_IS_EMPTY_NODE: u32 = 0x0082_56d0;
 const LIST_BOX_BASE_CONSTRUCT: u32 = 0x0072_40c0;
 const EMBEDDED_LIST_CONSTRUCT: u32 = 0x0096_a2d0;
@@ -788,6 +791,7 @@ const TILE_CHAIN_SUM_FA1: u32 = 0x00a0_13d0;
 /// Same for trait 0xFA2 (`00a01440`, decompiled).
 const TILE_CHAIN_SUM_FA2: u32 = 0x00a0_1440;
 /// Returns `[ecx + 0x28]`, the tile's next sibling (`0045cd60`).
+#[cfg(test)]
 const TILE_NEXT_SIBLING: u32 = 0x0045_cd60;
 /// `InterfaceManager::SetCurrentFocusTarget(manager, tile, trait, flag)`
 /// (name from the engine map).
@@ -815,10 +819,13 @@ const SETTING_STRING: u32 = 0x0040_3df0;
 const SETTING_STRING_ALT: u32 = 0x004c_69f0;
 /// `(object) -> [object]` (`00559450`): the first word, e.g. a string's
 /// character pointer.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `(array) -> count` of a `BSSimpleArray` (`0044ddc0`).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 /// `(array, index) -> pointer to the element` (`00877a30`).
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// String constructor on an 8-byte object (`004037b0`).
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
@@ -909,13 +916,17 @@ fn float_to_int(e: &mut Engine, value: f64) -> i32 {
 }
 
 fn array_count(e: &mut Engine, array: u32) -> u32 {
-    e.call(ARRAY_COUNT, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 /// `array[index]` of a `BSSimpleArray` of pointers: `00877a30` returns the
 /// element's address, the code then reads the pointer.
 fn array_item(e: &mut Engine, array: u32, index: u32) -> u32 {
-    let slot = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    );
     e.mem.u32(slot)
 }
 
@@ -1283,7 +1294,8 @@ pub fn start_menu_populate_options_list_box(e: &mut Engine, this: Ptr<StartMenu>
             let enabled_trait = e.get(menu, StartMenu::ENABLED_TRAIT);
             set_int(e, item, enabled_trait, usable as i32);
             let children_list = item.byte_add(4);
-            let mut node = e.call(FIRST_WORD, &args![children_list]).u32();
+            let mut node =
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, children_list));
             while node != 0 && !children_list.is_null() {
                 let head_slot = e.call(LIST_HEAD_ITEM_SLOT, &args![children_list]).u32();
                 if e.mem.u32(head_slot) == 0 {
@@ -1452,7 +1464,9 @@ pub fn fn_007d49a0(
     );
 
     let container = tile_of(e, this, TILE_CONFIRM_CONTAINER);
-    let sibling = e.call(TILE_NEXT_SIBLING, &args![container]).ptr::<()>();
+    let sibling = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, container))
+        .into_ret()
+        .ptr::<()>();
     let sum = e.call(TILE_CHAIN_SUM_FA1, &args![sibling]).f64();
     let container = tile_of(e, this, TILE_CONFIRM_CONTAINER);
     set_float(
@@ -1463,7 +1477,9 @@ pub fn fn_007d49a0(
         true,
     );
     let container = tile_of(e, this, TILE_CONFIRM_CONTAINER);
-    let sibling = e.call(TILE_NEXT_SIBLING, &args![container]).ptr::<()>();
+    let sibling = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, container))
+        .into_ret()
+        .ptr::<()>();
     let sum = e.call(TILE_CHAIN_SUM_FA2, &args![sibling]).f64();
     let container = tile_of(e, this, TILE_CONFIRM_CONTAINER);
     set_float(
@@ -1512,19 +1528,19 @@ pub fn start_menu_populate_save_load_list_box(e: &mut Engine, this: Ptr<StartMen
     let manager = e.global::<u32>(SAVE_LOAD_MANAGER);
     e.call(SAVE_LOAD_MANAGER_REFRESH, &args![manager]);
     let manager = e.global::<u32>(SAVE_LOAD_MANAGER);
-    let mut node = e.call(FIRST_WORD, &args![manager]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, manager));
     while node != 0 {
-        let slot = e.call(LIST_NODE_SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(LIST_NODE_SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(slot);
         e.call(
             SAVE_LOAD_LIST_ADD_ITEM,
             &args![list_at(this, LIST_SAVE_LOAD), entry, 0u32, 0u32, 0u32],
         );
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -1704,7 +1720,8 @@ pub fn start_menu_update_highlighted_save_game_info(e: &mut Engine, this: Ptr<St
                     ],
                 );
                 let level_tile = tile_of(e, this, TILE_PLAYER_LEVEL);
-                let characters = e.call(FIRST_WORD, &args![text_object]).u32();
+                let characters =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text_object));
                 set_string(e, level_tile, TRAIT_0FC4, characters, true);
                 level_shown = true;
                 let play_time = fn_007d5180(e, Ptr::new(entry));
@@ -1720,7 +1737,8 @@ pub fn start_menu_update_highlighted_save_game_info(e: &mut Engine, this: Ptr<St
                     ],
                 );
                 let time_tile = tile_of(e, this, TILE_PLAY_TIME);
-                let characters = e.call(FIRST_WORD, &args![text_object]).u32();
+                let characters =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text_object));
                 set_string(e, time_tile, TRAIT_0FC4, characters, true);
                 time_shown = true;
                 let language_name = e.call(FILE_ENTRY_LANGUAGE, &args![entry]).u32();
@@ -1736,7 +1754,8 @@ pub fn start_menu_update_highlighted_save_game_info(e: &mut Engine, this: Ptr<St
                     ],
                 );
                 let version_tile = tile_of(e, this, TILE_SAVE_VERSION);
-                let characters = e.call(FIRST_WORD, &args![text_object]).u32();
+                let characters =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text_object));
                 set_string(e, version_tile, TRAIT_0FC4, characters, true);
                 language_shown = true;
                 e.call(STRING_DESTRUCT, &args![text_object]);
@@ -1828,7 +1847,11 @@ pub fn start_menu_set_save_game_screenshot(
     e.call(TILE_SET_INTEGER_VALUE, &args![tile, TRAIT_0FB1, height]);
     let image_slot = fn_007d5280(e, tile);
     if e.call(IMAGE_ALPHA_MAP, &args![image_slot]).u32() == 0 {
-        let alpha_map = e.call(FIRST_WORD, &args![this.byte_add(0x1b8)]).u32();
+        let alpha_map = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.byte_add(0x1b8))
+        );
         let image_slot = fn_007d5280(e, tile);
         e.call(IMAGE_SET_ALPHA_MAP, &args![image_slot, alpha_map]);
     }
@@ -1839,7 +1862,11 @@ pub fn start_menu_set_save_game_screenshot(
 /// The word at `+0x40` of a tile image (read through `00559450` on the
 /// address `this + 0x40`).
 pub fn fn_007d5280(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(FIRST_WORD, &args![this.byte_add(0x40)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0x40))
+    )
 }
 
 // Translated from 007d52a0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2826,7 +2853,8 @@ pub fn start_menu_initialize_save_load_list_item(e: &mut Engine, tile: Ptr, entr
                 STRING_FORMAT,
                 &args![text_object, FORMAT_SAVE_NUMBER, number],
             );
-            let characters = e.call(FIRST_WORD, &args![text_object]).u32();
+            let characters =
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text_object));
             set_string(e, tile, TRAIT_1004, characters, true);
             e.call(STRING_DESTRUCT, &args![text_object]);
         });
@@ -2919,7 +2947,11 @@ pub fn fn_007d69f0(e: &mut Engine) {
     let utility = e.call(SYSTEM_UTILITY_INSTANCE, &[]).u32();
     let dlc = e.call(DLC_UTILITY_FROM_SYSTEM, &args![utility]).u32();
     let content_list = fn_007d6bb0(e, Ptr::new(dlc));
-    if !e.call(LIST_IS_EMPTY_NODE, &args![content_list]).bool() {
+    if !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, content_list)
+    ) {
         let menu = instance(e);
         set_flag(e, menu, FLAG_DLC_CORRUPT_MESSAGE, true);
     }
@@ -2934,7 +2966,7 @@ pub fn fn_007d69f0(e: &mut Engine) {
     );
     let mut node = e.call(LIST_FIRST_NODE, &args![dlc]).u32();
     while node != 0 {
-        let slot = e.call(LIST_NODE_SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let name = e.mem.u32(slot);
         if name != 0 {
             let wide_name = e.call(STRING_CHARACTERS, &args![name]).u32();
@@ -2947,7 +2979,7 @@ pub fn fn_007d69f0(e: &mut Engine) {
                 );
             });
         }
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -2979,7 +3011,9 @@ pub fn fn_007d6c30(e: &mut Engine) {
         return;
     }
     let active = e.call(INTERFACE_ACTIVE, &[]).u8();
-    let menu_tile = e.call(WORD_AT_4, &args![menu]).ptr::<()>();
+    let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu))
+        .into_ret()
+        .ptr::<()>();
     set_int(e, menu_tile, TRAIT_1009, active as i32);
     let active = e.call(INTERFACE_ACTIVE, &[]).u8();
     e.call(START_MENU_FN_7D30B0, &args![active]);
@@ -3264,14 +3298,14 @@ fn remove_all(
         if node.is_null() {
             break;
         }
-        let first_slot = e.call(LIST_NODE_SELF, &args![node]).u32();
+        let first_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(first_slot) == 0 {
             break;
         }
-        let following = e.call(WORD_AT_4, &args![node]).u32();
+        let following = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if e.mem.u8(SKIP_TILE_DESTROY_BYTE) == 0 {
             let node = e.get(this, ListBoxLayout::m_pkNext);
-            let slot = e.call(LIST_NODE_SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let list_item = e.mem.u32(slot);
             let tile = e.mem.u32(list_item);
             if tile != 0 {
@@ -3280,7 +3314,7 @@ fn remove_all(
         }
         if e.call(LIST_FLAG_TEST, &args![this, 1u32]).bool() {
             let node = e.get(this, ListBoxLayout::m_pkNext);
-            let slot = e.call(LIST_NODE_SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let list_item = e.mem.u32(slot);
             let option = e.mem.u32(list_item + 4);
             if option != 0 {
@@ -3288,7 +3322,7 @@ fn remove_all(
             }
         }
         let node = e.get(this, ListBoxLayout::m_pkNext);
-        let slot = e.call(LIST_NODE_SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let list_item = e.mem.u32(slot);
         e.call(OPERATOR_DELETE, &args![list_item]);
         let node = e.get(this, ListBoxLayout::m_pkNext);
@@ -3468,7 +3502,7 @@ fn first_node(this: Ptr<ListBoxLayout>) -> u32 {
 /// The `ListBoxItem*` in a node's item slot (`006815c0` returns the node's own
 /// address, which is the slot).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(LIST_NODE_SELF, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -3480,7 +3514,7 @@ fn node_tile(e: &mut Engine, node: u32) -> u32 {
 
 /// The node after `node` (`00726070`, the word at +4).
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(WORD_AT_4, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// `SetEnabled`: sets the container tile's `_enabled` trait.
@@ -3989,7 +4023,13 @@ pub fn list_box_file_entry_add_item(
 /// before it); false for a null tile or an empty list. When the tile is not in
 /// the list the walk ends at the null node and `007d9ac0` is called with it.
 pub fn fn_007d8040(e: &mut Engine, this: Ptr<ListBoxLayout>, tile: u32) -> bool {
-    if tile == 0 || e.call(LIST_IS_EMPTY_NODE, &args![this.byte_add(4)]).bool() {
+    if tile == 0
+        || typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, this.byte_add(4))
+        )
+    {
         return false;
     }
     let mut node = first_node(this);
@@ -4012,7 +4052,11 @@ pub fn fn_007d8040(e: &mut Engine, this: Ptr<ListBoxLayout>, tile: u32) -> bool 
 /// nothing matches the walk ends at the null node and `007d9ac0` is called
 /// with it.
 pub fn fn_007d80f0(e: &mut Engine, this: Ptr<ListBoxLayout>, key: u32, by_position: u8) -> bool {
-    if e.call(LIST_IS_EMPTY_NODE, &args![this.byte_add(4)]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.byte_add(4))
+    ) {
         return false;
     }
     let mut node = first_node(this);

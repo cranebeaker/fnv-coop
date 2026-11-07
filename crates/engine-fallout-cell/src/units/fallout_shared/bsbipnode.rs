@@ -6,6 +6,7 @@ use crate::prelude::*;
 
 /// The flag test `00456630` (`thiscall (object, mask)`: whether the word at
 /// +0x30 has a bit of `mask`).
+#[cfg(test)]
 const HAS_FLAG: u32 = 0x0045_6630;
 /// The object's first time controller (`0043b230`, `thiscall`) and a
 /// controller's next (`004a8a90`, `thiscall`).
@@ -14,6 +15,7 @@ const NEXT_CONTROLLER: u32 = 0x004a_8a90;
 /// The word at an address (`00559450`, `thiscall`) and the list walk
 /// `0057cbe0` (`thiscall (list, &position)`: the address of the element at
 /// the position, the position moved on).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 const LIST_GET_NEXT: u32 = 0x0057_cbe0;
 /// `NiObject::IsKindOf`-style test (`0045bad0`, `cdecl (rtti, object)`,
@@ -42,6 +44,7 @@ const MATRIX_SET_COLUMN: u32 = 0x004b_4660;
 /// `00440460`, scale `00440490`, both one word).
 const TRANSFORM_CONSTRUCTOR: u32 = 0x0049_4260;
 const TRANSLATE_VALID: u32 = 0x0049_42c0;
+#[cfg(test)]
 const TRANSLATE_OF: u32 = 0x0068_15c0;
 const ROTATE_OF: u32 = 0x0048_d150;
 const SCALE_OF: u32 = 0x0049_5460;
@@ -62,14 +65,22 @@ const INTERPOLATOR_SIZE: u32 = 0x30;
 /// Unnamed in the engine map: whether the object's flags (+0x30) have bit
 /// 0x40000 (`00456630`).
 pub fn fn_004f0000(e: &mut Engine, this: Ptr) -> bool {
-    e.call(HAS_FLAG, &args![this, 0x0004_0000u32]).bool()
+    typed_call!(
+        leaf::FAMILY,
+        0x0045_6630,
+        leaf::flags_at_30_any(e, this, 0x0004_0000u32)
+    )
 }
 
 // Translated from 004f0140 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed in the engine map: whether the object's flags (+0x30) have bit 2
 /// (`00456630`).
 pub fn fn_004f0140(e: &mut Engine, this: Ptr) -> bool {
-    e.call(HAS_FLAG, &args![this, 2u32]).bool()
+    typed_call!(
+        leaf::FAMILY,
+        0x0045_6630,
+        leaf::flags_at_30_any(e, this, 2u32)
+    )
 }
 
 // Translated from 004f0020 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -221,11 +232,11 @@ pub fn ni_av_object_update_object_controllers(
     if properties != 0 && fn_004f0000(e, this) {
         let list = this.addr().wrapping_add(0x24);
         e.with_stack(4, |e, position| {
-            let head = e.call(FIRST_WORD, &args![list]).u32();
+            let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
             e.mem.set_u32(position.addr(), head);
             while e.mem.u32(position.addr()) != 0 {
                 let element = e.call(LIST_GET_NEXT, &args![list, position]).u32();
-                let property = e.call(FIRST_WORD, &args![element]).u32();
+                let property = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element));
                 if property != 0 && e.call(FIRST_CONTROLLER, &args![property]).u32() != 0 {
                     e.vcall(property, 0x90, &args![data]);
                 }
@@ -323,7 +334,7 @@ fn update_target(
         return false;
     }
     if e.call(TRANSLATE_VALID, &args![transform]).bool() {
-        let translate = e.call(TRANSLATE_OF, &args![transform]).u32();
+        let translate = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, transform));
         e.call(SET_TRANSLATE, &args![target, translate]);
     }
     if fn_004f02e0(e, transform) {

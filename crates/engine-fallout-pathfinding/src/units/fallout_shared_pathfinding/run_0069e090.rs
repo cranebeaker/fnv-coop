@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// `00416870`: a point's constructor from three floats (`thiscall`).
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0041_6870;
 
 // Translated from 0069e0c0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -20,7 +21,11 @@ pub fn fn_0069e0c0(e: &mut Engine, this: Ptr, result: Ptr, scale: f32) -> Ptr {
         x87_load32(scale.to_bits()),
         x87_m32(e.mem.u32(base)),
     ));
-    e.call(POINT_CONSTRUCT, &args![result, x, y, 0u32]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, result, x, y, 0u32)
+    );
     result
 }
 

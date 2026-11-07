@@ -22,6 +22,7 @@ const DESCRIPTION_OWNER: u32 = 0x011c_5490;
 /// `thiscall`: the word at the string).
 const STRING_SET: u32 = 0x0040_37f0;
 const STRING_LENGTH: u32 = 0x0040_48e0;
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 /// The empty C string (`01011584`).
 const EMPTY_STRING: u32 = 0x0101_1584;
@@ -158,8 +159,19 @@ pub fn tes_description_get_description(e: &mut Engine, this: Ptr, form: Ptr, chu
         }
         tes_description_load_description(e, this, source, chunk);
     }
-    if e.call(STRING_TEXT, &args![DESCRIPTION_TEXT]).u32() != 0 {
-        e.call(STRING_TEXT, &args![DESCRIPTION_TEXT]).ptr()
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, DESCRIPTION_TEXT)
+    ) != 0
+    {
+        typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, DESCRIPTION_TEXT)
+        )
+        .into_ret()
+        .ptr()
     } else {
         Ptr::new(EMPTY_STRING)
     }
@@ -177,6 +189,7 @@ const TYPE_BASE_FORM_COMPONENT: u32 = 0x0118_3040;
 const STRING_COMPARE: u32 = 0x0040_8a80;
 /// The getter `CopyComponent` uses for the other description's offset
 /// (`00726070`, `thiscall`, no name confirmed).
+#[cfg(test)]
 const OTHER_OFFSET: u32 = 0x0072_6070;
 
 // Translated from 00482d30 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -232,7 +245,7 @@ pub fn tes_description_copy_component(e: &mut Engine, this: Ptr, other: Ptr) {
     }
     let text = e.vcall(source, 0x10, &args![0u32, CHUNK_DESC]).u32();
     e.call(STRING_SET, &args![DESCRIPTION_TEXT, text, 0u32]);
-    let offset = e.call(OTHER_OFFSET, &args![source]).u32();
+    let offset = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source));
     e.mem
         .set_u32(this.addr().wrapping_add(DESCRIPTION_OFFSET), offset);
 }

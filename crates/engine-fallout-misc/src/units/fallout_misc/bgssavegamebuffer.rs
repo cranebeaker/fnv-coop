@@ -165,7 +165,7 @@ pub fn save_form_id(e: &mut Engine, this: Ptr<BGSSaveGameBuffer>, form: Ptr, _un
     let id = if form.is_null() {
         0
     } else {
-        e.call(0x0084e3a0, &args![form]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
     };
     e.with_stack(4, |e, index| {
         e.call(0x0084eaf0, &args![index]);
@@ -284,6 +284,7 @@ pub fn save_variable_sized_value(e: &mut Engine, this: Ptr<BGSSaveGameBuffer>, v
 }
 
 /// `006815c0` (`thiscall`): the quaternion local's (empty) constructor.
+#[cfg(test)]
 const TRIVIAL_CONSTRUCT: u32 = 0x0068_15c0;
 /// `NiQuaternion::FromRotation` (`00a6df40`, `thiscall`, `RET 4`: the
 /// matrix).
@@ -302,7 +303,7 @@ pub fn bgs_save_game_buffer_save_data(
     _unused_3: u32,
 ) {
     e.with_stack(0x10, |e, quaternion| {
-        e.call(TRIVIAL_CONSTRUCT, &args![quaternion]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, quaternion));
         e.call(QUATERNION_FROM_ROTATION, &args![quaternion, rotation]);
         save_bytes(e, this, quaternion, 0x10, 0);
     });

@@ -24,6 +24,7 @@ const CHARACTER_CONTROLLER_CALL: u32 = 0x00c6_e050;
 /// mask into the dword at `+4`, otherwise it hands the mask to `006296b0`.
 const FLAG_SET_OR_CLEAR: u32 = 0x0062_9670;
 /// `00559450` (unnamed in the engine map): `thiscall`, answers the dword at `this`.
+#[cfg(test)]
 const READ_FIRST_WORD: u32 = 0x0055_9450;
 /// `bhkWorldObject::GetAVObject` (Xbox PDB, `00c85c80`, `RET 4`).
 const WORLD_OBJECT_GET_AV_OBJECT: u32 = 0x00c8_5c80;
@@ -69,10 +70,10 @@ pub fn fn_00810640(e: &mut Engine, this: Ptr, value: u32) {
 /// call; the disassembly pushes it for `GetAVObject`.
 pub fn fn_00810660(e: &mut Engine, this: Ptr) -> u32 {
     let slot = this.addr().wrapping_add(0x594);
-    if e.call(READ_FIRST_WORD, &args![slot]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) == 0 {
         return 0;
     }
-    let object = e.call(READ_FIRST_WORD, &args![slot]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     e.call(WORLD_OBJECT_GET_AV_OBJECT, &args![object, 0u32])
         .u32()
 }
@@ -364,6 +365,7 @@ const PROJECTILE_FLIGHT_SOUND: u32 = 0x004f_d3c0;
 const PROJECTILE_LIGHT: u32 = 0x004f_d380;
 const PROJECTILE_IMPACT_SOUND: u32 = 0x008c_e390;
 /// `0084e3a0` (`thiscall`): the word at +0xC (a form's id).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `009b0bd0` (`thiscall`, `ECX` = the projectile form): a `float` in `ST0` (its speed).
 const PROJECTILE_SPEED: u32 = 0x009b_0bd0;
@@ -400,6 +402,7 @@ const CELL_HAVOK_WORLD: u32 = 0x0045_43c0;
 const CELL_WATER_HEIGHT: u32 = 0x0054_71e0;
 /// `0045cd60` (`thiscall`): a word of the object at +0x68; the controller is set up only
 /// while it is zero.
+#[cfg(test)]
 const OBJECT_BUSY: u32 = 0x0045_cd60;
 /// `00484b60` (`thiscall`, `RET 4`) and `TESForm::SetDisabled` (`00484af0`, `RET 4`).
 const FORM_SET_FLAG: u32 = 0x0048_4b60;
@@ -418,6 +421,7 @@ const SAVE_LOAD_FLAG: u32 = 0x0047_c850;
 /// `00401460` (`cdecl`, three words: destination, source, size): copies memory.
 const COPY_MEMORY: u32 = 0x0040_1460;
 /// `00440d80` (`thiscall`): a `bool` of the reference that stops the update.
+#[cfg(test)]
 const REFERENCE_FLAG: u32 = 0x0044_0d80;
 /// The node setters `00440490` (scale, a `float`), `00440460` (translation, a point's
 /// address) and `0043fa80` (rotation, a matrix's address) (`RET 4` each).
@@ -427,6 +431,7 @@ const NODE_SET_ROTATE: u32 = 0x0043_fa80;
 /// `00430830` (`thiscall`): the address of the reference's angles (three `float`s).
 const ANGLES: u32 = 0x0043_0830;
 /// `006815c0` (`thiscall`): answers `this` (run on the local matrix before it is filled).
+#[cfg(test)]
 const MATRIX_SELF: u32 = 0x0068_15c0;
 /// The matrix from Euler angles (`00a59660`, `RET 0xC`).
 const MATRIX_FROM_ANGLES: u32 = 0x00a5_9660;
@@ -547,6 +552,7 @@ const CONTROLLER_HAS_FLAG: u32 = 0x0062_1270;
 const HEIGHT_OFFSET: u32 = 0x0045_87d0;
 /// The point helpers `00416870` (`RET 0xC`), `00439ef0` (`RET 8`: a difference into an out
 /// point) and `00457990` (the length, `ST0`).
+#[cfg(test)]
 const POINT_SET: u32 = 0x0041_6870;
 const POINT_DIFFERENCE: u32 = 0x0043_9ef0;
 const POINT_LENGTH: u32 = 0x0045_7990;
@@ -671,7 +677,7 @@ fn restart_flight_sound(e: &mut Engine, this: Ptr) {
     }
     let form = e.call(BASE_FORM, &args![this]).u32();
     let sound = e.call(PROJECTILE_FLIGHT_SOUND, &args![form]).u32();
-    let id = e.call(FORM_ID, &args![sound]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
     let handle = this.addr().wrapping_add(0xb4);
     if e.call(SOUND_HANDLE_IS_VALID, &args![handle]).bool() {
         e.call(SOUND_HANDLE_RELEASE, &args![handle]);
@@ -870,7 +876,7 @@ pub fn magic_ball_projectile_init_3d(e: &mut Engine, this: Ptr) {
     let y = e.mem.u32(angles.wrapping_add(4));
     let z = e.mem.u32(angles.wrapping_add(8));
     e.with_stack(0x24, |e, matrix| {
-        e.call(MATRIX_SELF, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         e.call(
             MATRIX_FROM_ANGLES,
             &args![
@@ -921,7 +927,7 @@ pub fn magic_ball_projectile_init_3d(e: &mut Engine, this: Ptr) {
 pub fn fn_0080feb0(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     let object = e.mem.u32(base.wrapping_add(0x68));
-    if object == 0 || e.call(OBJECT_BUSY, &args![object]).u32() != 0 {
+    if object == 0 || typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, object)) != 0 {
         return;
     }
     let mut controller = e.call(GET_CHAR_CONTROLLER, &args![this]).u32();
@@ -1156,7 +1162,7 @@ pub fn fn_008106d0(e: &mut Engine, this: Ptr, time: f32) {
 /// [`fn_008106d0`]'s flying state.
 fn ball_fly(e: &mut Engine, this: Ptr, time: f32) {
     let base = this.addr();
-    if e.call(REFERENCE_FLAG, &args![this]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
         return;
     }
     let controller = e.call(GET_CHAR_CONTROLLER, &args![this]).ptr();
@@ -1178,7 +1184,11 @@ fn ball_fly(e: &mut Engine, this: Ptr, time: f32) {
             x87_load32(e.mem.u32(base.wrapping_add(0x88))),
             x87_m32(time.to_bits()),
         ));
-        e.call(POINT_SET, &args![step, 0.0f32, speed, 0.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, step, 0.0f32, speed, 0.0f32)
+        );
         let start = position_words(e, this);
         for (i, word) in start.iter().enumerate() {
             e.mem.set_u32(before.wrapping_add(4 * i as u32), *word);
@@ -1383,7 +1393,7 @@ pub fn fn_00810aa0(
     if e.call(PROJECTILE_IMPACT_SOUND, &args![form]).u32() != 0 && !flag {
         let form = e.call(BASE_FORM, &args![this]).u32();
         let sound = e.call(PROJECTILE_IMPACT_SOUND, &args![form]).u32();
-        let id = e.call(FORM_ID, &args![sound]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         e.with_stack(0x0c, |e, handle| {
             let audio = e.call(AUDIO_INSTANCE, &[]).u32();
             e.call(GET_SOUND_HANDLE_BY_ID, &args![audio, handle, id, 0x102u32]);
@@ -1420,8 +1430,8 @@ pub fn fn_00810f90(e: &mut Engine, this: Ptr, set: u8) {
 /// object at +0x594 (`00559450`), hands it the filter word (`00626cb0`).
 pub fn bhk_character_controller_set_collision_filter(e: &mut Engine, this: Ptr, filter: u32) {
     let slot = this.addr().wrapping_add(0x594);
-    if e.call(READ_FIRST_WORD, &args![slot]).u32() != 0 {
-        let object = e.call(READ_FIRST_WORD, &args![slot]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) != 0 {
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         e.call(OBJECT_SET_FILTER, &args![object, filter]);
     }
 }
@@ -1430,7 +1440,8 @@ pub fn bhk_character_controller_set_collision_filter(e: &mut Engine, this: Ptr, 
 /// Unnamed in the engine map (`thiscall`): true when the state (+0xAC) is not 2 and
 /// `00440d80` answers false.
 pub fn fn_00811030(e: &mut Engine, this: Ptr) -> bool {
-    e.mem.u32(this.addr().wrapping_add(0xac)) != 2 && !e.call(REFERENCE_FLAG, &args![this]).bool()
+    e.mem.u32(this.addr().wrapping_add(0xac)) != 2
+        && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this))
 }
 
 // Translated from 00811070 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1556,7 +1567,7 @@ pub fn magic_ball_projectile_init_load_game(e: &mut Engine, this: Ptr, buffer: u
             let node = node(e, this);
             let form = e.call(BASE_FORM, &args![this]).u32();
             let light_form = e.call(PROJECTILE_LIGHT, &args![form]).u32();
-            let id = e.call(FORM_ID, &args![light_form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, light_form));
             e.call(MAGIC_LIGHT_CONSTRUCTOR, &args![block, id, node])
                 .u32()
         } else {

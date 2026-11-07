@@ -65,7 +65,9 @@ const GET_FACE_GEN_COORD: u32 = 0x0065_21e0;
 const COPY_FACE_GEN_COORD: u32 = 0x0065_29a0;
 const LOW_LOD_NIF_NAME: u32 = 0x0065_3a10;
 const HIGH_LOD_NIF_NAME: u32 = 0x0065_3c40;
+#[cfg(test)]
 const HELD_WORD: u32 = 0x0055_9450;
+#[cfg(test)]
 const TRIVIAL_CONSTRUCT_006815C0: u32 = 0x0068_15c0;
 /// The archive side: the cdecl path split (`00afd270`: path, out folder, out file) and
 /// find (`00af6540`: 0, folder, file, path), the cdecl file names `00653520`
@@ -221,38 +223,40 @@ pub fn fn_00653e50(e: &mut Engine, node: u32, kind: u32) {
             let nif = at(0x110);
             match kind {
                 0 => {
-                    let text = e.call(HELD_WORD, &args![base_name]).u32();
+                    let text =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base_name));
                     e.call(LOW_LOD_NIF_NAME, &args![nif, text]);
                 }
                 1 => {
-                    let text = e.call(HELD_WORD, &args![base_name]).u32();
+                    let text =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base_name));
                     e.call(HIGH_LOD_NIF_NAME, &args![nif, text]);
                 }
                 _ => {}
             }
-            if e.call(HELD_WORD, &args![nif]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nif)) == 0 {
                 destroy_face_locals(e, &locals);
                 return;
             }
             let (folder, file) = (at(0xd0), at(0x30));
-            e.call(TRIVIAL_CONSTRUCT_006815C0, &args![folder]);
-            e.call(TRIVIAL_CONSTRUCT_006815C0, &args![file]);
-            let path = e.call(HELD_WORD, &args![nif]).u32();
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, folder));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, file));
+            let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nif));
             e.call(SPLIT_PATH, &args![path, folder, file]);
-            let path = e.call(HELD_WORD, &args![nif]).u32();
+            let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nif));
             let found = e.call(ARCHIVE_FIND, &args![0u32, folder, file, path]).u32();
             if found == 0 {
                 destroy_face_locals(e, &locals);
                 return;
             }
-            let path = e.call(HELD_WORD, &args![nif]).u32();
+            let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nif));
             let alternate = e.call(NAME_006537D0, &args![at(0xd8), path]).u32();
-            let path = e.call(HELD_WORD, &args![nif]).u32();
+            let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nif));
             let tri = e
                 .call(TRI_FILE_NAME, &args![at(0xbc), path, u32::MAX])
                 .u32();
-            let path_again = e.call(HELD_WORD, &args![nif]).u32();
-            let path = e.call(HELD_WORD, &args![nif]).u32();
+            let path_again = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nif));
+            let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nif));
             let egm = e
                 .call(EGM_FILE_NAME, &args![at(0x24), path, u32::MAX])
                 .u32();
@@ -264,7 +268,7 @@ pub fn fn_00653e50(e: &mut Engine, node: u32, kind: u32) {
                 .u32();
             let model_pointer = at(0x108);
             e.call(SMART_POINTER_CONSTRUCT, &args![model_pointer, model]);
-            let held = e.call(HELD_WORD, &args![model_pointer]).u32();
+            let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model_pointer));
             let cloned = e
                 .call(
                     MODEL_CLONE_GEOMETRY,
@@ -272,7 +276,13 @@ pub fn fn_00653e50(e: &mut Engine, node: u32, kind: u32) {
                 )
                 .u8()
                 != 0;
-            if !cloned || e.call(HELD_WORD, &args![locals.geometry_pointer]).u32() == 0 {
+            if !cloned
+                || typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, locals.geometry_pointer)
+                ) == 0
+            {
                 e.call(SMART_POINTER_DESTRUCT, &args![model_pointer]);
                 destroy_face_locals(e, &locals);
                 return;
@@ -281,10 +291,18 @@ pub fn fn_00653e50(e: &mut Engine, node: u32, kind: u32) {
             let label = e
                 .call(FIXED_STRING_CONSTRUCT, &args![fixed, FACE_GEN_FACE])
                 .u32();
-            let geometry = e.call(HELD_WORD, &args![locals.geometry_pointer]).u32();
+            let geometry = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, locals.geometry_pointer)
+            );
             e.call(SET_NAME, &args![geometry, label]);
             e.call(FIXED_STRING_DESTRUCT, &args![fixed]);
-            let geometry = e.call(HELD_WORD, &args![locals.geometry_pointer]).u32();
+            let geometry = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, locals.geometry_pointer)
+            );
             e.mem.set_u32(at(0xdc), geometry);
             let translate = e.call(GET_TRANSLATE, &args![child]).u32();
             e.call(SET_TRANSLATE, &args![geometry, translate]);
@@ -311,7 +329,7 @@ pub fn fn_00653e50(e: &mut Engine, node: u32, kind: u32) {
                 e.call(ITERATOR_CONSTRUCT, &args![iterator]);
                 let data = e.call(GEOMETRY_DATA, &args![geometry]).u32();
                 e.call(DATA_FILL_00A67410, &args![data, iterator]);
-                if e.call(HELD_WORD, &args![iterator]).u32() != 0 {
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, iterator)) != 0 {
                     let data = e.call(GEOMETRY_DATA, &args![geometry]).u32();
                     let bound = e.call(DATA_BOUND, &args![data]).u32();
                     e.call(BUILD_BOUND, &args![bound, iterator, u32::from(vertices)]);

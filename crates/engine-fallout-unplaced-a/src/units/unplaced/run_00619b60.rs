@@ -14,13 +14,16 @@ const REDIRECT_INDEX: u32 = 5;
 /// per-quest info lists).
 const TOPIC_QUEST_LIST: u32 = 0x005d_8a70;
 /// `006815c0` (`ECX` = node): the node itself (its first word is the item).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`ECX` = node): the word at +4 (the next node).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `00717e50` (`ECX` = object): `this + 4` (in a per-quest entry, its info
 /// array).
 const PLUS_FOUR: u32 = 0x0071_7e50;
 /// `0084e3a0` (`ECX` = object): the word at +0xc (an array's count).
+#[cfg(test)]
 const WORD_AT_0XC: u32 = 0x0084_e3a0;
 /// `00619f20` (cdecl: per-quest entry, index): the info at that index.
 const ENTRY_INFO: u32 = 0x0061_9f20;
@@ -48,15 +51,15 @@ pub fn fn_00619d00(e: &mut Engine, this: Ptr, info: u32) -> u32 {
         if node == 0 {
             return 0;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             return 0;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(item);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         let infos = e.call(PLUS_FOUR, &args![entry]).u32();
-        let count = e.call(WORD_AT_0XC, &args![infos]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, infos));
         let mut index = 0u32;
         while index < count {
             if e.call(ENTRY_INFO, &args![entry, index]).u32() == info {
@@ -87,15 +90,15 @@ pub fn fn_00619c50(e: &mut Engine, this: Ptr, info: u32) -> u32 {
         if node == 0 {
             return 0;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             return 0;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(item);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         let infos = e.call(PLUS_FOUR, &args![entry]).u32();
-        let count = e.call(WORD_AT_0XC, &args![infos]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, infos));
         let mut index = 0u32;
         while index < count {
             if e.call(ENTRY_INFO, &args![entry, index]).u32() == info {
@@ -122,16 +125,16 @@ pub fn fn_00619bc0(e: &mut Engine, this: Ptr, quest: u32, flag: u8) -> bool {
         if node == 0 {
             return false;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             return false;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(item);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if e.mem.u32(entry) == quest {
             let infos = e.call(PLUS_FOUR, &args![entry]).u32();
-            let count = e.call(WORD_AT_0XC, &args![infos]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, infos));
             return count > 0 || flag == 0;
         }
     }
@@ -141,6 +144,7 @@ pub fn fn_00619bc0(e: &mut Engine, this: Ptr, quest: u32, flag: u8) -> bool {
 const DATA_HANDLER: u32 = 0x011c_3f2c;
 const TOPIC_LIST_004612E0: u32 = 0x0046_12e0;
 /// `008256d0` (`ECX` = node): whether the list is empty (`AL`).
+#[cfg(test)]
 const NODE_EMPTY: u32 = 0x0082_56d0;
 /// `00619a90` (`ECX` = topic, one stack word: the quest).
 const TOPIC_FOR_QUEST_00619A90: u32 = 0x0061_9a90;
@@ -155,11 +159,16 @@ pub fn fn_00619b60(e: &mut Engine, quest: u32) {
     }
     let handler: u32 = e.global(DATA_HANDLER);
     let mut node = e.call(TOPIC_LIST_004612E0, &args![handler]).u32();
-    while node != 0 && e.call(NODE_EMPTY, &args![node]).u8() == 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            == 0
+    {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let topic = e.mem.u32(item);
         e.call(TOPIC_FOR_QUEST_00619A90, &args![topic, quest]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 

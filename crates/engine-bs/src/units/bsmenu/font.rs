@@ -757,6 +757,7 @@ layout! {
 pub(crate) const FONT_FILENAME_SETTINGS: u32 = 0x011f_3414;
 
 /// The fatal error reporter (`0040fbe0`, cdecl).
+#[cfg(test)]
 pub(crate) const FATAL_ERROR: u32 = 0x0040_fbe0;
 
 /// `"Missing all font data. The program will be terminated."`
@@ -3041,7 +3042,7 @@ pub fn font_manager_font_manager(e: &mut Engine, this: Ptr<FontManager>) -> Ptr<
             }
         }
         if !found {
-            e.call(FATAL_ERROR, &args![MISSING_FONT_DATA_MESSAGE]);
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words MISSING_FONT_DATA_MESSAGE);
         }
     });
     this

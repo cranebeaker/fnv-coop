@@ -31,6 +31,7 @@ const NEXT_CAPACITY: u32 = 0x009a_3910;
 /// `005efa80` (`ECX` = array; capacity, count; `RET 8`).
 const GROW: u32 = 0x005e_fa80;
 /// `006815c0` (`ECX` = object).
+#[cfg(test)]
 const PAIR_HALF_CONSTRUCT: u32 = 0x0068_15c0;
 
 /// The shared body of `00692290`, `006923f0` and `00692520`: empties the
@@ -189,8 +190,12 @@ pub fn fn_006925b0(e: &mut Engine, this: Ptr) -> u32 {
 // Translated from 00692710 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Runs `006815c0` on `this` and on `this + 0xc`; returns `this`.
 pub fn fn_00692710(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(PAIR_HALF_CONSTRUCT, &args![this]);
-    e.call(PAIR_HALF_CONSTRUCT, &args![this.addr() + 0xc]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0xc)
+    );
     this
 }
 

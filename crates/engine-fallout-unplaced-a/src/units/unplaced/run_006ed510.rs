@@ -14,6 +14,7 @@ pub fn fn_006ed510(e: &mut Engine, this: Ptr) {
 }
 
 /// `00877a30` (`thiscall`, `RET 4`; unit `fallout/misc/main.cpp`).
+#[cfg(test)]
 const SET_INDEX: u32 = 0x0087_7a30;
 
 // Translated from 006f2270 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -22,7 +23,11 @@ const SET_INDEX: u32 = 0x0087_7a30;
 /// the address the callers read through: `00877a30` answers an array element's address).
 pub fn fn_006f2270(e: &mut Engine, this: Ptr) -> u32 {
     let value = e.mem.u32(this.addr() + 8).wrapping_sub(1);
-    e.call(SET_INDEX, &args![this, value]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, this, value)
+    )
 }
 
 // The rest of this unit is `PathSmoother` code (by its fields: the Xbox PDB's `PathSmoother`,
@@ -62,6 +67,7 @@ const POINT_DEFAULT: u32 = 0x0068_15c0;
 const POINT_EQUAL: u32 = 0x0043_90c0;
 const POINT_SUBTRACT: u32 = 0x0043_9ef0;
 const POINT_OP_004B3800: u32 = 0x004b_3800;
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 /// The arrays' helpers (thiscall on the array): the count (`0044ddc0`), add a word from its
 /// address (`007cb2e0`, the engine map's `BSSimpleArray<BGSBodyPart*,1024>::AddUninitialized`
@@ -70,11 +76,13 @@ const POINT_DOT: u32 = 0x004b_6190;
 /// the emptiness test `0076b610` (`AL`), the element address `00877a30` (index), the
 /// search arrays' element addresses (`006a7af0` on the edges, `006dad90` and `006b3160` on
 /// the triangles; index) and the edges' last element (`006ced70`).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 const ARRAY_ADD: u32 = 0x007c_b2e0;
 const ARRAY_RESERVE: u32 = 0x0084_b5c0;
 const ARRAY_CLEAR: u32 = 0x0084_54f0;
 const ARRAY_IS_EMPTY: u32 = 0x0076_b610;
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 const EDGE_AT: u32 = 0x006a_7af0;
 const TRIANGLE_AT: u32 = 0x006d_ad90;
@@ -178,7 +186,7 @@ pub fn fn_006ed530(
     let request = e.mem.u32(base + 4);
     let radius = x87_store32(e.call(REQUEST_RADIUS, &args![request]).st0);
     e.mem.set_u32(base + SMOOTHING_RADIUS, radius);
-    if e.call(ARRAY_COUNT, &args![triangles]).u32() == 1 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, triangles)) == 1 {
         for point in [start, goal] {
             let triangle = e.call(TRIANGLE_AT_006B3160, &args![triangles, 0u32]).u32();
             let mesh = e.mem.u32(triangle);
@@ -188,7 +196,7 @@ pub fn fn_006ed530(
         return 1;
     }
     for array in [LEFT_VERTS, RIGHT_VERTS, LEFT_EDGES, RIGHT_EDGES, PATH_EDGES] {
-        let count = e.call(ARRAY_COUNT, &args![edges]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges));
         e.call(ARRAY_RESERVE, &args![base + array, count << 1]);
     }
     for array in [LEFT_VERTS, RIGHT_VERTS, LEFT_EDGES, RIGHT_EDGES, PATH_EDGES] {
@@ -240,9 +248,17 @@ pub fn fn_006ed7d0(e: &mut Engine, this: Ptr, first: u32, last: u32, a: u32, b: 
     let edges = this.addr() + PATH_EDGES;
     let mut index = first;
     while index <= last {
-        let right_at = e.call(ARRAY_ELEMENT, &args![edges, index]).u32();
+        let right_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, edges, index)
+        );
         let right = e.mem.u32(right_at).wrapping_add(0x2c);
-        let left_at = e.call(ARRAY_ELEMENT, &args![edges, index]).u32();
+        let left_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, edges, index)
+        );
         let left = e.mem.u32(left_at).wrapping_add(0x20);
         if e.call(SEGMENT_TEST_00696540, &args![left, right, a, b])
             .u8()
@@ -296,11 +312,11 @@ pub fn fn_006ed850(e: &mut Engine, this: Ptr) {
         let mut index = 0u32;
         loop {
             let edges = e.mem.u32(this.addr() + EDGES);
-            if index >= e.call(ARRAY_COUNT, &args![edges]).u32() {
+            if index >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges)) {
                 break;
             }
-            e.call(POINT_DEFAULT, &args![a]);
-            e.call(POINT_DEFAULT, &args![b]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, a));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, b));
             search_edge_points(e, this, index, a, b);
             if index == 0 {
                 let start = this.addr() + START_LOCATION;
@@ -365,8 +381,8 @@ fn join_edge(e: &mut Engine, this: Ptr, frame: u32, index: u32) {
         &args![search_mesh, triangle_word, edge_word, mesh, triangle, edge],
     );
     let (c, d) = (at(0x34), at(0x44));
-    e.call(POINT_DEFAULT, &args![c]);
-    e.call(POINT_DEFAULT, &args![d]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, c));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, d));
     let matching_mesh = e.mem.u32(mesh);
     let matching_triangle = u32::from(e.mem.u16(triangle));
     let matching_edge = e.mem.u32(edge);
@@ -375,8 +391,8 @@ fn join_edge(e: &mut Engine, this: Ptr, frame: u32, index: u32) {
         &args![matching_mesh, matching_triangle, matching_edge, c, d],
     );
     let (left, right) = (at(0x60), at(0x54));
-    e.call(POINT_DEFAULT, &args![left]);
-    e.call(POINT_DEFAULT, &args![right]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, left));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, right));
     let last_right = last_of(e, this, RIGHT_VERTS);
     if e.call(POINT_EQUAL, &args![last_right, c]).u8() != 0 {
         copy_point(e, left, d);
@@ -431,9 +447,11 @@ pub fn fn_006edbc0(e: &mut Engine, this: Ptr) {
 pub fn fn_006edc40(e: &mut Engine, this: Ptr) -> u32 {
     let (block, placed) = scrap_block(e, this, 0x40);
     if placed != 0 {
-        let heap = e
-            .call(POINT_DEFAULT, &args![this.addr() + SCRAP_HEAP])
-            .u32();
+        let heap = typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.addr() + SCRAP_HEAP)
+        );
         fn_006edce0(e, Ptr::new(placed), heap);
     }
     block
@@ -446,7 +464,7 @@ pub fn fn_006edc40(e: &mut Engine, this: Ptr) -> u32 {
 pub fn fn_006edce0(e: &mut Engine, this: Ptr, heap: u32) -> Ptr {
     let base = this.addr();
     for offset in [0u32, 0xc, 0x18, 0x24] {
-        e.call(POINT_DEFAULT, &args![base + offset]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + offset));
     }
     e.call(SCRAP_ARRAY_CONSTRUCT, &args![base + 0x2c, 0u32, 0u32, heap]);
     this
@@ -526,7 +544,13 @@ pub fn fn_006edd30(e: &mut Engine, this: Ptr, left: u32, right: u32) {
         add_word(e, right_vertex.wrapping_add(0x2c), at(0x1c));
         triangle_normal(e, this, 0, at(0x28));
         triangle_normal(e, this, 1, at(0xc));
-        let dot = e.call(POINT_DOT, &args![at(0x28), at(0xc)]).st0;
+        let dot = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, at(0x28), at(0xc))
+        )
+        .into_ret()
+        .st0;
         e.mem.set_u32(path.wrapping_add(0x38), x87_store32(dot));
         add_word(e, base + LEFT_VERTS, at(0x30));
         add_word(e, base + RIGHT_VERTS, at(0x2c));
@@ -574,7 +598,7 @@ pub fn fn_006ee070(e: &mut Engine, this: Ptr) -> u32 {
 pub fn fn_006ee100(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
     for offset in [8u32, 0x14, 0x20, 0x2c] {
-        e.call(POINT_DEFAULT, &args![base + offset]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + offset));
     }
     e.call(HANDLE_CONSTRUCT, &args![base + 0x3c]);
     this
@@ -625,7 +649,11 @@ fn add_side_vertex(e: &mut Engine, this: Ptr, point: u32, index: u32, left: bool
         let cell = e.call(MESH_TRIANGLE_005582F0, &args![mesh, triangle]).u32();
         let open = e.call(EDGE_IS_OPEN_0068F200, &args![cell, edge_index]).u8();
         e.mem.set_u8(bounds.wrapping_add(0x14), open);
-        let count = e.call(ARRAY_COUNT, &args![base + edges_of_side]).u32();
+        let count = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, base + edges_of_side)
+        );
         e.mem.set_u32(bounds.wrapping_add(0x18), count);
         let path = fn_006ee070(e, this);
         e.mem.set_u32(at(0x14), path);
@@ -645,7 +673,11 @@ fn add_side_vertex(e: &mut Engine, this: Ptr, point: u32, index: u32, left: bool
         e.mem.set_u16(path.wrapping_add(0x40), triangle);
         let word = e.mem.u32(edge.wrapping_add(8));
         e.mem.set_u32(path.wrapping_add(0x44), word);
-        let count = e.call(ARRAY_COUNT, &args![base + PATH_EDGES]).u32();
+        let count = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, base + PATH_EDGES)
+        );
         e.mem.set_u32(path.wrapping_add(0x48), count);
         if left {
             e.mem.set_u32(path.wrapping_add(0x4c), bounds);
@@ -661,7 +693,13 @@ fn add_side_vertex(e: &mut Engine, this: Ptr, point: u32, index: u32, left: bool
         add_word(e, other.wrapping_add(0x2c), at(0x14));
         triangle_normal(e, this, index, at(0x20));
         triangle_normal(e, this, index.wrapping_add(1), at(0xc));
-        let dot = e.call(POINT_DOT, &args![at(0x20), at(0xc)]).st0;
+        let dot = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, at(0x20), at(0xc))
+        )
+        .into_ret()
+        .st0;
         e.mem.set_u32(path.wrapping_add(0x38), x87_store32(dot));
         add_word(e, base + verts, at(0x28));
         add_word(e, base + edges_of_side, at(0x24));
@@ -715,9 +753,11 @@ fn fill_closing_edge(
     let word = e.mem.u16(triangle.wrapping_add(4));
     e.mem.set_u16(bounds.wrapping_add(0xc), word);
     e.mem.set_u32(bounds.wrapping_add(0x10), u32::MAX);
-    let count = e
-        .call(ARRAY_COUNT, &args![this.addr() + edges_of_side])
-        .u32();
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + edges_of_side)
+    );
     e.mem.set_u32(bounds.wrapping_add(0x18), count);
 }
 
@@ -815,7 +855,11 @@ pub fn fn_006ee740(
     // The frame from EBP - 0x40; `at(k)` is EBP - k.
     e.with_stack(0x40, |e, frame| {
         let at = |k: u32| frame.addr() + 0x40 - k;
-        let old_at = e.call(ARRAY_ELEMENT, &args![base + verts, index]).u32();
+        let old_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, base + verts, index)
+        );
         let old = e.mem.u32(old_at);
         let new = fn_006edc40(e, this);
         e.mem.set_u32(at(0x10), new);
@@ -826,7 +870,7 @@ pub fn fn_006ee740(
         );
         let old_list = old.wrapping_add(0x2c);
         let new_list = new.wrapping_add(0x2c);
-        let count = e.call(ARRAY_COUNT, &args![old_list]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, old_list));
         copy_point(e, old.wrapping_add(0xc), old_shrunk.addr());
         let delta = e
             .call(POINT_SUBTRACT, &args![old.wrapping_add(0xc), at(0x2c), old])
@@ -838,20 +882,32 @@ pub fn fn_006ee740(
             .u32();
         copy_point(e, new.wrapping_add(0x18), delta);
         if count == 1 {
-            let edge = e.call(ARRAY_ELEMENT, &args![old_list, 0u32]).u32();
+            let edge = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, old_list, 0u32)
+            );
             add_word(e, new_list, edge);
         } else {
             let half = count >> 1;
             let mut moving = half;
             while moving < count {
-                let edge_at = e.call(ARRAY_ELEMENT, &args![old_list, moving]).u32();
+                let edge_at = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, old_list, moving)
+                );
                 let edge = e.mem.u32(edge_at);
                 if left != 0 {
                     e.mem.set_u32(edge, new);
                 } else {
                     e.mem.set_u32(edge.wrapping_add(4), new);
                 }
-                let edge_at = e.call(ARRAY_ELEMENT, &args![old_list, moving]).u32();
+                let edge_at = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, old_list, moving)
+                );
                 add_word(e, new_list, edge_at);
                 moving += 1;
             }
@@ -865,26 +921,29 @@ pub fn fn_006ee740(
         e.mem.set_u32(bounds, old);
         e.mem.set_u32(bounds.wrapping_add(4), new);
         fn_006eec00(e, this, index, bounds, left);
-        let side_at = e
-            .call(ARRAY_ELEMENT, &args![base + edges_of_side, index])
-            .u32();
+        let side_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, base + edges_of_side, index)
+        );
         let side = e.mem.u32(side_at);
         e.call(
             HANDLE_ASSIGN,
             &args![bounds.wrapping_add(8), side.wrapping_add(8)],
         );
-        let side_at = e
-            .call(ARRAY_ELEMENT, &args![base + edges_of_side, index])
-            .u32();
+        let side_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, base + edges_of_side, index)
+        );
         let side = e.mem.u32(side_at);
         let open = e.mem.u8(side.wrapping_add(0x14));
         e.mem.set_u8(bounds.wrapping_add(0x14), open);
-        let next_at = e
-            .call(
-                ARRAY_ELEMENT,
-                &args![base + edges_of_side, index.wrapping_add(1)],
-            )
-            .u32();
+        let next_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, base + edges_of_side, index.wrapping_add(1))
+        );
         let next = e.mem.u32(next_at);
         e.mem.set_u32(next, new);
         let path = fn_006ee070(e, this);
@@ -954,9 +1013,11 @@ pub fn fn_006ee740(
         }
         let first = first_of(e, new_list);
         let path_index = e.mem.u32(first.wrapping_add(0x48));
-        let indexed_at = e
-            .call(ARRAY_ELEMENT, &args![base + PATH_EDGES, path_index])
-            .u32();
+        let indexed_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, base + PATH_EDGES, path_index)
+        );
         let indexed = e.mem.u32(indexed_at);
         e.call(
             HANDLE_ASSIGN,
@@ -976,8 +1037,8 @@ pub fn fn_006eec00(e: &mut Engine, this: Ptr, index: u32, bounds: u32, left: u8)
     let array = this.addr() + if left != 0 { LEFT_EDGES } else { RIGHT_EDGES };
     insert_value(e, array, index, bounds);
     let mut at = index;
-    while at < e.call(ARRAY_COUNT, &args![array]).u32() {
-        let element = e.call(ARRAY_ELEMENT, &args![array, at]).u32();
+    while at < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
+        let element = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, array, at));
         let edge = e.mem.u32(element);
         e.mem.set_u32(edge.wrapping_add(0x18), at);
         at += 1;
@@ -992,8 +1053,8 @@ pub fn fn_006eecc0(e: &mut Engine, this: Ptr, index: u32, path: u32) {
     let array = this.addr() + PATH_EDGES;
     insert_value(e, array, index, path);
     let mut at = index;
-    while at < e.call(ARRAY_COUNT, &args![array]).u32() {
-        let element = e.call(ARRAY_ELEMENT, &args![array, at]).u32();
+    while at < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
+        let element = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, array, at));
         let edge = e.mem.u32(element);
         e.mem.set_u32(edge.wrapping_add(0x48), at);
         at += 1;
@@ -1116,7 +1177,7 @@ pub fn fn_006eef80(e: &mut Engine, this: Ptr) {
     for (verts, left) in [(LEFT_VERTS, 1u8), (RIGHT_VERTS, 0)] {
         let mut index = 1u32;
         loop {
-            let count = e.call(ARRAY_COUNT, &args![base + verts]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + verts));
             if index >= count.wrapping_sub(1) {
                 break;
             }
@@ -1200,8 +1261,8 @@ pub fn fn_006ef0c0(e: &mut Engine, this: Ptr, index: u32, radius: f32, left: u8)
         let at = |k: u32| frame.addr() + 0x260 - k;
         let (before, after) = (at(0x18), at(0x24));
         let (after_normal, before_normal) = (at(0x34), at(0x4c));
-        e.call(POINT_DEFAULT, &args![before]);
-        e.call(POINT_DEFAULT, &args![after]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, before));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, after));
         let previous = index.wrapping_sub(1);
         vertex_difference(e, verts, index, previous, at(0x98), before);
         vertex_difference(e, verts, index, index.wrapping_add(1), at(0xa4), after);
@@ -1209,7 +1270,7 @@ pub fn fn_006ef0c0(e: &mut Engine, this: Ptr, index: u32, radius: f32, left: u8)
             vertex_difference(e, verts, index, index.wrapping_sub(2), at(0xb0), before);
         }
         if e.call(POINT_EQUAL, &args![after, ZERO_POINT]).u8() != 0 {
-            let count = e.call(ARRAY_COUNT, &args![verts]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, verts));
             if index < count.wrapping_sub(2) {
                 vertex_difference(e, verts, index, index.wrapping_add(2), at(0xbc), after);
             }
@@ -1220,9 +1281,25 @@ pub fn fn_006ef0c0(e: &mut Engine, this: Ptr, index: u32, radius: f32, left: u8)
         e.call(POINT_NORMALIZE, &args![after]);
         e.call(POINT_OP_004B3800, &args![after, after_normal, SIDE_AXIS]);
         e.call(POINT_OP_004B3800, &args![before, before_normal, SIDE_AXIS]);
-        let across = x87_store32(e.call(POINT_DOT, &args![before, after_normal]).st0);
+        let across = x87_store32(
+            typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, before, after_normal)
+            )
+            .into_ret()
+            .st0,
+        );
         e.mem.set_u32(at(0xc), across);
-        let along = x87_store32(e.call(POINT_DOT, &args![before, after]).st0);
+        let along = x87_store32(
+            typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, before, after)
+            )
+            .into_ret()
+            .st0,
+        );
         e.mem.set_u32(at(0x8), along);
         let angle = e
             .call(
@@ -1238,32 +1315,60 @@ pub fn fn_006ef0c0(e: &mut Engine, this: Ptr, index: u32, radius: f32, left: u8)
         e.mem.set_u32(at(0x40), offset);
         let vertex = record(e, verts, index);
         let edge_direction = at(0x58);
-        e.call(POINT_DEFAULT, &args![edge_direction]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, edge_direction)
+        );
         let list = vertex.wrapping_add(0x2c);
-        let first = e.call(ARRAY_ELEMENT, &args![list, 0u32]).u32();
+        let first = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, list, 0u32)
+        );
         let first = e.mem.u32(first);
         if left != 0 {
             let from = e.mem.u32(first);
-            let edge = e.call(ARRAY_ELEMENT, &args![list, 0u32]).u32();
+            let edge = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, list, 0u32)
+            );
             let edge = e.mem.u32(edge);
             let to = e.mem.u32(edge.wrapping_add(4));
             let direction = e.call(POINT_SUBTRACT, &args![to, at(0xc8), from]).u32();
             copy_point(e, edge_direction, direction);
         } else {
             let from = e.mem.u32(first.wrapping_add(4));
-            let edge = e.call(ARRAY_ELEMENT, &args![list, 0u32]).u32();
+            let edge = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, list, 0u32)
+            );
             let edge = e.mem.u32(edge);
             let to = e.mem.u32(edge);
             let direction = e.call(POINT_SUBTRACT, &args![to, at(0xd4), from]).u32();
             copy_point(e, edge_direction, direction);
         }
         if x87_load32(along) >= e.global::<f64>(STRAIGHT_LIMIT) {
-            let first_side = e.call(POINT_DOT, &args![before_normal, edge_direction]).st0;
-            let second_side = e.call(POINT_DOT, &args![after_normal, edge_direction]).st0;
+            let first_side = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, before_normal, edge_direction)
+            )
+            .into_ret()
+            .st0;
+            let second_side = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, after_normal, edge_direction)
+            )
+            .into_ret()
+            .st0;
             if x87_mul(second_side, first_side) > e.global::<f64>(DOUBLE_ZERO) {
                 let (old_point, new_point) = (at(0x64), at(0x70));
-                e.call(POINT_DEFAULT, &args![old_point]);
-                e.call(POINT_DEFAULT, &args![new_point]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, old_point));
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, new_point));
                 let factor = e.global::<f64>(RADIUS_FACTOR);
                 let scaled = |e: &mut Engine, out: u32, by: u32, point: u32| -> u32 {
                     e.call(SCALE_POINT, &args![out, by, point]).u32()
@@ -1514,6 +1619,7 @@ pub fn fn_006f0050(
 /// thiscall: the record).
 const POINTER_CONSTRUCT: u32 = 0x0042_fb00;
 const POINTER_DESTRUCT: u32 = 0x0042_fa40;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const MESH_LOOKUP_0069AD00: u32 = 0x0069_ad00;
 const BAD_NODES_ADD: u32 = 0x006c_f4c0;
@@ -1536,23 +1642,29 @@ fn report_bad_edge(e: &mut Engine, this: Ptr, index: u32, record: u32, pointer: 
     }
     fn_006efd50(e, Ptr::new(record));
     e.call(POINTER_CONSTRUCT, &args![pointer]);
-    let edge_at = e
-        .call(ARRAY_ELEMENT, &args![base + PATH_EDGES, index])
-        .u32();
+    let edge_at = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, base + PATH_EDGES, index)
+    );
     let edge = e.mem.u32(edge_at);
     let mesh = e.mem.u32(edge.wrapping_add(0x3c));
     if e.call(MESH_LOOKUP_0069AD00, &args![mesh, pointer]).u8() != 0 {
-        let value = e.call(POINTER_GET, &args![pointer]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.mem.set_u32(record, value);
-        let edge_at = e
-            .call(ARRAY_ELEMENT, &args![base + PATH_EDGES, index])
-            .u32();
+        let edge_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, base + PATH_EDGES, index)
+        );
         let edge = e.mem.u32(edge_at);
         let triangle = e.mem.u16(edge.wrapping_add(0x40));
         e.mem.set_u16(record + 4, triangle);
-        let edge_at = e
-            .call(ARRAY_ELEMENT, &args![base + PATH_EDGES, index])
-            .u32();
+        let edge_at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, base + PATH_EDGES, index)
+        );
         let edge = e.mem.u32(edge_at);
         let word = e.mem.u32(edge.wrapping_add(0x44));
         e.mem.set_u32(record + 8, word);
@@ -1565,9 +1677,17 @@ fn report_bad_edge(e: &mut Engine, this: Ptr, index: u32, record: u32, pointer: 
 /// The previous left (+0x4C) and right (+0x50) bounds edges of path edge `index`.
 fn path_bounds(e: &mut Engine, this: Ptr, index: u32) -> (u32, u32) {
     let edges = this.addr() + PATH_EDGES;
-    let at = e.call(ARRAY_ELEMENT, &args![edges, index]).u32();
+    let at = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, edges, index)
+    );
     let left = e.mem.u32(e.mem.u32(at).wrapping_add(0x4c));
-    let at = e.call(ARRAY_ELEMENT, &args![edges, index]).u32();
+    let at = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, edges, index)
+    );
     let right = e.mem.u32(e.mem.u32(at).wrapping_add(0x50));
     (left, right)
 }
@@ -1587,7 +1707,7 @@ pub fn fn_006ef920(e: &mut Engine, this: Ptr) -> u8 {
         let at = |k: u32| frame.addr() + 0xac - k;
         let (mut previous_left, mut previous_right) = path_bounds(e, this, 0);
         let mut index = 1u32;
-        while index < e.call(ARRAY_COUNT, &args![edges]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges)) {
             let (left, right) = path_bounds(e, this, index);
             if left == previous_left && fn_006efd80(e, this, right, left, 0) == 0 {
                 report_bad_edge(e, this, index, at(0x48), at(0x24));
@@ -1602,7 +1722,7 @@ pub fn fn_006ef920(e: &mut Engine, this: Ptr) -> u8 {
             index += 1;
         }
         let mut index = 0u32;
-        while index < e.call(ARRAY_COUNT, &args![edges]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges)) {
             let (left, right) = path_bounds(e, this, index);
             let left_start = e.mem.u32(left).wrapping_add(0xc);
             let left_end = e.mem.u32(left.wrapping_add(4)).wrapping_add(0xc);
@@ -1728,9 +1848,11 @@ pub fn fn_006efd80(e: &mut Engine, this: Ptr, edge: u32, other: u32, left: u8) -
 
 /// The path edge `index` (the word at the address `00877a30` answers on `PathEdges`).
 fn path_edge(e: &mut Engine, this: Ptr, index: u32) -> u32 {
-    let at = e
-        .call(ARRAY_ELEMENT, &args![this.addr() + PATH_EDGES, index])
-        .u32();
+    let at = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, this.addr() + PATH_EDGES, index)
+    );
     e.mem.u32(at)
 }
 
@@ -1740,7 +1862,7 @@ fn path_edge(e: &mut Engine, this: Ptr, index: u32) -> u32 {
 pub fn fn_006f02e0(e: &mut Engine, this: Ptr) {
     let edges = this.addr() + PATH_EDGES;
     let mut index = 0u32;
-    while index < e.call(ARRAY_COUNT, &args![edges]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges)) {
         for (vertex, field) in [(0u32, 0x20u32), (4, 0x2c)] {
             let edge = path_edge(e, this, index);
             let source = e.mem.u32(edge.wrapping_add(vertex)).wrapping_add(0xc);
@@ -1760,7 +1882,7 @@ pub fn fn_006f03a0(e: &mut Engine, this: Ptr) {
     e.with_stack(0x20, |e, frame| {
         let at = |k: u32| frame.addr() + 0x20 - k;
         let mut index = 0u32;
-        while index < e.call(ARRAY_COUNT, &args![edges]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges)) {
             let half = x87_quiet_bits(e.mem.u32(MIDPOINT_FACTOR));
             let right = path_edge(e, this, index).wrapping_add(0x2c);
             let left = path_edge(e, this, index).wrapping_add(0x20);
@@ -1779,6 +1901,7 @@ pub fn fn_006f03a0(e: &mut Engine, this: Ptr) {
 /// (out, left, right, before, after; in `navmeshmath.cpp` by the engine map) and the cdecl
 /// float function `00408840` (one float; ST0); the request's weight (`0051b8e0`, thiscall
 /// on `pRequest`; ST0) and the `float` at `0106682c` (the near factor), read at run time.
+#[cfg(test)]
 const POINT_FROM_FLOATS: u32 = 0x0041_6870;
 const POINT_ADD_ASSIGN: u32 = 0x0063_c8a0;
 const POINT_DIVIDE: u32 = 0x0049_41c0;
@@ -1800,17 +1923,34 @@ fn average_centers(
     fallback: u32,
 ) {
     let base = this.addr();
-    e.call(POINT_FROM_FLOATS, &args![out, 0u32, 0u32, 0u32]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, out, 0u32, 0u32, 0u32)
+    );
     let mut found = 0u32;
     for offset in offsets {
         let at = index.wrapping_add(offset);
         if at == -1 {
             found += 1;
             e.call(POINT_ADD_ASSIGN, &args![out, base + START_LOCATION]);
-        } else if at == e.call(ARRAY_COUNT, &args![base + PATH_EDGES]).u32() as i32 {
+        } else if at
+            == typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, base + PATH_EDGES)
+            ) as i32
+        {
             found += 1;
             e.call(POINT_ADD_ASSIGN, &args![out, base + GOAL_LOCATION]);
-        } else if at >= 0 && at < e.call(ARRAY_COUNT, &args![base + PATH_EDGES]).u32() as i32 {
+        } else if at >= 0
+            && at
+                < typed_call!(
+                    leaf::FAMILY,
+                    0x0044_ddc0,
+                    leaf::word_at_8(e, base + PATH_EDGES)
+                ) as i32
+        {
             found += 1;
             let center = path_edge(e, this, at as u32).wrapping_add(8);
             e.call(POINT_ADD_ASSIGN, &args![out, center]);
@@ -1877,7 +2017,13 @@ pub fn fn_006f0450(e: &mut Engine, this: Ptr) {
         let at = |k: u32| frame.addr() + 0x148 - k;
         let (before, after) = (at(0x14), at(0x34));
         let mut index = 0i32;
-        while index < e.call(ARRAY_COUNT, &args![base + PATH_EDGES]).u32() as i32 {
+        while index
+            < typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, base + PATH_EDGES)
+            ) as i32
+        {
             let i = index as u32;
             average_centers(e, this, before, index, -4..=-1, base + START_LOCATION);
             average_centers(e, this, after, index, 1..=4, base + GOAL_LOCATION);
@@ -1909,7 +2055,11 @@ pub fn fn_006f0450(e: &mut Engine, this: Ptr) {
                 e.call(POINT_SUBTRACT, &args![left, across, right]);
                 e.call(POINT_NORMALIZE, &args![across]);
                 let parallel = index > 0 && {
-                    let dot = x87_store32(e.call(POINT_DOT, &args![way, across]).st0);
+                    let dot = x87_store32(
+                        typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, way, across))
+                            .into_ret()
+                            .st0,
+                    );
                     let shaped = e.call(CURVE_00408840, &args![dot]).st0;
                     shaped > e.global::<f64>(STRAIGHT_LIMIT)
                 };
@@ -2038,10 +2188,10 @@ pub fn fn_006f0d20(e: &mut Engine, this: Ptr) {
     e.with_stack(0xa8, |e, frame| {
         let at = |k: u32| frame.addr() + 0xa8 - k;
         let flags = at(0x20);
-        let count = e.call(ARRAY_COUNT, &args![edges]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges));
         e.call(FLAG_ARRAY_CONSTRUCT, &args![flags, count]);
         let mut index = 0u32;
-        while index < e.call(ARRAY_COUNT, &args![edges]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges)) {
             let pointer = at(0x2c);
             e.call(POINTER_CONSTRUCT, &args![pointer]);
             let mesh_at = edge_field(e, this, index, 0x3c);
@@ -2049,7 +2199,7 @@ pub fn fn_006f0d20(e: &mut Engine, this: Ptr) {
             if e.call(MESH_LOOKUP_0069AD00, &args![mesh, pointer]).u8() != 0 {
                 let edge = path_edge(e, this, index);
                 let triangle = u32::from(e.mem.u16(edge.wrapping_add(0x40)));
-                let resolved = e.call(POINTER_GET, &args![pointer]).u32();
+                let resolved = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                 let cell = e
                     .call(MESH_TRIANGLE_005582F0, &args![resolved, triangle])
                     .u32();
@@ -2071,7 +2221,8 @@ pub fn fn_006f0d20(e: &mut Engine, this: Ptr) {
         while start != u32::MAX {
             let mut end = find(e, at(0x62), 0, start.wrapping_add(1));
             if end == u32::MAX {
-                end = e.call(ARRAY_COUNT, &args![flags]).u32().wrapping_sub(1);
+                end = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, flags))
+                    .wrapping_sub(1);
             } else {
                 end = end.wrapping_sub(1);
             }
@@ -2080,7 +2231,8 @@ pub fn fn_006f0d20(e: &mut Engine, this: Ptr) {
             } else {
                 path_edge(e, this, start - 1)
             };
-            let last = e.call(ARRAY_COUNT, &args![flags]).u32().wrapping_sub(1);
+            let last =
+                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, flags)).wrapping_sub(1);
             let next = if end == last {
                 0
             } else {
@@ -2128,7 +2280,8 @@ pub fn fn_006f0d20(e: &mut Engine, this: Ptr) {
                 e.mem.set_u32(edge.wrapping_add(0x1c), x87_store32(height));
                 step = step.wrapping_add(1);
             }
-            let last = e.call(ARRAY_COUNT, &args![flags]).u32().wrapping_sub(1);
+            let last =
+                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, flags)).wrapping_sub(1);
             start = if end != last {
                 find(e, at(0x85), 1, end.wrapping_add(1))
             } else {
@@ -2183,16 +2336,20 @@ pub fn fn_006f10d0(e: &mut Engine, this: Ptr) {
         let mut last = -1i32;
         let mut index = 1i32;
         let mut bends = 0u32;
-        while index < e.call(ARRAY_COUNT, &args![edges]).u32().wrapping_add(1) as i32 {
+        while index
+            < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges)).wrapping_add(1)
+                as i32
+        {
             let j = index as u32;
-            if j != e.call(ARRAY_COUNT, &args![edges]).u32() {
+            if j != typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges)) {
                 let delta_at = edge_field(e, this, j - 1, 0x38);
                 let delta = x87_load32(e.mem.u32(delta_at));
                 bends = x87_store32(x87_add(x87_sub(1.0, delta), x87_m32(bends)));
             }
             let mut keep = x87_load32(bends) > e.global::<f64>(BEND_LIMIT);
             if !keep {
-                let next = if j == e.call(ARRAY_COUNT, &args![edges]).u32() {
+                let next = if j == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges))
+                {
                     0
                 } else {
                     path_edge(e, this, j)
@@ -2207,11 +2364,12 @@ pub fn fn_006f10d0(e: &mut Engine, this: Ptr) {
                         edge_field(e, this, last as u32, 0x14)
                     };
                     copy_point(e, from, from_source);
-                    let to_source = if j == e.call(ARRAY_COUNT, &args![edges]).u32() {
-                        base + GOAL_LOCATION
-                    } else {
-                        edge_field(e, this, j, 0x14)
-                    };
+                    let to_source =
+                        if j == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges)) {
+                            base + GOAL_LOCATION
+                        } else {
+                            edge_field(e, this, j, 0x14)
+                        };
                     copy_point(e, to, to_source);
                     let first = (last as u32).wrapping_add(1);
                     keep = fn_006ed7d0(e, this, first, j - 1, from, to) == 0;
@@ -2325,7 +2483,7 @@ pub fn fn_006f1440(e: &mut Engine, this: Ptr) {
         let avoid = at(0x24);
         e.call(AVOID_CONSTRUCT, &args![avoid]);
         let mut index = 0u32;
-        while index < e.call(ARRAY_COUNT, &args![obstacles]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, obstacles)) {
             let source = e.call(OBSTACLE_AT, &args![obstacles, index]).u32();
             let obstacle = at(0x50);
             for word in 0..9u32 {
@@ -2335,7 +2493,7 @@ pub fn fn_006f1440(e: &mut Engine, this: Ptr) {
             // The exe sets a stack byte to 1 and tests it: the node is always added.
             let node = at(0x60);
             e.call(HANDLE_CONSTRUCT, &args![node]);
-            let center = e.call(POINT_DEFAULT, &args![obstacle]).u32();
+            let center = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, obstacle));
             copy_point(e, node, center);
             let radius = x87_store32(e.call(OBSTACLE_RADIUS, &args![obstacle]).st0);
             e.mem.set_u32(at(0x54), radius);
@@ -2343,10 +2501,10 @@ pub fn fn_006f1440(e: &mut Engine, this: Ptr) {
             index += 1;
         }
         let mut node_index = 0u32;
-        while node_index < e.call(ARRAY_COUNT, &args![avoid]).u32() {
+        while node_index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, avoid)) {
             let mut segment = 0u32;
             loop {
-                let count = e.call(ARRAY_COUNT, &args![path]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, path));
                 if segment >= count.wrapping_sub(1) {
                     break;
                 }
@@ -2373,7 +2531,7 @@ pub fn fn_006f1440(e: &mut Engine, this: Ptr) {
                 let point = straightened_point(e, this, segment, at(0x108));
                 let second_near = fn_006f1e90(e, this, point, near_second);
                 let mut far = segment.wrapping_add(1);
-                while far < e.call(ARRAY_COUNT, &args![path]).u32() {
+                while far < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, path)) {
                     let point = straightened_point(e, this, far, at(0x114));
                     let node = avoid_node(e, avoid, node_index);
                     if fn_006f1bc0(e, Ptr::new(node), point) == 0 {
@@ -2381,7 +2539,7 @@ pub fn fn_006f1440(e: &mut Engine, this: Ptr) {
                     }
                     far += 1;
                 }
-                if far >= e.call(ARRAY_COUNT, &args![path]).u32() {
+                if far >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, path)) {
                     segment += 1;
                     continue;
                 }
@@ -2515,7 +2673,7 @@ pub fn fn_006f1c10(e: &mut Engine, this: Ptr, with_start: u8, with_goal: u8) {
         }
         let mut index = 1u32;
         loop {
-            let count = e.call(ARRAY_COUNT, &args![path]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, path));
             if index >= count.wrapping_sub(1) {
                 break;
             }
@@ -2605,10 +2763,18 @@ pub fn fn_006f1ed0(e: &mut Engine, this: Ptr, from: u32, to: u32) -> u8 {
     for edges in [LEFT_EDGES, RIGHT_EDGES] {
         let array = this.addr() + edges;
         let mut index = 0u32;
-        while index < e.call(ARRAY_COUNT, &args![array]).u32() {
-            let at = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
+            let at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
             let end = e.mem.u32(e.mem.u32(at).wrapping_add(4)).wrapping_add(0xc);
-            let at = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+            let at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
             let start = e.mem.u32(e.mem.u32(at)).wrapping_add(0xc);
             if e.call(SEGMENT_TEST_00696540, &args![from, to, start, end])
                 .u8()
@@ -2661,7 +2827,7 @@ pub fn fn_006f1fc0(e: &mut Engine, this: Ptr, point: u32) -> u8 {
         }
         let mut index = 0u32;
         loop {
-            let count = e.call(ARRAY_COUNT, &args![edges]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges));
             if index >= count.wrapping_sub(1) {
                 break;
             }

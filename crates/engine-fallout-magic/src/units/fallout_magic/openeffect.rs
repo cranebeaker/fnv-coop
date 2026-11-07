@@ -18,6 +18,7 @@ const TYPE_TES_OBJECT_CONT: u32 = 0x0118_a674;
 const TARGET_REFERENCE_BASE: u32 = 0xc;
 /// `BGSSaveFormBuffer::GetForm` (the engine map's name for `007af430`,
 /// `thiscall`: the word at +0x20, the reference's base form).
+#[cfg(test)]
 const BASE_FORM_007AF430: u32 = 0x007a_f430;
 /// `operator new` (`00401000`, `cdecl`: the size) and `OpenEffect`'s
 /// constructor (`008260b0`, `thiscall`, three words).
@@ -66,7 +67,7 @@ pub fn open_effect_check_target(e: &mut Engine, _this: Ptr, target: u32) -> u8 {
         return 0;
     }
     let reference = target_reference(e, target);
-    let form = e.call(BASE_FORM_007AF430, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let door = e
         .call(
             DYNAMIC_CAST,
@@ -80,7 +81,7 @@ pub fn open_effect_check_target(e: &mut Engine, _this: Ptr, target: u32) -> u8 {
         )
         .u32();
     let reference = target_reference(e, target);
-    let form = e.call(BASE_FORM_007AF430, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let container = e
         .call(
             DYNAMIC_CAST,

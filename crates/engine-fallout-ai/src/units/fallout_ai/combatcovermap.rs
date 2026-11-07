@@ -50,6 +50,7 @@ const MAP_GET_NEXT: u32 = 0x006b_7f20;
 /// `thiscall(flags)`).
 const RESERVED_LOCATION_DELETE: u32 = 0x0098_3250;
 /// `NiPointer` get (`00559450`) and destructor (`0045cec0`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const POINTER_DESTRUCT: u32 = 0x0045_cec0;
 /// Returns the object a pointer's target refers to (`009611e0`,
@@ -101,12 +102,12 @@ pub fn fn_00983130(e: &mut Engine, this: Ptr) {
     });
     e.call(MAP_REMOVE_ALL, &args![this]);
     let pointer = base + COVER_MAP_POINTER;
-    if e.call(POINTER_GET, &args![pointer]).u32() != 0 {
-        let object = e.call(POINTER_GET, &args![pointer]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         if e.call(POINTER_TARGET_OWNER, &args![object]).u32() != 0 {
-            let object = e.call(POINTER_GET, &args![pointer]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             let owner = e.call(POINTER_TARGET_OWNER, &args![object]).u32();
-            let object = e.call(POINTER_GET, &args![pointer]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             e.vcall(owner, 0xe8, &args![object]);
         }
     }
@@ -205,6 +206,7 @@ const OPERATOR_NEW: u32 = 0x0040_1000;
 
 /// The array's count (`0044ddc0`, `thiscall`) and element address
 /// (`00844160`, `thiscall(index)`).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 const ARRAY_AT: u32 = 0x0084_4160;
 /// The array's append (`006db840`, `thiscall(element)`) and its constructor
@@ -405,16 +407,16 @@ pub fn fn_009827c0(
 /// destroys the pointer (`0045cec0`) and the array ([`fn_00983700`]).
 pub fn fn_00982d10(e: &mut Engine, this: Ptr) {
     let pointer = this.addr() + 0x18;
-    if e.call(POINTER_GET, &args![pointer]).u32() != 0 {
-        let object = e.call(POINTER_GET, &args![pointer]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         if e.call(POINTER_TARGET_OWNER, &args![object]).u32() != 0 {
             if !e.call(DESTROY_TEST, &[]).bool() {
-                let object = e.call(POINTER_GET, &args![pointer]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                 let owner = e.call(POINTER_TARGET_OWNER, &args![object]).u32();
-                let object = e.call(POINTER_GET, &args![pointer]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                 e.vcall(owner, 0xe8, &args![object]);
             } else {
-                let object = e.call(POINTER_GET, &args![pointer]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                 let queue = e.call(QUEUE_GLOBAL, &[]).u32();
                 e.call(QUEUE_OBJECT, &args![queue, object]);
             }
@@ -434,7 +436,7 @@ pub fn fn_00982df0(e: &mut Engine, this: Ptr, owner: u32) -> bool {
         return true;
     }
     let mut index = 0u32;
-    while index < e.call(ARRAY_COUNT, &args![this]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) {
         let entry = e.call(ARRAY_AT, &args![this, index]).u32();
         let holder = e.mem.u32(entry);
         if holder == owner {
@@ -453,7 +455,7 @@ pub fn fn_00982df0(e: &mut Engine, this: Ptr, owner: u32) -> bool {
 /// The index of the reservation whose first word is `owner`, if any.
 fn reservation_of(e: &mut Engine, this: Ptr, owner: u32) -> Option<u32> {
     let mut index = 0u32;
-    while index < e.call(ARRAY_COUNT, &args![this]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) {
         let entry = e.call(ARRAY_AT, &args![this, index]).u32();
         if e.mem.u32(entry) == owner {
             return Some(index);
@@ -520,7 +522,7 @@ pub fn fn_00982f40(e: &mut Engine, this: Ptr, owner: u32, second: u32) -> bool {
 /// ([`fn_00983720`]) and returns false. False when `owner` holds none. The
 /// count is read once, before the loop.
 pub fn fn_00982ff0(e: &mut Engine, this: Ptr, owner: u32, second: u32) -> bool {
-    let count = e.call(ARRAY_COUNT, &args![this]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     for index in 0..count {
         let entry = e.call(ARRAY_AT, &args![this, index]).u32();
         if e.mem.u32(entry) != owner {

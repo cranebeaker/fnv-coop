@@ -28,8 +28,10 @@ const SCOPE_GUARD_DESTRUCT: u32 = 0x0040_4ee0;
 /// Element count of an `NiTPrimitiveArray` (the word at +0xA).
 const ARRAY_COUNT: u32 = 0x0065_8930;
 /// Address of element `(index)` of an array (`this[+4] + 4 * index`).
+#[cfg(test)]
 const ARRAY_SLOT: u32 = 0x0087_7a30;
 /// `NiPointer` getter (reads the pointer at `this`).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer` assignment `(this, new pointer)`.
 const NI_POINTER_SET: u32 = 0x0066_b0d0;
@@ -42,6 +44,7 @@ const MEMBER_AT: u32 = 0x0090_3600;
 /// Combat group predicate used before updating or deleting a group.
 const GROUP_PREDICATE: u32 = 0x0098_6c40;
 /// Reads the word at +4 of a combat group (its id).
+#[cfg(test)]
 const GROUP_ID: u32 = 0x0072_6070;
 
 /// The combat manager singleton pointer.
@@ -106,7 +109,11 @@ fn group_count(e: &mut Engine, manager: u32) -> u32 {
 
 /// The group pointer stored in slot `index`.
 fn group_at(e: &mut Engine, manager: u32, index: u32) -> u32 {
-    let slot = e.call(ARRAY_SLOT, &args![manager, index]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, manager, index)
+    );
     e.mem.u32(slot)
 }
 
@@ -130,12 +137,12 @@ fn new_object(e: &mut Engine, size: u32, constructor: u32, extra: &[u32]) -> u32
 /// from the object it hangs on and clears the `NiPointer` at +0x38.
 fn clear_debug_geometry(e: &mut Engine, manager: u32) {
     let pointer = manager.wrapping_add(0x38);
-    if e.call(NI_POINTER_GET, &args![pointer]).u32() != 0 {
-        let node = e.call(NI_POINTER_GET, &args![pointer]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         if e.call(NODE_PARENT, &args![node]).u32() != 0 {
-            let node = e.call(NI_POINTER_GET, &args![pointer]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             let parent = e.call(NODE_PARENT, &args![node]).u32();
-            let child = e.call(NI_POINTER_GET, &args![pointer]).u32();
+            let child = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             // Virtual slot +0xE8 of the node's parent, with the node.
             e.vcall(parent, 0xe8, &args![child]);
         }
@@ -452,7 +459,12 @@ pub fn fn_00991770(e: &mut Engine, this: Ptr<CombatManager>) {
     if e.mem.u8(setting) != 0 {
         draw_debug_targets(e, this);
     }
-    if e.call(NI_POINTER_GET, &args![manager + 0x38]).u32() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, manager + 0x38)
+    ) != 0
+    {
         finish_debug_node(e, this);
     }
 }
@@ -462,7 +474,7 @@ pub fn fn_00991770(e: &mut Engine, this: Ptr<CombatManager>) {
 fn draw_debug_targets(e: &mut Engine, this: Ptr<CombatManager>) {
     let manager = this.addr();
     let pointer = manager + 0x38;
-    if e.call(NI_POINTER_GET, &args![pointer]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) == 0 {
         let block = e.call(0x00aa_13e0, &args![0xacu32]).u32();
         let node = if block == 0 {
             0
@@ -490,7 +502,7 @@ fn draw_debug_targets(e: &mut Engine, this: Ptr<CombatManager>) {
 
 /// One actor's sphere and arrow in `00991770`.
 fn draw_debug_actor(e: &mut Engine, manager: u32, actor: u32) {
-    let process = e.call(0x008d_8520, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     let target = e.vcall(process, 0xf8, &args![actor]).u32();
     if target == 0 {
         return;
@@ -518,7 +530,7 @@ fn draw_debug_actor(e: &mut Engine, manager: u32, actor: u32) {
                     .call(0x00c5_6680, &args![radius, 10u32, 10u32, color_b])
                     .u32();
                 e.call(0x0044_0460, &args![sphere, target + 4]);
-                let node = e.call(NI_POINTER_GET, &args![pointer]).u32();
+                let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                 e.vcall(node, 0xdc, &args![sphere, 1u32]);
 
                 let location = e.vcall(actor, 0x1f4, &args![]).u32();
@@ -534,7 +546,7 @@ fn draw_debug_actor(e: &mut Engine, manager: u32, actor: u32) {
                             &args![start, target + 4, arrow_size, arrow_size, color_a, color_b],
                         )
                         .u32();
-                    let node = e.call(NI_POINTER_GET, &args![pointer]).u32();
+                    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                     e.vcall(node, 0xdc, &args![arrow, 1u32]);
                 });
             });
@@ -553,22 +565,22 @@ fn finish_debug_node(e: &mut Engine, this: Ptr<CombatManager>) {
         e.call(0x0043_91c0, &args![block]).u32()
     };
     e.call(0x0049_ed90, &args![property, 1u32]);
-    let node = e.call(NI_POINTER_GET, &args![pointer]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.call(0x0043_9410, &args![node, property]);
-    let node = e.call(NI_POINTER_GET, &args![pointer]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.call(0x004b_6e90, &args![node]);
-    let node = e.call(NI_POINTER_GET, &args![pointer]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.call(0x00b5_7e30, &args![node, 0u32, 0u32]);
     let player = e.global::<u32>(PLAYER_CHARACTER);
     let process = e.call(0x008d_6f30, &args![player]).u32();
     let attach_target = e.call(0x0052_4cf0, &args![process]).u32();
-    let node = e.call(NI_POINTER_GET, &args![pointer]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.vcall(attach_target, 0xdc, &args![node, 1u32]);
-    let node = e.call(NI_POINTER_GET, &args![pointer]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.call(0x00a5_a040, &args![node]);
     e.with_stack(12, |e, update| {
         e.call(0x0043_d410, &args![update, 0.0f32, 0u32, 0u32]);
-        let node = e.call(NI_POINTER_GET, &args![pointer]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(0x00a5_9c60, &args![node, update]);
     });
 }
@@ -581,7 +593,7 @@ pub fn fn_00991d60(e: &mut Engine, this: Ptr<CombatManager>, id: u32) -> Ptr {
     let mut index = 0u32;
     while index < group_count(e, manager) {
         let group = group_at(e, manager, index);
-        if group != 0 && e.call(GROUP_ID, &args![group]).u32() == id {
+        if group != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, group)) == id {
             return Ptr::new(group);
         }
         index += 1;

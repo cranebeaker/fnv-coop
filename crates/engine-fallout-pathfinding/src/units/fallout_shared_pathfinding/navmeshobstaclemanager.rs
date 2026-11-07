@@ -301,6 +301,7 @@ const NI_POINTER_ASSIGN: u32 = 0x006e_5cc0;
 /// source pointer and adds a reference.
 const NI_POINTER_COPY: u32 = 0x0055_9a40;
 /// `NiPointer::operator->` / `operator T *`: the first word of the object.
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `00822510`: the first word equals the argument.
 const FIRST_WORD_EQUALS: u32 = 0x0082_2510;
@@ -310,7 +311,9 @@ const FIRST_WORD_EQUALS: u32 = 0x0082_2510;
 /// `007cb2e0` `AddUninitialized` of another instance; the body adds the
 /// element at the argument's address), `Clear(bool)` (`008454f0`) and
 /// `IsEmpty` (`0076b610`: the size is zero).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const ARRAY_AT: u32 = 0x0087_7a30;
 const ARRAY_ADD: u32 = 0x007c_b2e0;
 const ARRAY_CLEAR: u32 = 0x0084_54f0;
@@ -346,8 +349,10 @@ const MAP_FREE_ITEM: u32 = 0x0065_9080;
 /// by id (`004839c0`, `cdecl`), the base form of a reference (`007af430`:
 /// the word at `+0x20`), the form type byte (`00401170`: the byte at `+4`)
 /// and `TESObjectDOOR::IsSlidingDoor` (`00518080`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 const FORM_LOOKUP_BY_ID: u32 = 0x0048_39c0;
+#[cfg(test)]
 const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 const FORM_TYPE: u32 = 0x0040_1170;
 const IS_SLIDING_DOOR: u32 = 0x0051_8080;
@@ -512,6 +517,7 @@ const UP_VECTOR: u32 = 0x011a_9484;
 /// and `NiMatrix3::GetCol`-like `00439f50(index, &vector)`, and
 /// `vector * matrix` (`004b3ae0`, `cdecl`: result, vector, matrix).
 const POINT3_DEFAULT: u32 = 0x0068_15c0;
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 const COLOR_CONSTRUCT: u32 = 0x0041_4430;
 const POINT3_SUBTRACT: u32 = 0x0043_9ef0;
@@ -625,7 +631,9 @@ const REFERENCE_ARRAY_DTOR: u32 = 0x005e_04f0;
 /// The list traversal helpers: `008256d0` / `004a4460` (true for the empty
 /// head node: no next node and no item), the node's own address (`006815c0`),
 /// the next node (`00726070`: the word at `+4`).
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// `006c6030(queue, &out)` (`thiscall`, `AL`): pops a value from a
 /// lock-free queue; virtual slot `0x10` of a queue gives its count.
@@ -754,7 +762,7 @@ fn word(e: &Engine, address: u32) -> u32 {
 
 /// `NiPointer::operator->`: the pointer held in the slot.
 fn pointer_get(e: &mut Engine, slot: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 fn pointer_init(e: &mut Engine, slot: u32, value: u32) {
@@ -772,12 +780,16 @@ fn pointer_copy(e: &mut Engine, slot: u32, source: u32) {
 
 /// `BSSimpleArray::GetSize`.
 fn array_size(e: &mut Engine, array: u32) -> u32 {
-    e.call(ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 /// `BSSimpleArray::operator[]`: the address of element `index`.
 fn array_at(e: &mut Engine, array: u32, index: u32) -> u32 {
-    e.call(ARRAY_AT, &args![array, index]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    )
 }
 
 /// The `Obstacles` array of the `ReferenceObstacleArray` held by `slot`.
@@ -1496,14 +1508,14 @@ pub fn nav_mesh_obstacle_manager_remove_obstacle_for_reference(
         reference,
     );
     let queued_to_remove = base + NavMeshObstacleManager::QueuedListOfRefsToRemove.off;
-    let form_id = e.call(FORM_ID, &args![reference]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
     if list_contains(e, queued_to_remove, form_id) {
         return;
     }
     e.with_stack(4, |e, array| {
         let array = array.addr();
         pointer_init(e, array, 0);
-        let form_id = e.call(FORM_ID, &args![reference]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         if map_get(
             e,
             base + NavMeshObstacleManager::FormIDMap.off,
@@ -1519,7 +1531,7 @@ pub fn nav_mesh_obstacle_manager_remove_obstacle_for_reference(
                 e.call(REMOVE_RIGID_BODY, &args![this, rigid_body]);
                 index += 1;
             }
-            let form_id = e.call(FORM_ID, &args![reference]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             list_operation(e, LIST_ADD_TAIL, queued_to_remove, form_id);
         }
         pointer_release(e, array);
@@ -1530,7 +1542,7 @@ pub fn nav_mesh_obstacle_manager_remove_obstacle_for_reference(
 /// door (the test `006c0dc0`, `006c0f10` and `006c1060` open with): the
 /// form type is `0x1c` and `IsSlidingDoor` is false.
 fn is_ordinary_door(e: &mut Engine, reference: u32) -> bool {
-    let form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if e.call(FORM_TYPE, &args![form]).u32() == DOOR_FORM_TYPE {
         return !e.call(IS_SLIDING_DOOR, &args![form]).bool();
     }
@@ -1554,7 +1566,7 @@ pub fn fn_006c0dc0(e: &mut Engine, this: Ptr<NavMeshObstacleManager>, reference:
     e.with_stack(4, |e, array| {
         let array = array.addr();
         pointer_init(e, array, 0);
-        let form_id = e.call(FORM_ID, &args![reference]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         let in_closed = map_get(
             e,
             base + NavMeshObstacleManager::ClosedDoorMap.off,
@@ -1565,7 +1577,7 @@ pub fn fn_006c0dc0(e: &mut Engine, this: Ptr<NavMeshObstacleManager>, reference:
         if !in_closed && list_contains(e, doors_to_add, reference) {
             list_operation(e, LIST_REMOVE, doors_to_add, reference);
         }
-        let form_id = e.call(FORM_ID, &args![reference]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         let in_open = map_get(
             e,
             base + NavMeshObstacleManager::OpenDoorMap.off,
@@ -1574,9 +1586,9 @@ pub fn fn_006c0dc0(e: &mut Engine, this: Ptr<NavMeshObstacleManager>, reference:
         );
         if !in_open {
             let queued = base + NavMeshObstacleManager::QueuedListOfDoorsToRemove.off;
-            let form_id = e.call(FORM_ID, &args![reference]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             if !list_contains(e, queued, form_id) {
-                let form_id = e.call(FORM_ID, &args![reference]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
                 list_operation(e, LIST_ADD_HEAD, queued, form_id);
             }
         }
@@ -1602,7 +1614,7 @@ pub fn nav_mesh_obstacle_manager_on_door_close(
     e.with_stack(4, |e, array| {
         let array = array.addr();
         pointer_init(e, array, 0);
-        let form_id = e.call(FORM_ID, &args![reference]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         let in_open = map_get(
             e,
             base + NavMeshObstacleManager::OpenDoorMap.off,
@@ -1611,13 +1623,13 @@ pub fn nav_mesh_obstacle_manager_on_door_close(
         );
         if !in_open {
             let queued = base + NavMeshObstacleManager::QueuedListOfDoorsToRemove.off;
-            let form_id = e.call(FORM_ID, &args![reference]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             if list_contains(e, queued, form_id) {
-                let form_id = e.call(FORM_ID, &args![reference]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
                 list_operation(e, LIST_REMOVE, queued, form_id);
             }
         }
-        let form_id = e.call(FORM_ID, &args![reference]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         let in_closed = map_get(
             e,
             base + NavMeshObstacleManager::ClosedDoorMap.off,
@@ -1656,9 +1668,9 @@ pub fn fn_006c1060(e: &mut Engine, this: Ptr<NavMeshObstacleManager>, reference:
         list_operation(e, LIST_REMOVE, doors_to_add, reference);
     } else {
         let queued = base + NavMeshObstacleManager::QueuedListOfDoorsToRemove.off;
-        let form_id = e.call(FORM_ID, &args![reference]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         if !list_contains(e, queued, form_id) {
-            let form_id = e.call(FORM_ID, &args![reference]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             list_operation(e, LIST_ADD_HEAD, queued, form_id);
         }
     }
@@ -1704,7 +1716,7 @@ pub fn fn_006c1190(e: &mut Engine, this: Ptr<NavMeshObstacleManager>, reference:
         let array = frame.addr();
         let obstacle = frame.addr() + 4;
         pointer_init(e, array, 0);
-        let form_id = e.call(FORM_ID, &args![reference]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         if !map_get(e, form_id_map, form_id, array) {
             let memory = e.call(OPERATOR_NEW_SIZED, &args![0x1cu32]).u32();
             let created = if memory != 0 {
@@ -1714,7 +1726,7 @@ pub fn fn_006c1190(e: &mut Engine, this: Ptr<NavMeshObstacleManager>, reference:
             };
             e.call(NI_POINTER_SET, &args![array, created]);
             e.call(FILL_REFERENCE_OBSTACLES, &args![reference, array]);
-            let form_id = e.call(FORM_ID, &args![reference]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             map_set_copy(e, form_id_map, form_id, array);
         }
         let mut index = 0;
@@ -2124,20 +2136,26 @@ pub fn nav_mesh_obstacle_manager_get_cell_list_for_obstacle(
                     let low = frame.addr();
                     let high = low + 12;
                     let lowest = e.global::<f32>(NEGATIVE_FLOAT_MAX);
-                    e.call(
-                        POINT3_CONSTRUCT,
-                        &args![
+                    typed_call!(
+                        leaf::FAMILY,
+                        0x0041_6870,
+                        leaf::point3_new(
+                            e,
                             low,
                             cell_x.wrapping_shl(12) as f32,
                             cell_y.wrapping_shl(12) as f32,
                             lowest
-                        ],
+                        )
                     );
                     let highest = e.global::<f32>(POSITIVE_FLOAT_MAX);
                     let cell_size = e.global::<f64>(CELL_SIZE_DOUBLE);
                     let high_y = (e.mem.f32(low + 4) as f64 + cell_size) as f32;
                     let high_x = (e.mem.f32(low) as f64 + cell_size) as f32;
-                    e.call(POINT3_CONSTRUCT, &args![high, high_x, high_y, highest]);
+                    typed_call!(
+                        leaf::FAMILY,
+                        0x0041_6870,
+                        leaf::point3_new(e, high, high_x, high_y, highest)
+                    );
                     let data = pointer_get(e, obstacle);
                     let bounds_max = data + ObstacleData::aabbMax.off;
                     let data = pointer_get(e, obstacle);
@@ -2174,8 +2192,8 @@ pub fn fn_006c2050(e: &mut Engine, obstacle: u32, found: u32) -> bool {
         let cells = frame - 0x38;
         let first_holder = frame - 0x4c;
         let second_holder = frame - 0x50;
-        e.call(POINT3_DEFAULT, &args![low]);
-        e.call(POINT3_DEFAULT, &args![high]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, low));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, high));
         e.call(CELL_ARRAY_CTOR, &args![cells, 0x20u32, 0u32, 0u32]);
         if nav_mesh_obstacle_manager_get_cell_list_for_obstacle(e, obstacle, cells) {
             let mut cell_index = 0;
@@ -2320,7 +2338,7 @@ pub fn fn_006c23c0(e: &mut Engine, this: Ptr) -> Ptr {
         ObstacleData::aabbMin.off,
         ObstacleData::aabbMax.off,
     ] {
-        e.call(POINT3_DEFAULT, &args![base + field]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + field));
     }
     e.mem.set_u8(base + ObstacleData::bActive.off, 1);
     e.call(
@@ -2436,7 +2454,7 @@ pub fn fn_006c3440(e: &mut Engine, slot: u32) {
 /// obstacles with `006c3520`. `array` is the address of the
 /// `NiPointer<ReferenceObstacleArray>`. Returns what `006c3520` returns.
 pub fn fn_006c34f0(e: &mut Engine, reference: u32, array: u32) -> bool {
-    let form_id = e.call(FORM_ID, &args![reference]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
     let data = pointer_get(e, array);
     e.mem
         .set_u32(data + ReferenceObstacleArray::iFormID.off, form_id);
@@ -2581,8 +2599,8 @@ pub fn fn_006c2650(e: &mut Engine, data: u32) -> bool {
             MATRIX_TO_EULER_ANGLES,
             &args![transform, at(0xbc), at(0xb8), at(0xb4)],
         );
-        e.call(POINT3_DEFAULT, &args![lower]);
-        e.call(POINT3_DEFAULT, &args![upper]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, lower));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, upper));
         e.call(HK_VECTOR_TO_POINT3, &args![lower, aabb]);
         e.call(HK_VECTOR_TO_POINT3, &args![upper, aabb + 0x10]);
         copy_point(e, center, transform_translation);
@@ -2597,9 +2615,9 @@ pub fn fn_006c2650(e: &mut Engine, data: u32) -> bool {
                 &args![transform, index, columns + 12 * index],
             );
         }
-        e.call(POINT3_DEFAULT, &args![u]);
-        e.call(POINT3_DEFAULT, &args![w]);
-        e.call(POINT3_DEFAULT, &args![v]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, u));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, w));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, v));
 
         // Which columns become `u`, `v` and `w`, by the size of their z.
         let first_z = e.mem.f32(columns + 8);
@@ -2676,7 +2694,11 @@ pub fn fn_006c2650(e: &mut Engine, data: u32) -> bool {
             let z = e.mem.f32(pick(*z_upper, 2));
             let y = e.mem.f32(pick(*y_upper, 1));
             let x = e.mem.f32(pick(*x_upper, 0));
-            let corner = e.call(POINT3_CONSTRUCT, &args![at(*point), x, y, z]).u32();
+            let corner = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, at(*point), x, y, z)
+            );
             let mapped = e
                 .call(
                     MATRIX_TIMES_POINT,
@@ -2730,32 +2752,34 @@ pub fn fn_006c2650(e: &mut Engine, data: u32) -> bool {
         let lowest = e.global::<f32>(NEGATIVE_FLOAT_MAX);
         let box_min = data + ObstacleData::BoxMin.off;
         let box_max = data + ObstacleData::BoxMax.off;
-        let start = e
-            .call(
-                POINT3_CONSTRUCT,
-                &args![at(0x3c0), highest, highest, highest],
-            )
-            .u32();
+        let start = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, at(0x3c0), highest, highest, highest)
+        );
         copy_point(e, box_min, start);
-        let start = e
-            .call(POINT3_CONSTRUCT, &args![at(0x3cc), lowest, lowest, lowest])
-            .u32();
+        let start = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, at(0x3cc), lowest, lowest, lowest)
+        );
         copy_point(e, box_max, start);
         grow_bounds(e, box_min, box_max, corners_local);
 
         // ... and of the world corners (`aabbMin`, `aabbMax`).
         let aabb_min = data + ObstacleData::aabbMin.off;
         let aabb_max = data + ObstacleData::aabbMax.off;
-        let start = e
-            .call(
-                POINT3_CONSTRUCT,
-                &args![at(0x3dc), highest, highest, highest],
-            )
-            .u32();
+        let start = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, at(0x3dc), highest, highest, highest)
+        );
         copy_point(e, aabb_min, start);
-        let start = e
-            .call(POINT3_CONSTRUCT, &args![at(0x3e8), lowest, lowest, lowest])
-            .u32();
+        let start = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, at(0x3e8), lowest, lowest, lowest)
+        );
         copy_point(e, aabb_max, start);
         grow_bounds(e, aabb_min, aabb_max, corners_world);
 
@@ -2851,13 +2875,14 @@ pub fn fn_006c3640(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) {
                 fn_006c4d30(e, this);
                 let processed = fn_006c3920(e, this);
                 let background = fn_006c3970(e, this);
-                let queued_tasks = e
-                    .call(
-                        FORM_ID,
-                        &args![manager + NavMeshObstacleManager::CurrentNavMeshTaskMap.off],
+                let queued_tasks = typed_call!(
+                    leaf::FAMILY,
+                    0x0084_e3a0,
+                    leaf::word_at_c(
+                        e,
+                        manager + NavMeshObstacleManager::CurrentNavMeshTaskMap.off
                     )
-                    .u32()
-                    > 0;
+                ) > 0;
                 let time_is_up = (e.get(this, NavMeshObstacleManager::fTimeToNextSwap) as f64)
                     <= e.global::<f64>(ZERO_DOUBLE);
                 // With tasks queued in `CurrentNavMeshTaskMap`, no background
@@ -3011,7 +3036,7 @@ const MATCHING_EDGE_DEFAULT: u32 = 0x0062_40d0;
 /// and the word at `+8` copied from `source`. Returns `this`.
 pub fn fn_006c4350(e: &mut Engine, this: Ptr, source: u32) -> Ptr {
     let base = this.addr();
-    e.call(POINT3_DEFAULT, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     let first = e.mem.u32(source);
     e.mem.set_u32(base, first);
     let triangle = e.mem.u16(source + RECORD_TRIANGLE);
@@ -3479,16 +3504,16 @@ pub fn fn_006c45e0(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) {
         e.call(REFERENCE_ARRAY_CTOR, &args![handled]);
         let queue = manager + NavMeshObstacleManager::QueuedListOfRefsToAdd.off;
         let mut node = queue;
-        while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-            let item = e.call(POINT3_DEFAULT, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let reference = word(e, item);
             e.mem.set_u32(reference_slot, reference);
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             pointer_init(e, array_slot, 0);
-            let form_id = e.call(FORM_ID, &args![reference]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             let form_id_map = manager + NavMeshObstacleManager::FormIDMap.off;
             if map_get(e, form_id_map, form_id, array_slot) {
-                let form_id = e.call(FORM_ID, &args![reference]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
                 fn_006c1920(e, this, form_id, reference);
                 e.call(ARRAY_ADD, &args![handled, reference_slot]);
             } else if e.vcall(reference, REFERENCE_NODE_SLOT, &args![]).u32() != 0 {
@@ -3525,10 +3550,10 @@ pub fn fn_006c47e0(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) {
     e.with_stack(8, |e, frame| {
         let array_slot = frame.addr();
         let mut node = manager + NavMeshObstacleManager::QueuedListOfRefsToRemove.off;
-        while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-            let item = e.call(POINT3_DEFAULT, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let form_id = word(e, item);
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             pointer_init(e, array_slot, 0);
             let form_id_map = manager + NavMeshObstacleManager::FormIDMap.off;
             if map_get(e, form_id_map, form_id, array_slot) {
@@ -3558,11 +3583,11 @@ pub fn fn_006c47e0(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) {
 /// of the queued list at `list`, then clears the list.
 fn apply_queued_navmeshes(e: &mut Engine, list: u32, disable: u32) {
     let mut node = list;
-    while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(POINT3_DEFAULT, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let id = word(e, item);
         e.call(SET_DISABLE_NAVMESH, &args![id, disable]);
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(LIST_CLEAR, &args![list]);
 }
@@ -3651,7 +3676,7 @@ pub fn fn_006c4ad0(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) {
                 let havok_object = e.call(GET_WORD_AT_8, &args![rigid_body]).u32();
                 let source = e.call(HAVOK_POSITION, &args![havok_object]).u32();
                 e.call(HK_VECTOR_COPY, &args![position, source]);
-                e.call(POINT3_DEFAULT, &args![point]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
                 e.call(HK_VECTOR_TO_POINT3, &args![point, position]);
                 let data = pointer_get(e, obstacle);
                 let center = data + ObstacleData::Center.off;
@@ -3751,15 +3776,15 @@ pub fn fn_006c4d30(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) {
             let position = top - 0x20;
             let point = top - 0x2c;
             let difference = top - 0x38;
-            let item = e.call(POINT3_DEFAULT, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             pointer_copy(e, obstacle, item);
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             let data = pointer_get(e, obstacle);
             let rigid_body = pointer_get(e, data + ObstacleData::pRigidBody.off);
             let havok_object = e.call(GET_WORD_AT_8, &args![rigid_body]).u32();
             let source = e.call(HAVOK_POSITION, &args![havok_object]).u32();
             e.call(HK_VECTOR_COPY, &args![position, source]);
-            e.call(POINT3_DEFAULT, &args![point]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
             e.call(HK_VECTOR_TO_POINT3, &args![point, position]);
             let data = pointer_get(e, obstacle);
             let center = data + ObstacleData::Center.off;
@@ -3851,16 +3876,16 @@ pub fn nav_mesh_obstacle_manager_add_processed_task(
 pub fn fn_006c4fb0(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) -> bool {
     let manager = this.addr();
     let queue = manager + NavMeshObstacleManager::QueuedListOfDoorsToRemove.off;
-    if e.call(LIST_NODE_IS_EMPTY, &args![queue]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, queue)) {
         return false;
     }
     e.with_stack(8, |e, frame| {
         let array = frame.addr();
         let mut node = queue;
         while node != 0 {
-            let item = e.call(POINT3_DEFAULT, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let form_id = word(e, item);
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             pointer_init(e, array, 0);
             let closed = manager + NavMeshObstacleManager::ClosedDoorMap.off;
             if map_get(e, closed, form_id, array) {
@@ -3913,7 +3938,7 @@ pub fn fn_006c4fb0(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) -> bool {
 pub fn fn_006c5190(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) -> bool {
     let manager = this.addr();
     let queue = manager + NavMeshObstacleManager::QueuedListOfDoorsToAdd.off;
-    if e.call(LIST_NODE_IS_EMPTY, &args![queue]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, queue)) {
         return false;
     }
     let mut handled = false;
@@ -3921,8 +3946,8 @@ pub fn fn_006c5190(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) -> bool {
         let reference_slot = frame.addr();
         let array = frame.addr() + 4;
         let mut node = queue;
-        while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-            let item = e.call(POINT3_DEFAULT, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let reference = word(e, item);
             e.mem.set_u32(reference_slot, reference);
             if e.vcall(reference, REFERENCE_NODE_SLOT, &args![]).u32() != 0 {
@@ -3941,12 +3966,14 @@ pub fn fn_006c5190(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) -> bool {
                         queue_overlapping_navmeshes(e, this, obstacle, 0x30);
                         index += 1;
                     }
-                    let form_id = e.call(FORM_ID, &args![reference]).u32();
+                    let form_id =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
                     e.call(
                         MAP_REMOVE,
                         &args![manager + NavMeshObstacleManager::OpenDoorMap.off, form_id],
                     );
-                    let form_id = e.call(FORM_ID, &args![reference]).u32();
+                    let form_id =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
                     map_set_copy(
                         e,
                         manager + NavMeshObstacleManager::ClosedDoorMap.off,
@@ -3959,7 +3986,7 @@ pub fn fn_006c5190(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) -> bool {
                 node = queue;
                 pointer_release(e, array);
             } else {
-                node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
     });
@@ -4102,9 +4129,11 @@ fn make_obstacle_root(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) {
             0
         };
         pointer_init(e, material_slot, material);
-        let magenta = e
-            .call(POINT3_CONSTRUCT, &args![color, 1.0f32, 0.0f32, 1.0f32])
-            .u32();
+        let magenta = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, color, 1.0f32, 0.0f32, 1.0f32)
+        );
         let material = pointer_get(e, material_slot);
         e.call(MATERIAL_SET_COLOR, &args![material, magenta]);
         let alpha_value = e.global::<f32>(DEBUG_BOX_ALPHA);
@@ -4117,7 +4146,7 @@ fn make_obstacle_root(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) {
         let root = pointer_get(e, root_slot);
         e.call(ATTACH_PROPERTY, &args![root, material]);
         let tes = e.global::<u32>(TES_POINTER);
-        let scene_root = e.call(FORM_ID, &args![tes]).u32();
+        let scene_root = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, tes));
         let root = pointer_get(e, root_slot);
         e.vcall(scene_root, NODE_ATTACH_CHILD_SLOT, &args![root, 1u32]);
         e.call(
@@ -4125,7 +4154,7 @@ fn make_obstacle_root(e: &mut Engine, this: Ptr<NavMeshObstacleManager>) {
             &args![update_data, 0.0f32, 0u32, 0u32],
         );
         let tes = e.global::<u32>(TES_POINTER);
-        let scene_root = e.call(FORM_ID, &args![tes]).u32();
+        let scene_root = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, tes));
         e.call(NODE_UPDATE, &args![scene_root, update_data]);
         pointer_release(e, material_slot);
         pointer_release(e, alpha_slot);
@@ -4186,7 +4215,11 @@ pub fn nav_mesh_obstacle_manager_create_bounding_box3d_node(
             let z = obstacle_float(e, obstacle, z);
             let y = obstacle_float(e, obstacle, y);
             let x = obstacle_float(e, obstacle, x);
-            e.call(POINT3_CONSTRUCT, &args![at(point), x, y, z]);
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, at(point), x, y, z)
+            );
         }
         let shape_slot = at(0x80);
         let shape = e
@@ -5268,7 +5301,7 @@ pub fn bs_scrap_array_tes_object_cell_scalar_deleting_destructor(
 /// `operator delete` and `0044e360` runs on the word at `+4`.
 pub fn fn_006c74a0(e: &mut Engine, this: Ptr) {
     let mut index = 0;
-    while index < e.call(NI_POINTER_GET, &args![this]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) {
         // Entry `index` of the array at +8; its second word.
         let entries = word(e, this.addr() + 8);
         let interface = word(e, entries + index * 8 + 4);
@@ -5300,7 +5333,7 @@ pub fn fn_006c7560(e: &mut Engine, this: Ptr<LockFreeQueueInterface>, node: u32)
         .wrapping_add(1);
     e.set(this, LockFreeQueueInterface::iDeleteCount, count);
     let owner = e.get(this, LockFreeQueueInterface::pOwner);
-    let batch = e.call(FORM_ID, &args![owner]).u32();
+    let batch = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
     if count == batch {
         e.call(QUEUE_INTERFACE_FREE_BATCH, &args![this]);
     }

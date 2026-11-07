@@ -248,7 +248,7 @@ pub fn player_mover_update(e: &mut Engine, this: Ptr<PlayerMover>, seconds: f32)
             let mode = e.get(this, PlayerMover::MoveMode);
             if mode & 3 != 0 && mode & 0xc != 0 && !e.vcall(player, 0x2e8, &[]).bool() {
                 // `008d8520`: the dword at +0x68 of the player.
-                let process = e.call(0x008d_8520, &args![player]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
                 let kind = e.vcall(process, 0x3e4, &[]).i32();
                 let forward = e.get(vector, NiPoint3::y);
                 if !(13..=14).contains(&kind) && forward as f64 != zero {

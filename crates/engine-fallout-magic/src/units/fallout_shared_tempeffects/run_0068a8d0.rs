@@ -18,6 +18,7 @@ const ENTRY_AT: u32 = 0x004d_7d70;
 const ENTRY_VALUE: u32 = 0x0096_11e0;
 /// The output array's element address (`00877a30`, `thiscall`: index) and its store
 /// (`0096ae90`, `thiscall`: index, the address of the value).
+#[cfg(test)]
 const ELEMENT_ADDRESS: u32 = 0x0087_7a30;
 const ARRAY_SET_AT: u32 = 0x0096_ae90;
 /// A node's child count (`0043b480`, `thiscall`) and child at an index (`0043b4a0`,
@@ -50,7 +51,11 @@ pub fn fn_0068a8f0(e: &mut Engine, this: Ptr, node: u32, list: u32, count: Ptr) 
                 let mut missing = true;
                 let mut slot = (e.mem.u32(count.addr()) as i32).wrapping_sub(1);
                 while missing && slot >= 0 {
-                    let element = e.call(ELEMENT_ADDRESS, &args![list, slot as u32]).u32();
+                    let element = typed_call!(
+                        leaf::FAMILY,
+                        0x0087_7a30,
+                        leaf::array_element(e, list, slot as u32)
+                    );
                     let value = e.call(ENTRY_VALUE, &args![item]).u32();
                     if e.mem.u32(element) == value {
                         missing = false;

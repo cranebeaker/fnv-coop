@@ -6,6 +6,7 @@ use crate::prelude::*;
 
 /// `NiAVObject::GetWorldBound` (`0043d450`, `thiscall`): the bound (centre
 /// +0, radius +0xC).
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 /// The object's vtable slot +0x10 (`IsFadeNode` in the Xbox PDB).
 const IS_FADE_NODE_SLOT: u32 = 0x10;
@@ -32,7 +33,7 @@ pub fn bs_fade_node_culler_process(e: &mut Engine, this: Ptr, object: u32) {
     let flags = e.mem.u32(node + OBJECT_FLAGS);
     let mut plane = 0u32;
     while plane < 6 {
-        let bound = e.call(GET_WORLD_BOUND, &args![node]).u32();
+        let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
         let normal = this.addr() + PLANES + 0x10 * plane;
         let y = x87_mul(
             x87_load32(e.mem.u32(normal + 4)),

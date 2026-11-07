@@ -7,6 +7,7 @@ use crate::prelude::*;
 /// The entered name (`011daed8`, a string) and `00559450` (`thiscall`): its word at +0, the
 /// characters.
 const ENTERED_NAME: u32 = 0x011d_aed8;
+#[cfg(test)]
 const FIRST_ITEM_00559450: u32 = 0x0055_9450;
 /// `Font::ConvertCharacter` (`00a122b0`, `cdecl`, one word: the character's address).
 const CONVERT_CHARACTER: u32 = 0x00a1_22b0;
@@ -28,7 +29,7 @@ const TILE_SET_00700320: u32 = 0x0070_0320;
 /// Unnamed in the engine map (no words): the characters of the entered name at
 /// `011daed8` (its first word, `00559450`).
 pub fn fn_007ab810(e: &mut Engine) -> u32 {
-    e.call(FIRST_ITEM_00559450, &args![ENTERED_NAME]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, ENTERED_NAME))
 }
 
 /// Whether the glyph of `character` in font `index` has zero width: `Some(true)` when its

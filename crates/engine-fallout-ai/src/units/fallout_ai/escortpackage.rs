@@ -26,15 +26,19 @@ const LIST_CONTAINS: u32 = 0x005f_65d0;
 const LIST_ADD: u32 = 0x005a_e3d0;
 const LIST_REMOVE: u32 = 0x0090_5330;
 /// Node walk: the node itself (its item word first), the next node.
+#[cfg(test)]
 const LIST_NODE: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// `(list)`: whether the list is empty (both words zero).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `(node, &item)`: stores the item in the node.
 const LIST_NODE_SET_ITEM: u32 = 0x0072_6c60;
 /// `(node)`: removes the head node's item (the next one moves up).
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
 /// `(actor)`: a flag of the actor (map: `modelloader.cpp`); true drops it.
+#[cfg(test)]
 const ACTOR_FLAG: u32 = 0x0044_0d80;
 /// `Actor::CouldBeFollowing` (Xbox PDB) `(this, actor)`.
 const ACTOR_COULD_BE_FOLLOWING: u32 = 0x008b_c860;
@@ -88,7 +92,7 @@ fn escorted_actors(this: Ptr<EscortActorPackageData>) -> u32 {
 
 /// The item of list node `node` (`006815c0` then the first word).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let node = e.call(LIST_NODE, &args![node]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(node)
 }
 
@@ -164,11 +168,11 @@ pub fn escort_actor_package_data_get_num_escorted_actors_of_type(
     let mut node = list;
     while node != 0 {
         let actor = node_item(e, node);
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if actor == 0 {
             continue;
         }
-        let drop = e.call(ACTOR_FLAG, &args![actor]).bool()
+        let drop = typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
             || !e
                 .call(ACTOR_COULD_BE_FOLLOWING, &args![actor, leader])
                 .bool();
@@ -177,7 +181,7 @@ pub fn escort_actor_package_data_get_num_escorted_actors_of_type(
                 e.mem.set_u32(word.addr(), actor);
                 e.call(LIST_REMOVE, &args![list, word]);
             });
-            if !e.call(LIST_IS_EMPTY, &args![list]).bool() {
+            if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
                 node = list;
             }
         }
@@ -190,7 +194,7 @@ pub fn escort_actor_package_data_get_num_escorted_actors_of_type(
         if actor != 0 && e.call(REFERENCE_MATCHES_FORM, &args![actor, form]).bool() {
             count += 1;
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     count
 }
@@ -229,7 +233,7 @@ pub fn escort_actor_package_data_save_game(
             e.call(SAVE_FORM_ID, &args![buffer, actor, 0u32]);
             count = count.wrapping_add(1);
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SAVE_VARIABLE_SIZED_VALUE, &args![buffer, count, start]);
 }
@@ -283,7 +287,7 @@ pub fn escort_actor_package_data_init_load_game(
 ) {
     let mut node = escorted_actors(this);
     let mut previous = 0u32;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let id = node_item(e, node);
         let remove = if id == 0 {
             true
@@ -307,12 +311,12 @@ pub fn escort_actor_package_data_init_load_game(
         };
         if !remove {
             previous = node;
-            node = e.call(LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         } else if previous != 0 {
             // The node's own address is the address of its item word.
-            let item_word = e.call(LIST_NODE, &args![node]).u32();
+            let item_word = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.call(LIST_REMOVE, &args![previous, item_word]);
-            node = e.call(LIST_NEXT, &args![previous]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
         } else {
             e.call(LIST_REMOVE_HEAD, &args![node]);
         }

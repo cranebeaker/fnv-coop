@@ -31,6 +31,7 @@ use crate::units::crt::glue::alloca16_esp;
 /// Global holding the `CombatManager*` singleton.
 const COMBAT_MANAGER: u32 = 0x011f_1958;
 /// `BSSimpleArray<T>::GetSize`-like accessor (`this->iSize` at +8).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// The group's target count (`TargetArray.iSize`), taking the group.
 const TARGET_COUNT: u32 = 0x005a_4320;
@@ -57,6 +58,7 @@ const SEARCH_DOOR_ARRAY_SET_SIZE: u32 = 0x0069_cea0;
 const SEARCH_DOOR_AT: u32 = 0x006a_1440;
 /// `TESForm::iFormID` getter (`this + 0xc`); the same body reads
 /// `BGSWorldLocation::pSpace`.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `CombatTimeStamp` value (`float` at `this`), in ST0.
 const TIME_STAMP_VALUE: u32 = 0x006a_7f50;
@@ -144,6 +146,7 @@ const ZERO_DOUBLE: u32 = 0x0101_2060;
 /// `int`.
 const SETTING_INT_VALUE: u32 = 0x0043_d4d0;
 /// `NiPointer::operator->`-like getter (`[this]`).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `VirtualActorPathHandler::GetDistanceTraveled` (Xbox PDB), in ST0.
 const PATH_HANDLER_DISTANCE_TRAVELLED: u32 = 0x004a_7bd0;
@@ -183,6 +186,7 @@ const POINT_SCALE_DOWN: u32 = 0x0053_d280;
 const POINT_DIVIDE_IN_PLACE: u32 = 0x0049_41c0;
 const POINT_SCALE: u32 = 0x0045_bb20;
 const POINT_ACCUMULATE: u32 = 0x0063_c8a0;
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 const POINT_LENGTH_SQUARED: u32 = 0x004a_7290;
 const POINT_UNITIZE_GET_LENGTH: u32 = 0x0045_7910;
@@ -286,6 +290,7 @@ const ACTOR_IS_FLEEING_ARG: u32 = 0x008a_6650;
 /// Global holding the pointer of the player's actor (compared with the members' actors).
 const PLAYER: u32 = 0x011d_ea3c;
 /// `NiPoint3` default constructor (returns `this`).
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0041_6870;
 /// `BGSWorldLocation` constructor from a point (`this`; point, space).
 const WORLD_LOCATION_FROM_POINT: u32 = 0x0043_a3c0;
@@ -357,6 +362,7 @@ const SAVE_FORM_ID_PLAIN: u32 = 0x0086_5db0;
 /// `PathingLOSGridMap::SaveGame` (grid, buffer).
 const LOS_GRID_MAP_SAVE: u32 = 0x006e_0c40;
 /// The group strategy's index (`this` = the strategy), `00726070`.
+#[cfg(test)]
 const STRATEGY_INDEX: u32 = 0x0072_6070;
 /// The strategy chooser `009900f0(group)` (cdecl, one word).
 const CHOOSE_STRATEGY: u32 = 0x0099_00f0;
@@ -1242,7 +1248,7 @@ pub fn fn_00985f90(e: &mut Engine, this: Ptr<CombatGroup>) {
     }
     let clusters = this.byte_add(CombatGroup::CLUSTER_ARRAY);
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![clusters]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, clusters)) {
         let slot = e.call(CLUSTER_AT, &args![clusters, index]).u32();
         let cluster = e.mem.u32(slot);
         e.call(0x0040_1030, &args![cluster]);
@@ -1358,7 +1364,7 @@ pub fn fn_009862e0(e: &mut Engine, this: Ptr<CombatGroup>, strategy: Ptr) {
         e.call(0x0098_a3c0, &args![this]);
         let strategy = e.get(this, CombatGroup::pGroupStrategy);
         e.vcall(strategy.addr(), 4, &args![this, temporary]);
-        let index = e.call(0x0072_6070, &args![strategy]).u32();
+        let index = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, strategy));
         e.set(this, CombatGroup::iLastGroupStrategyChosenIndex, index);
         let now = e.call(GAME_TIME_NOW, &args![]).f32();
         let stored = e.with_stack(4, |e, local| {
@@ -1423,7 +1429,7 @@ fn log_actor_message(e: &mut Engine, actor: Ptr, format: u32) {
     } else {
         e.call(0x0055_d520, &args![actor]).u32()
     };
-    let form_id = e.call(FORM_ID, &args![actor]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
     e.call(LOG_MESSAGE, &args![format, form_id, name]);
 }
 
@@ -1433,7 +1439,7 @@ fn log_actor_message(e: &mut Engine, actor: Ptr, format: u32) {
 pub fn combat_group_remove_target(e: &mut Engine, this: Ptr<CombatGroup>, actor: Ptr) {
     let targets = this.byte_add(CombatGroup::TARGET_ARRAY);
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![targets]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, targets)) {
         let target = e
             .call(TARGET_AT, &args![targets, index])
             .ptr::<CombatTarget>();
@@ -1469,14 +1475,14 @@ pub fn combat_group_is_target(e: &mut Engine, this: Ptr<CombatGroup>, actor: Ptr
 // Translated from 009865d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The `CombatTarget` of an actor (by form ID, `fn_00986610`), or null.
 pub fn fn_009865d0(e: &mut Engine, this: Ptr<CombatGroup>, actor: Ptr) -> Ptr<CombatTarget> {
-    let form_id = e.call(FORM_ID, &args![actor]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
     fn_00986610(e, this, form_id)
 }
 
 // Translated from 009865f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The `CombatMember` of an actor (by form ID, `fn_00986670`), or null.
 pub fn fn_009865f0(e: &mut Engine, this: Ptr<CombatGroup>, actor: Ptr) -> Ptr<CombatMember> {
-    let form_id = e.call(FORM_ID, &args![actor]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
     fn_00986670(e, this, form_id)
 }
 
@@ -1485,12 +1491,12 @@ pub fn fn_009865f0(e: &mut Engine, this: Ptr<CombatGroup>, actor: Ptr) -> Ptr<Co
 pub fn fn_00986610(e: &mut Engine, this: Ptr<CombatGroup>, form_id: u32) -> Ptr<CombatTarget> {
     let targets = this.byte_add(CombatGroup::TARGET_ARRAY);
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![targets]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, targets)) {
         let target = e
             .call(TARGET_AT, &args![targets, index])
             .ptr::<CombatTarget>();
         let actor = e.get(target, CombatTarget::pActor);
-        if e.call(FORM_ID, &args![actor]).u32() == form_id {
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor)) == form_id {
             return target;
         }
         index += 1;
@@ -1503,12 +1509,12 @@ pub fn fn_00986610(e: &mut Engine, this: Ptr<CombatGroup>, form_id: u32) -> Ptr<
 pub fn fn_00986670(e: &mut Engine, this: Ptr<CombatGroup>, form_id: u32) -> Ptr<CombatMember> {
     let members = this.byte_add(CombatGroup::MEMBER_ARRAY);
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![members]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, members)) {
         let member = e
             .call(MEMBER_AT, &args![members, index])
             .ptr::<CombatMember>();
         let actor = e.get(member, CombatMember::pActor);
-        if e.call(FORM_ID, &args![actor]).u32() == form_id {
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor)) == form_id {
             return member;
         }
         index += 1;
@@ -1556,10 +1562,10 @@ pub fn fn_00986740(e: &mut Engine, this: Ptr<CombatGroup>, other: Ptr<CombatGrou
 /// `CombatTarget`s, in order (sized first with `SetSize(count, 1)`).
 pub fn fn_00986760(e: &mut Engine, this: Ptr<CombatGroup>, other: Ptr) {
     let targets = this.byte_add(CombatGroup::TARGET_ARRAY);
-    let count = e.call(ARRAY_SIZE, &args![targets]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, targets));
     e.call(POINTER_ARRAY_SET_SIZE, &args![other, count, 1u32]);
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![targets]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, targets)) {
         let target = e.call(TARGET_AT, &args![targets, index]).u32();
         e.call(ARRAY_SET_AT, &args![other, index, target]);
         index += 1;
@@ -1607,7 +1613,11 @@ pub fn combat_group_add_member(e: &mut Engine, this: Ptr<CombatGroup>, actor: Pt
             e.mem.f32(colour + 8),
         );
         e.with_stack(0xc, |e, rgb| {
-            e.call(0x0041_6870, &args![rgb, red, green, blue]);
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, rgb, red, green, blue)
+            );
             let node = e.vcall(actor.addr(), 0x1d0, &args![]).u32();
             e.call(TINT_SCENEGRAPH, &args![node, rgb, 0u32]);
         });
@@ -1641,7 +1651,7 @@ pub fn fn_00986950(e: &mut Engine, this: Ptr<CombatMember>, actor: Ptr) -> Ptr<C
 pub fn fn_009869a0(e: &mut Engine, this: Ptr<CombatGroup>, actor: Ptr) {
     let members = this.byte_add(CombatGroup::MEMBER_ARRAY);
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![members]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, members)) {
         let member = e
             .call(MEMBER_AT, &args![members, index])
             .ptr::<CombatMember>();
@@ -1693,10 +1703,10 @@ pub fn combat_group_can_add_member(e: &mut Engine, this: Ptr<CombatGroup>, membe
 /// `CombatMember`s, in order (sized first with `SetSize(count, 1)`).
 pub fn fn_00986b00(e: &mut Engine, this: Ptr<CombatGroup>, other: Ptr) {
     let members = this.byte_add(CombatGroup::MEMBER_ARRAY);
-    let count = e.call(ARRAY_SIZE, &args![members]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, members));
     e.call(POINTER_ARRAY_SET_SIZE, &args![other, count, 1u32]);
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![members]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, members)) {
         let member = e.call(MEMBER_AT, &args![members, index]).u32();
         e.call(ARRAY_SET_AT, &args![other, index, member]);
         index += 1;
@@ -1901,8 +1911,16 @@ fn choose_target(e: &mut Engine, this: Ptr<CombatGroup>, actor: Ptr, frame: Ptr)
                     score += e.global::<f32>(0x011a_4d68);
                 }
                 e.call(GET_WORLD_LOCATION, &args![target, target_location]);
-                let target_space = e.call(FORM_ID, &args![target_location]).u32();
-                let actor_space = e.call(FORM_ID, &args![actor_location]).u32();
+                let target_space = typed_call!(
+                    leaf::FAMILY,
+                    0x0084_e3a0,
+                    leaf::word_at_c(e, target_location)
+                );
+                let actor_space = typed_call!(
+                    leaf::FAMILY,
+                    0x0084_e3a0,
+                    leaf::word_at_c(e, actor_location)
+                );
                 let other_space = target_space != actor_space;
                 let distance = if other_space {
                     if is_current {
@@ -2042,9 +2060,10 @@ pub fn fn_00987220(e: &mut Engine, this: Ptr<CombatGroup>, target: Ptr<CombatTar
             let mut stationary = false;
             let handler_slot = this.byte_add(CombatGroup::spPathingLOSGridMap.off);
             if e.get(this, CombatGroup::iSearchCount) == 1
-                && e.call(NI_POINTER_GET, &args![handler_slot]).u32() != 0
+                && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, handler_slot)) != 0
             {
-                let handler = e.call(NI_POINTER_GET, &args![handler_slot]).u32();
+                let handler =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, handler_slot));
                 let travelled = e
                     .call(PATH_HANDLER_DISTANCE_TRAVELLED, &args![handler])
                     .f32();
@@ -2137,7 +2156,7 @@ pub fn combat_group_merge_group(
 ) -> bool {
     let other_targets = e.call(OTHER_TARGET_ARRAY, &args![other]).u32();
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![other_targets]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other_targets)) {
         let target = e
             .call(TARGET_AT, &args![other_targets, index])
             .ptr::<CombatTarget>();
@@ -2149,7 +2168,7 @@ pub fn combat_group_merge_group(
     }
     let my_targets = this.byte_add(CombatGroup::TARGET_ARRAY);
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![my_targets]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, my_targets)) {
         let target = e
             .call(TARGET_AT, &args![my_targets, index])
             .ptr::<CombatTarget>();
@@ -2174,7 +2193,7 @@ pub fn combat_group_merge_group(
     fn_009877e0(e, other);
     let other_members = e.call(OTHER_MEMBER_ARRAY, &args![other]).u32();
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![other_members]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other_members)) {
         let member = e
             .call(MEMBER_AT, &args![other_members, index])
             .ptr::<CombatMember>();
@@ -2187,13 +2206,13 @@ pub fn combat_group_merge_group(
             }
         } else {
             let name = e.vcall(actor.addr(), 0x130, &args![]).u32();
-            let form_id = e.call(FORM_ID, &args![actor]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
             e.call(LOG_MESSAGE, &args![MERGE_MEMBER_ERROR, form_id, name]);
         }
         index += 1;
     }
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![other_targets]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other_targets)) {
         let target = e
             .call(TARGET_AT, &args![other_targets, index])
             .ptr::<CombatTarget>();
@@ -2205,7 +2224,7 @@ pub fn combat_group_merge_group(
             }
         } else {
             let name = e.vcall(actor.addr(), 0x130, &args![]).u32();
-            let form_id = e.call(FORM_ID, &args![actor]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
             e.call(LOG_MESSAGE, &args![MERGE_TARGET_ERROR, form_id, name]);
         }
         index += 1;
@@ -2220,11 +2239,11 @@ pub fn combat_group_merge_group(
 // Translated from 009877c0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `CombatGroup`: the size of `ClusterArray` (`0044ddc0`).
 pub fn fn_009877c0(e: &mut Engine, this: Ptr<CombatGroup>) -> u32 {
-    e.call(
-        ARRAY_SIZE,
-        &args![this.byte_add(CombatGroup::CLUSTER_ARRAY)],
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.byte_add(CombatGroup::CLUSTER_ARRAY))
     )
-    .u32()
 }
 
 // Translated from 009877e0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2306,7 +2325,7 @@ pub fn fn_009890e0(e: &mut Engine, this: Ptr<CombatGroup>, actor: Ptr, out: Ptr)
         return false;
     }
     let location = target.byte_add(CombatTarget::LAST_DETECTED_LOCATION);
-    if e.call(FORM_ID, &args![location]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, location)) == 0 {
         return false;
     }
     copy_location(e, out, location);
@@ -2499,7 +2518,7 @@ pub fn fn_00989490(
     array: Ptr,
 ) -> Ptr {
     e.with_stack(0x10, |e, centre| {
-        e.call(POINT_NO_OP, &args![centre]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, centre));
         let mut radius: f32 = e.global(SPHERE_MINIMUM_RADIUS);
         let squared = fn_00989eb0(e, this, centre);
         if squared as f64 > radius as f64 * radius as f64 {
@@ -2544,7 +2563,11 @@ pub fn fn_009895a0(e: &mut Engine, this: Ptr<CombatGroup>, actor: Ptr, array: Pt
             array = avoid_array_or_new(e, array);
             let second = float_setting(e, 0x011c_eb2c);
             let first = float_setting(e, 0x011c_e900);
-            let point = e.call(POINT_NO_OP, &args![target_location]).u32();
+            let point = typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, target_location)
+            );
             add_avoid_node(e, array, Ptr::new(point), first, second);
         }
     });
@@ -2762,7 +2785,11 @@ pub fn combat_group_check_member_target_intersection(
         );
         e.call(POINT_SUBTRACT, &args![target_sum, direction, member_sum]);
         e.call(POINT_SUBTRACT, &args![total, to_all, member_sum]);
-        let along = e.call(POINT_DOT, &args![to_all, direction]).f32();
+        let along = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, to_all, direction)
+        );
         let distance = e.call(SQUARE_ROOT, &args![along]).f32();
         e.call(POINT_UNITIZE_GET_LENGTH, &args![direction]);
         let scaled = e
@@ -2780,7 +2807,11 @@ pub fn combat_group_check_member_target_intersection(
                     behind_point
                 ],
             );
-            let dot = e.call(POINT_DOT, &args![member_temporary, reference]).f32();
+            let dot = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, member_temporary, reference)
+            );
             if (dot as f64) < e.global::<f64>(ZERO_DOUBLE) {
                 members_behind += 1;
             }
@@ -2795,7 +2826,11 @@ pub fn combat_group_check_member_target_intersection(
                     behind_point
                 ],
             );
-            let dot = e.call(POINT_DOT, &args![target_temporary, reference]).f32();
+            let dot = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, target_temporary, reference)
+            );
             if (dot as f64) < e.global::<f64>(ZERO_DOUBLE) {
                 targets_behind += 1;
             }
@@ -3074,7 +3109,7 @@ pub fn fn_00990500(e: &mut Engine, this: Ptr<CombatGroupData>) -> f32 {
 
 /// Reads a `NiPointer` (`[slot]`) as the game's getter `00559450` does.
 fn ni_pointer_get(e: &mut Engine, slot: Ptr) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 // Translated from 0098a580 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `CombatGroup`: the per-update step of the search (the engine map has no
@@ -3244,7 +3279,7 @@ fn rebuild_search_grid(e: &mut Engine, this: Ptr<CombatGroup>) {
             return;
         }
         let point = frame.byte_add(8);
-        e.call(POINT_NO_OP, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         let first = e.mem.u32(frame.addr());
         let second = e.mem.u32(frame.addr() + 4);
         let focal = this.byte_add(CombatGroup::SEARCH_FOCAL_POINT);
@@ -3265,7 +3300,8 @@ fn rebuild_search_grid(e: &mut Engine, this: Ptr<CombatGroup>) {
             if e.call(PATHING_LOCATION_RESOLVE, &args![location, 0u32])
                 .bool()
             {
-                let centre_point = e.call(POINT_NO_OP, &args![centre]).u32();
+                let centre_point =
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, centre));
                 e.call(PATHING_LOCATION_SET_POINT, &args![location, centre_point]);
                 if ni_pointer_get(e, grid_slot) == 0 {
                     let memory = e.call(OPERATOR_NEW, &args![0x54u32]).u32();
@@ -3309,9 +3345,11 @@ fn feed_members_to_grid(e: &mut Engine, this: Ptr<CombatGroup>) {
             for index in 0..members {
                 let actor = e.call(MEMBER_ACTOR_AT, &args![this, index]).u32();
                 let space = e.call(REFERENCE_SPACE, &args![actor]).u32();
-                let centre_space = e
-                    .call(FORM_ID, &args![this.byte_add(CombatGroup::SEARCH_CENTER)])
-                    .u32();
+                let centre_space = typed_call!(
+                    leaf::FAMILY,
+                    0x0084_e3a0,
+                    leaf::word_at_c(e, this.byte_add(CombatGroup::SEARCH_CENTER))
+                );
                 if space != centre_space {
                     continue;
                 }
@@ -3329,7 +3367,7 @@ fn feed_members_to_grid(e: &mut Engine, this: Ptr<CombatGroup>) {
                     e.call(PATHING_LOCATION_DESTRUCT, &args![location]);
                 });
             }
-            if e.call(ARRAY_SIZE, &args![locations]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, locations)) != 0 {
                 let grid = ni_pointer_get(e, grid_slot);
                 let before = e.call(PATH_HANDLER_DISTANCE_TRAVELLED, &args![grid]).f32();
                 e.call(LOS_GRID_MAP_APPLY, &args![grid_slot, locations, angles]);
@@ -3490,8 +3528,8 @@ pub fn fn_0098b070(
     out_second: Ptr,
 ) {
     let mut row = 1u32;
-    if e.call(FORM_ID, &args![location]).u32() != 0 {
-        let space = e.call(FORM_ID, &args![location]).u32();
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, location)) != 0 {
+        let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, location));
         if e.call(FORM_TYPE_BYTE, &args![space]).u32() == 0x39 {
             row = 0;
         }
@@ -3528,10 +3566,11 @@ pub fn fn_0098b100(e: &mut Engine, this: Ptr<CombatGroup>) {
         let locations = e.call(SEARCH_LOCATION_COUNT, &args![this]).u32();
         if locations != 0 {
             centre_from_locations(e, this, locations, radii);
-        } else if e
-            .call(FORM_ID, &args![this.byte_add(CombatGroup::SEARCH_CENTER)])
-            .u32()
-            == 0
+        } else if typed_call!(
+            leaf::FAMILY,
+            0x0084_e3a0,
+            leaf::word_at_c(e, this.byte_add(CombatGroup::SEARCH_CENTER))
+        ) == 0
         {
             centre_from_members(e, this, radii);
         }
@@ -3550,7 +3589,7 @@ fn centre_from_locations(e: &mut Engine, this: Ptr<CombatGroup>, locations: u32,
             .ptr::<CombatSearchLocation>();
         let _ = fn_00985bb0(e, location);
         copy_location(e, centre_field, location.cast());
-        let point = e.call(POINT_NO_OP, &args![location]).u32();
+        let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
         copy_point(e, focal_field, point);
         fn_0098b070(e, this, location.cast(), radii, radii.byte_add(4));
         let smaller = e.mem.f32(radii.addr());
@@ -3587,17 +3626,17 @@ fn centre_from_locations(e: &mut Engine, this: Ptr<CombatGroup>, locations: u32,
             }
             let score = fn_00985bb0(e, location);
             e.with_stack(0xc, |e, scaled| {
-                let point = e.call(POINT_NO_OP, &args![location]).u32();
+                let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
                 let result = e.call(POINT_SCALE, &args![point, scaled, score]).u32();
                 e.call(POINT_ACCUMULATE, &args![centre, result]);
             });
             total = (total as f64 + score as f64) as f32;
         }
         e.call(POINT_DIVIDE_IN_PLACE, &args![centre, total]);
-        let space = e.call(FORM_ID, &args![best]).u32();
+        let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, best));
         bgs_world_location_set_location(e, centre_field, centre, space);
     });
-    let point = e.call(POINT_NO_OP, &args![best]).u32();
+    let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, best));
     copy_point(e, focal_field, point);
     let mut farthest = 0.0f32;
     let larger = e.mem.f32(radii.addr() + 4);
@@ -3606,7 +3645,9 @@ fn centre_from_locations(e: &mut Engine, this: Ptr<CombatGroup>, locations: u32,
         let location = e
             .call(SEARCH_LOCATION_AT, &args![this, index])
             .ptr::<CombatSearchLocation>();
-        if e.call(FORM_ID, &args![location]).u32() != e.call(FORM_ID, &args![centre_field]).u32() {
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, location))
+            != typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, centre_field))
+        {
             continue;
         }
         let squared = e
@@ -3635,7 +3676,7 @@ fn centre_from_members(e: &mut Engine, this: Ptr<CombatGroup>, radii: Ptr) {
                 .ptr::<()>();
             copy_location(e, centre_field, world);
         });
-        let point = e.call(POINT_NO_OP, &args![centre_field]).u32();
+        let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, centre_field));
         copy_point(e, focal_field, point);
         fn_0098b070(e, this, centre_field, radii, radii.byte_add(4));
         let smaller = e.mem.f32(radii.addr());
@@ -3671,15 +3712,15 @@ fn centre_from_members(e: &mut Engine, this: Ptr<CombatGroup>, radii: Ptr) {
                 if larger_squared < squared {
                     continue;
                 }
-                let point = e.call(POINT_NO_OP, &args![location]).u32();
+                let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
                 e.call(POINT_ACCUMULATE, &args![centre, point]);
                 inside += 1;
             }
             e.call(POINT_DIVIDE_IN_PLACE, &args![centre, inside as f32]);
-            let space = e.call(FORM_ID, &args![best_location]).u32();
+            let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, best_location));
             bgs_world_location_set_location(e, centre_field, centre, space);
         });
-        let point = e.call(POINT_NO_OP, &args![best_location]).u32();
+        let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, best_location));
         copy_point(e, focal_field, point);
         let mut farthest = 0.0f32;
         let larger = e.mem.f32(radii.addr() + 4);
@@ -3687,8 +3728,8 @@ fn centre_from_members(e: &mut Engine, this: Ptr<CombatGroup>, radii: Ptr) {
         for index in 0..members {
             let actor = e.call(MEMBER_ACTOR_AT, &args![this, index]).u32();
             e.call(GET_WORLD_LOCATION, &args![actor, location]);
-            if e.call(FORM_ID, &args![location]).u32()
-                != e.call(FORM_ID, &args![centre_field]).u32()
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, location))
+                != typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, centre_field))
             {
                 continue;
             }
@@ -3750,8 +3791,8 @@ pub fn combat_group_build_search_teleport_door_array(e: &mut Engine, this: Ptr<C
         let centre = this.byte_add(CombatGroup::SEARCH_CENTER);
         fn_0098b070(e, this, centre, first, second);
         let radius = e.get(this, CombatGroup::fSearchRadius);
-        let point = e.call(POINT_NO_OP, &args![centre]).u32();
-        let space = e.call(FORM_ID, &args![centre]).u32();
+        let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, centre));
+        let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, centre));
         e.call(COLLECT_TELEPORT_DOORS, &args![space, point, radius, array]);
         let members = e.call(MEMBER_COUNT, &args![this]).u32();
         let larger = e.mem.f32(second.addr());
@@ -3766,18 +3807,18 @@ pub fn combat_group_build_search_teleport_door_array(e: &mut Engine, this: Ptr<C
                 continue;
             }
             let smaller = e.mem.f32(first.addr());
-            let point = e.call(POINT_NO_OP, &args![location]).u32();
-            let space = e.call(FORM_ID, &args![location]).u32();
+            let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
+            let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, location));
             e.call(COLLECT_TELEPORT_DOORS, &args![space, point, smaller, array]);
         }
         e.call(ARRAY_SORT, &args![array, COMPARE_WORDS]);
         let mut index = 0u32;
-        while index < e.call(ARRAY_SIZE, &args![array]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
             let slot = e.call(CLUSTER_AT, &args![array, index]).u32();
             let door = e.mem.u32(slot);
             let mut duplicates = 0u32;
             let mut next = index + 1;
-            while next < e.call(ARRAY_SIZE, &args![array]).u32() {
+            while next < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
                 let slot = e.call(CLUSTER_AT, &args![array, next]).u32();
                 if e.mem.u32(slot) != door {
                     break;
@@ -3794,7 +3835,7 @@ pub fn combat_group_build_search_teleport_door_array(e: &mut Engine, this: Ptr<C
             index += 1;
         }
         let mut index = 0u32;
-        while index < e.call(ARRAY_SIZE, &args![array]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
             let slot = e.call(CLUSTER_AT, &args![array, index]).u32();
             let door = e.mem.u32(slot);
             fn_0098c600(e, this, door);
@@ -3889,10 +3930,12 @@ pub fn combat_group_find_search_location(
             let score = fn_00985bb0(e, entry);
             let mut bonus = 0.0f32;
             if !reference.is_null()
-                && e.call(FORM_ID, &args![entry]).u32() == e.call(FORM_ID, &args![reference]).u32()
+                && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, entry))
+                    == typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference))
             {
-                let reference_point = e.call(POINT_NO_OP, &args![reference]).u32();
-                let entry_point = e.call(POINT_NO_OP, &args![entry]).u32();
+                let reference_point =
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, reference));
+                let entry_point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, entry));
                 if e.call(POINTS_EQUAL, &args![entry_point, reference_point])
                     .bool()
                 {
@@ -3952,7 +3995,11 @@ pub fn fn_0098bd70(e: &mut Engine, this: Ptr<CombatGroup>, position: Ptr) {
         let (excess_detected, excess_noticed, excess_attacked) =
             (outs, outs.byte_add(4), outs.byte_add(8));
         let quarter: f32 = e.global(QUARTER_FLOAT);
-        e.call(POINT_CONSTRUCT, &args![scale, 1.0f32, 1.0f32, quarter]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, scale, 1.0f32, 1.0f32, quarter)
+        );
         let count = e.call(SEARCH_LOCATION_COUNT, &args![this]).u32();
         let thirty: f64 = e.global(THIRTY_DOUBLE);
         for index in 0..count {
@@ -4128,7 +4175,7 @@ pub fn fn_0098c060(
 pub fn fn_0098c0d0(e: &mut Engine, this: Ptr<CombatGroup>) {
     let array = this.byte_add(CombatGroup::SEARCH_LOCATIONS);
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![array]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
         let entry = e
             .call(SEARCH_LOCATION_ELEMENT, &args![array, index])
             .ptr::<CombatSearchLocation>();
@@ -4153,7 +4200,7 @@ pub fn fn_0098c0d0(e: &mut Engine, this: Ptr<CombatGroup>) {
             }
             let actor = e.get(target, CombatTarget::pActor);
             if b < a || b < c {
-                let id = e.call(FORM_ID, &args![actor]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
                 if c <= a {
                     let location = target.byte_add(CombatTarget::LAST_DETECTED_LOCATION);
                     fn_0098bfb0(e, this, location, a, id);
@@ -4180,28 +4227,28 @@ pub fn fn_0098c0d0(e: &mut Engine, this: Ptr<CombatGroup>) {
             }
             let noticed_at = target.byte_add(CombatTarget::LAST_NOTICED_LOCATION);
             if larger > 0.0
-                && e.call(FORM_ID, &args![combined]).u32()
-                    == e.call(FORM_ID, &args![noticed_at]).u32()
+                && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, combined))
+                    == typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, noticed_at))
             {
                 let first_scaled = frame.byte_add(0x30);
                 let second_scaled = frame.byte_add(0x40);
                 let result = frame.byte_add(0x50);
-                let point = e.call(POINT_NO_OP, &args![combined]).u32();
+                let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, combined));
                 e.call(POINT_SCALE, &args![point, first_scaled, larger]);
-                let point = e.call(POINT_NO_OP, &args![noticed_at]).u32();
+                let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, noticed_at));
                 let scaled = e.call(POINT_SCALE, &args![point, second_scaled, b]).u32();
                 e.call(POINT_ACCUMULATE, &args![first_scaled, scaled]);
                 let total = (larger as f64 + b as f64) as f32;
                 e.call(POINT_DIVIDE_IN_PLACE, &args![first_scaled, total]);
-                let space = e.call(FORM_ID, &args![noticed_at]).u32();
+                let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, noticed_at));
                 e.call(
                     WORLD_LOCATION_FROM_POINT,
                     &args![result, first_scaled, space],
                 );
-                let id = e.call(FORM_ID, &args![actor]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
                 fn_0098bfb0(e, this, result, b, id);
             } else {
-                let id = e.call(FORM_ID, &args![actor]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
                 fn_0098bfb0(e, this, noticed_at, b, id);
             }
         });
@@ -4240,7 +4287,7 @@ pub fn combat_group_find_search_door(
         let mut found = 0u32;
         let mut best = (radius as f64 * radius as f64) as f32;
         let mut index = 0u32;
-        while index < e.call(ARRAY_SIZE, &args![doors]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, doors)) {
             let door = e.call(SEARCH_DOOR_ELEMENT, &args![doors, index]).u32();
             index += 1;
             let reference = e.mem.u32(door);
@@ -4301,7 +4348,7 @@ pub fn combat_group_get_combat_search_door(
 ) -> Ptr {
     let doors = this.byte_add(CombatGroup::SEARCH_TELEPORT_DOORS);
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![doors]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, doors)) {
         let door = e.call(SEARCH_DOOR_ELEMENT, &args![doors, index]).u32();
         if e.mem.u32(door) == reference || e.mem.u32(door + 4) == reference {
             return Ptr::new(door);
@@ -4321,14 +4368,14 @@ pub fn fn_0098c600(e: &mut Engine, this: Ptr<CombatGroup>, reference: u32) {
         return;
     }
     let teleport = e.call(DOOR_TELEPORT_REFERENCE, &args![reference]).u32();
-    if teleport == 0 || e.call(NI_POINTER_GET, &args![teleport]).u32() == 0 {
+    if teleport == 0 || typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, teleport)) == 0 {
         return;
     }
     let doors = this.byte_add(CombatGroup::SEARCH_TELEPORT_DOORS);
     let index = e.call(SEARCH_DOOR_ADD, &args![doors]).u32();
     let door = e.call(SEARCH_DOOR_AT, &args![doors, index]).u32();
     e.mem.set_u32(door, reference);
-    let linked = e.call(NI_POINTER_GET, &args![teleport]).u32();
+    let linked = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, teleport));
     let door = e.call(SEARCH_DOOR_AT, &args![doors, index]).u32();
     e.mem.set_u32(door + 4, linked);
     let door = e.call(SEARCH_DOOR_AT, &args![doors, index]).u32();
@@ -4413,7 +4460,7 @@ pub fn combat_group_calculate_search_ignore_locations(
             continue;
         }
         e.with_stack(0xc, |e, point| {
-            e.call(POINT_NO_OP, &args![point]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
             if e.call(ACTOR_PATHFINDING_GOAL, &args![actor, point]).bool() {
                 e.call(PATH_POINT_ARRAY_ADD, &args![array, point]);
                 added = true;
@@ -4804,7 +4851,7 @@ pub fn fn_0098d1a0(e: &mut Engine, this: Ptr<CombatGroup>) {
         e.call(TIMER_START, &args![choose_timer, delay]);
         if !e.get(this, CombatGroup::pGroupStrategy).is_null() {
             let strategy = e.get(this, CombatGroup::pGroupStrategy);
-            let index = e.call(STRATEGY_INDEX, &args![strategy]).u32();
+            let index = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, strategy));
             e.set(this, CombatGroup::iLastGroupStrategyChosenIndex, index);
             e.with_stack(4, |e, stamp| {
                 let now = e.call(GAME_TIME_NOW, &args![]).f32();
@@ -4913,7 +4960,7 @@ pub fn fn_0098d2c0(e: &mut Engine, this: Ptr<CombatGroup>) {
         }
         // Delete the clusters nobody is left in.
         let mut index = 0u32;
-        while index < e.call(ARRAY_SIZE, &args![clusters]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, clusters)) {
             let slot = e.call(CLUSTER_AT, &args![clusters, index]).u32();
             let cluster = e.mem.u32(slot);
             if e.mem.u32(cluster + 0x10) == 0 {
@@ -4972,23 +5019,34 @@ pub fn fn_0098d2c0(e: &mut Engine, this: Ptr<CombatGroup>) {
             let cluster = e.mem.u32(new_cluster.addr());
             set_cluster(e, first, cluster);
             set_cluster(e, second as u32, cluster);
-            let first_point = e
-                .call(POINT_NO_OP, &args![record(second as u32).byte_add(4)])
-                .u32();
-            let second_point = e.call(POINT_NO_OP, &args![record(first).byte_add(4)]).u32();
+            let first_point = typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, record(second as u32).byte_add(4))
+            );
+            let second_point = typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, record(first).byte_add(4))
+            );
             e.call(POINT_ADD, &args![second_point, scratch_point, first_point]);
             let two: f32 = e.global(TWO_FLOAT);
             e.call(POINT_DIVIDE_IN_PLACE, &args![scratch_point, two]);
-            let space = e.call(FORM_ID, &args![record(first).byte_add(4)]).u32();
+            let space = typed_call!(
+                leaf::FAMILY,
+                0x0084_e3a0,
+                leaf::word_at_c(e, record(first).byte_add(4))
+            );
             bgs_world_location_set_location(e, Ptr::new(cluster), scratch_point, space);
         }
         // Merge the clusters that are closer than the radius.
         let mut first_index = 0u32;
-        while first_index < e.call(ARRAY_SIZE, &args![clusters]).u32() {
+        while first_index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, clusters)) {
             let slot = e.call(CLUSTER_AT, &args![clusters, first_index]).u32();
             let kept = e.mem.u32(slot);
             let mut other_index = first_index + 1;
-            while other_index < e.call(ARRAY_SIZE, &args![clusters]).u32() {
+            while other_index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, clusters))
+            {
                 let slot = e.call(CLUSTER_AT, &args![clusters, other_index]).u32();
                 let other = e.mem.u32(slot);
                 let squared = e.call(DISTANCE_SQUARED, &args![kept, other]).f64();
@@ -5059,7 +5117,7 @@ pub fn fn_0098dc20(e: &mut Engine, this: Ptr) -> Ptr {
 pub fn fn_0098dc40(e: &mut Engine, this: Ptr<CombatGroup>) {
     let clusters = this.byte_add(CombatGroup::CLUSTER_ARRAY);
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![clusters]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, clusters)) {
         let slot = e.call(CLUSTER_AT, &args![clusters, index]).u32();
         let cluster = e.mem.u32(slot);
         fn_0098ddd0(e, Ptr::new(cluster), Ptr::new(ZERO_POINT));
@@ -5076,7 +5134,7 @@ pub fn fn_0098dc40(e: &mut Engine, this: Ptr<CombatGroup>) {
             continue;
         }
         e.with_stack(0xc, |e, sum| {
-            let centre = e.call(POINT_NO_OP, &args![cluster]).u32();
+            let centre = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cluster));
             copy_point(e, sum, centre);
             let actor = e.get(member, CombatMember::pActor);
             let position = e.vcall(actor.addr(), 0x1f4, &args![]).u32();
@@ -5087,11 +5145,11 @@ pub fn fn_0098dc40(e: &mut Engine, this: Ptr<CombatGroup>) {
         e.mem.set_u32(cluster.addr() + 0x10, count.wrapping_add(1));
     }
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![clusters]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, clusters)) {
         let slot = e.call(CLUSTER_AT, &args![clusters, index]).u32();
         let cluster = e.mem.u32(slot);
         e.with_stack(0xc, |e, centre| {
-            let point = e.call(POINT_NO_OP, &args![cluster]).u32();
+            let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cluster));
             copy_point(e, centre, point);
             let count = e.mem.u32(cluster + 0x10);
             e.call(POINT_DIVIDE_IN_PLACE, &args![centre, count as f32]);
@@ -5196,7 +5254,7 @@ pub fn combat_group_save_game(e: &mut Engine, this: Ptr<CombatGroup>, buffer: Pt
     let index = if strategy.is_null() {
         u32::MAX
     } else {
-        e.call(STRATEGY_INDEX, &args![strategy]).u32()
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, strategy))
     };
     e.with_stack(4, |e, byte| {
         e.mem.set_u8(byte.addr(), index as u8);
@@ -5321,7 +5379,7 @@ fn array_count<T>(e: &mut Engine, array: Ptr<T>) -> u32 {
     if array.addr() == 0 {
         0
     } else {
-        e.call(ARRAY_SIZE, &args![array]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
     }
 }
 
@@ -5549,7 +5607,7 @@ pub fn fn_0098e980(e: &mut Engine, index: i32) -> u32 {
 /// counts are refreshed. The C++ exception frame is not translated.
 pub fn combat_group_init_load_game(e: &mut Engine, this: Ptr<CombatGroup>, forwarded: u32) {
     let targets = this.byte_add(CombatGroup::TARGET_ARRAY);
-    let mut count = e.call(ARRAY_SIZE, &args![targets]).u32();
+    let mut count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, targets));
     let mut index = 0u32;
     while index < count {
         let target = e.call(TARGET_AT, &args![targets, index]).u32();
@@ -5569,7 +5627,7 @@ pub fn combat_group_init_load_game(e: &mut Engine, this: Ptr<CombatGroup>, forwa
         index = index.wrapping_add(1);
     }
     let members = this.byte_add(CombatGroup::MEMBER_ARRAY);
-    let mut count = e.call(ARRAY_SIZE, &args![members]).u32();
+    let mut count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, members));
     let mut index = 0u32;
     while index < count {
         let member = e.call(MEMBER_AT, &args![members, index]).u32();

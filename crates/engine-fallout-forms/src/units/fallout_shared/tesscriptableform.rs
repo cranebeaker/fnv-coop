@@ -34,6 +34,7 @@ const OWNER_NAME_LENGTH: u32 = 0x0047_4cb0;
 /// The owner's name: the form's virtual slot `+0x130`.
 const OWNER_NAME_SLOT: u32 = 0x130;
 /// The owner's word at `+0xC`, its `TESForm` form id (`0084e3a0`, `thiscall (form)`).
+#[cfg(test)]
 const OWNER_FORM_ID: u32 = 0x0084_e3a0;
 /// The warning printer (`005b5e40`, cdecl, format and its arguments).
 const PRINT_WARNING: u32 = 0x005b_5e40;
@@ -80,7 +81,7 @@ pub fn tes_scriptable_form_init_item(e: &mut Engine, this: Ptr<TESScriptableForm
                 let name = e.vcall(owner.addr(), OWNER_NAME_SLOT, &args![]).u32();
                 e.call(PRINT_WARNING, &args![MISSING_SCRIPT_OWNER_NAME, id, name]);
             } else {
-                let owner_id = e.call(OWNER_FORM_ID, &args![owner]).u32();
+                let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
                 e.call(PRINT_WARNING, &args![MISSING_SCRIPT_OWNER_ID, id, owner_id]);
             }
         });
@@ -93,6 +94,7 @@ const TYPE_BASE_FORM_COMPONENT: u32 = 0x0118_3040;
 /// `TESScriptableForm` RTTI type descriptor (`.?AVTESScriptableForm@@`).
 const TYPE_TES_SCRIPTABLE_FORM: u32 = 0x0118_3254;
 /// `00726070` (`thiscall`): the word at +4 (here `pFormScript`).
+#[cfg(test)]
 const GET_WORD_4: u32 = 0x0072_6070;
 /// `006ecd40` (`thiscall`, one word): stores it at +4 (the engine map's
 /// name, `CombatProcedureAttackMelee::Initialize`, is a folded body).
@@ -119,7 +121,7 @@ pub fn fn_0048cce0(e: &mut Engine, this: Ptr<TESScriptableForm>, other: Ptr) {
     if source == 0 {
         return;
     }
-    let script = e.call(GET_WORD_4, &args![source]).u32();
+    let script = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source));
     e.call(SET_WORD_4, &args![this, script]);
 }
 
@@ -134,7 +136,7 @@ const CHUNK_SCRI: u32 = u32::from_le_bytes(*b"SCRI");
 pub fn tes_scriptable_form_save(e: &mut Engine, this: Ptr<TESScriptableForm>) {
     let script = e.get(this, TESScriptableForm::pFormScript);
     if script != 0 {
-        let id = e.call(OWNER_FORM_ID, &args![script]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, script));
         e.call(ADD_CHUNK_WORD, &args![CHUNK_SCRI, id]);
     }
 }
@@ -160,8 +162,8 @@ pub fn fn_0048cd30(e: &mut Engine, this: Ptr<TESScriptableForm>, other: u32) -> 
     if source == 0 {
         return true;
     }
-    let mine = e.call(GET_WORD_4, &args![this]).u32();
-    let theirs = e.call(GET_WORD_4, &args![source]).u32();
+    let mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
+    let theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source));
     mine != theirs
 }
 

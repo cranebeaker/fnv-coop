@@ -29,6 +29,7 @@ pub fn fn_004ae700(e: &mut Engine, this: Ptr) -> u32 {
 }
 
 /// `00559450` (thiscall): the word at +0.
+#[cfg(test)]
 const WORD_AT_0: u32 = 0x0055_9450;
 /// `004a3a40` (cdecl, one word; unit `bgsdecalmanager.cpp` in the engine
 /// map).
@@ -42,7 +43,7 @@ pub fn fn_004ae6c0(e: &mut Engine, this: Ptr) -> u32 {
     if field == 0 {
         0
     } else {
-        e.call(WORD_AT_0, &args![field]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, field))
     }
 }
 

@@ -76,12 +76,15 @@ const LIST_COPY_004F6060: u32 = 0x004f_6060;
 const LIST_BLEND_004F61D0: u32 = 0x004f_61d0;
 /// `006815c0` (unnamed in the engine map; no stack word): the address of a
 /// list node's item.
+#[cfg(test)]
 const NODE_ITEM_006815C0: u32 = 0x0068_15c0;
 /// `00726070` (unnamed in the engine map; no stack word): the node after a
 /// list node.
+#[cfg(test)]
 const NODE_NEXT_00726070: u32 = 0x0072_6070;
 /// `0084e3a0` (unnamed in the engine map; no stack word): the word at +0xC
 /// of a form (`TESForm`'s form id on PC).
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// `00401500` (unnamed in the engine map): the byte at `011c54ba`.
 const SWAP_IDS_00401500: u32 = 0x0040_1500;
@@ -170,18 +173,18 @@ pub fn tes_region_data_grass_save(e: &mut Engine, this: Ptr) {
     let size = count.checked_mul(8).unwrap_or(u32::MAX);
     let buffer = e.call(ALLOCATE, &args![size]).u32();
     while node != 0 {
-        let item_slot = e.call(NODE_ITEM_006815C0, &args![node]).u32();
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_slot);
         if item != 0 {
             let object = e.vcall(item, SLOT_GET_OBJECT, &args![]).u32();
-            let object_id = e.call(FORM_ID_0084E3A0, &args![object]).u32();
+            let object_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object));
             e.mem
                 .set_u32(buffer.wrapping_add(index.wrapping_mul(8)), object_id);
             let texture_id = if e.vcall(item, SLOT_GET_PARENT_TEXTURE, &args![]).u32() == 0 {
                 0
             } else {
                 let texture = e.vcall(item, SLOT_GET_PARENT_TEXTURE, &args![]).u32();
-                e.call(FORM_ID_0084E3A0, &args![texture]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, texture))
             };
             e.mem.set_u32(
                 buffer.wrapping_add(index.wrapping_mul(8)).wrapping_add(4),
@@ -189,7 +192,7 @@ pub fn tes_region_data_grass_save(e: &mut Engine, this: Ptr) {
             );
             index = index.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if e.call(SWAP_IDS_00401500, &args![]).bool() {
         for i in 0..count {

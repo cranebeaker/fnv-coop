@@ -18,6 +18,7 @@ const LOOKUP_FORM: u32 = 0x0048_39c0;
 const DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const TYPE_TES_FORM: u32 = 0x0118_3028;
 const TYPE_MENU_ICON: u32 = 0x0118_63f0;
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The message's icon: its form id or pointer (`0055b980`) and its setter
 /// (`0086cf00`).
@@ -84,17 +85,17 @@ pub fn bgs_message_init_item(e: &mut Engine, this: Ptr) {
             .u32();
         e.call(ICON_SET, &args![this, cast]);
         if e.call(ICON_GET, &args![this]).u32() == 0 {
-            let form_id = e.call(FORM_ID, &args![this]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(this.addr(), 0x130, &args![]).u32();
             e.call(WARNING, &args![MISSING_ICON_FORMAT, id, name, form_id]);
         }
     }
     let mut node = e.call(0x0043_6aa0, &args![this]).u32();
     let mut index = 0u32;
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let slot = e.call(0x0068_15c0, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         e.call(0x0068_0a20, &args![item.wrapping_add(8), this]);
         let before = e.call(WARNING_COUNT, &args![]).u32();
         e.call(DISABLE_WARNINGS, &args![1u32]);
@@ -103,7 +104,7 @@ pub fn bgs_message_init_item(e: &mut Engine, this: Ptr) {
         let after = e.call(WARNING_COUNT, &args![]).u32();
         e.call(SET_WARNING_COUNT, &args![before]);
         if after != 0 {
-            let form_id = e.call(FORM_ID, &args![this]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(this.addr(), 0x130, &args![]).u32();
             e.call(
                 WARNING,
@@ -226,12 +227,16 @@ const FLAG_1_SET: u32 = 0x0059_0d00;
 /// `00436aa0` (`ECX` = message): the address of its button list (+0x30).
 const BUTTON_LIST_OF: u32 = 0x0043_6aa0;
 /// `008256d0` (`ECX` = list node, `AL`): true when the node is empty.
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (`ECX` = list node): the address of the node's item.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`ECX` = list node): the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `00559450` (`ECX` = string): its characters (null for an empty string).
+#[cfg(test)]
 const STRING_CHARS: u32 = 0x0055_9450;
 /// `0044a670` (`cdecl`, a string): its length.
 const STRLEN: u32 = 0x0044_a670;
@@ -252,7 +257,7 @@ pub fn bgs_message_save(e: &mut Engine, this: Ptr) {
     e.call(FULL_NAME_SAVE, &args![base + 0x18]);
     let icon_id = if e.call(ICON_GET, &args![this]).u32() != 0 {
         let icon = e.call(ICON_GET, &args![this]).u32();
-        e.call(FORM_ID, &args![icon]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, icon))
     } else {
         0
     };
@@ -264,14 +269,14 @@ pub fn bgs_message_save(e: &mut Engine, this: Ptr) {
         e.call(ADD_CHUNK_WORD, &args![CHUNK_TNAM, display_time]);
     }
     let mut node = e.call(BUTTON_LIST_OF, &args![this]).u32();
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let button = e.mem.u32(slot);
-        node = e.call(NODE_NEXT, &args![node]).u32();
-        if e.call(STRING_CHARS, &args![button]).u32() != 0 {
-            let text = e.call(STRING_CHARS, &args![button]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, button)) != 0 {
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, button));
             let size = e.call(STRLEN, &args![text]).u32().wrapping_add(1);
-            let text = e.call(STRING_CHARS, &args![button]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, button));
             e.call(ADD_CHUNK_ARRAY, &args![CHUNK_ITXT, text, size]);
         } else {
             e.call(ADD_CHUNK_WORD, &args![CHUNK_ITXT, 0u32]);

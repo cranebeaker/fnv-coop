@@ -35,13 +35,16 @@ const ZERO_POINT: u32 = 0x011f_426c;
 const FLOAT_MAX: u32 = 0x0106_73a0;
 
 /// `008256d0` (`thiscall`): whether a list is empty (`AL`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (`thiscall`): a list's first item address (also run on a
 /// point before it is set).
+#[cfg(test)]
 const LIST_ITEM: u32 = 0x0068_15c0;
 /// `0063f7b0` (`thiscall`): removes a list's head.
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
 /// `00726070` (`thiscall`): the next list node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `004702f0` (`thiscall`, `RET 4`): the list's deleting destructor.
 const LIST_DELETE: u32 = 0x0047_02f0;
@@ -81,11 +84,17 @@ pub fn fn_0066df40(e: &mut Engine, this: Ptr<ActorCause>) {
     e.set(this, ActorCause::pActor, 0);
     loop {
         let witnesses = e.get(this, ActorCause::pWitnesses);
-        if witnesses == 0 || e.call(LIST_IS_EMPTY, &args![witnesses]).bool() {
+        if witnesses == 0
+            || typed_call!(
+                leaf::FAMILY,
+                0x0082_56d0,
+                leaf::both_words_zero(e, witnesses)
+            )
+        {
             break;
         }
         let witnesses = e.get(this, ActorCause::pWitnesses);
-        let item_address = e.call(LIST_ITEM, &args![witnesses]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, witnesses));
         let item = e.mem.u32(item_address);
         e.call(OPERATOR_DELETE, &args![item]);
         let witnesses = e.get(this, ActorCause::pWitnesses);
@@ -147,13 +156,13 @@ pub fn actor_cause_save_game(e: &mut Engine, this: Ptr<ActorCause>, buffer: u32)
     let handle = e.call(START_VARIABLE_SIZED_VALUE, &args![buffer]).u32();
     let mut node = e.get(this, ActorCause::pWitnesses);
     while node != 0 {
-        let item_address = e.call(LIST_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         if item != 0 {
             e.call(DETECTION_STATE_SAVE, &args![item, buffer]);
             count = count.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SAVE_VARIABLE_SIZED_VALUE, &args![buffer, count, handle]);
 }
@@ -168,7 +177,7 @@ pub fn actor_cause_save_game(e: &mut Engine, this: Ptr<ActorCause>, buffer: u32)
 /// `this`.
 pub fn fn_0066e590(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
-    e.call(LIST_ITEM, &args![base + 0xc]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0xc));
     e.call(FLOAT_ZERO, &args![base + 0x18]);
     e.mem.set_u32(base, 0);
     e.mem.set_u32(base + 4, 0);
@@ -201,13 +210,13 @@ pub fn actor_cause_save_actor_causes_list(e: &mut Engine, buffer: u32) {
     let handle = e.call(START_VARIABLE_SIZED_VALUE, &args![buffer]).u32();
     let mut node = CAUSE_LIST;
     while node != 0 {
-        let item_address = e.call(LIST_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         if item != 0 {
             actor_cause_save_game(e, Ptr::new(item), buffer);
             count = count.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SAVE_VARIABLE_SIZED_VALUE, &args![buffer, count, handle]);
 }
@@ -237,7 +246,7 @@ const LOAD_VARIABLE_SIZED_VALUE: u32 = 0x0086_4a60;
 /// with a stack word holding `this`). Returns `this`.
 pub fn fn_0066deb0(e: &mut Engine, this: Ptr<ActorCause>) -> Ptr<ActorCause> {
     let base = this.addr();
-    e.call(LIST_ITEM, &args![base + 8]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 8));
     e.set(this, ActorCause::pActor, 0);
     e.set(this, ActorCause::pWitnesses, 0);
     for i in 0..3 {
@@ -264,30 +273,30 @@ pub fn fn_0066deb0(e: &mut Engine, this: Ptr<ActorCause>) -> Ptr<ActorCause> {
 /// item) whose word +0 is `actor` is removed (`00905330`) and freed.
 pub fn actor_cause_clear_actor(e: &mut Engine, actor: u32) {
     let mut node = CAUSE_LIST;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(LIST_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let cause = e.mem.u32(item);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if cause == 0 || !e.call(0x005c_a4f0, &args![cause]).bool() {
             continue;
         }
-        if e.call(0x0055_9450, &args![cause]).u32() == actor {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, cause)) == actor {
             fn_0066e200(e, Ptr::new(cause));
         }
-        let mut witness = e.call(NODE_NEXT, &args![cause]).u32();
+        let mut witness = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cause));
         let mut done = false;
         while !done && witness != 0 {
-            let item = e.call(LIST_ITEM, &args![witness]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, witness));
             if e.mem.u32(item) == 0 {
                 break;
             }
-            let item = e.call(LIST_ITEM, &args![witness]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, witness));
             let state = e.mem.u32(item);
-            witness = e.call(NODE_NEXT, &args![witness]).u32();
+            witness = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, witness));
             if e.mem.u32(state) == actor {
                 e.with_stack(4, |e, slot| {
                     e.mem.set_u32(slot.addr(), state);
-                    let list = e.call(NODE_NEXT, &args![cause]).u32();
+                    let list = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cause));
                     e.call(LIST_REMOVE_ITEM, &args![list, slot]);
                     let state = e.mem.u32(slot.addr());
                     e.call(OPERATOR_DELETE, &args![state]);
@@ -307,11 +316,17 @@ pub fn fn_0066e200(e: &mut Engine, this: Ptr<ActorCause>) {
     e.set(this, ActorCause::pActor, 0);
     loop {
         let witnesses = e.get(this, ActorCause::pWitnesses);
-        if witnesses == 0 || e.call(LIST_IS_EMPTY, &args![witnesses]).bool() {
+        if witnesses == 0
+            || typed_call!(
+                leaf::FAMILY,
+                0x0082_56d0,
+                leaf::both_words_zero(e, witnesses)
+            )
+        {
             break;
         }
         let witnesses = e.get(this, ActorCause::pWitnesses);
-        let item_address = e.call(LIST_ITEM, &args![witnesses]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, witnesses));
         let item = e.mem.u32(item_address);
         e.call(OPERATOR_DELETE, &args![item]);
         let witnesses = e.get(this, ActorCause::pWitnesses);
@@ -339,12 +354,12 @@ pub fn actor_cause_get_actor_cause_by_id(e: &mut Engine, id: i32) -> u32 {
     }
     let mut node = CAUSE_LIST;
     while node != 0 {
-        let item = e.call(LIST_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let cause = e.mem.u32(item);
         if cause != 0 && e.get(Ptr::<ActorCause>::new(cause), ActorCause::iActorCauseID) == id {
             return cause;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     0
 }
@@ -414,12 +429,12 @@ pub fn actor_cause_init_load_game(e: &mut Engine, this: Ptr<ActorCause>, _unused
     e.set(this, ActorCause::pActor, actor);
     let mut node = e.get(this, ActorCause::pWitnesses);
     while node != 0 {
-        let item = e.call(LIST_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let state = e.mem.u32(item);
         if state != 0 {
             e.call(0x008d_7220, &args![state]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -454,8 +469,8 @@ pub fn actor_cause_load_actor_causes_list(e: &mut Engine, buffer: u32) {
 pub fn actor_cause_init_load_actor_causes_list(e: &mut Engine, word: u32) {
     let mut node = CAUSE_LIST;
     let mut previous = 0u32;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(LIST_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let cause = e.mem.u32(item);
         let mut remove = false;
         if cause != 0 {
@@ -474,15 +489,15 @@ pub fn actor_cause_init_load_actor_causes_list(e: &mut Engine, word: u32) {
         }
         if remove {
             if previous != 0 {
-                let item = e.call(LIST_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 e.call(LIST_REMOVE_ITEM, &args![previous, item]);
-                node = e.call(NODE_NEXT, &args![previous]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
             } else {
                 e.call(LIST_REMOVE_HEAD, &args![node]);
             }
         } else {
             previous = node;
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
 }

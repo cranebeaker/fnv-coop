@@ -74,6 +74,7 @@ const SETTING_VALUE: u32 = 0x0040_3e20;
 /// The no-op constructor of an `NiPoint3` (`006815c0`) and `004a3e00`
 /// (cdecl `(destination, source)`), which fills the 16-byte vector at the
 /// destination from a point.
+#[cfg(test)]
 const CONSTRUCT_IN_PLACE: u32 = 0x0068_15c0;
 const VECTOR_FROM_POINT: u32 = 0x004a_3e00;
 /// `0043b4f0` (`thiscall(out)` on a rigid body): its filter word into `out`;
@@ -170,10 +171,10 @@ pub fn fn_008cfbc0(
             }
         }
         let from = local(0x40);
-        e.call(CONSTRUCT_IN_PLACE, &args![from]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, from));
         e.call(VECTOR_FROM_POINT, &args![from, origin]);
         let to = local(0x50);
-        e.call(CONSTRUCT_IN_PLACE, &args![to]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, to));
         let reach = x87_quiet_bits(e.mem.u32(distance.addr()));
         let along = e
             .call(0x0045_bb20, &args![direction, local(0x5c), reach])
@@ -333,10 +334,10 @@ pub fn fn_008d0020(
             let factor = e.call(SETTING_VALUE, &args![0x011c_e224u32]).u32();
             speed = x87_store32(x87_mul(x87_load32(speed), x87_m32(e.mem.u32(factor))));
             let along = local(0x30);
-            e.call(CONSTRUCT_IN_PLACE, &args![along]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, along));
             e.call(VECTOR_FROM_POINT, &args![along, direction]);
             let at = local(0x40);
-            e.call(CONSTRUCT_IN_PLACE, &args![at]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at));
             e.call(VECTOR_FROM_POINT, &args![at, point]);
             e.call(0x0062_aea0, &args![along]);
             let impulse = local(0x50);

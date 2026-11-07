@@ -27,14 +27,18 @@ use crate::prelude::*;
 
 /// `BSSimpleList` node accessor (`006815c0`): returns the node itself, whose
 /// first word is the item.
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
 /// The word at +4 of its `this` (`00726070`): the next node of a
 /// `BSSimpleList` node, the result script of a `PackageEventAction`.
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// The word at +8 of its `this` (`0044ddc0`): the topic of a
 /// `PackageEventAction`.
+#[cfg(test)]
 const WORD_AT_8: u32 = 0x0044_ddc0;
 /// `BSSimpleList` emptiness test (`008256d0`): no item and no next node.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `BSSimpleList` clear (`00470470`): frees every node after the head and
 /// zeroes the head's item.
@@ -63,6 +67,7 @@ const COMBAT_MANAGER_POINTER: u32 = 0x011f_1958;
 /// `TESObjectREFR::SetTargeted` (`00564db0`).
 const SET_TARGETED: u32 = 0x0056_4db0;
 /// `NiPointer` getter (`00559450`): the first word of `this`.
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// Script run (`005ac1e0`, RET 0x10): `this` = the script, arguments the
 /// reference, its script locals, 0 and 1.
@@ -74,6 +79,7 @@ const SCRIPT_LOCALS: u32 = 0x0041_8830;
 /// Compare-exchange of the message queue lock (`0043b460`) and the no-op
 /// debug check around it (`0040fbe0`), as in the main block.
 const COMPARE_EXCHANGE_LOCK: u32 = 0x0043_b460;
+#[cfg(test)]
 const DEBUG_CHECK: u32 = 0x0040_fbe0;
 /// `_ftol2_sse` (`00ec62c0`): the float in `ST0` as an integer, passed here
 /// as a leading `f64` argument.
@@ -85,6 +91,7 @@ const MINIMUM: u32 = 0x0040_ebd0;
 const RADIATION_SCALE: u32 = 0x0040_8820;
 const ABSOLUTE_VALUE: u32 = 0x0040_8860;
 /// A process's `MiddleHighProcess` accessor of a reference (`008d8520`).
+#[cfg(test)]
 const REFERENCE_PROCESS: u32 = 0x008d_8520;
 
 // ---- Settings read by the functions below -------------------------------------------------
@@ -178,17 +185,17 @@ layout! {
 /// The item of a list node: `*node.item`. The game fetches it through the
 /// node accessor (`006815c0`).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 /// The next node of a list node.
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(WORD_AT_4, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 fn list_is_empty(e: &mut Engine, list: u32) -> bool {
-    e.call(LIST_IS_EMPTY, &args![list]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list))
 }
 
 fn list_clear(e: &mut Engine, list: u32) {
@@ -294,7 +301,8 @@ pub fn high_process_evaluate_combat_detection_lists(
             if !entry_group.is_null() {
                 let member = fn_00903600(e, entry_group, 0);
                 if member != 0 {
-                    let member_process = e.call(REFERENCE_PROCESS, &args![member]).u32();
+                    let member_process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, member));
                     aggressor = e.vcall(member_process, 0x1c4, &args![]).u8();
                 }
             }
@@ -629,16 +637,26 @@ pub fn high_process_start_new_package(
 /// The topic of the package's `OnBegin` event action (`PackageEventAction::pTopic`,
 /// +8 of the action at +0x4c).
 pub fn fn_00903bb0(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(WORD_AT_8, &args![this.addr() + PACKAGE_ON_BEGIN])
-        .ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + PACKAGE_ON_BEGIN)
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 00903bd0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The result script of the package's `OnBegin` event action
 /// (`PackageEventAction::pResultScript`, +4 of the action at +0x4c).
 pub fn fn_00903bd0(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(WORD_AT_4, &args![this.addr() + PACKAGE_ON_BEGIN])
-        .ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this.addr() + PACKAGE_ON_BEGIN)
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 00903bf0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -657,7 +675,7 @@ pub fn high_process_change_package(
     if !package.is_null() {
         let script = fn_00903cf0(e, package);
         if !script.is_null() {
-            let first = e.call(0x0067_1d10, &args![script]).u32();
+            let first = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, script));
             if first != 0 || e.call(0x0055_b980, &args![script]).u32() != 0 {
                 run_package_script(e, script.addr(), actor);
             }
@@ -678,16 +696,26 @@ pub fn high_process_change_package(
 /// The topic of the package's `OnChange` event action (+8 of the action at
 /// +0x6c).
 pub fn fn_00903cd0(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(WORD_AT_8, &args![this.addr() + PACKAGE_ON_CHANGE])
-        .ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + PACKAGE_ON_CHANGE)
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 00903cf0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The result script of the package's `OnChange` event action (+4 of the
 /// action at +0x6c).
 pub fn fn_00903cf0(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(WORD_AT_4, &args![this.addr() + PACKAGE_ON_CHANGE])
-        .ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this.addr() + PACKAGE_ON_CHANGE)
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 00903d10 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -722,24 +750,39 @@ pub fn high_process_package_done(e: &mut Engine, this: Ptr<HighProcess>, actor: 
 /// The idle of the package's `OnEnd` event action (`PackageEventAction::pIdle`,
 /// the first word of the action at +0x5c, read as a `NiPointer`).
 pub fn fn_00903de0(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(NI_POINTER_GET, &args![this.addr() + PACKAGE_ON_END])
-        .ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + PACKAGE_ON_END)
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 00903e00 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The topic of the package's `OnEnd` event action (+8 of the action at
 /// +0x5c).
 pub fn fn_00903e00(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(WORD_AT_8, &args![this.addr() + PACKAGE_ON_END])
-        .ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + PACKAGE_ON_END)
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 00903e20 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The result script of the package's `OnEnd` event action (+4 of the action
 /// at +0x5c).
 pub fn fn_00903e20(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(WORD_AT_4, &args![this.addr() + PACKAGE_ON_END])
-        .ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this.addr() + PACKAGE_ON_END)
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 00903e40 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -843,10 +886,11 @@ pub fn high_process_notify_guard_about_activation(
         process + PROCESS_RUN_ONCE_PACKAGE,
         process + PROCESS_CURRENT_PACKAGE,
     ] {
-        let package = e.call(NI_POINTER_GET, &args![package_slot]).u32();
+        let package = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, package_slot));
         if package != 0
             && e.call(0x0096_11e0, &args![package]).u32() == 0x29
-            && e.call(WORD_AT_8, &args![package_slot]).u32() == owner.addr()
+            && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, package_slot))
+                == owner.addr()
             && e.call(0x008b_0670, &args![guard, activated]).bool()
         {
             e.vcall(
@@ -1188,7 +1232,8 @@ pub fn high_process_check_if_there_someone_talk_with(
                 && target != actor.addr()
                 && target != player(e)
             {
-                let target_process = e.call(REFERENCE_PROCESS, &args![target]).u32();
+                let target_process =
+                    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
                 if e.vcall(target_process, 0x1f4, &args![target, actor]).bool()
                     && e.vcall(process, 0x1f4, &args![actor, target]).bool()
                 {
@@ -1201,7 +1246,8 @@ pub fn high_process_check_if_there_someone_talk_with(
                     } else if let Some(chosen) = pick_conversation_target(e, this, actor, target) {
                         target = chosen;
                         e.vcall(process, 0x1f0, &args![target]);
-                        let target_process = e.call(REFERENCE_PROCESS, &args![target]).u32();
+                        let target_process =
+                            typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
                         e.vcall(target_process, 0x1f0, &args![actor]);
                         break;
                     } else {
@@ -1365,14 +1411,16 @@ pub fn high_process_process_cannibal(e: &mut Engine, this: Ptr<HighProcess>, act
     } else if e.call(0x0049_85f0, &args![idle]).bool() {
         e.vcall(process, 0x288, &args![actor, 1u32]);
         if victim != 0 {
-            let victim_process = e.call(REFERENCE_PROCESS, &args![victim]).u32();
+            let victim_process =
+                typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, victim));
             if victim_process != 0 {
                 e.call(0x008c_0460, &args![victim, actor, 0u32, 1u32]);
-                let victim_process = e.call(REFERENCE_PROCESS, &args![victim]).u32();
+                let victim_process =
+                    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, victim));
                 e.vcall(victim_process, 0x210, &args![0u32, victim]);
             }
         }
-        let actor_process = e.call(REFERENCE_PROCESS, &args![actor]).u32();
+        let actor_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let player_reference = player(e);
         e.vcall(actor_process, 0x210, &args![0u32, player_reference]);
         e.call(0x005c_c7a0, &args![player_reference, 0u32]);
@@ -1453,15 +1501,15 @@ pub fn high_process_process_sandman(e: &mut Engine, this: Ptr<HighProcess>, acto
             e.call(0x0089_d900, &args![victim, 0u32, 0.0f32]);
         }
         e.vcall(process, 0x288, &args![actor, 1u32]);
-        let victim_process = e.call(REFERENCE_PROCESS, &args![victim]).u32();
+        let victim_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, victim));
         e.vcall(victim_process, 0x210, &args![0u32, victim]);
-        let actor_process = e.call(REFERENCE_PROCESS, &args![actor]).u32();
+        let actor_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(actor_process, 0x210, &args![0u32, actor]);
         e.call(0x005c_c7a0, &args![player_reference, 0u32]);
         e.call(0x0093_dd20, &args![player_reference]);
     } else {
         e.vcall(process, 0x288, &args![actor, 1u32]);
-        let victim_process = e.call(REFERENCE_PROCESS, &args![victim]).u32();
+        let victim_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, victim));
         e.vcall(victim_process, 0x210, &args![0u32, victim]);
         e.vcall(process, 0x4ec, &args![1u32]);
         let player_reference = player(e);
@@ -1622,9 +1670,9 @@ fn locked_vcall_spinning(e: &mut Engine, this: Ptr, slot: u32, message: Ptr) -> 
             break;
         }
     }
-    e.call(DEBUG_CHECK, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     let result = e.vcall(this.addr(), slot, &args![message]).bool();
-    e.call(DEBUG_CHECK, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     e.call(COMPARE_EXCHANGE_LOCK, &args![lock, 1u32, 0u32]);
     result
 }
@@ -1804,7 +1852,7 @@ pub fn bst_common_ll_message_queue_actor_pathing_message_do_try_pop(
     if node == 0 {
         return false;
     }
-    let item = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.call(MESSAGE_ASSIGN, &args![message, item]);
     let next = e.mem.u32(node + 8);
     e.mem.set_u32(base + 0xc, next);

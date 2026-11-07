@@ -110,11 +110,14 @@ const IS_TEMPORARY: u32 = 0x0040_77c0;
 /// Whether `iFormFlags & 2` is set.
 const IS_FLAG_2: u32 = 0x0046_0340;
 /// Whether `iFormFlags & 0x20` (deleted) is set.
+#[cfg(test)]
 const IS_DELETED: u32 = 0x0044_0d80;
 /// `MOV EAX,[ECX+0x0C]`: the form ID of a form, or the item count of the
 /// form array.
+#[cfg(test)]
 const WORD_AT_0C: u32 = 0x0084_e3a0;
 /// Address of the item at an index of the form array (`data + 4 * index`).
+#[cfg(test)]
 const LIST_ITEM_ADDRESS: u32 = 0x0087_7a30;
 /// Form array: remove (clear) the item at an index.
 const FORM_LIST_REMOVE_AT: u32 = 0x0048_6b80;
@@ -176,6 +179,7 @@ const CLEAR_SUB_OBJECT: u32 = 0x0048_ce80;
 const SAVE_LOAD_STUB: u32 = 0x0047_c850;
 /// Game messages: printf-style log (cdecl) and the fatal error.
 const LOG_MESSAGE: u32 = 0x005b_5e40;
+#[cfg(test)]
 const FATAL_ERROR: u32 = 0x0040_fbe0;
 const DISABLE_WARNING_COUNT: u32 = 0x0043_b2b0;
 /// zlib 1.2.1: `deflateInit_(stream, level, version, stream_size)`,
@@ -209,6 +213,7 @@ const WORD_HAS_BITS: u32 = 0x0042_80f0;
 const SAVE_BUFFER_WRITE: u32 = 0x0086_5e50;
 const LOAD_BUFFER_READ: u32 = 0x0086_4980;
 /// `MOV EAX,[ECX+8]`: the form's flags.
+#[cfg(test)]
 const FORM_FLAGS: u32 = 0x0044_ddc0;
 /// The form type's string: `formEnumString[cFormType].string` (`+4` of the
 /// form-type table entry).
@@ -232,8 +237,11 @@ const FILE_IS_MASTER: u32 = 0x0047_1c20;
 /// 0x10`), a node's item address (the node itself), a node's next pointer
 /// (+4) and whether a node is empty (no item and no next).
 const LIST_FIRST_NODE: u32 = 0x0046_0140;
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const LIST_NODE_EMPTY: u32 = 0x0082_56d0;
 /// `BSSimpleList` operations on a node: remove the node's own item (the next
 /// node moves up; the last node is just cleared), remove the first node whose
@@ -307,6 +315,7 @@ const SAVE_BUFFER_GETTER: u32 = 0x0047_3070;
 const COMPONENT_BYTE_GET: u32 = FORM_TYPE;
 const COMPONENT_BYTE_SET: u32 = 0x004f_15a0;
 /// The word at +4 of `TESValueForm` / `TESHealthForm`, and their setters.
+#[cfg(test)]
 const COMPONENT_WORD_GET: u32 = 0x0072_6070;
 const VALUE_SET: u32 = 0x0048_e960;
 const HEALTH_SET: u32 = 0x006e_cd40;
@@ -352,6 +361,7 @@ const SLOT_COPY_FROM: u32 = 0x108;
 /// A string local of 8 bytes (a pointer and two `u16`s): its constructor
 /// from a C string, the C string pointer it holds and its destructor.
 const STRING_CONSTRUCT: u32 = 0x0040_c0e0;
+#[cfg(test)]
 const STRING_DATA: u32 = 0x0055_9450;
 const STRING_DESTROY: u32 = 0x0040_37d0;
 /// `sprintf(buffer, format, ...)` (cdecl).
@@ -425,11 +435,15 @@ fn find_in_form_list(e: &mut Engine, form: Ptr<TESForm>) -> Option<u32> {
         if list == 0 {
             return None;
         }
-        let count = e.call(WORD_AT_0C, &args![list]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, list));
         if index >= count {
             return None;
         }
-        let item = e.call(LIST_ITEM_ADDRESS, &args![list, index]).u32();
+        let item = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, list, index)
+        );
         if e.mem.u32(item) == form.addr() {
             return Some(index);
         }
@@ -520,7 +534,7 @@ fn check_form_enum_table(e: &mut Engine) {
     }
     e.call(DISABLE_WARNING_COUNT, &args![0u32]);
     if failed {
-        e.call(FATAL_ERROR, &args![FORM_ENUM_FIX_MESSAGE]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words FORM_ENUM_FIX_MESSAGE);
     }
 }
 
@@ -845,7 +859,7 @@ pub fn fn_00483fc0(e: &mut Engine, this: Ptr<TESForm>, file: Ptr) -> u8 {
     if e.call(IS_TEMPORARY, &args![this]).bool() {
         return 0;
     }
-    if e.call(IS_DELETED, &args![this]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
         e.call(FILE_START_FORM, &args![file, this]);
         e.call(FILE_AFTER_START, &args![file]);
         return 1;
@@ -1107,13 +1121,13 @@ fn list_first(e: &mut Engine, form: Ptr<TESForm>) -> u32 {
 /// The item (a file pointer) of a list node: the word at the address the
 /// game's accessor gives.
 fn list_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 /// The node after `node` (null at the end).
 fn list_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// Runs `f` with a stack word holding `value`, the way the game passes the
@@ -1283,7 +1297,7 @@ pub fn fn_00484da0(e: &mut Engine, this: Ptr<TESForm>, buffer: Ptr) {
 /// Whether the form's ID is in the range `1..=0x7ff` (`fn_00484b40` of the
 /// word at +0x0C).
 pub fn fn_00484e40(e: &mut Engine, this: Ptr<TESForm>) -> bool {
-    let id = e.call(WORD_AT_0C, &args![this]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     fn_00484b40(e, id)
 }
 
@@ -1321,7 +1335,7 @@ pub fn tes_form_get_file(e: &mut Engine, this: Ptr<TESForm>, index: i32) -> Ptr 
 pub fn tes_form_get_owner_master(e: &mut Engine, this: Ptr<TESForm>) -> Ptr {
     let mut node = list_first(e, this);
     let mut master = 0u32;
-    while node != 0 && !e.call(LIST_NODE_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let file = list_item(e, node);
         node = list_next(e, node);
         if e.call(FILE_IS_MASTER, &args![file]).bool() {
@@ -1371,7 +1385,7 @@ pub fn tes_form_set_file(e: &mut Engine, this: Ptr<TESForm>, file: Ptr) {
     } else if e.call(FILE_IS_MASTER, &args![file]).bool() {
         let mut node = list_first(e, this);
         let mut last_master = 0u32;
-        while node != 0 && !e.call(LIST_NODE_EMPTY, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let current = list_item(e, node);
             if e.call(FILE_IS_MASTER, &args![current]).bool() {
                 last_master = node;
@@ -1505,7 +1519,7 @@ pub fn fn_00485340(e: &mut Engine, this: Ptr<TESForm>, other: Ptr) {
     }
     let form_type = e.call(FORM_TYPE, &args![source]).u8();
     e.set(this, TESForm::cFormType, form_type);
-    let flags = e.call(FORM_FLAGS, &args![source]).u32();
+    let flags = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, source));
     let kept = e.get(this, TESForm::iFormFlags) & FLAG_TEMPORARY;
     e.set(this, TESForm::iFormFlags, flags & !FLAG_TEMPORARY | kept);
 }
@@ -1538,8 +1552,10 @@ pub fn fn_004853e0(e: &mut Engine, this: Ptr<TESForm>, other: Ptr) -> bool {
             return true;
         }
     }
-    let mine = e.call(FORM_FLAGS, &args![this]).u32() & COMPARE_FLAGS_MASK;
-    let theirs = e.call(FORM_FLAGS, &args![source]).u32() & COMPARE_FLAGS_MASK;
+    let mine =
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) & COMPARE_FLAGS_MASK;
+    let theirs =
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, source)) & COMPARE_FLAGS_MASK;
     mine != theirs
 }
 
@@ -1599,7 +1615,7 @@ pub fn tes_form_start_form(e: &mut Engine, this: Ptr<TESForm>) {
     let allocated = e.call(OPERATOR_NEW, &args![size]).u32();
     e.set_global(SAVE_BUFFER, allocated);
     let header = e.global::<u32>(SAVE_BUFFER);
-    let mut flags = e.call(FORM_FLAGS, &args![this]).u32();
+    let mut flags = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     e.mem.set_u32(header + 8, flags);
     if e.call(FORM_TYPE, &args![this]).u32() != 1 {
         flags &= START_FORM_FLAGS_MASK;
@@ -1607,7 +1623,7 @@ pub fn tes_form_start_form(e: &mut Engine, this: Ptr<TESForm>) {
     }
     let tag = form_type_tag(e, this);
     e.mem.set_u32(header, tag);
-    let id = e.call(WORD_AT_0C, &args![this]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     e.mem.set_u32(header + 0xc, id);
     e.mem.set_u32(header + 4, 0);
     let version = e.call(RECORD_VERSION, &args![]).u16();
@@ -1814,7 +1830,7 @@ pub fn fn_00485b60(e: &mut Engine, this: Ptr<TESForm>) -> u32 {
     let id = fn_00485bc0(e, this);
     let file = tes_form_get_file(e, this, 0);
     let masters = e.call(FILE_MASTER_LIST, &args![file]).u32();
-    let empty = e.call(LIST_NODE_EMPTY, &args![masters]).bool();
+    let empty = typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, masters));
     ((!empty) as u32) << 24 | id
 }
 
@@ -2021,7 +2037,7 @@ pub fn tes_form_save_data_inner(e: &mut Engine, this: Ptr<TESForm>, data: Ptr, s
     }
     for part in [parts.value, parts.health] {
         if part != 0 {
-            let word = e.call(COMPONENT_WORD_GET, &args![part]).u32();
+            let word = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, part));
             e.mem.set_u32(out, word);
             if is_big_endian(e) {
                 swap_word_in_place(e, out);
@@ -2213,8 +2229,8 @@ pub fn fn_004867a0(e: &mut Engine, this: Ptr<TESForm>, _unused_1: u32, map: Ptr)
             e.call(STRING_CONSTRUCT, &args![saved, name]);
             e.vcall(this.addr(), SLOT_TAKE_NAME, &args![DEFAULT_NAME]);
             e.vcall(created.addr(), SLOT_COPY_FROM, &args![this]);
-            if e.call(STRING_DATA, &args![saved]).u32() != 0 {
-                let text = e.call(STRING_DATA, &args![saved]).u32();
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, saved)) != 0 {
+                let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, saved));
                 e.vcall(this.addr(), SLOT_TAKE_NAME, &args![text]);
             }
             e.call(STRING_DESTROY, &args![saved]);
@@ -2251,7 +2267,7 @@ pub fn tes_form_get_form_type_from_form_string(e: &mut Engine, packed: u32) -> u
 /// (<form ID>)"` into `buffer` (`sprintf`), the type being the form-type
 /// table's string and the name what `00401280` returns.
 pub fn tes_form_get_form_detailed_string(e: &mut Engine, this: Ptr<TESForm>, buffer: Ptr) {
-    let id = e.call(WORD_AT_0C, &args![this]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let name = e.call(FORM_NAME_GETTER, &args![this]).u32();
     let type_name = e.call(FORM_TYPE_NAME, &args![this]).u32();
     e.call(

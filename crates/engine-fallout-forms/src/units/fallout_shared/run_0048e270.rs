@@ -11,6 +11,7 @@ const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 /// A `BSStringT`'s text setter (`004037f0`, `RET 8`): (text, length).
 const SET_TEXT: u32 = 0x0040_37f0;
 /// The string's text pointer (`00559450`: the word at `this`).
+#[cfg(test)]
 const TEXT_POINTER: u32 = 0x0055_9450;
 /// This class's vtable.
 const VTABLE: u32 = 0x0101_d7c4;
@@ -36,7 +37,7 @@ pub fn fn_0048e270(e: &mut Engine, this: Ptr) -> Ptr {
 /// constructor calling it; which slot is not checked here.)
 pub fn fn_0048e340(e: &mut Engine, this: Ptr) {
     let name = this.byte_add(4);
-    if e.call(TEXT_POINTER, &args![name]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name)) != 0 {
         e.call(SET_TEXT, &args![name, 0u32, 0u32]);
     }
 }

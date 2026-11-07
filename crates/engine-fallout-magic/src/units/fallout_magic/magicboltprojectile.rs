@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// Constructor-like call on the local vector (`006815c0`, `this` = the local, returns `this`).
+#[cfg(test)]
 const INIT_LOCAL: u32 = 0x0068_15c0;
 /// `bhkCharacterController::GetPosition_ov2` (Xbox PDB, `00c6e300`): writes the position
 /// vector (16 bytes) through its one stack argument.
@@ -20,7 +21,7 @@ const COPY_POINT: u32 = 0x0045_8620;
 /// three floats to `out` with `00458620` (a vector copy that leaves the fourth word alone).
 pub fn bhk_character_controller_get_position(e: &mut Engine, this: Ptr, out: Ptr) {
     e.with_stack(0x20, |e, local| {
-        e.call(INIT_LOCAL, &args![local]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
         e.call(GET_POSITION_OV2, &args![this, local]);
         e.call(COPY_POINT, &args![out, local]);
     });
@@ -161,6 +162,7 @@ const MAGIC_PROJECTILE_SAVE_SIZE: u32 = 0x0081_e830;
 const POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const POINTER_DESTRUCT: u32 = 0x0045_cec0;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// The sound handle at +0xC8: constructor `0041a250`, `IsValid` `00ad8ce0`, `Stop`
 /// `00ad88f0`, `Release` `00ad8d10`, assignment `00418900`, destructor `00483710`,
@@ -184,6 +186,7 @@ const GET_SOUND_HANDLE_BY_ID: u32 = 0x00ad_73b0;
 const BASE_FORM: u32 = 0x004f_d400;
 const PROJECTILE_FLIGHT_SOUND: u32 = 0x004f_d3c0;
 const PROJECTILE_IMPACT_SOUND: u32 = 0x008c_e390;
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `009b0bd0`: the projectile form's speed (`ST0`).
 const PROJECTILE_SPEED: u32 = 0x009b_0bd0;
@@ -221,6 +224,7 @@ const CELL_HAVOK_WORLD: u32 = 0x0045_43c0;
 const CELL_WATER_HEIGHT: u32 = 0x0054_71e0;
 const CELL_ROOT_NODE: u32 = 0x0054_97a0;
 /// `0045cd60`: the word of the object at +0x68 that stops the controller setup.
+#[cfg(test)]
 const OBJECT_BUSY: u32 = 0x0045_cd60;
 /// `00570f70` (`RET 4`), `TESObjectREFR::SetLocationOnReference` (`00575830`, `RET 4`) and
 /// `00436aa0` (the reference's position, +0x30).
@@ -316,6 +320,7 @@ const BSX_FLAGS_SET: u32 = 0x0051_9230;
 /// from three angles), `NiMatrix3::FromEulerAnglesZYX` (`00a59780`), the `float` `atan2`
 /// (`004b5550`, `cdecl`, two `float`s).
 const ANGLES: u32 = 0x0043_0830;
+#[cfg(test)]
 const SELF: u32 = 0x0068_15c0;
 const MATRIX_FROM_ANGLES: u32 = 0x00a5_9660;
 const MATRIX_FROM_EULER_ZYX: u32 = 0x00a5_9780;
@@ -323,6 +328,7 @@ const ATAN2: u32 = 0x004b_5550;
 /// The point helpers `00416870` (`RET 0xC`), `00439ef0` (a difference into an out point,
 /// `RET 8`), `00457990` (the length, `ST0`), `00414430` (sets four `float`s, `RET 0x10`),
 /// `005532a0` (a four-float vector, `RET 0x10`).
+#[cfg(test)]
 const POINT_SET: u32 = 0x0041_6870;
 const POINT_DIFFERENCE: u32 = 0x0043_9ef0;
 const POINT_LENGTH: u32 = 0x0045_7990;
@@ -359,6 +365,7 @@ const SHADER_DONE: u32 = 0x00ee_8990;
 const FLOAT_A4: u32 = 0x0081_2870;
 const FLOAT_90: u32 = 0x006c_a4e0;
 const WORD_140: u32 = 0x008d_8b80;
+#[cfg(test)]
 const REFERENCE_FLAG: u32 = 0x0044_0d80;
 const HEIGHT_OFFSET: u32 = 0x0045_87d0;
 /// `008ace90`: a `bool` of the actor that stops the hit.
@@ -547,7 +554,7 @@ fn configure_shader(
 /// Points the matrix along the difference at `difference` (three `float`s; its z is
 /// cleared): `FromEulerAnglesZYX(atan2(x, y), 0.0, -atan2(z, length of (x, y, 0)))`.
 fn aim_matrix(e: &mut Engine, matrix: u32, difference: u32) {
-    e.call(SELF, &args![matrix]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
     let z = x87_quiet_bits(e.mem.u32(difference.wrapping_add(8)));
     e.mem.set_u32(difference.wrapping_add(8), 0.0f32.to_bits());
     let length = x87_store32(e.call(POINT_LENGTH, &args![difference]).f64());
@@ -577,7 +584,7 @@ fn write_point(e: &mut Engine, point: u32, words: [u32; 3]) {
 fn play_impact_sound(e: &mut Engine, this: Ptr) {
     let form = e.call(BASE_FORM, &args![this]).u32();
     let sound = e.call(PROJECTILE_IMPACT_SOUND, &args![form]).u32();
-    let id = e.call(FORM_ID, &args![sound]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
     e.with_stack(0x0c, |e, handle| {
         let audio = e.call(AUDIO_INSTANCE, &[]).u32();
         e.call(GET_SOUND_HANDLE_BY_ID, &args![audio, handle, id, 0x102u32]);
@@ -651,7 +658,11 @@ fn start_flight_sound(e: &mut Engine, this: Ptr, id: u32, from_slot: bool) {
             x87_quiet_bits(z)
         ],
     );
-    let follow = e.call(POINTER_GET, &args![base.wrapping_add(0xc0)]).u32();
+    let follow = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(0xc0))
+    );
     e.call(SOUND_HANDLE_FOLLOW, &args![base.wrapping_add(0xc8), follow]);
     e.call(SOUND_HANDLE_PLAY, &args![base.wrapping_add(0xc8), 1u32]);
 }
@@ -735,7 +746,11 @@ pub fn magic_bolt_projectile_constructor(
         e.call(POINTER_CONSTRUCT, &args![clone, cloned]);
         e.call(POINTER_ASSIGN, &args![clone, 0u32]);
         magic_bolt_projectile_init_3d(e, this);
-        let node = e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32();
+        let node = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(0xb4))
+        );
         e.call(SET_3D, &args![this, node]);
         fn_00813f30(e, this);
         e.with_stack(0x10, |e, velocity| {
@@ -754,12 +769,17 @@ pub fn magic_bolt_projectile_constructor(
         if e.call(PROJECTILE_FLIGHT_SOUND, &args![form]).u32() != 0 {
             let form = e.call(BASE_FORM, &args![this]).u32();
             let sound = e.call(PROJECTILE_FLIGHT_SOUND, &args![form]).u32();
-            let id = e.call(FORM_ID, &args![sound]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
             let handle = base.wrapping_add(0xc8);
             if e.call(SOUND_HANDLE_IS_VALID, &args![handle]).bool() {
                 e.call(SOUND_HANDLE_RELEASE, &args![handle]);
             }
-            if e.call(POINTER_GET, &args![base.wrapping_add(0xc0)]).u32() != 0 {
+            if typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base.wrapping_add(0xc0))
+            ) != 0
+            {
                 start_flight_sound(e, this, id, false);
             }
         }
@@ -791,15 +811,15 @@ pub fn fn_00811e00(e: &mut Engine, value: u32) {
 /// `segment + node_offset`, the shader at `segment + shader_offset`), the shader pointer
 /// assigned null, and the node detached from its parent (the parent's slot +0xE8).
 fn release_segment(e: &mut Engine, shader_slot: u32, node_slot: u32) {
-    let shader = e.call(POINTER_GET, &args![shader_slot]).u32();
-    let node = e.call(POINTER_GET, &args![node_slot]).u32();
+    let shader = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, shader_slot));
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node_slot));
     e.call(BOLT_SHADER_STOP, &args![node, shader]);
     e.call(POINTER_ASSIGN, &args![shader_slot, 0u32]);
-    if e.call(POINTER_GET, &args![node_slot]).u32() != 0 {
-        let node = e.call(POINTER_GET, &args![node_slot]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node_slot)) != 0 {
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node_slot));
         let parent = e.call(PARENT_NODE, &args![node]).u32();
         if parent != 0 {
-            let node = e.call(POINTER_GET, &args![node_slot]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node_slot));
             e.vcall(parent, 0xe8, &args![node]);
         }
     }
@@ -911,15 +931,27 @@ pub fn magic_bolt_projectile_init_3d(e: &mut Engine, this: Ptr) {
     let follow = new_node(e);
     e.call(POINTER_ASSIGN, &args![base.wrapping_add(0xc0), follow]);
     let position = e.vcall(base, 0x1f4, &[]).u32();
-    let follow = e.call(POINTER_GET, &args![base.wrapping_add(0xc0)]).u32();
+    let follow = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(0xc0))
+    );
     e.call(NODE_PLACE, &args![follow, position]);
     let node = new_node(e);
     e.call(POINTER_ASSIGN, &args![base.wrapping_add(0xb4), node]);
     let position = e.vcall(base, 0x1f4, &[]).u32();
-    let node = e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32();
+    let node = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(0xb4))
+    );
     e.call(NODE_SET_TRANSLATE, &args![node, position]);
     let key = e.call(EXTRA_DATA_KEY, &[]).u32();
-    let node = e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32();
+    let node = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(0xb4))
+    );
     let mut flags = e.call(GET_EXTRA_DATA, &args![node, key]).u32();
     if flags == 0 {
         let block = e.call(ALLOCATE_OBJECT, &args![0x10u32]).u32();
@@ -929,7 +961,11 @@ pub fn magic_bolt_projectile_init_3d(e: &mut Engine, this: Ptr) {
             0
         };
         let key = e.call(EXTRA_DATA_KEY, &[]).u32();
-        let node = e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32();
+        let node = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(0xb4))
+        );
         e.call(ADD_EXTRA_DATA, &args![node, key, flags]);
     }
     e.call(BSX_FLAGS_SET, &args![flags, 1u32, 1u32]);
@@ -937,7 +973,7 @@ pub fn magic_bolt_projectile_init_3d(e: &mut Engine, this: Ptr) {
     let angles = e.call(ANGLES, &args![this]).u32();
     let [x, y, z] = read_point(e, angles);
     e.with_stack(0x24, |e, matrix| {
-        e.call(SELF, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         e.call(
             MATRIX_FROM_ANGLES,
             &args![
@@ -947,18 +983,31 @@ pub fn magic_bolt_projectile_init_3d(e: &mut Engine, this: Ptr) {
                 x87_quiet_bits(y)
             ],
         );
-        let node = e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32();
+        let node = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(0xb4))
+        );
         e.call(NODE_SET_ROTATE, &args![node, matrix]);
     });
-    let node = e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32();
+    let node = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(0xb4))
+    );
     let shader = e.call(BOLT_SHADER_START, &args![node, 1u32]).u32();
     e.call(POINTER_ASSIGN, &args![base.wrapping_add(0xa8), shader]);
-    if e.call(POINTER_GET, &args![base.wrapping_add(0xa8)]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(0xa8))
+    ) == 0
+    {
         return;
     }
     let slot = base.wrapping_add(0xa8);
     configure_shader(e, &INIT_3D_SHADER, &|e: &mut Engine| {
-        e.call(POINTER_GET, &args![slot]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
     });
 }
 
@@ -970,15 +1019,23 @@ pub fn magic_bolt_projectile_init_3d(e: &mut Engine, this: Ptr) {
 /// +0x88, and whether the setting at `011d1b14` is at most `00812870 - +0xD4`) and points
 /// the node along the difference.
 pub fn fn_00812700(e: &mut Engine, this: Ptr, time: f32, segment: u32) {
-    let node = e.call(POINTER_GET, &args![segment.wrapping_add(4)]).u32();
+    let node = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, segment.wrapping_add(4))
+    );
     let start = segment.wrapping_add(8);
-    if e.call(POINTER_GET, &args![segment.wrapping_add(0x14)])
-        .u32()
-        != 0
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, segment.wrapping_add(0x14))
+    ) != 0
     {
-        let source = e
-            .call(POINTER_GET, &args![segment.wrapping_add(0x14)])
-            .u32();
+        let source = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, segment.wrapping_add(0x14))
+        );
         let position = e.call(NODE_POSITION, &args![source]).u32();
         let words = read_point(e, position);
         write_point(e, start, words);
@@ -987,9 +1044,11 @@ pub fn fn_00812700(e: &mut Engine, this: Ptr, time: f32, segment: u32) {
     e.with_stack(0x30, |e, locals| {
         let difference = locals.addr();
         let matrix = difference.wrapping_add(0x0c);
-        let target = e
-            .call(POINTER_GET, &args![segment.wrapping_add(0x18)])
-            .u32();
+        let target = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, segment.wrapping_add(0x18))
+        );
         let target_position = e.call(NODE_POSITION, &args![target]).u32();
         e.call(POINT_DIFFERENCE, &args![target_position, difference, start]);
         let age = x87_sub(
@@ -1002,7 +1061,7 @@ pub fn fn_00812700(e: &mut Engine, this: Ptr, time: f32, segment: u32) {
         let aged = limit < age;
         let speed = x87_quiet_bits(e.mem.u32(this.addr().wrapping_add(0x88)));
         let length = x87_store32(e.call(POINT_LENGTH, &args![difference]).f64());
-        let shader = e.call(POINTER_GET, &args![segment]).u32();
+        let shader = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, segment));
         e.call(
             SHADER_UPDATE_SEGMENT,
             &args![
@@ -1046,7 +1105,11 @@ pub fn magic_bolt_projectile_post_process(e: &mut Engine, this: Ptr) -> bool {
     let controller = e.call(GET_CHAR_CONTROLLER, &args![this]).u32();
     if magic_node == 0
         || controller == 0
-        || e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32() == 0
+        || typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(0xb4))
+        ) == 0
     {
         return true;
     }
@@ -1063,7 +1126,11 @@ pub fn magic_bolt_projectile_post_process(e: &mut Engine, this: Ptr) -> bool {
         let words = read_point(e, position);
         e.with_stack(0x0c, |e, point| {
             write_point(e, point.addr(), words);
-            let node = e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32();
+            let node = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base.wrapping_add(0xb4))
+            );
             e.call(NODE_SET_TRANSLATE, &args![node, point]);
         });
     }
@@ -1074,11 +1141,19 @@ pub fn magic_bolt_projectile_post_process(e: &mut Engine, this: Ptr) -> bool {
             let controller_position = start.wrapping_add(0x0c);
             let difference = start.wrapping_add(0x1c);
             let matrix = start.wrapping_add(0x28);
-            let node = e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32();
+            let node = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base.wrapping_add(0xb4))
+            );
             let position = e.call(NODE_POSITION, &args![node]).u32();
             let words = read_point(e, position);
             write_point(e, start, words);
-            e.call(SELF, &args![controller_position]);
+            typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, controller_position)
+            );
             bhk_character_controller_get_position(
                 e,
                 Ptr::new(controller),
@@ -1089,13 +1164,21 @@ pub fn magic_bolt_projectile_post_process(e: &mut Engine, this: Ptr) -> bool {
                 &args![controller_position, difference, start],
             );
             aim_matrix(e, matrix, difference);
-            let node = e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32();
+            let node = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base.wrapping_add(0xb4))
+            );
             e.call(NODE_SET_ROTATE, &args![node, matrix]);
         });
     }
     e.with_stack(0x0c, |e, update| {
         e.call(UPDATE_DATA_INIT, &args![update, 0.0f32, 0u32, 0u32]);
-        let node = e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32();
+        let node = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(0xb4))
+        );
         e.call(NODE_UPDATE, &args![node, update]);
     });
     false
@@ -1127,9 +1210,17 @@ fn update_main_shader(
             e.call(FLOAT_90, &args![this]).f64(),
             x87_m32(e.mem.u32(base.wrapping_add(0x88))),
         );
-        let shader = e.call(POINTER_GET, &args![base.wrapping_add(0xa8)]).u32();
+        let shader = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(0xa8))
+        );
         let count = e.call(WORD_140, &args![shader]).i32();
-        let shader = e.call(POINTER_GET, &args![base.wrapping_add(0xa8)]).u32();
+        let shader = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(0xa8))
+        );
         let per = fn_008133b0(e, Ptr::new(shader));
         // FCOMP / TEST AH,5 / JP: on when strictly below.
         x87_mul(per, f64::from(count)) < reach
@@ -1139,7 +1230,11 @@ fn update_main_shader(
     if update {
         let speed = x87_quiet_bits(e.mem.u32(base.wrapping_add(0x88)));
         let length = length(e);
-        let shader = e.call(POINTER_GET, &args![base.wrapping_add(0xa8)]).u32();
+        let shader = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(0xa8))
+        );
         e.call(
             SHADER_UPDATE,
             &args![
@@ -1175,14 +1270,20 @@ pub fn fn_00812b60(e: &mut Engine, this: Ptr, time: f32) {
     if time_value == e.mem.f64(ZERO) {
         return;
     }
-    if e.call(REFERENCE_FLAG, &args![this]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
         return;
     }
     let node = ball::node(e, this);
     let translate = e.call(NODE_WORLD_TRANSLATE, &args![node]).u32();
     let head = read_point(e, translate);
     let state = e.mem.u32(base.wrapping_add(0xac));
-    if e.call(POINTER_GET, &args![base.wrapping_add(0xa8)]).u32() != 0 && state == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(0xa8))
+    ) != 0
+        && state == 0
+    {
         if !bolt_fly(e, this, time) {
             return;
         }
@@ -1193,12 +1294,25 @@ pub fn fn_00812b60(e: &mut Engine, this: Ptr, time: f32) {
     if !(limit > 0 || e.mem.u8(AIM_DISABLED) != 0) {
         aim_bolt(e, this, time, head);
     }
-    if e.call(POINTER_GET, &args![base.wrapping_add(0xc0)]).u32() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(0xc0))
+    ) != 0
+    {
         let position = e.vcall(base, 0x1f4, &[]).u32();
-        let follow = e.call(POINTER_GET, &args![base.wrapping_add(0xc0)]).u32();
+        let follow = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(0xc0))
+        );
         e.call(NODE_PLACE, &args![follow, position]);
     }
-    let shader = e.call(POINTER_GET, &args![base.wrapping_add(0xa8)]).u32();
+    let shader = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(0xa8))
+    );
     let finished = if fn_00813370(e, Ptr::new(shader)) {
         true
     } else {
@@ -1247,7 +1361,11 @@ fn bolt_fly(e: &mut Engine, this: Ptr, time: f32) -> bool {
             x87_load32(e.mem.u32(base.wrapping_add(0x88))),
             x87_m32(time.to_bits()),
         ));
-        e.call(POINT_SET, &args![step, 0.0f32, speed, 0.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, step, 0.0f32, speed, 0.0f32)
+        );
         controller_position(e, this, before);
         e.vcall(
             base,
@@ -1281,12 +1399,20 @@ fn update_segments(e: &mut Engine, this: Ptr, time: f32) {
     while segment != 0 {
         fn_00812700(e, this, time, segment);
         let next = e.mem.u32(segment.wrapping_add(0x1c));
-        let shader = e.call(POINTER_GET, &args![segment]).u32();
+        let shader = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, segment));
         if fn_00813370(e, Ptr::new(shader)) {
-            let node = e.call(POINTER_GET, &args![segment.wrapping_add(4)]).u32();
+            let node = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, segment.wrapping_add(4))
+            );
             let parent = e.call(PARENT_NODE, &args![node]).u32();
             if parent != 0 {
-                let node = e.call(POINTER_GET, &args![segment.wrapping_add(4)]).u32();
+                let node = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, segment.wrapping_add(4))
+                );
                 e.vcall(parent, 0xe8, &args![node]);
             }
             let following = e.mem.u32(segment.wrapping_add(0x1c));
@@ -1316,18 +1442,31 @@ fn aim_bolt(e: &mut Engine, this: Ptr, time: f32, head: [u32; 3]) {
         let matrix = start.wrapping_add(0x18);
         let other = start.wrapping_add(0x3c);
         write_point(e, start, head);
-        if e.call(POINTER_GET, &args![base.wrapping_add(0xbc)]).u32() != 0 {
-            let target = e.call(POINTER_GET, &args![base.wrapping_add(0xbc)]).u32();
+        if typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(0xbc))
+        ) != 0
+        {
+            let target = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base.wrapping_add(0xbc))
+            );
             let target_position = e.call(NODE_POSITION, &args![target]).u32();
             e.call(POINT_DIFFERENCE, &args![target_position, difference, start]);
             update_main_shader(e, this, time, moving, &|e: &mut Engine| {
                 x87_store32(e.call(POINT_LENGTH, &args![difference]).f64())
             });
             aim_matrix(e, matrix, difference);
-            let node = e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32();
+            let node = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base.wrapping_add(0xb4))
+            );
             e.call(NODE_SET_ROTATE, &args![node, matrix]);
         } else if e.call(GET_CHAR_CONTROLLER, &args![this]).u32() != 0 {
-            e.call(SELF, &args![other]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
             let controller = e.call(GET_CHAR_CONTROLLER, &args![this]).ptr();
             bhk_character_controller_get_position(e, controller, Ptr::new(other));
             let out = e
@@ -1335,7 +1474,11 @@ fn aim_bolt(e: &mut Engine, this: Ptr, time: f32, head: [u32; 3]) {
                 .u32();
             let length = x87_store32(e.call(POINT_LENGTH, &args![out]).f64());
             update_main_shader(e, this, time, moving, &move |_: &mut Engine| length);
-            let shader = e.call(POINTER_GET, &args![base.wrapping_add(0xa8)]).u32();
+            let shader = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base.wrapping_add(0xa8))
+            );
             if e.call(SHADER_DONE, &args![shader]).bool() {
                 fn_008133d0(e, this, 2);
                 flag_controller_filter(e, this);
@@ -1456,7 +1599,11 @@ pub fn fn_008133f0(
         });
         let speed = x87_quiet_bits(e.mem.u32(base.wrapping_add(0x88)));
         let hundredth = x87_quiet_bits(e.mem.u32(HUNDREDTH));
-        let shader = e.call(POINTER_GET, &args![base.wrapping_add(0xa8)]).u32();
+        let shader = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(0xa8))
+        );
         e.call(
             SHADER_UPDATE,
             &args![shader, hundredth, x87_quiet_bits(length), speed, 0u32],
@@ -1542,7 +1689,7 @@ pub fn fn_008133f0(
 pub fn fn_008139f0(e: &mut Engine, this: Ptr, target: u32, item: u32) {
     let base = this.addr();
     if item != 0 {
-        let id = e.call(FORM_ID, &args![item]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
         if id != e.call(PROJECTILE_EFFECT_ITEM, &args![this]).u32() {
             return;
         }
@@ -1559,7 +1706,7 @@ pub fn fn_008139f0(e: &mut Engine, this: Ptr, target: u32, item: u32) {
         configure_shader(e, &SEGMENT_SHADER, &move |_: &mut Engine| shader);
     }
     let position = e.with_stack(0x0c, |e, out| {
-        e.call(SELF, &args![out]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, out));
         let controller = e.call(GET_CHAR_CONTROLLER, &args![this]).ptr();
         bhk_character_controller_get_position(e, controller, out);
         read_point(e, out.addr())
@@ -1612,7 +1759,11 @@ pub fn fn_00813ea0(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
     e.call(POINTER_CONSTRUCT, &args![base, 0u32]);
     e.call(POINTER_CONSTRUCT, &args![base.wrapping_add(4), 0u32]);
-    e.call(SELF, &args![base.wrapping_add(8)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base.wrapping_add(8))
+    );
     e.call(POINTER_CONSTRUCT, &args![base.wrapping_add(0x14), 0u32]);
     e.call(POINTER_CONSTRUCT, &args![base.wrapping_add(0x18), 0u32]);
     this
@@ -1626,7 +1777,7 @@ pub fn fn_00813ea0(e: &mut Engine, this: Ptr) -> Ptr {
 pub fn fn_00813f30(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     let object = e.mem.u32(base.wrapping_add(0x68));
-    if object == 0 || e.call(OBJECT_BUSY, &args![object]).u32() != 0 {
+    if object == 0 || typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, object)) != 0 {
         return;
     }
     let mut controller = e.call(GET_CHAR_CONTROLLER, &args![this]).u32();
@@ -1815,14 +1966,23 @@ pub fn fn_00814670(e: &mut Engine, this: Ptr, buffer: u32) {
             let words = read_point(e, world);
             write_point(e, translate, words);
             e.call(SAVE_DATA, &args![this, translate, 0xcu32]);
-            e.call(SELF, &args![rotation]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
             let node = ball::node(e, this);
             e.call(NODE_ROTATION, &args![node, rotation]);
             let manager = e.mem.u32(SAVE_LOAD_MANAGER);
             e.call(SAVE_WORD, &args![manager, rotation, 0x10u32]);
             e.mem.set_u32(value, 0.0f32.to_bits());
-            if e.call(POINTER_GET, &args![base.wrapping_add(0xa8)]).u32() != 0 {
-                let shader = e.call(POINTER_GET, &args![base.wrapping_add(0xa8)]).u32();
+            if typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, base.wrapping_add(0xa8))
+            ) != 0
+            {
+                let shader = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, base.wrapping_add(0xa8))
+                );
                 let saved = x87_store32(e.call(SHADER_FLOAT, &args![shader]).f64());
                 e.mem.set_u32(value, saved);
             }
@@ -1831,7 +1991,7 @@ pub fn fn_00814670(e: &mut Engine, this: Ptr, buffer: u32) {
         e.mem.set_u32(id, 0);
         let target = e.mem.u32(base.wrapping_add(0xc4));
         if target != 0 {
-            let form_id = e.call(FORM_ID, &args![target]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, target));
             e.mem.set_u32(id, form_id);
         }
         e.call(SAVE_ID, &args![this, id, 4u32]);
@@ -1842,16 +2002,21 @@ pub fn fn_00814670(e: &mut Engine, this: Ptr, buffer: u32) {
         let mut segment = e.mem.u32(base.wrapping_add(0xb0));
         while segment != 0 {
             e.mem.set_u32(segment_id, 0);
-            if e.call(POINTER_GET, &args![segment.wrapping_add(0x18)])
-                .u32()
-                != 0
+            if typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, segment.wrapping_add(0x18))
+            ) != 0
             {
-                let node = e
-                    .call(POINTER_GET, &args![segment.wrapping_add(0x18)])
-                    .u32();
+                let node = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, segment.wrapping_add(0x18))
+                );
                 let reference = e.call(FIND_REFERENCE_FOR_3D, &args![node]).u32();
                 if reference != 0 {
-                    let form_id = e.call(FORM_ID, &args![reference]).u32();
+                    let form_id =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
                     e.mem.set_u32(segment_id, form_id);
                 }
             }
@@ -1945,8 +2110,12 @@ pub fn fn_00814870(e: &mut Engine, this: Ptr, buffer: u32, version: u32) {
 /// +0x20 = null. Returns `this`.
 pub fn fn_00814aa0(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
-    e.call(SELF, &args![base]);
-    e.call(SELF, &args![base.wrapping_add(0xc)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base));
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base.wrapping_add(0xc))
+    );
     e.mem.set_u32(base.wrapping_add(0x20), 0);
     this
 }
@@ -1984,7 +2153,11 @@ pub fn magic_bolt_projectile_init_load_game(e: &mut Engine, this: Ptr, buffer: u
         }
     }
     magic_bolt_projectile_init_3d(e, this);
-    let node = e.call(POINTER_GET, &args![base.wrapping_add(0xb4)]).u32();
+    let node = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base.wrapping_add(0xb4))
+    );
     e.call(SET_3D, &args![this, node]);
     let cell = e.call(PARENT_CELL, &args![this]).u32();
     e.call(CELL_ADD_REFERENCE, &args![cell, this, 0u32]);
@@ -1994,7 +2167,7 @@ pub fn magic_bolt_projectile_init_load_game(e: &mut Engine, this: Ptr, buffer: u
     }
     let form = e.call(BASE_FORM, &args![this]).u32();
     let sound = e.call(PROJECTILE_FLIGHT_SOUND, &args![form]).u32();
-    let id = e.call(FORM_ID, &args![sound]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
     let handle = base.wrapping_add(0xc8);
     if e.call(SOUND_HANDLE_IS_VALID, &args![handle]).bool() {
         e.call(SOUND_HANDLE_RELEASE, &args![handle]);

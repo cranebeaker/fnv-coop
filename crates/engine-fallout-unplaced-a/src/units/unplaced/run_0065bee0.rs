@@ -33,6 +33,7 @@ const MEMORY_SCOPE_END: u32 = 0x0040_4ee0;
 /// `"D:\_Fallout3\...\BSFaceGenModel.cpp"` (`01065b00`) and the scope's id 0x38, line 0x4F0.
 const FACE_GEN_MODEL_SOURCE: u32 = 0x0106_5b00;
 /// `00559450`: answers the pointer an `NiPointer` holds (`thiscall`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// The model data's readiness test (`004048e0`; `thiscall`).
 const MODEL_READY: u32 = 0x0040_48e0;
@@ -42,6 +43,7 @@ const GAME_NEW: u32 = 0x0040_1000;
 const MORPH_DATA_CONSTRUCTOR: u32 = 0x0065_9560;
 /// The morph data's in-use test (`007af430`; `thiscall`) and scalar deleting destructor
 /// (`006599d0`; `thiscall`: flags).
+#[cfg(test)]
 const MORPH_DATA_IN_USE: u32 = 0x007a_f430;
 const MORPH_DATA_DELETING_DESTRUCTOR: u32 = 0x0065_99d0;
 /// The morph list's count (`00657c00`), item (`00657c20`: index) and the item's own count
@@ -87,7 +89,7 @@ pub fn fn_0065bf80(e: &mut Engine, this: Ptr) -> bool {
                 0
             } else {
                 let data = e.mem.u32(this.addr() + 8);
-                let object = e.call(POINTER_GET, &args![data]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, data));
                 e.call(MORPH_DATA_CONSTRUCTOR, &args![block, object]).u32()
             };
             let data = e.mem.u32(this.addr() + 8);
@@ -107,7 +109,7 @@ pub fn fn_0065c090(e: &mut Engine, this: Ptr) -> bool {
     if data == 0 || e.mem.u32(data + 8) == 0 {
         return true;
     }
-    if e.call(MORPH_DATA_IN_USE, &args![data]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, data)) != 0 {
         return false;
     }
     let data = e.mem.u32(this.addr() + 8);
@@ -175,7 +177,7 @@ const FILE_GET_SIZE: u32 = 0x0065_c290;
 pub fn fn_0065c1f0(e: &mut Engine, path: u32, size: Ptr) -> u32 {
     e.with_stack(0x14, |e, file| {
         e.call(FILE_CONSTRUCTOR, &args![file, path, 0u32, 0u32, 0u32]);
-        let mut answer = e.call(POINTER_GET, &args![file]).u32();
+        let mut answer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, file));
         if answer == 0 {
             answer = e.call(FILE_GET_SIZE, &args![file, size]).u32();
         } else {

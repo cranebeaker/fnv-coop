@@ -32,6 +32,7 @@ const SCRIPT_END_OPCODE: u32 = 0x0119_6d18;
 /// two messages: "The script function list doesn't have all the names
 /// filled in." (`010374a0`) and "The script console-command list doesn't
 /// have all the names filled in." (`01037458`).
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 const SCRIPT_LIST_INCOMPLETE: u32 = 0x0103_74a0;
 const CONSOLE_LIST_INCOMPLETE: u32 = 0x0103_7458;
@@ -43,10 +44,10 @@ const CONSOLE_LIST_INCOMPLETE: u32 = 0x0103_7458;
 /// mismatch through `Error`. Returns `this`.
 pub fn script_compiler_script_compiler(e: &mut Engine, this: Ptr) -> Ptr {
     if e.mem.u32(SCRIPT_END_OPCODE) != 0x1280 {
-        e.call(ERROR, &args![SCRIPT_LIST_INCOMPLETE]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words SCRIPT_LIST_INCOMPLETE);
     }
     if e.mem.u32(CONSOLE_END_OPCODE) != 0x1cd {
-        e.call(ERROR, &args![CONSOLE_LIST_INCOMPLETE]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words CONSOLE_LIST_INCOMPLETE);
     }
     this
 }
@@ -84,6 +85,7 @@ const MEMCPY: u32 = 0x0040_1460;
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 const STRING_DESTRUCT: u32 = 0x0040_37d0;
 const STRING_SET: u32 = 0x0040_37f0;
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 const STRING_ASSIGN: u32 = 0x0043_8390;
 /// `BSStringT<char>::StrCmp` (engine map, `00408a80`, `RET 8`: text, ignore case).
@@ -91,8 +93,11 @@ const STRING_COMPARE: u32 = 0x0040_8a80;
 /// The list helpers (module notes of `tesscript.rs`): `006815c0` the item word's address,
 /// `00726070` the next node, `008256d0` empty, `0063f7b0` remove the first item, `00905820`
 /// add at the tail, `0096a2d0` construct, `0046ffb0` destruct.
+#[cfg(test)]
 const LIST_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 const LIST_POP_FIRST: u32 = 0x0063_f7b0;
 const LIST_ADD_TAIL: u32 = 0x0090_5820;
@@ -217,7 +222,7 @@ fn word_at(e: &Engine, base: u32, offset: u32) -> u32 {
 
 /// The item a list node holds (`006815c0`, then the word there).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let at = e.call(LIST_ITEM, &args![node]).u32();
+    let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(at)
 }
 
@@ -225,7 +230,7 @@ fn node_item(e: &mut Engine, node: u32) -> u32 {
 /// empty, its first item is handed to `delete` and removed (`0063f7b0`).
 fn empty_list_with(e: &mut Engine, this: Ptr, list_of: u32, delete: impl Fn(&mut Engine, u32)) {
     let list = e.call(list_of, &args![this]).u32();
-    while list != 0 && !e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    while list != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         let item = node_item(e, list);
         delete(e, item);
         e.call(LIST_POP_FIRST, &args![list]);
@@ -381,18 +386,22 @@ pub fn script_compile_data_get_variable(e: &mut Engine, this: Ptr, word: u32) ->
     let mut node = e.call(VARIABLE_LIST_OF, &args![this]).u32();
     clear_variable_id(e, word);
     while node != 0 {
-        let at = e.call(LIST_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(at) == 0 {
             break;
         }
         let variable = node_item(e, node);
-        let name = e
-            .call(STRING_TEXT, &args![variable.wrapping_add(0x18)])
-            .u32();
+        let name = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, variable.wrapping_add(0x18))
+        );
         if e.call(STRNICMP, &args![name, word, length]).u32() == 0 {
-            let name = e
-                .call(STRING_TEXT, &args![variable.wrapping_add(0x18)])
-                .u32();
+            let name = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, variable.wrapping_add(0x18))
+            );
             let next = e.mem.i8(name.wrapping_add(length));
             if e.call(ISALNUM, &args![next as i32]).u32() == 0 && next != 0x2d && next != 0x5f {
                 let kind = if e.mem.u8(variable.wrapping_add(0x10)) != 0 {
@@ -406,7 +415,7 @@ pub fn script_compile_data_get_variable(e: &mut Engine, this: Ptr, word: u32) ->
                 return true;
             }
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let current = word_at(e, this.addr(), 0x4c);
     if current != 0 {
@@ -455,17 +464,21 @@ pub fn script_compiler_script_error(e: &mut Engine, data: Ptr, format: u32, rest
         e.call(VSPRINTF, &args![buffer, format, list]);
         e.call(STRING_CONSTRUCT, &args![string]);
         let line = word_at(e, base, 0x1c);
-        let name = e.call(STRING_TEXT, &args![base.wrapping_add(0xc)]).u32();
+        let name = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(0xc))
+        );
         e.call(
             STRING_PRINTF,
             &args![string, TEXT_SCRIPT_LINE, name, line, buffer],
         );
         if word_at(e, base, 8) == 1 {
-            let text = e.call(STRING_TEXT, &args![string]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
             let message = e.call(PREPARE_MESSAGE, &args![text, 0u32]).u32();
             e.call(CONSOLE_PRINT, &args![message]);
         } else {
-            let text = e.call(STRING_TEXT, &args![string]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
             let message = e.call(PREPARE_MESSAGE, &args![text, 0u32]).u32();
             e.call(SCRIPT_LOG, &args![message]);
         }
@@ -518,7 +531,8 @@ pub fn script_compiler_compile(e: &mut Engine, this: Ptr, script: u32, data: Ptr
         e.mem.set_u32(base.wrapping_add(0x1c), 0);
         if e.mem.u8(base.wrapping_add(0x18)) == 0 {
             let lines = e.call(LINE_LIST_OF, &args![data]).u32();
-            if lines == 0 || e.call(LIST_IS_EMPTY, &args![lines]).bool() {
+            if lines == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, lines))
+            {
                 report(e, data, TEXT_START_WITH_SCRIPTNAME);
                 return false;
             }
@@ -537,14 +551,14 @@ pub fn script_compiler_compile(e: &mut Engine, this: Ptr, script: u32, data: Ptr
         }
     }
     let mut node = e.call(LINE_LIST_OF, &args![data]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let line = node_item(e, node);
         let number = e.mem.u32(line);
         e.mem.set_u32(base.wrapping_add(0x1c), number);
         if !script_compiler_compile_line(e, this, script, data, line) {
             return false;
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let size = word_at(e, base, 0x24);
     e.mem.set_u32(base.wrapping_add(0x30), size);
@@ -1006,14 +1020,14 @@ pub fn script_compile_data_verify_referenced_object_list(e: &mut Engine, this: P
         if node == 0 {
             return true;
         }
-        let at = e.call(LIST_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(at) == 0 {
             return true;
         }
         let object = node_item(e, node);
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if word_at(e, object, 8) == 0 && word_at(e, object, 0xc) == 0 {
-            let name = e.call(STRING_TEXT, &args![object]).u32();
+            let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
             script_compiler_script_error(e, this, TEXT_UNKNOWN_REFERENCED_OBJECT, &[name]);
             return false;
         }
@@ -1044,7 +1058,7 @@ pub fn script_compile_data_get_referenced_object(
     let mut index = 1u32;
     let mut node = base.wrapping_add(0x44);
     while node != 0 {
-        let at = e.call(LIST_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(at) == 0 {
             break;
         }
@@ -1065,7 +1079,7 @@ pub fn script_compile_data_get_referenced_object(
             }
             return true;
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         index = index.wrapping_add(1);
     }
     let block = e.call(OPERATOR_NEW, &args![0x10u32]).u32();
@@ -1166,9 +1180,12 @@ pub fn script_compile_data_get_referenced_object_ov2(e: &mut Engine, this: Ptr, 
     }
     let mut at = 1u32;
     let mut node = e.call(REF_OBJECT_LIST_OF, &args![this]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && at < index {
+    while node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        && at < index
+    {
         at = at.wrapping_add(1);
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     node_item(e, node)
 }
@@ -1210,7 +1227,7 @@ fn report_at_line(e: &mut Engine, data: Ptr, line: u32, format: u32) -> bool {
 pub fn script_compiler_verify_blocks(e: &mut Engine, _this: Ptr, data: Ptr) -> bool {
     let mut inside = false;
     let mut node = e.call(LINE_LIST_OF, &args![data]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let line = node_item(e, node);
         match word_at(e, line, 0x410) {
             0x10 => {
@@ -1232,7 +1249,7 @@ pub fn script_compiler_verify_blocks(e: &mut Engine, _this: Ptr, data: Ptr) -> b
                 }
             }
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     true
 }
@@ -1247,7 +1264,10 @@ pub fn script_compiler_count_block_lines(e: &mut Engine, _this: Ptr, data: Ptr, 
     let mut count = 0i32;
     let mut done = false;
     let mut node = e.call(LINE_LIST_OF, &args![data]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && !done {
+    while node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        && !done
+    {
         let other = node_item(e, node);
         if e.mem.u32(other) > e.mem.u32(line) {
             let opcode = e.mem.i32(other.wrapping_add(0x410));
@@ -1268,7 +1288,7 @@ pub fn script_compiler_count_block_lines(e: &mut Engine, _this: Ptr, data: Ptr, 
                 count = count.wrapping_add(1);
             }
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if !done {
         let number = e.mem.u32(line);
@@ -1290,7 +1310,10 @@ pub fn script_compiler_count_if_lines(e: &mut Engine, _this: Ptr, data: Ptr, lin
     let mut depth = 0i32;
     let mut done = false;
     let mut node = e.call(LINE_LIST_OF, &args![data]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() && !done {
+    while node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        && !done
+    {
         let other = node_item(e, node);
         if e.mem.u32(other) > e.mem.u32(line) {
             let opcode = e.mem.i32(other.wrapping_add(0x410));
@@ -1328,7 +1351,7 @@ pub fn script_compiler_count_if_lines(e: &mut Engine, _this: Ptr, data: Ptr, lin
                 count = count.wrapping_add(1);
             }
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if !done {
         let number = e.mem.u32(line);
@@ -1854,9 +1877,11 @@ pub fn script_compiler_compile_line(
                 let flag = u8::from(opcode != 0x14 && opcode != 0x1f);
                 e.mem.set_u8(variable.wrapping_add(0x10), flag);
                 e.call(STRING_SET, &args![variable.wrapping_add(0x18), word, 0u32]);
-                let name = e
-                    .call(STRING_TEXT, &args![variable.wrapping_add(0x18)])
-                    .u32();
+                let name = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, variable.wrapping_add(0x18))
+                );
                 let known = e
                     .call(SCRIPT_FIND_VARIABLE, &args![script, name, variable])
                     .u8();
@@ -1925,7 +1950,7 @@ pub fn script_compiler_compile_line(
                         &args![expression, infix, infix_length],
                     )
                     .u32();
-                if e.call(STRING_TEXT, &args![expression]).u32() != 0 {
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, expression)) != 0 {
                     return fail_with(e, TEXT_INFIX_TO_POSTFIX);
                 }
                 let length = e.mem.u16(infix_length);
@@ -1950,8 +1975,9 @@ pub fn script_compiler_compile_line(
                         &args![expression, infix, infix_length],
                     )
                     .u32();
-                if e.call(STRING_TEXT, &args![expression]).u32() != 0 {
-                    let code = e.call(STRING_TEXT, &args![expression]).u32();
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, expression)) != 0 {
+                    let code =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, expression));
                     let message = e
                         .mem
                         .u32(EXPRESSION_ERRORS.wrapping_add(code.wrapping_mul(4)));
@@ -2006,7 +2032,8 @@ pub fn script_compiler_compile_line(
                         )
                         .u32();
                     if reference == 0 && word_at(e, object, 0xc) == 0 {
-                        let name = e.call(STRING_TEXT, &args![object]).u32();
+                        let name =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
                         script_compiler_script_error(e, data, TEXT_ONLY_REFERENCES, &[name]);
                         return fail(e);
                     }
@@ -2066,9 +2093,6 @@ const PARAMETER_TYPES: u32 = 0x0118_cdd4;
 const CONTAINER_CAN_HOLD_TYPE: u32 = 0x0048_1f30;
 /// `TESObjectREFR::HasContainer` (engine map, `0055d310`, `thiscall`).
 const REFR_HAS_CONTAINER: u32 = 0x0055_d310;
-/// `007af430` (`thiscall` on a reference; engine map name `BGSSaveFormBuffer::GetForm`) and
-/// the word at `011ca224` it must equal for a map marker.
-const REFR_BASE_FORM: u32 = 0x007a_f430;
 const MAP_MARKER_FORM: u32 = 0x011c_a224;
 /// `00425fd0` (`thiscall` on a cell): the test an interior cell parameter must pass.
 const CELL_TEST: u32 = 0x0042_5fd0;
@@ -2322,7 +2346,8 @@ fn check_object_parameter(e: &mut Engine, parameter: &Parameter, kind: u32) -> O
                     true
                 }
                 0x18 => {
-                    let base = e.call(REFR_BASE_FORM, &args![reference]).u32();
+                    let base =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                     if base != e.global::<u32>(MAP_MARKER_FORM) {
                         return Some(p.fail(e, TEXT_INVALID_MAP_MARKER));
                     }

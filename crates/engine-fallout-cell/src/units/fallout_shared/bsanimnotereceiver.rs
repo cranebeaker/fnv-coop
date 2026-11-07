@@ -30,6 +30,7 @@ const INTERFACE_DESTRUCT: u32 = 0x004b_0530;
 /// The array's element count (the 16-bit word at +0x0A, zero-extended).
 const ARRAY_COUNT: u32 = 0x0065_8930;
 /// The address of element `index` of the array (`(array, index)`).
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// Removes and returns the array's last element (null when it is empty).
 const ARRAY_REMOVE_LAST: u32 = 0x004b_07e0;
@@ -39,6 +40,7 @@ const ARRAY_DESTRUCT: u32 = 0x004b_07b0;
 /// `SetAtGrow` at the count).
 const ARRAY_ADD: u32 = 0x0096_a610;
 /// A note's type (the word at +8 of a `BSAnimNote`).
+#[cfg(test)]
 const NOTE_TYPE: u32 = 0x0044_ddc0;
 /// `operator new` / `operator delete` (cdecl, one argument).
 const ALLOCATE: u32 = 0x0040_1000;
@@ -146,10 +148,18 @@ pub fn fn_004b06b0(e: &mut Engine, this: Ptr<BSAnimNoteReceiver>, kind: u32, cal
     let mut found = u32::MAX;
     let mut index = 0u32;
     while index < e.call(ARRAY_COUNT, &args![array]).u32() {
-        let slot = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
         let entry = e.mem.u32(slot);
         if e.mem.u32(entry) == kind {
-            let slot = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
             let entry = e.mem.u32(slot);
             if e.mem.u32(entry + 4) == callback {
                 found = index;
@@ -168,12 +178,20 @@ pub fn bs_anim_note_receiver_update(e: &mut Engine, this: Ptr<BSAnimNoteReceiver
     let array = this.addr() + CALL_TYPES;
     let mut index = 0u32;
     while index < e.call(ARRAY_COUNT, &args![array]).u32() {
-        let slot = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
         let entry = e.mem.u32(slot);
-        let kind = e.call(NOTE_TYPE, &args![note]).u32();
+        let kind = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, note));
         if e.mem.u32(entry) == kind {
             let reference = e.get(this, BSAnimNoteReceiver::pObjRefr);
-            let slot = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
             let entry = e.mem.u32(slot);
             let callback = e.mem.u32(entry + 4);
             e.call(callback, &args![reference, note]);

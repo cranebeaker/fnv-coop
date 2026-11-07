@@ -25,6 +25,7 @@ const MEMBER_DESTRUCT_0045CEC0: u32 = 0x0045_cec0;
 const VECTOR_DESTRUCTOR_ITERATOR: u32 = 0x00ec_5fce;
 const ELEMENT_DESTRUCT_00800190: u32 = 0x0080_0190;
 /// `00559450` (`thiscall` on +8): the pointer the idle update needs.
+#[cfg(test)]
 const OWNER_00559450: u32 = 0x0055_9450;
 /// `00825c00` (`thiscall` on `011f6394`): the current time word.
 const TIMER_OBJECT: u32 = 0x011f_6394;
@@ -40,6 +41,7 @@ const STEP_00800740: u32 = 0x0080_0740;
 const STEP_00800AC0: u32 = 0x0080_0ac0;
 /// `Error` (`0040fbe0`, engine map; `cdecl`) and
 /// `"====== VATSEffectOnIdle ======"` (`01078dd4`).
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 const ON_IDLE_MESSAGE: u32 = 0x0107_8dd4;
 /// `0043c4b0` (no arguments): the lock object `004a0370` locks and
@@ -105,7 +107,7 @@ pub fn fn_008001b0(e: &mut Engine, this: Ptr) {
 /// the word at +0x2C8 at +0x1FC.
 pub fn fn_00800370(e: &mut Engine, this: Ptr) {
     let at = this.addr();
-    if e.call(OWNER_00559450, &args![at + 8]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 8)) == 0 {
         e.mem.set_u8(at + 0x2b4, 0);
         e.mem.set_u8(at + 0x2b5, 0);
         return;
@@ -136,9 +138,9 @@ pub fn fn_00800370(e: &mut Engine, this: Ptr) {
     if object != 0 && e.vcall(object, 0x22c, &args![0u32]).bool() {
         e.call(STEP_00800AC0, &args![at, 0u32, 0xffff_ffffu32, 0u32]);
     }
-    e.call(ERROR, &args![ON_IDLE_MESSAGE]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words ON_IDLE_MESSAGE);
     for i in 0..0x10u32 {
-        if e.call(OWNER_00559450, &args![at + 8]).u32() == 0
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 8)) == 0
             || e.mem.u32(at + 0x16c + i * 4) == 0
             || e.mem.u32(at + 0x12c + i * 4) == 0
         {
@@ -425,7 +427,7 @@ pub fn fn_00800a00(e: &mut Engine, this: Ptr, index: u32, out: u32) -> bool {
 /// Unnamed in the engine map (`thiscall`, no stack word): prints the message at `01078df4`
 /// (`Error`) and clears byte +0x118.
 pub fn fn_00800a90(e: &mut Engine, this: Ptr) {
-    e.call(ERROR, &args![CLEAR_MESSAGE]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words CLEAR_MESSAGE);
     e.mem.set_u8(this.addr() + 0x118, 0);
 }
 
@@ -452,9 +454,9 @@ fn delete_effect(e: &mut Engine, at: u32, array: u32, index: u32) {
 pub fn fn_00800ac0(e: &mut Engine, this: Ptr, actor: u32, index: u32, flag: u8) {
     let at = this.addr();
     if actor == 0 {
-        e.call(ERROR, &args![NO_ACTOR_MESSAGE]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words NO_ACTOR_MESSAGE);
     } else if flag != 0 {
-        e.call(ERROR, &args![ACTOR_MESSAGE, actor, index]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words ACTOR_MESSAGE, actor, index);
     }
     let root = if actor != 0 {
         e.vcall(actor, 0x1d0, &[]).u32()
@@ -462,13 +464,15 @@ pub fn fn_00800ac0(e: &mut Engine, this: Ptr, actor: u32, index: u32, flag: u8) 
         0
     };
     e.mem.set_u32(at + 0x240, 0);
-    if root != e.call(OWNER_00559450, &args![at + 8]).u32() && e.mem.u8(at + 0x2b4) != 0 {
+    if root != typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 8))
+        && e.mem.u8(at + 0x2b4) != 0
+    {
         e.mem.set_u8(at + 0x2b4, 0);
         e.mem.set_u8(at + 0x2b5, 0);
     }
     if e.mem.u8(at + 0x129) != 0 && e.mem.u8(at + 0x2b4) == 0 && actor != 0 {
         let root = e.vcall(actor, 0x1d0, &[]).u32();
-        if root == e.call(OWNER_00559450, &args![at + 8]).u32() {
+        if root == typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 8)) {
             let strength = float_setting(e, SETTING_011DB750);
             let strength = x87_quiet_bits(e.mem.u32(strength));
             let duration = float_setting(e, SETTING_011DB6D8);
@@ -552,12 +556,11 @@ pub fn fn_00800d50(e: &mut Engine, this: Ptr, actor: Ptr) {
         e.call(SET_POINTER_0066B0D0, &args![at + 8, root]);
     }
     let count = e.mem.u32(at + 0xc);
-    let root = e
-        .call(
-            OWNER_00559450,
-            &args![at.wrapping_add(count.wrapping_mul(8)) + 0x18],
-        )
-        .u32();
+    let root = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, at.wrapping_add(count.wrapping_mul(8)) + 0x18)
+    );
     e.call(SET_FLAG_RECURSE, &args![root, 0x31u32, 0u32]);
 }
 

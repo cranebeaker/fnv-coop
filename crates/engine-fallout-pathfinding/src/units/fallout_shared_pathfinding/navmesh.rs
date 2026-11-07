@@ -208,6 +208,7 @@ const REF_OBJECT_DESTRUCTOR: u32 = 0x0049_6910;
 const SET_FORM_TYPE: u32 = 0x004f_15a0;
 /// `BSSimpleArray` size getter (`iSize`, +8) and clear (argument 1: free the
 /// buffer).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 const ARRAY_CLEAR: u32 = 0x0084_54f0;
 // Constructors and destructors of the mesh's members (all in this unit,
@@ -283,6 +284,7 @@ const POINTER_CONSTRUCT_FROM_CDECL: u32 = 0x0046_4fc0;
 const POINTER_CONSTRUCT: u32 = 0x0042_fb00;
 const POINTER_ASSIGN: u32 = 0x0042_f4c0;
 const POINTER_DESTRUCT: u32 = 0x0042_fa40;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// The held pointer of an `NiPointer<NavMesh>` (calls `POINTER_GET`).
 const POINTER_DEREFERENCE: u32 = 0x0045_8b50;
@@ -297,6 +299,7 @@ const NEIGHBOUR_CHECK: u32 = 0x005d_4a40;
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 const STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// Returns `TESForm::iFormID` (+0x0C).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// `fabs` for a `float` argument (result in ST0).
 const FLOAT_ABS: u32 = 0x0040_8840;
@@ -362,6 +365,7 @@ const POV_MAP_BASE_CONSTRUCTOR: u32 = 0x0069_1de0;
 const OBSTACLE_MAP_DESTRUCTOR_BODY: u32 = 0x0069_19a0;
 const POV_MAP_DESTRUCTOR_BODY: u32 = 0x0069_1ea0;
 /// Constructor of a `NiPoint3` (does nothing, returns `this`).
+#[cfg(test)]
 const POINT_CONSTRUCTOR: u32 = 0x0068_15c0;
 /// `operator delete` (cdecl, one word).
 const OPERATOR_DELETE: u32 = 0x0040_1030;
@@ -512,7 +516,7 @@ fn triangle_vertex(e: &mut Engine, tri: Ptr<NavMeshTriangle>, index: i32) -> u16
 
 /// `BSSimpleArray::iSize` (`0044ddc0`).
 fn array_size<T>(e: &mut Engine, array: Ptr<T>) -> u32 {
-    e.call(ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 /// `Triangles[index]` through the triangle array's element getter
@@ -1082,8 +1086,8 @@ pub fn fn_0068f6b0(e: &mut Engine, this: Ptr<NavMesh>, index: u16) -> u32 {
 /// One report of `CheckNavMesh`: the format, then the navmesh's form id, the
 /// cell text's characters and the numbers `extra`, to the debug print.
 fn report(e: &mut Engine, this: Ptr<NavMesh>, text: Ptr, format: u32, extra: &[u32]) {
-    let characters = e.call(POINTER_GET, &args![text]).u32();
-    let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+    let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let mut words = vec![format, form_id, characters];
     words.extend_from_slice(extra);
     e.call(DEBUG_PRINT, &words);
@@ -1225,11 +1229,12 @@ pub fn nav_mesh_check_nav_mesh(e: &mut Engine, this: Ptr<NavMesh>, _unused_1: u3
             e.call(POINTER_CONSTRUCT, &args![holder]);
             let mut cleared = false;
             if fn_00690860(e, portal_info, holder) {
-                let other = e.call(POINTER_GET, &args![holder]).u32();
+                let other = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                 let other_count = e.call(NAV_MESH_TRIANGLE_COUNT, &args![other]).u32();
                 if other_triangle as u32 >= other_count {
-                    let other = e.call(POINTER_GET, &args![holder]).u32();
-                    let other_id = e.call(GET_FORM_ID, &args![other]).u32();
+                    let other = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
+                    let other_id =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, other));
                     report(
                         e,
                         this,
@@ -1248,7 +1253,8 @@ pub fn nav_mesh_check_nav_mesh(e: &mut Engine, this: Ptr<NavMesh>, _unused_1: u3
                 let own_space = e.call(CELL_GET_WORLD_SPACE, &args![cell]).u32();
                 let portal_space = fn_00690800(e, portal_info).addr();
                 if own_space != portal_space {
-                    let portal_id = e.call(POINTER_GET, &args![portal_info]).u32();
+                    let portal_id =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, portal_info));
                     report(
                         e,
                         this,
@@ -1644,7 +1650,7 @@ pub fn nav_mesh_clear_nav_mesh(e: &mut Engine, this: Ptr<NavMesh>, _unused_1: u3
     e.call(OBSTACLES_CLEAR, &args![this.at(NavMesh::Obstacles), 1u32]);
     e.call(ARRAY_CLEAR, &args![this.at(NavMesh::DoorPortals), 1u32]);
     if !e.get(this, NavMesh::pNavMeshInfo).is_null() {
-        let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let tes: u32 = e.global(TES_INSTANCE);
         let map = e.call(GET_NAV_MESH_INFO_MAP, &args![tes]).u32();
         e.call(DELETE_NAV_MESH_INFO, &args![map, form_id]);
@@ -1813,8 +1819,8 @@ pub fn fn_00691160(e: &mut Engine, this: Ptr<NavMeshTriangle>) -> Ptr<NavMeshTri
 /// side is read through `00559450`, the first word of the grid).
 pub fn fn_006911c0(e: &mut Engine, this: Ptr<NavMesh>) -> u32 {
     let grid = this.byte_add(MESH_GRID_OFFSET);
-    let rows = e.call(POINTER_GET, &args![grid]).u32();
-    let columns = e.call(POINTER_GET, &args![grid]).u32();
+    let rows = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, grid));
+    let columns = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, grid));
     columns.wrapping_mul(rows)
 }
 
@@ -1932,7 +1938,7 @@ pub fn fn_00691350(
         let mut column = min_column;
         while column < max_column.wrapping_add(1) {
             if fn_006914e0(e, grid, triangle, column, row) {
-                let size = e.call(POINTER_GET, &args![grid]).u32();
+                let size = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, grid));
                 let cell_number = size.wrapping_mul(row).wrapping_add(column);
                 e.with_stack(4, |e, slot| {
                     e.mem.set_u32(slot.addr(), cell_number);
@@ -2024,7 +2030,11 @@ pub fn fn_006915d0(
         let value = e.mem.u32(point.addr() + 4 * word);
         e.mem.set_u32(this.addr() + 4 * word, value);
     }
-    e.call(POINT_CONSTRUCTOR, &args![this.byte_add(0xc)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(0xc))
+    );
     e.set(this, NavMeshStaticAvoidNode::fRadius, x87_quiet(radius));
     e.set(this, NavMeshStaticAvoidNode::fCost, x87_quiet(cost));
     e.set(this, NavMeshStaticAvoidNode::eType, 0);

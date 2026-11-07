@@ -166,7 +166,10 @@ pub fn fn_005a8110(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
             _ => {}
         }
         let current = e.mem.u32(entry);
-        if current != 0 && e.call(0x0055_9450, &args![current]).u32() != 0 && id != 0 {
+        if current != 0
+            && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, current)) != 0
+            && id != 0
+        {
             e.call(0x006e_cd40, &args![current, id]);
             let list = if rcod {
                 e.call(RCOD_LIST, &args![this]).u32()
@@ -186,13 +189,18 @@ pub fn fn_005a8110(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
 /// List helpers: whether a node is empty (`008256d0`, `AL`), its item word's address
 /// (`006815c0`), the next node (`00726070`, also the entry's second word), removing the
 /// first item (`0063f7b0`), and the first word of an entry (`00559450`).
+#[cfg(test)]
 const NODE_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 const LIST_REMOVE_FIRST: u32 = 0x0063_f7b0;
+#[cfg(test)]
 const ENTRY_FIRST: u32 = 0x0055_9450;
 /// `0084e3a0` (`ECX` = a form): the word saved for it (its form id, by the chunks it goes
 /// into), and `00485910` (`cdecl`: chunk code, word) that writes one chunk.
+#[cfg(test)]
 const FORM_WORD: u32 = 0x0084_e3a0;
 const WRITE_CHUNK: u32 = 0x0048_5910;
 /// The recipe's getter/setter pairs (`ECX` only; setters one stack word).
@@ -206,17 +214,17 @@ const GET_0045CD60: u32 = 0x0045_cd60;
 fn save_entries(e: &mut Engine, list: u32, code: u32) {
     let mut node = list;
     while node != 0 {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             break;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(item);
-        node = e.call(NODE_NEXT, &args![node]).u32();
-        let form = e.call(NODE_NEXT, &args![entry]).u32();
-        let word = e.call(FORM_WORD, &args![form]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
+        let form = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
+        let word = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.call(WRITE_CHUNK, &args![code, word]);
-        let count = e.call(ENTRY_FIRST, &args![entry]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
         e.call(WRITE_CHUNK, &args![CHUNK_RCQY, count]);
     }
 }
@@ -227,7 +235,7 @@ fn form_word_or_zero(e: &mut Engine, this: Ptr, getter: u32) -> u32 {
         return 0;
     }
     let form = e.call(getter, &args![this]).u32();
-    e.call(FORM_WORD, &args![form]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
 }
 
 // Translated from 005a8490 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -271,7 +279,11 @@ pub fn fn_005a8490(e: &mut Engine, this: Ptr) {
 fn copy_entries(e: &mut Engine, this: Ptr, source: u32, list_of: ListOf) {
     loop {
         let list = list_of(e, this);
-        if e.call(NODE_EMPTY, &args![list]).u8() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list))
+            .into_ret()
+            .u8()
+            != 0
+        {
             break;
         }
         let list = list_of(e, this);
@@ -279,20 +291,25 @@ fn copy_entries(e: &mut Engine, this: Ptr, source: u32, list_of: ListOf) {
     }
     let mut node = list_of(e, Ptr::new(source));
     e.with_stack(4, |e, slot| {
-        while node != 0 && e.call(NODE_EMPTY, &args![node]).u8() == 0 {
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+        while node != 0
+            && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+                .into_ret()
+                .u8()
+                == 0
+        {
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let entry = e.mem.u32(item);
             let copy = new_entry(e);
             e.mem.set_u32(slot.addr(), copy);
             let copy = e.mem.u32(slot.addr());
-            let first = e.call(ENTRY_FIRST, &args![entry]).u32();
+            let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
             e.call(0x0053_7e90, &args![copy, first]);
-            let second = e.call(NODE_NEXT, &args![entry]).u32();
+            let second = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
             let copy = e.mem.u32(slot.addr());
             e.call(0x006e_cd40, &args![copy, second]);
             let list = list_of(e, this);
             e.call(LIST_ADD, &args![list, slot]);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 }
@@ -363,19 +380,29 @@ pub fn fn_005a8660(e: &mut Engine, this: Ptr, source: Ptr) {
 fn entries_differ(e: &mut Engine, this: Ptr, other: u32, list_of: ListOf) -> bool {
     let mut mine = list_of(e, this);
     let mut theirs = list_of(e, Ptr::new(other));
-    while theirs != 0 && e.call(NODE_EMPTY, &args![theirs]).u8() == 0 {
-        if mine == 0 || e.call(NODE_EMPTY, &args![mine]).u8() != 0 {
+    while theirs != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, theirs))
+            .into_ret()
+            .u8()
+            == 0
+    {
+        if mine == 0
+            || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, mine))
+                .into_ret()
+                .u8()
+                != 0
+        {
             return true;
         }
-        let item = e.call(NODE_ITEM, &args![mine]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
         let my_entry = e.mem.u32(item);
-        let item = e.call(NODE_ITEM, &args![theirs]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         let their_entry = e.mem.u32(item);
         if e.call(0x005a_7c00, &args![my_entry, their_entry]).u8() != 0 {
             return true;
         }
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
-        mine = e.call(NODE_NEXT, &args![mine]).u32();
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
     }
     false
 }

@@ -10,6 +10,7 @@ use crate::prelude::*;
 /// destructor of +8 (`00872f30`, `thiscall`).
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const POINTER_DESTRUCTOR: u32 = 0x0045_cec0;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const MEMBER_DESTRUCTOR: u32 = 0x0087_2f30;
 /// `operator new` (`00aa13e0`, `cdecl (size)`) and the constructors of
@@ -81,11 +82,23 @@ pub fn fn_008d6bb0(e: &mut Engine, this: Ptr, target: u32) {
     e.call(POINTER_ASSIGN, &args![object + BOUND, bound]);
     let node = new_object(e, 0xb4, MULTI_BOUND_NODE_CONSTRUCTOR);
     e.call(POINTER_ASSIGN, &args![object + NODE, node]);
-    let sphere = e.call(POINTER_GET, &args![object + SPHERE]).u32();
-    let bound = e.call(POINTER_GET, &args![object + BOUND]).u32();
+    let sphere = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, object + SPHERE)
+    );
+    let bound = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, object + BOUND)
+    );
     e.call(LINK_SHAPE, &args![bound, sphere]);
-    let bound = e.call(POINTER_GET, &args![object + BOUND]).u32();
-    let node = e.call(POINTER_GET, &args![object + NODE]).u32();
+    let bound = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, object + BOUND)
+    );
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object + NODE));
     e.call(LINK_BOUND, &args![node, bound]);
 }
 

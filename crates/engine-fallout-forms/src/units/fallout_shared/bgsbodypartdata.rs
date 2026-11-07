@@ -144,6 +144,7 @@ const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// `__RTDynamicCast(object, 0, source type, target type, 0)`.
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// `iFormID` getter (`thiscall`; folded body `0084e3a0`).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// The message function the loaders call (`cdecl`, format and words; its
 /// body returns 0 in this build; `005b5e40`).
@@ -223,7 +224,7 @@ fn part_slot(this: Ptr, index: u32) -> u32 {
 
 /// The editor id and form id of the form, as the messages print them.
 fn name_and_id(e: &mut Engine, this: Ptr) -> (u32, u32) {
-    let id = e.call(GET_FORM_ID, &args![this]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let name = e.vcall(this.addr(), FORM_GET_EDITOR_ID_SLOT, &[]).u32();
     (name, id)
 }

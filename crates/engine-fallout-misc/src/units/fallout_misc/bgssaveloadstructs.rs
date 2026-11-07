@@ -16,7 +16,7 @@ pub fn get_numeric_id(e: &mut Engine, this: Ptr) -> u32 {
         (index & 0x7fffff) | 0xff000000
     } else {
         let manager = e.mem.u32(0x011ddf38);
-        let map = e.call(0x0044ddc0, &args![manager]).u32();
+        let map = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, manager));
         e.call(0x00846d20, &args![map, index]).u32()
     }
 }
@@ -26,7 +26,7 @@ pub fn get_numeric_id(e: &mut Engine, this: Ptr) -> u32 {
 /// marks created IDs with bit 23 and writes exactly three bytes.
 pub fn set_numeric_id(e: &mut Engine, this: Ptr, id: u32) {
     let manager = e.mem.u32(0x011ddf38);
-    let map = e.call(0x0044ddc0, &args![manager]).u32();
+    let map = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, manager));
     let mut index = e.call(0x00846c90, &args![map, id]).u32();
     if index >> 24 == 0xff {
         index |= 0x800000;
@@ -178,10 +178,10 @@ pub fn bgs_save_load_stats_map_scalar_deleting_destructor(
 fn free_list_items(e: &mut Engine, first_node: u32) {
     let mut node = first_node;
     while node != 0 {
-        let slot = e.call(0x006815c0, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         e.call(0x00401030, &args![item]);
-        node = e.call(0x00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -300,7 +300,7 @@ pub fn fn_00853b90(e: &mut Engine, this: Ptr) {
         let item = iter + 8;
         e.call(0x008659c0, &args![buffer]);
         let manager = e.mem.u32(SAVE_MANAGER);
-        let map = e.call(0x00559450, &args![manager]).u32();
+        let map = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, manager));
         let first = e.call(0x004b9ba0, &args![map]).u32();
         e.mem.set_u32(iter, first);
         while e.mem.u32(iter) != 0 {
@@ -309,7 +309,7 @@ pub fn fn_00853b90(e: &mut Engine, this: Ptr) {
             e.call(0x006b7f20, &args![map, iter, key, item]);
             let form_id = e.mem.u32(key);
             let entry = e.mem.u32(item);
-            if e.call(0x00559450, &args![entry + 4]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry + 4)) != 0 {
                 let version = e.call(0x0084b450, &args![entry + 4]).u8();
                 let overhead = e.call(0x00866450, &args![entry + 4]).u32();
                 let data = e.call(0x008663e0, &args![entry + 4]).u32();
@@ -473,7 +473,7 @@ fn output_stats_in(e: &mut Engine, this: Ptr, frame: u32) {
         fn_00854b80(e, this, Ptr::new(line));
         let mut node = e.mem.u32(list);
         while node != 0 {
-            let item_slot = e.call(0x006815c0, &args![node]).u32();
+            let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let entry = e.mem.u32(item_slot);
             if entry != 0 {
                 let form = e.mem.u32(entry + 0x14);
@@ -487,16 +487,26 @@ fn output_stats_in(e: &mut Engine, this: Ptr, frame: u32) {
                     e.call(0x008c71b0, &args![slot, 0u32]);
                     let mask = e.mem.u32(slot);
                     fn_00854b10(e, this, Ptr::new(form), mask, Ptr::new(buffer));
-                    base_size = e.call(0x0084e3a0, &args![buffer]).u32();
+                    base_size = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, buffer));
                     if base_size != 0 {
                         e.call(0x00406d30, &args![name, LINE_SIZE, 0x0108_03dcu32]);
                         if e.vcall(form, 0xf0, &args![]).bool()
                             && e.vcall(form, 0xfc, &args![]).bool()
                         {
                             let mut kind = 0xffff_ffffu32;
-                            if e.call(0x008d8520, &args![form]).u32() != 0 {
-                                let process = e.call(0x008d8520, &args![form]).u32();
-                                kind = e.call(0x0045cd60, &args![process]).u32();
+                            if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, form))
+                                != 0
+                            {
+                                let process = typed_call!(
+                                    leaf::FAMILY,
+                                    0x008d_8520,
+                                    leaf::word_at_68(e, form)
+                                );
+                                kind = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0045_cd60,
+                                    leaf::word_at_28(e, process)
+                                );
                             }
                             // Jump table at 008547d0, indexed by kind + 1.
                             let text = match kind.wrapping_add(1) {
@@ -526,10 +536,9 @@ fn output_stats_in(e: &mut Engine, this: Ptr, frame: u32) {
                             let mask = e.mem.u32(slot);
                             let form = e.mem.u32(entry + 0x14);
                             fn_00854b10(e, this, Ptr::new(form), mask, Ptr::new(buffer));
-                            let size = e
-                                .call(0x0084e3a0, &args![buffer])
-                                .u32()
-                                .wrapping_sub(base_size);
+                            let size =
+                                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, buffer))
+                                    .wrapping_sub(base_size);
                             format_line(e, piece, 0x0108_03c0, &[name, size]);
                         } else {
                             format_line(e, piece, 0x0101_9f08, &[name]);
@@ -540,7 +549,7 @@ fn output_stats_in(e: &mut Engine, this: Ptr, frame: u32) {
                 }
                 e.call(0x00406d30, &args![name, LINE_SIZE, EMPTY_STRING]);
                 saved_form_data_get_form_name(e, Ptr::new(entry), Ptr::new(name), LINE_SIZE);
-                let flags = e.call(0x00559450, &args![entry + 4]).u32();
+                let flags = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry + 4));
                 let size = fn_008547f0(e, Ptr::new(entry));
                 let id = e.mem.u32(entry);
                 let version = e.mem.u8(entry + 0x18) as u32;
@@ -561,7 +570,7 @@ fn output_stats_in(e: &mut Engine, this: Ptr, frame: u32) {
             );
             fn_00854880(e, type_stats, a, b, c);
             fn_00854880(e, total, a, b, c);
-            node = e.call(0x00726070, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let average = fn_00854920(e, type_stats);
         let words = stats_summary_words(e, type_stats);
@@ -593,7 +602,7 @@ fn output_stats_in(e: &mut Engine, this: Ptr, frame: u32) {
     fn_00854b80(e, this, Ptr::new(0x0108_0264));
     let mut node = t.wrapping_add(0x10);
     while node != 0 {
-        let item_slot = e.call(0x006815c0, &args![node]).u32();
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(item_slot);
         if entry != 0 {
             let size = fn_00854810(e, Ptr::new(entry));
@@ -602,7 +611,7 @@ fn output_stats_in(e: &mut Engine, this: Ptr, frame: u32) {
             let (a, c) = (e.mem.u32(entry + 0x104), e.mem.u32(entry + 0x108));
             fn_00854880(e, misc, a, 0, c);
         }
-        node = e.call(0x00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     summary_line(e, this, misc, line, 0x0108_01c0);
 
@@ -830,7 +839,7 @@ pub fn fn_00854b10(e: &mut Engine, _this: Ptr, form: Ptr, mask: u32, buffer: Ptr
     let current = e.mem.u32(0x011d_e134);
     let version = e.call(0x00851110, &args![current]).u32();
     let form_type = e.call(0x00401170, &args![form]).u32();
-    let form_id = e.call(0x0084e3a0, &args![form]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     e.call(
         0x00865ad0,
         &args![buffer, form_id, mask, form_type, version],

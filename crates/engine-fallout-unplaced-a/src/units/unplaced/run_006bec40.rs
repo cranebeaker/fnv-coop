@@ -14,7 +14,9 @@ use crate::prelude::*;
 /// (`cdecl`, four words), `006ba010` (`cdecl`, four words) and `00697730` (`thiscall` on the
 /// navmesh, five words).
 const VERTEX_POINT: u32 = 0x0068_f0a0;
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 const OTHER_ARRAY_ELEMENT: u32 = 0x005e_eda0;
 const POINT_ADD: u32 = 0x0043_9e90;
@@ -74,9 +76,11 @@ fn centroid(
 
 /// The element word of the array at `this + offset` at `index` (through `00877a30`).
 fn element(e: &mut Engine, this: Ptr, offset: u32, index: u32) -> u32 {
-    let slot = e
-        .call(ARRAY_ELEMENT, &args![this.addr() + offset, index])
-        .u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, this.addr() + offset, index)
+    );
     e.mem.u32(slot)
 }
 
@@ -114,7 +118,13 @@ pub fn fn_006bec40(e: &mut Engine, this: Ptr, a: Ptr, b: Ptr, c: Ptr) -> bool {
             factor,
         );
         let mut index = 0u32;
-        while index < e.call(ARRAY_COUNT, &args![this.addr() + 0x1c]).u32() {
+        while index
+            < typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, this.addr() + 0x1c)
+            )
+        {
             let vertex = element(e, this, 0x1c, index);
             copy_vertex_point(e, this, vertex, frame + 0x20);
             if vertex != a.addr() && vertex != b.addr() && vertex != c.addr() {
@@ -204,10 +214,12 @@ pub fn fn_006beea0(e: &mut Engine, this: Ptr, a: Ptr, b: Ptr) -> bool {
                 return false;
             }
         }
-        let mut index = e
-            .call(ARRAY_COUNT, &args![this.addr() + 0x30])
-            .u32()
-            .wrapping_sub(1);
+        let mut index = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, this.addr() + 0x30)
+        )
+        .wrapping_sub(1);
         while index != u32::MAX {
             let edge_first = |e: &mut Engine| {
                 let edge = element(e, this, 0x30, index);
@@ -255,7 +267,13 @@ pub fn fn_006beea0(e: &mut Engine, this: Ptr, a: Ptr, b: Ptr) -> bool {
 /// `this + 0x1C` of the first vertex record whose 16-bit index is `vertex`, or -1.
 pub fn fn_006bf170(e: &mut Engine, this: Ptr, vertex: u16) -> u32 {
     let mut index = 0u32;
-    while index < e.call(ARRAY_COUNT, &args![this.addr() + 0x1c]).u32() {
+    while index
+        < typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, this.addr() + 0x1c)
+        )
+    {
         let record = element(e, this, 0x1c, index);
         if e.mem.u16(record) == vertex {
             return index;
@@ -286,7 +304,7 @@ pub fn fn_006bf220(e: &mut Engine, this: Ptr, point: Ptr) -> bool {
         let mut index = 0u32;
         loop {
             let array = e.mem.u32(this.addr() + 8).wrapping_add(0x20);
-            if index >= e.call(ARRAY_COUNT, &args![array]).u32() {
+            if index >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
                 return false;
             }
             let value = constant(e, FLOAT_180);

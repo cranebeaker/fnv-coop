@@ -16,7 +16,9 @@ const MISSING_SUBCATEGORY: u32 = 0x0103_6c68;
 const RECIPE_DATA: u32 = 0x0043_0830;
 /// List walking: `006815c0` gives the node (its first word is the item), `00726070` the
 /// word at +4 (of a node, the next node; of an item, its form ID).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 
 /// Resolves the category ID at `offset` of the recipe's data block: fixed up in a stack
@@ -45,7 +47,7 @@ fn resolve_category(e: &mut Engine, this: Ptr, offset: u32, setter: u32, warning
         .u32();
     if category == 0 {
         let name = e.vcall(this.addr(), 0x130, &args![]).u32();
-        let recipe_id = e.call(0x0084_e3a0, &args![this]).u32();
+        let recipe_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         e.call(0x005b_5e40, &args![warning, id, recipe_id, name]);
     } else {
         e.call(setter, &args![this, category]);
@@ -58,14 +60,14 @@ fn resolve_category(e: &mut Engine, this: Ptr, offset: u32, setter: u32, warning
 fn resolve_list(e: &mut Engine, first_node: u32) {
     let mut node = first_node;
     while node != 0 {
-        let entry = e.call(NODE_ITEM, &args![node]).u32();
+        let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(entry) == 0 {
             break;
         }
-        let entry = e.call(NODE_ITEM, &args![node]).u32();
+        let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(entry);
-        node = e.call(WORD_AT_FOUR, &args![node]).u32();
-        let id = e.call(WORD_AT_FOUR, &args![item]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
+        let id = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
         let form = e.call(0x0048_39c0, &args![id]).u32();
         e.call(0x006e_cd40, &args![item, form]);
     }

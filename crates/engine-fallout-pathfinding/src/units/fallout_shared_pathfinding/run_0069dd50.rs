@@ -84,6 +84,7 @@ const FIND_INDEX_0069B240: u32 = 0x0069_b240;
 /// The function pointer `0069dee0` passes to it (`0069b1b0`).
 const MATCH_0069B1B0: u32 = 0x0069_b1b0;
 /// `006815c0` (`thiscall`): returns `this`.
+#[cfg(test)]
 const SELF_006815C0: u32 = 0x0068_15c0;
 /// `0068efb0` (`thiscall` on the source's first word): the word stored at
 /// `+0`.
@@ -107,7 +108,7 @@ pub fn fn_0069dee0(e: &mut Engine, this: Ptr, key: u32) -> bool {
 /// `this`. The engine map gives it no name.
 pub fn fn_0069df10(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
     let (t, s) = (this.addr(), source.addr());
-    e.call(SELF_006815C0, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     let first = e.mem.u32(s);
     let word = e.call(FIRST_VALUE_0068EFB0, &args![first]).u32();
     e.mem.set_u32(t, word);
@@ -126,7 +127,7 @@ pub fn fn_0069df10(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
 pub fn fn_0069df60(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
     let (t, s) = (this.addr(), source.addr());
     fn_0069df10(e, this, source);
-    e.call(SELF_006815C0, &args![t + 0xc]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, t + 0xc));
     for offset in [0xc, 0x10, 0x14] {
         let word = e.mem.u32(s + offset);
         e.mem.set_u32(t + offset, word);

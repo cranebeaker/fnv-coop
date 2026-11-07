@@ -343,12 +343,12 @@ pub fn fn_005a7b60(e: &mut Engine, this: Ptr, form: u32) -> bool {
 /// name): true when `00559450` or `00726070` (both thiscall, no stack
 /// words) answers differently for them.
 pub fn fn_005a7c00(e: &mut Engine, this: Ptr, other: u32) -> bool {
-    let mine = e.call(0x0055_9450, &args![this]).u32();
-    if mine != e.call(0x0055_9450, &args![other]).u32() {
+    let mine = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
+    if mine != typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other)) {
         return true;
     }
-    let mine = e.call(0x0072_6070, &args![this]).u32();
-    mine != e.call(0x0072_6070, &args![other]).u32()
+    let mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
+    mine != typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other))
 }
 
 /// This unit's translated functions, by exe address.

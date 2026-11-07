@@ -95,7 +95,7 @@ pub fn fn_00845720(e: &mut Engine, this: Ptr<NiTPointerMap>, key: u32, flags: u3
     }
     e.with_stack(4, |e, argument| {
         e.mem.set_u32(argument.addr(), flags);
-        let value = e.call(0x00559450, &args![argument]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, argument));
         e.call(0x004280f0, &args![record, value]).u32() as u8
     })
 }
@@ -131,12 +131,17 @@ pub fn add_change_flags(e: &mut Engine, this: Ptr<NiTPointerMap>, key: u32, flag
     let mut record = e.call(0x009a4250, &args![this, key]).u32();
     if record == 0 {
         record = new_change_record(e, this, key);
-    } else if e.call(0x00559450, &args![record.wrapping_add(4)]).u32() != 0 {
+    } else if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, record.wrapping_add(4))
+    ) != 0
+    {
         return;
     }
     e.with_stack(4, |e, argument| {
         e.mem.set_u32(argument.addr(), flags);
-        let value = e.call(0x00559450, &args![argument]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, argument));
         e.call(0x00841100, &args![record, value]);
     });
 }
@@ -159,7 +164,7 @@ pub fn fn_008458b0(e: &mut Engine, this: Ptr<NiTPointerMap>, key: u32, flags: u3
     }
     e.with_stack(4, |e, argument| {
         e.mem.set_u32(argument.addr(), flags);
-        let value = e.call(0x00559450, &args![argument]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, argument));
         e.call(0x00537e90, &args![record, value]);
     });
 }
@@ -174,7 +179,7 @@ pub fn fn_00845960(e: &mut Engine, this: Ptr<NiTPointerMap>, key: u32, flags: u3
     }
     e.with_stack(4, |e, argument| {
         e.mem.set_u32(argument.addr(), flags);
-        let value = e.call(0x00559450, &args![argument]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, argument));
         e.call(0x00537e90, &args![record, value]);
     });
     e.mem.set_u32(record.wrapping_add(4), buffer);
@@ -196,13 +201,19 @@ pub fn remove_changes(e: &mut Engine, this: Ptr<NiTPointerMap>, key: u32) -> boo
 /// Remove selected flags, retaining a record while other flags or the manager require it.
 pub fn fn_00845a80(e: &mut Engine, this: Ptr<NiTPointerMap>, key: u32, flags: u32) -> bool {
     let record = e.call(0x009a4250, &args![this, key]).u32();
-    if record != 0 && e.call(0x00559450, &args![record.wrapping_add(4)]).u32() == 0 {
+    if record != 0
+        && typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, record.wrapping_add(4))
+        ) == 0
+    {
         e.with_stack(4, |e, argument| {
             e.mem.set_u32(argument.addr(), flags);
-            let value = e.call(0x00559450, &args![argument]).u32();
+            let value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, argument));
             e.call(0x00562210, &args![record, value]);
         });
-        if e.call(0x00559450, &args![record]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, record)) != 0 {
             return false;
         }
         let manager = e.mem.u32(0x011c3f2c);

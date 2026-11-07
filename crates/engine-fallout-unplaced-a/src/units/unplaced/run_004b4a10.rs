@@ -16,12 +16,19 @@ pub fn fn_004b4ab0(e: &mut Engine, this: Ptr, first: u32, second: u32) {
 }
 
 /// The function `fn_004b4f20` calls on the member (`006815c0`).
+#[cfg(test)]
 const CALLEE_006815C0: u32 = 0x0068_15c0;
 
 // Translated from 004b4f20 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Thin wrapper: calls `006815c0` with `ECX` = `this + 0x10` and passes on its pointer result.
 pub fn fn_004b4f20(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(CALLEE_006815C0, &args![this.byte_add(0x10)]).ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(0x10))
+    )
+    .into_ret()
+    .ptr()
 }
 
 /// One lane of an SSE arithmetic instruction (`MULPS`, `ADDPS`): a NaN in the destination
@@ -123,6 +130,7 @@ const GET_USER_NAME: u32 = 0x00fd_f014;
 /// The 0x104-byte user-name buffer.
 const USER_NAME: u32 = 0x011c_5fa0;
 /// `Error` (`0040fbe0`, engine map; cdecl, variadic): empty in this build.
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 /// `"%s"`.
 const PERCENT_S: u32 = 0x0101_9f08;
@@ -164,10 +172,10 @@ pub fn fn_004b4a30(e: &mut Engine, text: u32) {
         let size = frame.addr() + 0x10c;
         e.mem.set_u32(size, 0x104);
         if e.call(GET_USER_NAME, &args![USER_NAME, size]).u32() != 0 {
-            e.call(ERROR, &args![PERCENT_S, text]);
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words PERCENT_S, text);
             let name = e.call(NAME_LOOKUP, &args![USER_NAME, 0u32]).u32();
             e.call(SPRINTF, &args![line, COMPUTER_NAME_FORMAT, name]);
-            e.call(ERROR, &args![line]);
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words line);
         }
     });
 }
@@ -226,9 +234,11 @@ pub fn fn_004b4ea0(e: &mut Engine, this: Ptr) -> Ret {
 // Translated from 004b4ee0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `00436aa0` on `006815c0(this + 0x10)`; its result is passed on.
 pub fn fn_004b4ee0(e: &mut Engine, this: Ptr) -> Ret {
-    let member = e
-        .call(CALLEE_006815C0, &args![this.addr().wrapping_add(0x10)])
-        .u32();
+    let member = typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr().wrapping_add(0x10))
+    );
     e.call(CALLEE_00436AA0, &args![member])
 }
 
@@ -298,7 +308,7 @@ pub fn fn_004b4f40(e: &mut Engine, this: Ptr) -> Ptr {
 // Translated from 004b5020 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Runs `006815c0` on `this` and clears the word at +0. Returns `this`.
 pub fn fn_004b5020(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(CALLEE_006815C0, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     e.mem.set_u32(this.addr(), 0);
     this
 }

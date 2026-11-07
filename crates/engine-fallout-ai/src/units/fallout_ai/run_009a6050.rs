@@ -75,6 +75,7 @@ const LIST_ELEMENT: u32 = 0x0096_8670;
 /// `0x011f2250`: the array whose count (`0044ddc0`) is compared with 4.
 const COUNTED_ARRAY: u32 = 0x011f_2250;
 /// `0044ddc0` (unnamed): `thiscall`, returns the word at `+8`.
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 /// The player character pointer (`0x011dea3c`).
 const PLAYER: u32 = 0x011d_ea3c;
@@ -84,8 +85,10 @@ const EXTRA_LIST: u32 = 0x005d_43c0;
 /// object whose `+0xc` is the first node of a list of references.
 const FOLLOWER_EXTRA: u32 = 0x0042_2700;
 /// `006815c0` (unnamed): `thiscall`, returns `this` (a list node's item slot).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (unnamed): `thiscall`; the next list node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `MobileObject::GetCurrentProcessType` (`00931850`, Xbox PDB): `thiscall`, a word.
 const GET_CURRENT_PROCESS_TYPE: u32 = 0x0093_1850;
@@ -184,7 +187,7 @@ pub fn fn_009a60e0(e: &mut Engine, actor: u32, range: f32) -> u32 {
         } else {
             0
         };
-        let skip = e.call(ARRAY_COUNT, &args![COUNTED_ARRAY]).u32() == 4
+        let skip = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, COUNTED_ARRAY)) == 4
             && candidate != 0
             && e.vcall(candidate, 0x22c, &args![0u32]).u8() != 0;
         if !skip {
@@ -200,11 +203,11 @@ pub fn fn_009a60e0(e: &mut Engine, actor: u32, range: f32) -> u32 {
                 if followers != 0 {
                     let mut node = e.mem.u32(followers + 0xc);
                     while node != 0 {
-                        let slot = e.call(NODE_ITEM, &args![node]).u32();
+                        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                         if e.mem.u32(slot) == 0 {
                             break;
                         }
-                        let slot = e.call(NODE_ITEM, &args![node]).u32();
+                        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                         let follower = e.mem.u32(slot);
                         if follower != 0
                             && e.call(GET_CURRENT_PROCESS_TYPE, &args![follower]).u32() == 0
@@ -217,7 +220,7 @@ pub fn fn_009a60e0(e: &mut Engine, actor: u32, range: f32) -> u32 {
                                 best_distance = x87_quiet_bits(distance);
                             }
                         }
-                        node = e.call(NODE_NEXT, &args![node]).u32();
+                        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                     }
                 }
             }

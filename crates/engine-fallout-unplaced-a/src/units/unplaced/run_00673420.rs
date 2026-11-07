@@ -515,6 +515,7 @@ const TARGET_SAVE: u32 = 0x0068_02f0;
 const CONDITIONS_SAVE: u32 = 0x0068_0910;
 const IDLE_COLLECTION_SAVE: u32 = 0x0047_99f0;
 const EVENT_ACTION_SAVE: u32 = 0x0067_dc80;
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 
 /// Swaps the package data at `+0x1C` when the save needs its byte order converted.
@@ -551,8 +552,8 @@ pub fn tes_package_save(e: &mut Engine, this: Ptr) {
         let schedule = e.call(PACKAGE_SCHEDULE, &args![this]).u32();
         e.call(SCHEDULE_SAVE, &args![schedule]);
     }
-    if e.call(PACKAGE_TARGET, &args![this]).u32() != 0 {
-        let target = e.call(PACKAGE_TARGET, &args![this]).u32();
+    if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, this)) != 0 {
+        let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, this));
         e.call(TARGET_SAVE, &args![target, CHUNK_PTDT]);
     }
     for (get, save) in [
@@ -566,7 +567,7 @@ pub fn tes_package_save(e: &mut Engine, this: Ptr) {
     }
     if e.call(PACKAGE_FORM, &args![this]).u32() != 0 {
         let form = e.call(PACKAGE_FORM, &args![this]).u32();
-        let id = e.call(FORM_ID_0084E3A0, &args![form]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.call(ADD_CHUNK_WORD, &args![CHUNK_CNAM, id]);
     }
     let data = e.mem.u32(base + 0x28);

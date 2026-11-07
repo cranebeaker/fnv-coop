@@ -186,6 +186,7 @@ const INTERIOR_SETTER: u32 = 0x0079_2780;
 const START_FORM: u32 = 0x0048_55a0;
 const CLOSE_FORM: u32 = 0x0048_5680;
 const WRITE_CHUNK_WORD: u32 = 0x0048_5910;
+#[cfg(test)]
 const FORM_SAVE_VALUE: u32 = 0x0084_e3a0;
 const COPY_ALL_COMPONENTS: u32 = 0x0048_51b0;
 const COMPARE_ALL_COMPONENTS: u32 = 0x0048_5270;
@@ -223,7 +224,7 @@ pub fn fn_00589f70(e: &mut Engine, this: Ptr<BGSAcousticSpace>) {
         let mut value = 0;
         if e.call(getter, &args![this]).u32() != 0 {
             let form = e.call(getter, &args![this]).u32();
-            value = e.call(FORM_SAVE_VALUE, &args![form]).u32();
+            value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         }
         e.call(WRITE_CHUNK_WORD, &args![SIG_SNAM, value]);
     }
@@ -231,7 +232,7 @@ pub fn fn_00589f70(e: &mut Engine, this: Ptr<BGSAcousticSpace>) {
     e.call(WRITE_CHUNK_WORD, &args![SIG_WNAM, walla]);
     if e.call(RDAT_GETTER, &args![this]).u32() != 0 {
         let form = e.call(RDAT_GETTER, &args![this]).u32();
-        let value = e.call(FORM_SAVE_VALUE, &args![form]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.call(WRITE_CHUNK_WORD, &args![SIG_RDAT, value]);
     }
     let env = e.call(ENV_TYPE_GETTER, &args![this]).u32();

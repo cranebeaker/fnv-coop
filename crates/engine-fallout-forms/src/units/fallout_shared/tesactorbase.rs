@@ -199,7 +199,7 @@ pub fn fn_005f0f80(e: &mut Engine, this: Ptr) -> u32 {
 /// `TESActorBase::SetStartsDead` (Xbox PDB, `RET 4`): the form's flags
 /// (`0044ddc0`) with bit 0x80000 set or cleared, written back (`00403550`).
 pub fn tes_actor_base_set_starts_dead(e: &mut Engine, this: Ptr, value: u8) {
-    let mut flags = e.call(0x0044_ddc0, &args![this]).u32();
+    let mut flags = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     if value != 0 {
         flags |= 0x0008_0000;
     } else {
@@ -238,7 +238,7 @@ pub fn fn_005f0bf0(e: &mut Engine, this: Ptr) -> bool {
 /// and 0) says yes too, passes `value` to `0047e340` on the actor base data;
 /// when `00469860` says no, to `00484b60` on the form.
 pub fn fn_005f1630(e: &mut Engine, this: Ptr, value: u32) {
-    let id = e.call(0x0084_e3a0, &args![this]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let tes = e.global::<u32>(TES);
     if e.call(0x0046_9860, &args![tes, id]).bool() {
         let game = e.global::<u32>(SAVE_LOAD_GAME);
@@ -258,7 +258,7 @@ pub fn fn_005f1630(e: &mut Engine, this: Ptr, value: u32) {
 /// data and `00484bc0` on the form; here a no from `0084a740` also goes to
 /// `00484bc0`.
 pub fn fn_005f1690(e: &mut Engine, this: Ptr, value: u32) {
-    let id = e.call(0x0084_e3a0, &args![this]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let tes = e.global::<u32>(TES);
     if e.call(0x0046_9860, &args![tes, id]).bool() {
         let game = e.global::<u32>(SAVE_LOAD_GAME);
@@ -433,7 +433,11 @@ pub fn tes_actor_base_get_desirability(e: &mut Engine, this: Ptr, form: u32) -> 
         2 => {
             let clothing = cast(e, TYPE_TES_OBJECT_CLOT);
             if clothing != 0 {
-                let value = e.call(0x0072_6070, &args![clothing + 0x58]).u32();
+                let value = typed_call!(
+                    leaf::FAMILY,
+                    0x0072_6070,
+                    leaf::word_at_4(e, clothing + 0x58)
+                );
                 let rating = e.call(0x0064_7cf0, &args![value]).f64();
                 result = f32::from_bits(x87_store32(rating));
             }
@@ -474,7 +478,11 @@ pub fn tes_actor_base_should_run_init_default_worn(
     let mut result = true;
     let game = e.global::<u32>(SAVE_LOAD_GAME);
     let flags = if e.call(0x0042_ce10, &args![game]).bool() {
-        if e.call(0x0057_6d30, &args![reference]).bool() {
+        if typed_call!(
+            leaf::FAMILY,
+            0x0057_6d30,
+            leaf::form_flag_200000(e, reference)
+        ) {
             Some(0x0800_0020u32)
         } else {
             None
@@ -528,6 +536,7 @@ pub fn fn_005f1f30(e: &mut Engine, this: Ptr, buffer: u32) {
 /// `CombatProcedureAttackMelee::Initialize`, is a folded body).
 const SET_WORD_4: u32 = 0x006e_cd40;
 /// `0044ddc0` (`ECX` = form): its flags word (+8).
+#[cfg(test)]
 const FORM_FLAGS: u32 = 0x0044_ddc0;
 /// The save/load game object (`011de45c`, a pointer).
 const SAVE_LOAD_GAME_OBJECT: u32 = 0x011d_e45c;
@@ -558,6 +567,7 @@ const LOADING_RECORD: u32 = 0x004f_d3c0;
 const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// `Error` (engine map name of `0040fbe0`; cdecl, a format and its
 /// arguments).
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 /// `005b5e40` (cdecl, a format and its arguments): writes a warning line.
 const LOG_WARNING: u32 = 0x005b_5e40;
@@ -585,8 +595,10 @@ const ITERATED_LIST: u32 = 0x011e_0e80;
 const ITERATE: u32 = 0x0096_bbc0;
 /// `008d8520` (`ECX` = reference): its process (the engine map's name,
 /// `MiddleHighProcess::GetSavedAcquireObject`, is a folded body).
+#[cfg(test)]
 const REFERENCE_PROCESS: u32 = 0x008d_8520;
 /// `007af430` (`ECX` = reference): its base object.
+#[cfg(test)]
 const REFERENCE_BASE_OBJECT: u32 = 0x007a_f430;
 
 /// Sets attribute `index` to the byte `value` with the flag 1
@@ -625,7 +637,7 @@ pub fn fn_005f0ba0(e: &mut Engine, this: Ptr) -> bool {
 /// Whether flag 0x80000 of the form's flags (`0044ddc0`) is set (the flag
 /// `TESActorBase::SetStartsDead` writes).
 pub fn fn_005f0f50(e: &mut Engine, this: Ptr) -> bool {
-    e.call(FORM_FLAGS, &args![this]).u32() & 0x0008_0000 != 0
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) & 0x0008_0000 != 0
 }
 
 // Translated from 005f14b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -734,23 +746,9 @@ pub fn fn_005f16f0(e: &mut Engine, this: Ptr, flags: u32) -> u16 {
             let name = record_form_name(e, record);
             let id = e.mem.u32(record);
             let record_flags = e.mem.u32(record + 5);
-            e.call(
-                ERROR,
-                &args![
-                    0x0101_2cb0u32,
-                    reported,
-                    id,
-                    name,
-                    record_flags,
-                    0x226u32,
-                    SOURCE_FILE
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_2cb0u32, reported, id, name, record_flags, 0x226u32, SOURCE_FILE);
         } else {
-            e.call(
-                ERROR,
-                &args![0x0101_2c78u32, reported, 0x226u32, SOURCE_FILE],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_2c78u32, reported, 0x226u32, SOURCE_FILE);
         }
     }
     size
@@ -809,7 +807,7 @@ pub fn fn_005f18c0(e: &mut Engine, this: Ptr, flags: u32) {
         e.call(0x0047_f840, &args![base + 0x90, flags]);
         // Folded mask (always false in the exe): the health.
         if flags & 0 != 0 {
-            let health = e.call(0x0072_6070, &args![base + 0xb0]).u32();
+            let health = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, base + 0xb0));
             e.mem.set_u32(health_slot, health);
             e.call(SAVE_FORM_DATA, &args![this, health_slot, 4u32]);
         }
@@ -833,23 +831,9 @@ pub fn fn_005f18c0(e: &mut Engine, this: Ptr, flags: u32) {
                 let name = record_form_name(e, record);
                 let id = e.mem.u32(record);
                 let record_flags = e.mem.u32(record + 5);
-                e.call(
-                    ERROR,
-                    &args![
-                        0x0101_53a0u32,
-                        written,
-                        id,
-                        name,
-                        record_flags,
-                        0x24bu32,
-                        SOURCE_FILE
-                    ],
-                );
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_53a0u32, written, id, name, record_flags, 0x24bu32, SOURCE_FILE);
             } else {
-                e.call(
-                    ERROR,
-                    &args![0x0101_536cu32, written, 0x24bu32, SOURCE_FILE],
-                );
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_536cu32, written, 0x24bu32, SOURCE_FILE);
             }
         }
         let game = e.global::<u32>(SAVE_LOAD_GAME_OBJECT);
@@ -1064,11 +1048,11 @@ pub fn fn_005f20a0(e: &mut Engine, this: Ptr, value: u8) {
         return;
     }
     let player = e.global::<u32>(PLAYER);
-    if e.call(REFERENCE_PROCESS, &args![player]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player)) == 0 {
         return;
     }
     let player = e.global::<u32>(PLAYER);
-    let process = e.call(REFERENCE_PROCESS, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     e.vcall(process, 0x468, &args![u32::from(value)]);
 }
 
@@ -1089,14 +1073,14 @@ pub fn fn_005f2150(e: &mut Engine, this: Ptr) -> Ptr {
 /// iterator's byte (+0xC) to the process's virtual slot 0x468. Returns
 /// nothing the callers read (`EAX` is left as the last call leaves it).
 pub fn reset_3d_mob_iterator_operate(e: &mut Engine, this: Ptr, reference: Ptr) {
-    let object = e.call(REFERENCE_BASE_OBJECT, &args![reference]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if object != e.mem.u32(this.addr() + 8) {
         return;
     }
-    if e.call(REFERENCE_PROCESS, &args![reference]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference)) == 0 {
         return;
     }
-    let process = e.call(REFERENCE_PROCESS, &args![reference]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference));
     let value = u32::from(e.mem.u8(this.addr() + 0xc));
     e.vcall(process, 0x468, &args![value]);
 }

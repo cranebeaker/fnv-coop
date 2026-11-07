@@ -123,6 +123,7 @@ const COMPONENT_NAME: u32 = 0x0040_8da0;
 /// `0044a670` (`cdecl`): the length of a C string.
 const STRING_LENGTH: u32 = 0x0044_a670;
 /// `00559450` (`thiscall`): the characters of a `BSStringT`.
+#[cfg(test)]
 const STRING_CHARS: u32 = 0x0055_9450;
 /// `00406d70` (`cdecl`: actor value, flag mask): whether the actor value's
 /// info has the flag.
@@ -202,7 +203,7 @@ pub fn actor_value_get_actor_value_abbreviation(e: &mut Engine, index: u32) -> u
     if info == 0 {
         return 0;
     }
-    e.call(STRING_CHARS, &args![info + 0x3c]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, info + 0x3c))
 }
 
 // Translated from 0066ec10 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1136,7 +1137,7 @@ pub fn actor_value_info_save(e: &mut Engine, this: Ptr) {
     e.call(0x0048_e370, &args![base + 0x2c, CHUNK_ICON]);
     if e.call(0x0040_48e0, &args![base + 0x3c]).u32() != 0 {
         let length = e.call(0x0040_48e0, &args![base + 0x3c]).u32();
-        let chars = e.call(STRING_CHARS, &args![base + 0x3c]).u32();
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x3c));
         e.call(
             0x0048_56f0,
             &args![CHUNK_ANAM, chars, length.wrapping_add(1)],

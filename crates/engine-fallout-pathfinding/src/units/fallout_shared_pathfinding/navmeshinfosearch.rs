@@ -97,7 +97,9 @@ const CURRENT_THREAD_ID: u32 = 0x0040_fc90;
 const TASKLET_SLOT: u32 = 0xc;
 const BUILD_PATH: u32 = 0x0099_6ae0;
 const TASKLET_YIELD: u32 = 0x0040_fca0;
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const ARRAY_ELEMENT_ADDRESS: u32 = 0x0087_7a30;
 const ARRAY_ADD: u32 = 0x007c_b2e0;
 const POINT_SUBTRACT: u32 = 0x0043_9ef0;
@@ -105,13 +107,16 @@ const POINT_LENGTH: u32 = 0x0045_7990;
 const MESH_SPACE: u32 = 0x0069_0800;
 const INFO_COST_VALUE: u32 = 0x007d_f1f0;
 const CLAMP: u32 = 0x0053_30e0;
+#[cfg(test)]
 const REFERENCE_FLAG_800: u32 = 0x0044_0da0;
 const DOOR_LOCK_SET_FROM_DOOR: u32 = 0x0050_1e80;
 const DOOR_LOCK_CAN_UNLOCK: u32 = 0x0050_2450;
+#[cfg(test)]
 const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 const DOOR_IS_MINIMAL_USE: u32 = 0x0051_8000;
 const DOOR_TEST: u32 = 0x0057_b4b0;
 const DOOR_TELEPORT: u32 = 0x0056_8e50;
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 const REFERENCE_EXTRA_LIST: u32 = 0x005d_43c0;
 const GET_NAV_MESH_PORTAL: u32 = 0x0042_e2a0;
@@ -485,10 +490,12 @@ pub fn fn_006b9180(e: &mut Engine, this: Ptr) -> u32 {
                 &args![current, connections],
             );
             let mut index: u32 = 0;
-            while index < e.call(ARRAY_SIZE, &args![connections]).u32() {
-                let at = e
-                    .call(ARRAY_ELEMENT_ADDRESS, &args![connections, index])
-                    .u32();
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, connections)) {
+                let at = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, connections, index)
+                );
                 let node = e.mem.u32(at);
                 fn_006b9540(e, queue, Ptr::new(node));
                 let current = e.mem.u32(base.wrapping_add(LAST_SEARCHED_NODE));
@@ -675,10 +682,14 @@ fn add_mesh_connections(
     let base = this.addr();
     let (factor, cost) = costs;
     let list = info.wrapping_add(array);
-    let count = e.call(ARRAY_SIZE, &args![list]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list));
     let mut index: u32 = 0;
     while index < count {
-        let at = e.call(ARRAY_ELEMENT_ADDRESS, &args![list, index]).u32();
+        let at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, list, index)
+        );
         let other = e.mem.u32(at);
         if other != 0 {
             let new_cost = e.with_stack(0x18, |e, points| {
@@ -766,13 +777,17 @@ pub fn nav_mesh_info_search_get_node_connections(
         return true;
     }
     let doors = info.wrapping_add(0x44);
-    let count = e.call(ARRAY_SIZE, &args![doors]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, doors));
     let mut index: u32 = 0;
     while index < count {
-        let at = e.call(ARRAY_ELEMENT_ADDRESS, &args![doors, index]).u32();
+        let at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, doors, index)
+        );
         let door = e.mem.u32(at);
         index = index.wrapping_add(1);
-        if door == 0 || e.call(REFERENCE_FLAG_800, &args![door]).bool() {
+        if door == 0 || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, door)) {
             continue;
         }
         add_door_connection(e, this, node, info, door, (factor, cost), out);
@@ -810,7 +825,7 @@ fn add_door_connection(
             _ => {}
         }
     }
-    let door_base = e.call(REFERENCE_BASE_FORM, &args![door]).u32();
+    let door_base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, door));
     if e.call(DOOR_IS_MINIMAL_USE, &args![door_base]).bool() {
         penalty = x87_quiet_bits(e.global::<u32>(DOOR_PENALTY));
     }
@@ -823,7 +838,7 @@ fn add_door_connection(
         return;
     }
     let teleport = e.call(DOOR_TELEPORT, &args![door]).u32();
-    let destination = e.call(FIRST_WORD, &args![teleport]).u32();
+    let destination = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, teleport));
     if destination == 0 {
         return;
     }

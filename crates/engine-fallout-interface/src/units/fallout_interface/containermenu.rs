@@ -106,12 +106,16 @@ const SHOW_TUTORIAL: u32 = 0x0071_8630;
 /// `ListBox<unsigned int>::Initialize` (`this`, container tile, template).
 const LIST_BOX_INITIALIZE: u32 = 0x0075_a0d0;
 /// The word at +4 of an object (a menu's `pMenu` tile, a list node's next).
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 /// The address of an object's first word (a list node's item).
+#[cfg(test)]
 const FIRST_WORD_ADDRESS: u32 = 0x0068_15c0;
 /// The first word of an object.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// The word at +0x28 of a tile (its parent).
+#[cfg(test)]
 const WORD_AT_0X28: u32 = 0x0045_cd60;
 /// A setting's string value (`ECX` = the setting).
 const SETTING_STRING: u32 = 0x0040_3df0;
@@ -122,8 +126,10 @@ const PLAY_MENU_SOUND: u32 = 0x0070_6f30;
 /// Whether a gamepad is in use (no arguments).
 const GAMEPAD_IN_USE: u32 = 0x004b_71d0;
 /// The form of a reference or of an item (`this` only).
+#[cfg(test)]
 const FORM_OF: u32 = 0x007a_f430;
 /// The item's object (`this` only).
+#[cfg(test)]
 const ITEM_OBJECT: u32 = 0x0044_ddc0;
 /// A form's type byte (`this` only).
 const FORM_TYPE: u32 = 0x0040_1170;
@@ -137,6 +143,7 @@ const STEAL_ALARM: u32 = 0x008b_fa40;
 const STATE_TEST_011F2250: u32 = 0x0052_5430;
 /// The actor's process (`this` only; the map's name for the folded code is
 /// `MiddleHighProcess::GetSavedAcquireObject`).
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// `TESCreature::InitDefaultWorn` (`this`, reference, three words).
 const INIT_DEFAULT_WORN: u32 = 0x005f_9e00;
@@ -292,10 +299,13 @@ const WEAPON_AMMO_FOR: u32 = 0x0052_5a90;
 /// The smaller of two integers (cdecl).
 const MIN_OF: u32 = 0x004a_8f20;
 /// Two tests on a form (`this` only).
+#[cfg(test)]
 const FORM_TEST_00440DA0: u32 = 0x0044_0da0;
+#[cfg(test)]
 const FORM_TEST_00440D80: u32 = 0x0044_0d80;
 /// The checks of `0075d510`.
 const PLAYER_TEST_004997B0: u32 = 0x0049_97b0;
+#[cfg(test)]
 const LIST_TEST_008256D0: u32 = 0x0082_56d0;
 const ACTOR_GET_ESSENTIAL: u32 = 0x0087_f3d0;
 const OBJECT_TEST_004C0BF0: u32 = 0x004c_0bf0;
@@ -438,7 +448,7 @@ fn set_string(e: &mut Engine, tile: u32, trait_id: i32, text: u32) {
 
 /// The type byte of the object of an item.
 fn item_type(e: &mut Engine, item: u32) -> u8 {
-    let object = e.call(ITEM_OBJECT, &args![item]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     e.call(FORM_TYPE, &args![object]).u8()
 }
 
@@ -613,7 +623,7 @@ pub fn container_menu_create(e: &mut Engine, reference: u32, mode: i32) -> u32 {
             return finish_create(e, root, interface, reference, mode);
         }
     }
-    if me(e) != 0 && e.call(WORD_AT_FOUR, &args![me(e)]).u32() != 0 {
+    if me(e) != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e))) != 0 {
         let old = me(e);
         e.vcall(old, 0, &args![1u32]);
     }
@@ -664,7 +674,7 @@ fn finish_create(e: &mut Engine, root: u32, interface: u32, reference: u32, mode
         let tile = tile_at(e, me(e), offset);
         set_string(e, tile, TRAIT_STRING, text);
     }
-    let menu_tile = e.call(WORD_AT_FOUR, &args![me(e)]).u32();
+    let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e)));
     let subtitle = e
         .call(TILE_FIND_CHILD, &args![menu_tile, SUBTITLE_TILE_NAME])
         .u32();
@@ -780,7 +790,7 @@ pub fn container_menu_close(e: &mut Engine) {
     let this = me(e);
     e.call(MENU_START_FADE_OUT, &args![this]);
     let player = player_actor(e);
-    let process = e.call(ACTOR_PROCESS, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     if e.vcall(process, 0x474, &args![1u32]).bool() {
         let player = player_actor(e);
         e.call(UPDATE_PLAYER_3D, &args![player]);
@@ -796,9 +806,10 @@ fn close_companion(e: &mut Engine) {
         let reference = e.get(menu(e), ContainerMenu::pContainerRef);
         if e.vcall(reference, 0x1e4, &args![]).u32() != 0 {
             let reference = e.get(menu(e), ContainerMenu::pContainerRef);
-            if e.call(ACTOR_PROCESS, &args![reference]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference)) != 0 {
                 let reference = e.get(menu(e), ContainerMenu::pContainerRef);
-                let process = e.call(ACTOR_PROCESS, &args![reference]).u32();
+                let process =
+                    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference));
                 if e.vcall(process, 0x148, &args![]).u32() != 0 {
                     reset_state = true;
                 }
@@ -808,12 +819,12 @@ fn close_companion(e: &mut Engine) {
     let reference = e.get(menu(e), ContainerMenu::pContainerRef);
     if e.vcall(reference, 0x21c, &args![]).bool() {
         let reference = e.get(menu(e), ContainerMenu::pContainerRef);
-        let base = e.call(FORM_OF, &args![reference]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let reference = e.get(menu(e), ContainerMenu::pContainerRef);
         e.call(INIT_DEFAULT_WORN, &args![base, reference, 1u32, 1u32, 1u32]);
     } else {
         let reference = e.get(menu(e), ContainerMenu::pContainerRef);
-        let base = e.call(FORM_OF, &args![reference]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let reference = e.get(menu(e), ContainerMenu::pContainerRef);
         let word = e.vcall(reference, 0x1e8, &args![]).u32();
         let reference = e.get(menu(e), ContainerMenu::pContainerRef);
@@ -823,7 +834,7 @@ fn close_companion(e: &mut Engine) {
         let reference = e.get(menu(e), ContainerMenu::pContainerRef);
         if e.call(ACTOR_STATE_008A6970, &args![reference]).bool() {
             let reference = e.get(menu(e), ContainerMenu::pContainerRef);
-            let process = e.call(ACTOR_PROCESS, &args![reference]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference));
             if e.vcall(process, 0x148, &args![]).u32() == 0 {
                 let reference = e.get(menu(e), ContainerMenu::pContainerRef);
                 e.call(ACTOR_SET_STATE_008A6840, &args![reference, 0u32]);
@@ -849,11 +860,11 @@ pub fn container_menu_play_container_sound(
     if reference == 0 {
         return;
     }
-    let base = e.call(FORM_OF, &args![reference]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let kind = e.call(FORM_TYPE, &args![base]).u32() as i32;
     let mut sound = 0u32;
     if kind == 0x1b {
-        let base = e.call(FORM_OF, &args![reference]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         sound = if opening != 0 {
             e.call(CONTAINER_OPEN_SOUND, &args![base]).u32()
         } else {
@@ -1034,11 +1045,19 @@ fn click_item(e: &mut Engine, this: Ptr<ContainerMenu>) {
         return;
     }
     e.set_global(ITEM_ENTERED, 0u8);
-    let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, current_item(e))
+    );
     let light = e.call(IS_GOLD, &args![object]).bool() || {
         let player = player_actor(e);
         let flag = e.call(PLAYER_STATE_004D1360, &args![player]).u8();
-        let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+        let object = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, current_item(e))
+        );
         let weight = e.call(FORM_WEIGHT, &args![object, flag]).f64();
         // FCOMP; TEST AH,0x41; JP: weightless unless above 0.0 (or NaN).
         let zero = e.global::<f64>(ZERO_DOUBLE);
@@ -1047,7 +1066,13 @@ fn click_item(e: &mut Engine, this: Ptr<ContainerMenu>) {
     let companion_take = light
         && matches!(e.get(this, ContainerMenu::eContainerMode), 1 | 2)
         && e.get(this, ContainerMenu::plbCurrListbox) == this.addr() + CONTAINER;
-    let count = e.call(WORD_AT_FOUR, &args![current_item(e)]).i32();
+    let count = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, current_item(e))
+    )
+    .into_ret()
+    .i32();
     let setting = e.call(SETTING_VALUE_ADDRESS, &args![0x011d_2418u32]).u32();
     if count > e.mem.i32(setting) {
         let reference = e.get(this, ContainerMenu::pContainerRef);
@@ -1058,7 +1083,11 @@ fn click_item(e: &mut Engine, this: Ptr<ContainerMenu>) {
             e.call(LIST_SAVE_STATE, &args![list]);
             let list = e.get(this, ContainerMenu::plbCurrListbox);
             e.vcall(list, 0, &args![0u32]);
-            let count = e.call(WORD_AT_FOUR, &args![current_item(e)]).u32();
+            let count = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, current_item(e))
+            );
             e.call(
                 QUANTITY_MENU_CREATE,
                 &args![count, ITEM_SELECT_CALLBACK, 0x7fff_ffffu32],
@@ -1067,7 +1096,13 @@ fn click_item(e: &mut Engine, this: Ptr<ContainerMenu>) {
         }
     }
     if companion_take {
-        let count = e.call(WORD_AT_FOUR, &args![current_item(e)]).i32();
+        let count = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, current_item(e))
+        )
+        .into_ret()
+        .i32();
         container_menu_item_select_callback(e, count);
     } else {
         container_menu_item_select_callback(e, 1);
@@ -1110,7 +1145,7 @@ pub fn container_menu_update_lists(e: &mut Engine, this: Ptr<ContainerMenu>, for
         let mods = e.call(PLAYER_MOD_LIST, &args![player]).u32();
         e.vcall(me_addr + CONTAINER, 0x1c, &args![]);
         let mut index = 0u32;
-        while index < e.call(ITEM_OBJECT, &args![mods]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, mods)) {
             let slot = e.call(MOD_LIST_ENTRY, &args![mods, index]).u32();
             let item = e.mem.u32(slot);
             let name = e.call(ITEM_FULL_NAME, &args![item]).u32();
@@ -1212,7 +1247,7 @@ fn add_active_mines(e: &mut Engine, this: Ptr<ContainerMenu>, form: u32) {
     let me_addr = this.addr();
     let mut node = me_addr + ACTIVE_MINE_LIST;
     while node != 0 {
-        let slot = e.call(FIRST_WORD_ADDRESS, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let mine = e.mem.u32(slot);
         if mine == 0 {
             break;
@@ -1220,7 +1255,7 @@ fn add_active_mines(e: &mut Engine, this: Ptr<ContainerMenu>, form: u32) {
         if form == 0 || form == mine {
             let block = e.call(OPERATOR_NEW, &args![0xcu32]).u32();
             let item = if block != 0 {
-                let slot = e.call(FIRST_WORD_ADDRESS, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let mine = e.mem.u32(slot);
                 e.call(ITEM_CHANGE_CONSTRUCTOR, &args![block, mine, 1i32])
                     .u32()
@@ -1232,7 +1267,7 @@ fn add_active_mines(e: &mut Engine, this: Ptr<ContainerMenu>, form: u32) {
                 let name = e.call(ITEM_FULL_NAME, &args![item]).u32();
                 let setting = e.call(SETTING_STRING, &args![0x011d_3f70u32]).u32();
                 e.call(STRING_FORMAT, &args![text, ITEM_NAME_FORMAT, setting, name]);
-                let c_str = e.call(FIRST_WORD, &args![text]).u32();
+                let c_str = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                 let added = e
                     .call(
                         LIST_ADD_ITEM,
@@ -1246,7 +1281,7 @@ fn add_active_mines(e: &mut Engine, this: Ptr<ContainerMenu>, form: u32) {
                 e.call(STRING_DESTROY, &args![text]);
             });
         }
-        node = e.call(WORD_AT_FOUR, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -1270,12 +1305,12 @@ fn add_dropped_weapon(e: &mut Engine, this: Ptr<ContainerMenu>, form: u32) {
     if dropped == 0 || e.call(REFERENCE_TEST_00437B90, &args![dropped]).bool() {
         return;
     }
-    if form != 0 && form != e.call(FORM_OF, &args![dropped]).u32() {
+    if form != 0 && form != typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, dropped)) {
         return;
     }
     let block = e.call(OPERATOR_NEW, &args![0xcu32]).u32();
     let item = if block != 0 {
-        let base = e.call(FORM_OF, &args![dropped]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, dropped));
         e.call(ITEM_CHANGE_CONSTRUCTOR, &args![block, base, 1i32])
             .u32()
     } else {
@@ -1286,7 +1321,7 @@ fn add_dropped_weapon(e: &mut Engine, this: Ptr<ContainerMenu>, form: u32) {
         LIST_ADD_ITEM,
         &args![me_addr + CONTAINER, item, name, 0u32, 0u32],
     );
-    if e.call(FIRST_WORD, &args![item]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) != 0 {
         let block = e.call(OPERATOR_NEW, &args![8u32]).u32();
         let list = if block != 0 {
             e.call(SIMPLE_LIST_CONSTRUCTOR, &args![block]).u32()
@@ -1295,8 +1330,8 @@ fn add_dropped_weapon(e: &mut Engine, this: Ptr<ContainerMenu>, form: u32) {
         };
         e.mem.set_u32(item, list);
     }
-    let list = e.call(FIRST_WORD, &args![item]).u32();
-    let slot = e.call(FIRST_WORD_ADDRESS, &args![list]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     if e.mem.u32(slot) == 0 {
         let block = e.call(OPERATOR_NEW, &args![0x20u32]).u32();
         let extra_list = if block != 0 {
@@ -1306,17 +1341,17 @@ fn add_dropped_weapon(e: &mut Engine, this: Ptr<ContainerMenu>, form: u32) {
         };
         e.with_stack(4, |e, holder| {
             e.mem.set_u32(holder.addr(), extra_list);
-            let list = e.call(FIRST_WORD, &args![item]).u32();
+            let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
             e.call(LIST_ADD_HEAD, &args![list, holder]);
         });
     }
-    let list = e.call(FIRST_WORD, &args![item]).u32();
-    let slot = e.call(FIRST_WORD_ADDRESS, &args![list]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     let extra_list = e.mem.u32(slot);
     e.call(EXTRA_ADD_DROPPED_ITEM, &args![extra_list, dropped]);
     let health = e.call(REFERENCE_HEALTH, &args![dropped]).f64();
-    let list = e.call(FIRST_WORD, &args![item]).u32();
-    let slot = e.call(FIRST_WORD_ADDRESS, &args![list]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     let extra_list = e.mem.u32(slot);
     e.call(EXTRA_SET_HEALTH, &args![extra_list, x87_store32(health)]);
 }
@@ -1421,16 +1456,16 @@ pub fn container_menu_update_item_in_list(
             e.call(LIST_REMOVE_ITEM_GROUP, &args![list, form]);
             let mut node = group.addr();
             while node != 0 {
-                let slot = e.call(FIRST_WORD_ADDRESS, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(slot) == 0 {
                     break;
                 }
-                let slot = e.call(FIRST_WORD_ADDRESS, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let name = e.call(ITEM_FULL_NAME, &args![e.mem.u32(slot)]).u32();
-                let slot = e.call(FIRST_WORD_ADDRESS, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(slot);
                 e.call(LIST_ADD_ITEM, &args![list, item, name, 0u32, 0u32]);
-                node = e.call(WORD_AT_FOUR, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             e.call(SIMPLE_LIST_CLEAR, &args![group]);
         }
@@ -1472,13 +1507,13 @@ pub fn container_menu_do_enter(e: &mut Engine, this: Ptr<ContainerMenu>, id: i32
             e.set_global(ITEM_ENTERED, 1u8);
             let on_items = e.get(this, ContainerMenu::plbCurrListbox) == me_addr + ITEMS;
             let switched = !on_items && {
-                let parent = e.call(WORD_AT_0X28, &args![tile]).u32();
+                let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
                 parent == tile_at(e, me_addr, 0x38)
             };
             if switched {
                 e.vcall(me_addr, 0x10, &args![0x15u32, 0u32]);
             } else if e.get(this, ContainerMenu::plbCurrListbox) != me_addr + CONTAINER {
-                let parent = e.call(WORD_AT_0X28, &args![tile]).u32();
+                let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
                 if parent == tile_at(e, me_addr, 0x48) {
                     e.vcall(me_addr, 0x10, &args![0x16u32, 0u32]);
                 }
@@ -1533,7 +1568,7 @@ pub fn container_menu_first_pass_filter_func(e: &mut Engine, item: u32) -> bool 
         return false;
     }
     let object = if item != 0 {
-        e.call(ITEM_OBJECT, &args![item]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
     } else {
         0
     };
@@ -1551,12 +1586,12 @@ pub fn container_menu_first_pass_filter_func(e: &mut Engine, item: u32) -> bool 
         )
         .u32();
     let weapon = if item_type(e, item) == 0x28 {
-        e.call(ITEM_OBJECT, &args![item]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
     } else {
         0
     };
     let ammo = if item_type(e, item) == 0x29 {
-        e.call(ITEM_OBJECT, &args![item]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
     } else {
         0
     };
@@ -1606,9 +1641,13 @@ pub fn container_menu_init_func(e: &mut Engine, tile: u32, item: u32) {
         let marker = e.mem.u32(slot);
         set_trait_from_int(e, marker, TRAIT_VISIBLE, 1);
     }
-    if e.call(WORD_AT_FOUR, &args![item]).i32() > 1 {
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+        .into_ret()
+        .i32()
+        > 1
+    {
         e.with_stack(0x80, |e, text| {
-            let count = e.call(WORD_AT_FOUR, &args![item]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
             let name = e.call(ITEM_FULL_NAME, &args![item]).u32();
             e.call(
                 PRINT_BOUNDED,
@@ -1653,9 +1692,11 @@ pub fn fn_0075d510(
         || e.vcall(from, 0x22c, &args![0u32]).bool()
         || e.vcall(from, 0x1a0, &args![0u32]).bool()
         || item_type(e, item) != 0x28
-        || !e
-            .call(LIST_TEST_008256D0, &args![this.addr() + ACTIVE_MINE_LIST])
-            .bool()
+        || !typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, this.addr() + ACTIVE_MINE_LIST)
+        )
     {
         return false;
     }
@@ -1665,14 +1706,14 @@ pub fn fn_0075d510(
         if e.call(ACTOR_GET_ESSENTIAL, &args![actor]).bool() {
             return false;
         }
-        if e.call(ACTOR_PROCESS, &args![actor]).u32() != 0 {
-            let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if e.vcall(process, 0x388, &args![]).bool() {
                 return false;
             }
         }
     }
-    let object = e.call(ITEM_OBJECT, &args![item]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     if !e.call(OBJECT_TEST_004C0BF0, &args![object]).bool() {
         return false;
     }
@@ -1716,24 +1757,24 @@ pub fn container_menu_switch_container(
         e.get(this, ContainerMenu::pContainerRef)
     };
     let special = fn_0075d510(e, this, item, to, from);
-    let extra = if e.call(FIRST_WORD, &args![item]).u32() != 0 {
-        let list = e.call(FIRST_WORD, &args![item]).u32();
-        let slot = e.call(FIRST_WORD_ADDRESS, &args![list]).u32();
+    let extra = if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) != 0 {
+        let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         e.mem.u32(slot)
     } else {
         0
     };
     if special {
-        let object = e.call(ITEM_OBJECT, &args![item]).u32();
-        let weapon = e.call(ITEM_OBJECT, &args![item]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
+        let weapon = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let ammo = e.call(WEAPON_AMMO_FOR, &args![weapon, 0u32]).u32();
         e.call(WEAPON_TRANSFER_009BD5C0, &args![ammo, to, from, object]);
-        let object = e.call(ITEM_OBJECT, &args![item]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), object);
             e.call(LIST_ADD_HEAD, &args![this.addr() + ACTIVE_MINE_LIST, slot]);
         });
-        let object = e.call(ITEM_OBJECT, &args![item]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         e.vcall(
             to,
             0x17c,
@@ -1743,9 +1784,9 @@ pub fn container_menu_switch_container(
     }
     if extra != 0 && e.call(EXTRA_GET_ITEM_DROPPER, &args![extra]).u32() != 0 {
         let dropper = e.call(EXTRA_GET_ITEM_DROPPER, &args![extra]).u32();
-        if !e.call(FORM_TEST_00440DA0, &args![dropper]).bool() {
+        if !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, dropper)) {
             let dropper = e.call(EXTRA_GET_ITEM_DROPPER, &args![extra]).u32();
-            if !e.call(FORM_TEST_00440D80, &args![dropper]).bool() {
+            if !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, dropper)) {
                 let dropper = e.call(EXTRA_GET_ITEM_DROPPER, &args![extra]).u32();
                 let player = player_actor(e);
                 e.vcall(player, 0x3d0, &args![dropper, 1u32, 0u32]);
@@ -1758,7 +1799,7 @@ pub fn container_menu_switch_container(
         return;
     }
     let pickpocket = u32::from(e.get(this, ContainerMenu::eContainerMode) == 2);
-    let object = e.call(ITEM_OBJECT, &args![item]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     e.vcall(
         to,
         0x17c,
@@ -1770,10 +1811,10 @@ pub fn container_menu_switch_container(
 /// stack of the item's extra-data lists.
 fn move_rock_it_ammo(e: &mut Engine, item: u32, from: u32, to: u32, count: i32) {
     let mut left = count;
-    let mut node = e.call(FIRST_WORD, &args![item]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
     while left > 0 {
         let extra = if node != 0 {
-            let slot = e.call(FIRST_WORD_ADDRESS, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.mem.u32(slot)
         } else {
             0
@@ -1786,7 +1827,7 @@ fn move_rock_it_ammo(e: &mut Engine, item: u32, from: u32, to: u32, count: i32) 
         let taken = e.call(MIN_OF, &args![stack, left]).i32();
         let player = player_actor(e);
         if from == player {
-            let object = e.call(ITEM_OBJECT, &args![item]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             let player = player_actor(e);
             let removed = e
                 .call(
@@ -1794,32 +1835,33 @@ fn move_rock_it_ammo(e: &mut Engine, item: u32, from: u32, to: u32, count: i32) 
                     &args![player, object, extra, taken, 1u32],
                 )
                 .u32();
-            let removed_extra = if e.call(FIRST_WORD, &args![removed]).u32() != 0 {
-                let list = e.call(FIRST_WORD, &args![removed]).u32();
-                let slot = e.call(FIRST_WORD_ADDRESS, &args![list]).u32();
-                e.mem.u32(slot)
-            } else {
-                0
-            };
-            let removed_count = e.call(WORD_AT_FOUR, &args![removed]).u32();
-            let object = e.call(ITEM_OBJECT, &args![removed]).u32();
+            let removed_extra =
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, removed)) != 0 {
+                    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, removed));
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
+                    e.mem.u32(slot)
+                } else {
+                    0
+                };
+            let removed_count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, removed));
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, removed));
             let player = player_actor(e);
             e.vcall(player, 0x190, &args![object, removed_extra, removed_count]);
             if removed != 0 {
                 e.call(ITEM_CHANGE_DELETE, &args![removed, 1u32]);
             }
-            node = e.call(FIRST_WORD, &args![item]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
         } else if to == player {
-            let object = e.call(ITEM_OBJECT, &args![item]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             e.call(ADD_ROCK_IT_AMMO, &args![player, object, extra, taken]);
-            let object = e.call(ITEM_OBJECT, &args![item]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             e.vcall(
                 to,
                 0x17c,
                 &args![object, extra, taken, 0u32, 0u32, 0u32, 0u32, 0u32, 1u32, 0u32],
             );
             node = if node != 0 {
-                e.call(WORD_AT_FOUR, &args![node]).u32()
+                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
             } else {
                 0
             };
@@ -1894,7 +1936,7 @@ pub fn container_menu_item_select_callback(e: &mut Engine, count: i32) {
         } else {
             let owner = e.call(ITEM_GET_OWNERSHIP, &args![current_item(e)]).u32();
             let player = player_actor(e);
-            owner != e.call(FORM_OF, &args![player]).u32()
+            owner != typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player))
         };
         if counts {
             let taking =
@@ -1923,16 +1965,20 @@ pub fn container_menu_item_select_callback(e: &mut Engine, count: i32) {
     if refused {
         return;
     }
-    let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, current_item(e))
+    );
     let player = player_actor(e);
-    let process = e.call(ACTOR_PROCESS, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     let weapon = e.vcall(process, 0x14c, &args![]).u32();
     let player = player_actor(e);
     e.call(PLAYER_EQUIP_STATE, &args![player, object, 1u32, 0u32]);
     container_menu_switch_container(e, menu(e), tile, current_item(e), count);
     container_menu_update_lists(e, menu(e), object);
     if weapon != 0 {
-        let weapon_object = e.call(ITEM_OBJECT, &args![weapon]).u32();
+        let weapon_object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, weapon));
         let player = player_actor(e);
         let changes = e.call(GET_INVENTORY_CHANGES, &args![player]).u32();
         if e.call(GET_OBJECT_COUNT, &args![changes, weapon_object])
@@ -1940,7 +1986,7 @@ pub fn container_menu_item_select_callback(e: &mut Engine, count: i32) {
             == 0
         {
             let player = player_actor(e);
-            let process = e.call(ACTOR_PROCESS, &args![player]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
             e.vcall(process, 0x168, &args![0u32]);
         }
     }
@@ -1955,7 +2001,11 @@ fn companion_is_full(e: &mut Engine, actor: u32, count: i32) -> bool {
     let carried = e.call(ACTOR_VALUE_00577250, &args![actor, 0u32]).f64();
     let player = player_actor(e);
     let flag = e.call(PLAYER_STATE_004D1360, &args![player]).u8();
-    let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, current_item(e))
+    );
     let weight = e.call(FORM_WEIGHT, &args![object, flag]).f64();
     let total = x87_add(x87_mul(weight, f64::from(count)), carried);
     let capacity = e.call(ACTOR_VALUE_008A0C20, &args![actor]).f64();
@@ -2063,7 +2113,7 @@ pub fn container_menu_filter_mode_func(e: &mut Engine, item: u32) -> bool {
     };
     if kind == 0x29 {
         let list = e.call(FORM_BY_EDITOR_ID, &args![FILTER_FORM_LIST]).u32();
-        let object = e.call(ITEM_OBJECT, &args![item]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         if list != 0 && e.call(LIST_FORM_INDEX, &args![list, object]).i32() >= 0 {
             hidden = true;
         }
@@ -2073,7 +2123,7 @@ pub fn container_menu_filter_mode_func(e: &mut Engine, item: u32) -> bool {
     }
     if in_items {
         hidden = hidden || kind == 0x2e || {
-            let object = e.call(ITEM_OBJECT, &args![item]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             e.vcall(object, 0x94, &args![]).bool()
         };
     } else if e.get(menu(e), ContainerMenu::eContainerMode) == 2 {
@@ -2108,7 +2158,7 @@ pub fn container_menu_set_container_title(e: &mut Engine, this: Ptr<ContainerMen
         );
         e.mem.u32(size.addr())
     });
-    let parent = e.call(WORD_AT_0X28, &args![title]).u32();
+    let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, title));
     let width = e.call(GET_FLOAT_TRAIT, &args![parent, 0xfb1u32]).f64();
     let mut room = x87_store32(x87_sub(width, e.global::<f64>(TITLE_MARGIN)));
     let icon = tile_at(e, this.addr(), 0x3c);
@@ -2183,7 +2233,7 @@ pub fn container_menu_do_idle(e: &mut Engine, this: Ptr<ContainerMenu>) {
         && e.call(CURRENT_TIME, &args![]).u32() > e.get(this, ContainerMenu::m_nTimeToClearSubtitle)
     {
         e.set(this, ContainerMenu::m_nTimeToClearSubtitle, 0);
-        let menu_tile = e.call(WORD_AT_FOUR, &args![me(e)]).u32();
+        let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e)));
         let subtitle = e
             .call(TILE_FIND_CHILD, &args![menu_tile, SUBTITLE_TILE_NAME])
             .u32();
@@ -2205,7 +2255,11 @@ pub fn container_menu_do_idle(e: &mut Engine, this: Ptr<ContainerMenu>) {
     } else if current_item(e) != 0 && item_type(e, current_item(e)) == 0x18 {
         let zero = e.global::<f64>(ZERO_DOUBLE);
         let second = if current_item(e) != 0 && {
-            let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+            let object = typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, current_item(e))
+            );
             e.call(OBJECT_VALUE_004BE180, &args![object]).f64() != zero
         } {
             tile_at(e, me_addr, 0x70)
@@ -2213,7 +2267,11 @@ pub fn container_menu_do_idle(e: &mut Engine, this: Ptr<ContainerMenu>) {
             0
         };
         let first = if current_item(e) != 0 && {
-            let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+            let object = typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, current_item(e))
+            );
             e.call(OBJECT_VALUE_004BE060, &args![object]).f64() != zero
         } {
             tile_at(e, me_addr, 0x6c)
@@ -2271,6 +2329,7 @@ const DIALOGUE_ITEM_DESTRUCT: u32 = 0x0083_c670;
 const DIALOGUE_ITEM_FIRST_RESPONSE: u32 = 0x0083_c7b0;
 const DIALOGUE_ITEM_CURRENT_RESPONSE: u32 = 0x0083_c820;
 /// The text of a `Tile::Value`-style string holder (`0084e3a0`).
+#[cfg(test)]
 const VALUE_STRING_0084E3A0: u32 = 0x0084_e3a0;
 /// The actor's sound for a voice file (`00933150`: handle, file, 0, 0x102, 1).
 const ACTOR_VOICE_SOUND_00933150: u32 = 0x0093_3150;
@@ -2309,11 +2368,11 @@ fn item_tile(e: &mut Engine, tile: u32) -> u32 {
 
 /// The first extra data list of an item change (the item of its list's first node), or 0.
 fn first_extra_list(e: &mut Engine, item: u32) -> u32 {
-    if e.call(FIRST_WORD, &args![item]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) == 0 {
         return 0;
     }
-    let node = e.call(FIRST_WORD, &args![item]).u32();
-    let slot = e.call(FIRST_WORD_ADDRESS, &args![node]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -2457,9 +2516,9 @@ pub fn container_menu_take_all_fn(e: &mut Engine, tile: u32, item: u32) {
     let extra = first_extra_list(e, item);
     if extra != 0 && e.call(EXTRA_GET_ITEM_DROPPER, &args![extra]).u32() != 0 {
         let dropper = e.call(EXTRA_GET_ITEM_DROPPER, &args![extra]).u32();
-        if !e.call(FORM_TEST_00440DA0, &args![dropper]).bool() {
+        if !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, dropper)) {
             let dropper = e.call(EXTRA_GET_ITEM_DROPPER, &args![extra]).u32();
-            if !e.call(FORM_TEST_00440D80, &args![dropper]).bool() {
+            if !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, dropper)) {
                 let dropper = e.call(EXTRA_GET_ITEM_DROPPER, &args![extra]).u32();
                 let player = player_actor(e);
                 e.vcall(player, 0x3d0, &args![dropper, 1u32, 0u32]);
@@ -2481,7 +2540,9 @@ pub fn container_menu_take_all_fn(e: &mut Engine, tile: u32, item: u32) {
         } else {
             0
         };
-        let count = e.call(WORD_AT_FOUR, &args![item]).i32();
+        let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+            .into_ret()
+            .i32();
         let value = container_menu_get_stolen_value(e, menu, item, count, 1);
         let total = e.get(menu, ContainerMenu::iValueStolen).wrapping_add(value);
         e.set(menu, ContainerMenu::iValueStolen, total);
@@ -2490,8 +2551,8 @@ pub fn container_menu_take_all_fn(e: &mut Engine, tile: u32, item: u32) {
     }
     let extra = first_extra_list(e, item);
     let stolen = u32::from(e.get(menu, ContainerMenu::eContainerMode) == 2);
-    let count = e.call(WORD_AT_FOUR, &args![item]).u32();
-    let object = e.call(ITEM_OBJECT, &args![item]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     let player = player_actor(e);
     let container = e.get(menu, ContainerMenu::pContainerRef);
     e.vcall(
@@ -2599,35 +2660,35 @@ pub fn container_menu_get_stolen_value(
         let reference = e.get(this, ContainerMenu::pContainerRef);
         e.call(REFERENCE_OWNER, &args![reference]).u32()
     };
-    let mut node = e.call(FIRST_WORD, &args![item]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
     while left > 0 && node != 0 {
-        let slot = e.call(FIRST_WORD_ADDRESS, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(FIRST_WORD_ADDRESS, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let extra = e.mem.u32(slot);
         let extra_owner = e.call(EXTRA_OWNER_00418660, &args![extra]).u32();
         let counts = if extra_owner == 0 && unowned != 0 {
             true
         } else if extra_owner != 0 {
-            let slot = e.call(FIRST_WORD_ADDRESS, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let extra = e.mem.u32(slot);
             e.call(EXTRA_OWNER_00418660, &args![extra]).u32() == owner
         } else {
             false
         };
         if counts {
-            let slot = e.call(FIRST_WORD_ADDRESS, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let extra = e.mem.u32(slot);
             let stack = i32::from(e.call(EXTRA_GET_COUNT, &args![extra]).u16() as i16);
             total = stack.wrapping_mul(value).wrapping_add(total);
         }
-        let slot = e.call(FIRST_WORD_ADDRESS, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let extra = e.mem.u32(slot);
         let stack = i32::from(e.call(EXTRA_GET_COUNT, &args![extra]).u16() as i16);
         left = left.wrapping_sub(stack);
-        node = e.call(WORD_AT_FOUR, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if unowned != 0 {
         total = left.wrapping_mul(value).wrapping_add(total);
@@ -2669,9 +2730,9 @@ pub fn container_menu_play_reactivity_bark(e: &mut Engine, this: Ptr<ContainerMe
             .call(DIALOGUE_ITEM_CURRENT_RESPONSE, &args![dialogue])
             .u32();
         if response != 0 {
-            if e.call(FORM_OF, &args![response]).u32() != 0 {
-                let voice = e.call(FORM_OF, &args![response]).u32();
-                let file = e.call(VALUE_STRING_0084E3A0, &args![voice]).u32();
+            if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response)) != 0 {
+                let voice = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response));
+                let file = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, voice));
                 e.with_stack(0xc, |e, handle| {
                     let sound = e
                         .call(
@@ -2688,12 +2749,12 @@ pub fn container_menu_play_reactivity_bark(e: &mut Engine, this: Ptr<ContainerMe
             } else {
                 let first = e.call(RESPONSE_00441110, &args![response]).u32();
                 let second = e.call(RESPONSE_009611E0, &args![response]).u32();
-                let field = e.call(FIRST_WORD_ADDRESS, &args![response]).u32();
+                let field = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, response));
                 let third = e.call(STRING_004048E0, &args![field]).u32();
-                let fourth = e.call(VALUE_STRING_0084E3A0, &args![response]).u32();
-                let fifth = e.call(ITEM_OBJECT, &args![response]).u32();
+                let fourth = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, response));
+                let fifth = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, response));
                 let holder = e.call(RESPONSE_00460140, &args![response]).u32();
-                let sixth = e.call(FIRST_WORD, &args![holder]).u32();
+                let sixth = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                 e.vcall(
                     actor,
                     0x284,
@@ -2724,7 +2785,7 @@ pub fn container_menu_play_reactivity_bark(e: &mut Engine, this: Ptr<ContainerMe
                         base.wrapping_add(REACTIVITY_BARK)
                     ],
                 );
-                let text = e.call(FIRST_WORD_ADDRESS, &args![response]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, response));
                 e.call(STRING_COPY_CONSTRUCT, &args![arguments, text]);
                 let mut words = [0u32; 5];
                 for (i, word) in words.iter_mut().enumerate() {
@@ -2775,19 +2836,19 @@ pub fn container_menu_display_container_menu_subtitle(
             let shown = e.mem.u8(subtitles) != 0
                 || (actor != 0 && e.call(ALWAYS_SHOW_SUBTITLES, &args![actor]).bool());
             if shown {
-                let menu_tile = e.call(WORD_AT_FOUR, &args![me(e)]).u32();
+                let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e)));
                 let tile = e
                     .call(TILE_FIND_CHILD, &args![menu_tile, SUBTITLE_TILE])
                     .u32();
                 if tile != 0 {
-                    let string = e.call(FIRST_WORD, &args![text]).u32();
+                    let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                     set_string(e, tile, TRAIT_STRING, string);
                 }
                 let duration = e.call(SOUND_HANDLE_GET_DURATION, &args![sound]).i32();
                 let mut time = x87_store32(f64::from(duration));
                 // `FCOMP; TEST AH,0x44; JP`: the length counts only when the duration is 0.
                 if x87_m32(time) == e.global::<f64>(ZERO_DOUBLE) {
-                    let string = e.call(FIRST_WORD, &args![text]).u32();
+                    let string = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                     let length = e.call(STRLEN, &args![string]).u32();
                     let speed = e
                         .call(SETTING_FLOAT_ADDRESS, &args![SETTING_SUBTITLE_SPEED])

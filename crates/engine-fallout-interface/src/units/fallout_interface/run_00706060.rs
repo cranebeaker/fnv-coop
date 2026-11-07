@@ -7,6 +7,7 @@ use crate::prelude::*;
 /// The terminal geometry holder (`011db63c`, an `NiPointer`, read through `00559450`)
 /// and its fade (`006d2c40`, `thiscall`, `ST0`).
 const TERMINAL_GEOMETRY_011DB63C: u32 = 0x011d_b63c;
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 const GEOMETRY_FADE_006D2C40: u32 = 0x006d_2c40;
 /// `MemoryManager` free (`00401030`, cdecl), the `NiPointer` destructor (`0045cec0`) and
@@ -19,8 +20,17 @@ const RENDERED_MENU_DESTRUCT: u32 = 0x007f_ad10;
 /// Unnamed (`thiscall`, `this` not read; `ST0`): the terminal geometry's fade
 /// (`006d2c40`) when there is terminal geometry, else 1.0; through a `float` local.
 pub fn fn_00706060(e: &mut Engine, _this: Ptr) -> f32 {
-    let fade = if e.call(FIRST_WORD, &args![TERMINAL_GEOMETRY_011DB63C]).u32() != 0 {
-        let geometry = e.call(FIRST_WORD, &args![TERMINAL_GEOMETRY_011DB63C]).u32();
+    let fade = if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, TERMINAL_GEOMETRY_011DB63C)
+    ) != 0
+    {
+        let geometry = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, TERMINAL_GEOMETRY_011DB63C)
+        );
         let fade = e.call(GEOMETRY_FADE_006D2C40, &args![geometry]).f64();
         x87_store32(fade)
     } else {

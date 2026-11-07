@@ -10,12 +10,17 @@
 use crate::prelude::*;
 
 /// The function `fn_007fa970` calls on the member (`00559450`).
+#[cfg(test)]
 const CALLEE_00559450: u32 = 0x0055_9450;
 
 // Translated from 007fa970 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Thin wrapper: calls `00559450` with `ECX` = `this + 0xe0` and passes on its result.
 pub fn fn_007fa970(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(CALLEE_00559450, &args![this.byte_add(0xe0)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0xe0))
+    )
 }
 
 /// `FORenderedMenu`'s vtable (`0107841c`).
@@ -27,6 +32,7 @@ const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const NI_POINTER_DESTRUCT: u32 = 0x0045_cec0;
 /// The `NiColor` (`00416870`, three floats) and `NiColorA` (`00414430`,
 /// four floats) constructors; the latter returns `this`.
+#[cfg(test)]
 const COLOR_CONSTRUCTOR: u32 = 0x0041_6870;
 const COLOR_A_CONSTRUCTOR: u32 = 0x0041_4430;
 /// The game time in milliseconds (`00825c00`, thiscall on `011f6394`).
@@ -52,13 +58,18 @@ const CLEAR_MENU_LIGHT: u32 = 0x007f_c6f0;
 const OBJECT_01202D98: u32 = 0x0120_2d98;
 const STEP_00C3DFA0: u32 = 0x00c3_dfa0;
 const PLAYER: u32 = 0x011d_ea3c;
+#[cfg(test)]
 const PLAYER_OBJECT: u32 = 0x008d_8520;
 const STEP_005DB4C0: u32 = 0x005d_b4c0;
 
 // Translated from 007fa950 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The word at `this + 4` (through `00559450`).
 pub fn fn_007fa950(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(CALLEE_00559450, &args![this.byte_add(4)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(4))
+    )
 }
 
 // Translated from 007fa990 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -70,7 +81,7 @@ pub fn fn_007fa990(e: &mut Engine, this: Ptr) {
     let object = e.global::<u32>(OBJECT_01202D98);
     e.call(STEP_00C3DFA0, &args![object, 5u32]);
     let player = e.global::<u32>(PLAYER);
-    let player_object = e.call(PLAYER_OBJECT, &args![player]).u32();
+    let player_object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     let player = e.global::<u32>(PLAYER);
     e.vcall(player_object, 0x170, &args![player]);
     e.vcall(player_object, 0x468, &args![1u32]);
@@ -98,7 +109,11 @@ pub fn fn_007faa20(e: &mut Engine, this: Ptr) -> Ptr {
     for offset in [0x04u32, 0x08, 0x0c, 0x10, 0x14, 0x1c, 0x24] {
         e.call(NI_POINTER_CONSTRUCT, &args![t + offset, 0u32]);
     }
-    e.call(COLOR_CONSTRUCTOR, &args![t + 0x2c, 0.0f32, 0.0f32, 0.0f32]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, t + 0x2c, 0.0f32, 0.0f32, 0.0f32)
+    );
     e.call(
         COLOR_A_CONSTRUCTOR,
         &args![t + 0xa8, 0.0f32, 0.0f32, 0.0f32, 0.0f32],

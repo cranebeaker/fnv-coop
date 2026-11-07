@@ -42,9 +42,9 @@ pub fn fn_004fd440(e: &mut Engine, this: Ptr, reference: u32) {
     }
     if reference != 0 && e.call(0x009d_9f00, &args![reference]).u32() != 0 {
         let list = e.call(0x009d_9f00, &args![reference]).u32();
-        if e.call(0x0044_ddc0, &args![list]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) != 0 {
             let list = e.call(0x009d_9f00, &args![reference]).u32();
-            let first = e.call(0x0044_ddc0, &args![list]).u32();
+            let first = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list));
             let value = e.call(0x0050_fd90, &args![first, 0u32]).u32();
             let owner = e.global::<u32>(0x011c_3b3c);
             e.call(0x0045_a5e0, &args![owner, value]);

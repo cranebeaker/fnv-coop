@@ -23,7 +23,9 @@ pub fn fn_00619b20(e: &mut Engine, this: Ptr) -> bool {
 const QUEST_INFOS: u32 = 0x0061_9f70;
 /// `0084e3a0` (`ECX` = array): its count; `00877a30` (`ECX` = array, one stack word): the
 /// element's address.
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0084_e3a0;
+#[cfg(test)]
 const ELEMENT_ADDRESS: u32 = 0x0087_7a30;
 /// `00619b40` (`ECX` = info), `AL`; `0061f280` (`ECX` = info).
 const INFO_TEST_00619B40: u32 = 0x0061_9b40;
@@ -39,10 +41,14 @@ pub fn fn_00619a90(e: &mut Engine, this: Ptr, quest: u32) {
     if array == 0 {
         return;
     }
-    let count = e.call(ARRAY_COUNT, &args![array]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array));
     let mut index = 0u32;
     while index < count {
-        let element = e.call(ELEMENT_ADDRESS, &args![array, index]).u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
         let info = e.mem.u32(element);
         if info != 0
             && fn_00619b20(e, Ptr::new(info))

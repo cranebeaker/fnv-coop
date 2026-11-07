@@ -899,6 +899,7 @@ pub fn fn_00e7dc90(e: &mut Engine, this: Ptr, enable: u8) {
 /// The pairs of state values `00e7de90` picks from (`0126f0b0`, two words per index) and the
 /// setter `00e890c0` (unnamed; `thiscall`, four words).
 const STATE_PAIRS_0126F0B0: u32 = 0x0126_f0b0;
+#[cfg(test)]
 const SET_SAMPLER_STATE_00E890C0: u32 = 0x00e8_90c0;
 
 // Translated from 00e7de90 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -910,15 +911,17 @@ pub fn fn_00e7de90(e: &mut Engine, this: Ptr, index: u32) {
     let pair = STATE_PAIRS_0126F0B0.wrapping_add(index.wrapping_mul(8));
     let first = e.mem.u32(pair);
     let target = e.mem.u32(base.wrapping_add(0x10));
-    e.call(
-        SET_SAMPLER_STATE_00E890C0,
-        &args![target, 1u32, first, 0u32, 0u32],
+    typed_call!(
+        leaf::FAMILY,
+        0x00e8_90c0,
+        leaf::set_state_slot(e, target, 1u32, first, 0u32, 0u32)
     );
     let second = e.mem.u32(pair.wrapping_add(4));
     let target = e.mem.u32(base.wrapping_add(0x10));
-    e.call(
-        SET_SAMPLER_STATE_00E890C0,
-        &args![target, 2u32, second, 0u32, 0u32],
+    typed_call!(
+        leaf::FAMILY,
+        0x00e8_90c0,
+        leaf::set_state_slot(e, target, 2u32, second, 0u32, 0u32)
     );
 }
 

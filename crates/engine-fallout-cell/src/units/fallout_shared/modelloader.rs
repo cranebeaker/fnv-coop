@@ -47,6 +47,7 @@ use crate::types::NiFixedString;
 
 /// `NiPointer<T>::operator T*` (`00559450`): returns the pointer stored at
 /// the `NiPointer`'s address.
+#[cfg(test)]
 pub(crate) const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer<T>::operator=(T*)` (`0066b0d0`): releases the old object,
 /// stores and adds a reference to the new one; returns the `NiPointer`.
@@ -70,8 +71,10 @@ pub(crate) const MEMORY_COPY: u32 = 0x0040_1460;
 pub(crate) const NAME_SLOT: u32 = 0x0041_3f40;
 /// The array-element address getter of `BSStream` (`00877a30`):
 /// `base + index * 4` of the array at `this`.
+#[cfg(test)]
 pub(crate) const ARRAY_ELEMENT_ADDRESS: u32 = 0x0087_7a30;
 /// The element-count getter of that array (`0084e3a0`): the dword at +0xC.
+#[cfg(test)]
 pub(crate) const ARRAY_COUNT: u32 = 0x0084_e3a0;
 /// `NiNode::NiNode(capacity)` (`00a5ecb0`).
 pub(crate) const NI_NODE_CONSTRUCT: u32 = 0x00a5_ecb0;
@@ -142,6 +145,7 @@ pub(crate) const HOLDER_VALUE: u32 = 0x0046_0140;
 /// An empty function (`00483710`).
 pub(crate) const HOLDER_DESTRUCT: u32 = 0x0048_3710;
 /// Reads the field at +8 of an object (`0044ddc0`).
+#[cfg(test)]
 pub(crate) const FIELD_AT_8: u32 = 0x0044_ddc0;
 /// Stores a pointer into the object it is called on (`008c71b0`).
 pub(crate) const STORE_POINTER: u32 = 0x008c_71b0;
@@ -215,6 +219,7 @@ pub(crate) const QUEUED_FILE_CANCEL: u32 = 0x00c3_cb70;
 /// linker folded it with the same getter of the object unit).
 pub(crate) const QUEUED_FILE_ENTRY_GET_FILE_ENTRY: u32 = 0x0055_b980;
 /// Getter of `QueuedFileEntry::pFileName` (`0045cd60`, `this + 0x28`).
+#[cfg(test)]
 pub(crate) const QUEUED_FILE_ENTRY_GET_FILE_NAME: u32 = 0x0045_cd60;
 /// `BSFileEntry::iSize & 0x3fffffff` (`0062a100`).
 pub(crate) const FILE_ENTRY_GET_SIZE: u32 = 0x0062_a100;
@@ -356,11 +361,13 @@ pub(crate) const TES_MODEL_TEXTURE_BLOCK: u32 = 0x0048_d150;
 /// `__thiscall()` getters of the texture hash block (`009373f0`: the byte at
 /// +0; `00726070`: the dword at +4, also the "next" link of the list nodes).
 pub(crate) const BYTE_AT_0: u32 = 0x0093_73f0;
+#[cfg(test)]
 pub(crate) const FIELD_AT_4: u32 = 0x0072_6070;
 /// List helpers of the texture set list: `00500940` returns `this + 0x18`
 /// (the first node), `006815c0` returns the node itself (its item is the
 /// first dword); the next node is [`FIELD_AT_4`].
 pub(crate) const LIST_FIRST_NODE: u32 = 0x0050_0940;
+#[cfg(test)]
 pub(crate) const LIST_NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
 /// Whether the dword at +0xC (`eState`) is 0 (`0069b080`; the engine map
 /// files it under the navmesh code).
@@ -659,7 +666,9 @@ pub(crate) fn anim_group_pointer(model: Ptr<KFModel>) -> Ptr {
 
 /// `NiPointer::operator T*` on the `NiPointer` at `pointer`.
 pub(crate) fn ni_pointer_get(e: &mut Engine, pointer: Ptr) -> Ptr {
-    e.call(NI_POINTER_GET, &args![pointer]).ptr()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer))
+        .into_ret()
+        .ptr()
 }
 
 /// Copies the NUL-terminated `name` into a fresh block of the memory manager
@@ -915,15 +924,23 @@ pub fn fn_0043b1d0(e: &mut Engine, pointer: Ptr) -> u32 {
 // Translated from 0043b1e0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `BSStream`: the number of objects in the stream's array at +0x21C.
 pub fn fn_0043b1e0(e: &mut Engine, stream: Ptr) -> u32 {
-    e.call(ARRAY_COUNT, &args![stream.byte_add(0x21c)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0084_e3a0,
+        leaf::word_at_c(e, stream.byte_add(0x21c))
+    )
 }
 
 // Translated from 0043b200 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `BSStream`: the object at `index` of the stream's array at +0x21C.
 pub fn fn_0043b200(e: &mut Engine, stream: Ptr, index: u32) -> Ptr {
-    let element = e
-        .call(ARRAY_ELEMENT_ADDRESS, &args![stream.byte_add(0x21c), index])
-        .ptr::<()>();
+    let element = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, stream.byte_add(0x21c), index)
+    )
+    .into_ret()
+    .ptr::<()>();
     ni_pointer_get(e, element)
 }
 
@@ -1056,9 +1073,13 @@ pub fn fn_0043b480(e: &mut Engine, this: Ptr) -> u16 {
 // Translated from 0043b4a0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The object at `index` of the array at +0x9C.
 pub fn fn_0043b4a0(e: &mut Engine, this: Ptr, index: u32) -> Ptr {
-    let element = e
-        .call(ARRAY_ELEMENT_ADDRESS, &args![this.byte_add(0x9c), index])
-        .ptr::<()>();
+    let element = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, this.byte_add(0x9c), index)
+    )
+    .into_ret()
+    .ptr::<()>();
     ni_pointer_get(e, element)
 }
 
@@ -1087,7 +1108,11 @@ pub fn fn_0043b4f0(e: &mut Engine, this: Ptr, out: Ptr) -> Ptr {
 // Translated from 0043b540 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The field at +8 (`0044ddc0`) of the object embedded at +0x14.
 pub fn fn_0043b540(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(FIELD_AT_8, &args![this.byte_add(0x14)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.byte_add(0x14))
+    )
 }
 
 // Translated from 0043b560 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1312,7 +1337,7 @@ pub(crate) fn queued_file_entry(e: &mut Engine, this: Ptr<QueuedTexture>) -> u32
 
 /// `QueuedFileEntry::pFileName` through the game's getter (`0045cd60`).
 pub(crate) fn queued_file_name(e: &mut Engine, this: Ptr<QueuedTexture>) -> u32 {
-    e.call(QUEUED_FILE_ENTRY_GET_FILE_NAME, &args![this]).u32()
+    typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this))
 }
 
 /// The address of a queued texture's `cFlags` byte, which the game passes to
@@ -1916,7 +1941,7 @@ pub fn fn_0043c830(e: &mut Engine, this: Ptr<QueuedModel>) {
 
 /// `QueuedFileEntry::pFileName` of a queued model (the getter `0045cd60`).
 pub(crate) fn model_file_name(e: &mut Engine, this: Ptr<QueuedModel>) -> u32 {
-    e.call(QUEUED_FILE_ENTRY_GET_FILE_NAME, &args![this]).u32()
+    typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this))
 }
 
 /// The address of a queued model's `cFlags` byte, which the game passes to
@@ -2021,7 +2046,7 @@ pub fn fn_0043caa0(e: &mut Engine, this: Ptr<QueuedModel>) -> bool {
     if children.is_null() {
         return true;
     }
-    let total = e.call(FIELD_AT_8, &args![children]).u32();
+    let total = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, children));
     let finished = e.call(FINISHED_COUNT_GETTER, &args![children]).u32();
     total == finished
 }
@@ -2058,7 +2083,7 @@ pub fn queued_model_queue_me_ov2(e: &mut Engine, this: Ptr<QueuedModel>, block: 
     if block != 0 {
         let count = e.call(BYTE_AT_0, &args![block]).u8() as u32;
         if count != 0 {
-            let textures = e.call(FIELD_AT_4, &args![block]).u32();
+            let textures = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, block));
             for index in 0..count {
                 let texture = e.mem.u32(textures + index * 4);
                 if texture != 0 {
@@ -2078,14 +2103,14 @@ pub fn queued_model_queue_me_ov2(e: &mut Engine, this: Ptr<QueuedModel>, block: 
         if list != 0 {
             let mut node = e.call(LIST_FIRST_NODE, &args![list]).u32();
             while node != 0 {
-                let item_slot = e.call(LIST_NODE_ITEM_ADDRESS, &args![node]).u32();
+                let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let texture_set = e.mem.u32(item_slot);
                 if texture_set != 0 && e.mem.u32(texture_set) != 0 {
                     let key = fn_0043cc60(e, this.cast());
                     let target = e.mem.u32(texture_set);
                     e.call(QUEUE_TEXTURE_SET, &args![target, key as u32, this, 0u32]);
                 }
-                node = e.call(FIELD_AT_4, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
     }
@@ -2621,7 +2646,7 @@ pub fn queued_tree_billboard_create_billboard(e: &mut Engine, this: Ptr<QueuedTr
     e.with_stack(12, |e, record| {
         e.call(ZERO_THREE_WORDS, &args![record]);
         let tree = e.get(data, TreeBillboardData::pTree);
-        let count = e.call(ARRAY_COUNT, &args![tree]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, tree));
         e.mem.set_u32(record.addr() + 8, count);
         e.mem.set_u32(record.addr() + 4, node);
         e.mem.set_u32(record.addr(), 0);
@@ -2766,6 +2791,7 @@ pub(crate) const EFFECT_ITEM_SETTING: u32 = 0x0082_5c00;
 pub(crate) const EFFECT_SETTING_IN_TABLE: u32 = 0x0040_64b0;
 /// Whether the list at `this` (a `BSSimpleList` head) has no item and no next
 /// node (`008256d0`).
+#[cfg(test)]
 pub(crate) const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// Increments a global counter (`0040ab50`, the dword at `011c3438`).
 pub(crate) const COUNT_UNLOADED_ASSOCIATED_ITEM: u32 = 0x0040_ab50;
@@ -3179,9 +3205,13 @@ pub fn queued_magic_item_queue_me(e: &mut Engine, this: Ptr<QueuedMagicItem>) {
     } else {
         magic_item.addr() + 0xc
     };
-    if !e.call(LIST_IS_EMPTY, &args![list.wrapping_add(4)]).bool() {
+    if !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, list.wrapping_add(4))
+    ) {
         while list != 0 {
-            let node = e.call(LIST_NODE_ITEM_ADDRESS, &args![list + 4]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list + 4));
             let item = e.mem.u32(node);
             let setting = e.call(EFFECT_ITEM_SETTING, &args![item]).u32();
             if e.call(EFFECT_SETTING_IN_TABLE, &args![setting]).bool()
@@ -3197,7 +3227,7 @@ pub fn queued_magic_item_queue_me(e: &mut Engine, this: Ptr<QueuedMagicItem>) {
                 }
                 e.call(ASSOCIATED_ITEM_COUNT_DOWN, &args![setting]);
             }
-            let next = e.call(FIELD_AT_4, &args![list + 4]).u32();
+            let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list + 4));
             list = if next == 0 { 0 } else { next - 4 };
         }
     }
@@ -3285,7 +3315,8 @@ pub fn queued_magic_item_check_finished(e: &mut Engine, this: Ptr<QueuedMagicIte
     if e.call(TASK_STATE_AT_LEAST_4, &args![this]).bool() && fn_0043caa0(e, this.cast()) {
         let magic_item = e.get(this, QueuedMagicItem::pMagicItem);
         e.call(MAGIC_ITEM_FINISHED_LOADING, &args![magic_item]);
-        if e.call(FIELD_AT_8, &args![this]).u32() == 0 && !this.is_null() {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) == 0 && !this.is_null()
+        {
             e.vcall(this.addr(), 0, &args![1u32]);
         }
     }
@@ -3767,6 +3798,7 @@ pub(crate) const NPC_SETUP_HEAD: u32 = 0x0060_7420;
 pub(crate) const KILL_EGT_DATA: u32 = 0x0061_3fd0;
 /// Returns the dword at +0xC of the object it is called on (`0084e3a0`; for a
 /// form, its form ID).
+#[cfg(test)]
 pub(crate) const FIELD_AT_C: u32 = 0x0084_e3a0;
 /// A function of `bsfacegenmanager.cpp` (`00657150`, no name in the engine
 /// map), `__cdecl(NPC, priority, task)`.
@@ -3776,6 +3808,7 @@ pub(crate) const QUEUE_NPC_FACE_GEN: u32 = 0x0065_7150;
 pub(crate) const SET_REFERENCE_ID_ON_SCENEGRAPH: u32 = 0x004b_6dc0;
 /// The base form of a reference (`007af430`, `this + 0x20`; named
 /// `BGSSaveFormBuffer::GetForm` in the engine map).
+#[cfg(test)]
 pub(crate) const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 /// The `PlayerCharacter` singleton pointer and the `TES` singleton pointer.
 pub(crate) const PLAYER_CHARACTER: u32 = 0x011d_ea3c;
@@ -3842,6 +3875,7 @@ pub(crate) const HELMET_ROTATION_ANGLE: u32 = 0x0101_6b78;
 /// `this + 0x34`, the local rotation matrix of an `NiAVObject`.
 pub(crate) const LOCAL_ROTATE_ADDRESS: u32 = 0x006a_9540;
 /// `NiMatrix3` default constructor (`006815c0`): returns `this`.
+#[cfg(test)]
 pub(crate) const MATRIX_CONSTRUCT: u32 = 0x0068_15c0;
 /// `sin` and `cos` of an angle through the game's helper (`004169a0`),
 /// `__cdecl(angle, sin out, cos out)` (`FSINCOS`).
@@ -4127,11 +4161,15 @@ pub fn queued_head_run(e: &mut Engine, this: Ptr<QueuedHead>) {
             );
         });
         let npc = e.get(this, QueuedHead::pNPC);
-        if e.call(FIELD_AT_C, &args![npc]).u32() == 7 {
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, npc)) == 7 {
             let npc = e.get(this, QueuedHead::pNPC);
             // The object embedded in the NPC at +0x10C; its dword at +4 is
             // the race.
-            let race = e.call(FIELD_AT_4, &args![npc.byte_add(0x10c)]).u32();
+            let race = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, npc.byte_add(0x10c))
+            );
             e.call(KILL_EGT_DATA, &args![race]);
         }
         e.call(FACE_GEN_SECTION_LEAVE, &args![]);
@@ -4163,7 +4201,7 @@ pub fn fn_0043ed90(e: &mut Engine, this: Ptr<QueuedHead>, reference: Ptr, argume
                 HEAD_SETUP_SOURCE_LINE
             ],
         );
-        let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+        let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let skinned = ni_pointer_get(e, skinned_slot);
         let biped = ni_pointer_get(e, biped_slot);
         e.call(
@@ -4171,11 +4209,11 @@ pub fn fn_0043ed90(e: &mut Engine, this: Ptr<QueuedHead>, reference: Ptr, argume
             &args![base_form, reference, argument, biped, skinned],
         );
         if reference.addr() != e.global::<u32>(PLAYER_CHARACTER) {
-            let form_id = e.call(FIELD_AT_C, &args![reference]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             let biped = ni_pointer_get(e, biped_slot);
             e.call(SET_REFERENCE_ID_ON_SCENEGRAPH, &args![biped, form_id]);
             if !ni_pointer_get(e, skinned_slot).is_null() {
-                let form_id = e.call(FIELD_AT_C, &args![reference]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
                 let skinned = ni_pointer_get(e, skinned_slot);
                 e.call(SET_REFERENCE_ID_ON_SCENEGRAPH, &args![skinned, form_id]);
             }
@@ -4615,18 +4653,22 @@ pub(crate) fn helmet_npc(e: &mut Engine, this: Ptr<QueuedHelmet>) -> Option<Ptr>
     }
     let biped = e.get(this, QueuedHelmet::pBipedAnim);
     let reference = fn_0043f010(e, biped);
-    if e.call(REFERENCE_BASE_FORM, &args![reference]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference)) == 0 {
         return None;
     }
     let biped = e.get(this, QueuedHelmet::pBipedAnim);
     let reference = fn_0043f010(e, biped);
-    let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if e.call(FORM_TYPE, &args![base_form]).u32() != 0x2a {
         return None;
     }
     let biped = e.get(this, QueuedHelmet::pBipedAnim);
     let reference = fn_0043f010(e, biped);
-    Some(e.call(REFERENCE_BASE_FORM, &args![reference]).ptr())
+    Some(
+        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
+            .into_ret()
+            .ptr(),
+    )
 }
 
 /// The body of the inner loop of [`queued_helmet_check_finished`] for a
@@ -4669,7 +4711,7 @@ pub(crate) fn helmet_orient_child(
     {
         let rotation = frame.byte_add(HELMET_FRAME_ROTATION);
         let product = frame.byte_add(HELMET_FRAME_PRODUCT);
-        e.call(MATRIX_CONSTRUCT, &args![rotation]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
         let angle = e.global::<f32>(HELMET_ROTATION_ANGLE);
         ni_matrix3_make_y_rotation(e, rotation, angle);
         let local_rotate = e.call(LOCAL_ROTATE_ADDRESS, &args![child]).ptr();
@@ -4717,7 +4759,7 @@ pub fn ni_matrix3_multiply(e: &mut Engine, this: Ptr, out: Ptr, other: Ptr) -> P
     // The result is built on the game's stack (after `NiMatrix3()`, which
     // does nothing but return `this`).
     e.with_stack(36, |e, result| {
-        e.call(MATRIX_CONSTRUCT, &args![result]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, result));
         let left: Vec<f64> = (0..9)
             .map(|i| e.mem.f32(this.addr() + 4 * i) as f64)
             .collect();

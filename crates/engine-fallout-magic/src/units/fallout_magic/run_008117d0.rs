@@ -28,6 +28,7 @@ const SET_STATE: u32 = 0x0081_33d0;
 /// The float `fSpeed` starts at (`01017a3c`).
 const INITIAL_SPEED: u32 = 0x0101_7a3c;
 /// `00440d80` (`thiscall`): bit 0x20 of the form flags (+8).
+#[cfg(test)]
 const FORM_FLAG_20: u32 = 0x0044_0d80;
 /// The destructor body `00811e10` (`MagicBoltProjectile::~MagicBoltProjectile` in the
 /// engine map).
@@ -72,7 +73,7 @@ pub fn fn_008117d0(e: &mut Engine, this: Ptr) -> Ptr {
 /// Unnamed in the engine map (`thiscall`): true (`EAX` = 1) when bit 0x20 of the form
 /// flags (`00440d80`) is clear, false (0) when it is set (`NEG`/`SBB`/`ADD`).
 pub fn fn_00811930(e: &mut Engine, this: Ptr) -> bool {
-    !e.call(FORM_FLAG_20, &args![this]).bool()
+    !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this))
 }
 
 // Translated from 00811950 (decompiled, FalloutNV.exe 1.4.0.525)

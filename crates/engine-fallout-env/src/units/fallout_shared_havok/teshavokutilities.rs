@@ -17,8 +17,10 @@ const CHILD_COUNT: u32 = 0x0043_b480;
 /// Child at an index (`0043b4a0`, thiscall, one word).
 const CHILD_AT: u32 = 0x0043_b4a0;
 /// Vector constructor (`006815c0`, thiscall).
+#[cfg(test)]
 const VECTOR_CONSTRUCTOR: u32 = 0x0068_15c0;
 /// Owner getter used on collision objects and Havok bodies (`0044ddc0`).
+#[cfg(test)]
 const OWNER_GETTER: u32 = 0x0044_ddc0;
 /// Transform constructor (`00476a80`, thiscall).
 const TRANSFORM_CONSTRUCTOR: u32 = 0x0047_6a80;
@@ -175,7 +177,7 @@ pub fn tes_havok_utilities_add_explosion_impulse(
                 }
             }
             let scaled = (force as f64 * f32::from_bits(multiplier) as f64) as f32;
-            e.call(VECTOR_CONSTRUCTOR, &args![velocity]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, velocity));
             e.vcall(body, 0xf0, &args![velocity]);
             e.call(0x0096_1190, &args![velocity, origin]);
             e.call(0x0062_aea0, &args![velocity]);
@@ -209,7 +211,7 @@ pub fn tes_havok_utilities_add_explosion_impulse(
 /// open: the stack cookie check is not modelled.
 pub fn tes_havok_utilities_add_velocity(e: &mut Engine, node: Ptr, velocity: Ptr, keep: bool) {
     e.with_stack(0x10, |e, vector| {
-        e.call(VECTOR_CONSTRUCTOR, &args![vector]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
         e.call(0x004a_3e00, &args![vector, velocity]);
         fn_0062b930(e, node, vector, keep);
     });
@@ -253,7 +255,7 @@ pub fn fn_0062b930(e: &mut Engine, node: Ptr, vector: Ptr, keep: bool) {
             let word = e.call(0x0051_7630, &args![body]).u32();
             e.mem.set_u32(handle, word);
             if e.call(0x00c8_cce0, &args![handle]).bool() {
-                e.call(VECTOR_CONSTRUCTOR, &args![velocity]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, velocity));
                 set_vector_from(e, velocity, vector);
                 if !keep {
                     let value = e.call(0x0056_0d80, &args![body]).u32();
@@ -280,7 +282,7 @@ pub fn fn_0062b930(e: &mut Engine, node: Ptr, vector: Ptr, keep: bool) {
 /// through `0062bae0`. open: the stack cookie check is not modelled.
 pub fn fn_0062ba80(e: &mut Engine, node: Ptr, vector: Ptr, keep: bool) {
     e.with_stack(0x10, |e, converted| {
-        e.call(VECTOR_CONSTRUCTOR, &args![converted]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, converted));
         e.call(0x004a_3e00, &args![converted, vector]);
         fn_0062bae0(e, node, converted, keep);
     });
@@ -299,7 +301,7 @@ pub fn fn_0062bae0(e: &mut Engine, node: Ptr, vector: Ptr, keep: bool) {
     let body = node_rigid_body(e, node);
     if body != 0 {
         e.with_stack(0x10, |e, velocity| {
-            e.call(VECTOR_CONSTRUCTOR, &args![velocity]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, velocity));
             set_vector_from(e, velocity.addr(), vector);
             if !keep {
                 let value = e.call(0x0056_0e10, &args![body]).u32();
@@ -348,10 +350,10 @@ pub fn tes_havok_utilities_remove_havok_from_scene_graph(e: &mut Engine, node: P
 pub fn ni_av_object_set_collision_object(e: &mut Engine, this: Ptr, collision: Ptr) {
     let slot = this.addr() + 0x1c;
     e.call(0x0066_b0d0, &args![slot, collision]);
-    if e.call(0x0055_9450, &args![slot]).u32() != 0 {
-        let object = e.call(0x0055_9450, &args![slot]).u32();
-        if e.call(OWNER_GETTER, &args![object]).u32() != this.addr() {
-            let object = e.call(0x0055_9450, &args![slot]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) != 0 {
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object)) != this.addr() {
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
             e.vcall(object, 0x8c, &args![this]);
         }
     }
@@ -411,7 +413,11 @@ pub fn tes_havok_utilities_inspect_havok_objects(
 // Translated from 0062be70 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns `00726070` of the member at `this + 0x30`.
 pub fn fn_0062be70(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(0x0072_6070, &args![this.addr() + 0x30]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this.addr() + 0x30)
+    )
 }
 
 // Translated from 0062be90 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -477,10 +483,10 @@ pub fn tes_havok_utilities_get_local_point_within_collision(
             e.call(0x0043_7c10, &args![aabb]);
             e.call(0x00c8_d390, &args![body, aabb]);
             let low = at(0x4c);
-            e.call(VECTOR_CONSTRUCTOR, &args![low]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, low));
             e.call(0x0045_8620, &args![low, aabb]);
             let high = at(0x58);
-            e.call(VECTOR_CONSTRUCTOR, &args![high]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, high));
             e.call(0x0045_8620, &args![high, at(0x30)]);
             let near_low = x87_quiet_bits(e.global::<u32>(FORTY_FIVE_HUNDREDTHS));
             let first = e.call(SCALED_VECTOR, &args![at(0x64), near_low, low]).u32();
@@ -505,14 +511,17 @@ pub fn tes_havok_utilities_get_local_point_within_collision(
                 let value = e.call(0x0047_6b70, &args![from_upper, from_lower]).f32();
                 axes[axis as usize] = x87_quiet_bits(value.to_bits());
             }
-            let random = e
-                .call(0x0041_6870, &args![at(0xac), axes[0], axes[1], axes[2]])
-                .u32();
+            let random = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, at(0xac), axes[0], axes[1], axes[2])
+            );
             copy_words(e, point, random, 3);
             let transform_point = e
                 .call(0x0043_b300, &args![BODY_TABLE_012683C8, body])
                 .bool()
-                || e.call(OWNER_GETTER, &args![collision]).u32() != node.addr();
+                || typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, collision))
+                    != node.addr();
             if transform_point {
                 let body_transform = at(0xf0);
                 e.call(0x0056_ded0, &args![body_transform]);
@@ -635,19 +644,24 @@ pub fn tes_havok_utilities_consolidate_sim_islands(e: &mut Engine, reference: Pt
             let slot = e.call(0x0062_9ab0, &args![bodies, index]).u32();
             e.mem.u32(slot)
         };
-        if e.call(0x0072_6070, &args![bodies]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, bodies)) != 0 {
             let first = body_at(e, 0);
-            let world = e.call(OWNER_GETTER, &args![first]).u32();
+            let world = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, first));
             if world != 0 {
                 e.call(0x0048_3710, &args![world]);
                 let mut index = 1i32;
-                while index < e.call(0x0072_6070, &args![bodies]).i32() {
+                while index
+                    < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, bodies))
+                        .into_ret()
+                        .i32()
+                {
                     let first = body_at(e, 0);
                     let first_island = e.call(0x009a_d610, &args![first]).u32();
                     let other = body_at(e, index as u32);
                     let other_island = e.call(0x009a_d610, &args![other]).u32();
                     let other = body_at(e, index as u32);
-                    let other_world = e.call(OWNER_GETTER, &args![other]).u32();
+                    let other_world =
+                        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other));
                     if world == other_world && first_island != other_island {
                         let other = body_at(e, index as u32);
                         let first = body_at(e, 0);

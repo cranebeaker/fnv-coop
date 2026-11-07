@@ -46,6 +46,7 @@ const LIST_BOX_CONSTRUCTOR: u32 = 0x0073_0810;
 /// The list box's destructor body.
 const LIST_BOX_DESTRUCTOR: u32 = 0x0073_08e0;
 /// The hot-key wheel's constructor (the shared body that answers `this`).
+#[cfg(test)]
 const WHEEL_CONSTRUCTOR: u32 = 0x0068_15c0;
 /// The hot-key wheel's destructor body.
 const WHEEL_DESTRUCTOR: u32 = 0x0070_1520;
@@ -101,6 +102,7 @@ const SETTING_STRING: u32 = 0x0040_3df0;
 /// `Menu::PrepForVisibility` (`this`, flag).
 const MENU_PREP_FOR_VISIBILITY: u32 = 0x00a1_dc20;
 /// The word at +4 of an object (a menu's `pMenu` tile).
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 /// `Interface::IsTopMenuID` (cdecl, one word).
 const IS_TOP_MENU_ID: u32 = 0x0070_2450;
@@ -121,6 +123,7 @@ const WHEEL_COUNT: u32 = 0x006e_4ba0;
 /// `ItemChange::GetItemHealth` (`this`, flag; ST0).
 const ITEM_GET_HEALTH: u32 = 0x004b_cdb0;
 /// The item's object (`this` only).
+#[cfg(test)]
 const ITEM_OBJECT: u32 = 0x0044_ddc0;
 /// A form's type byte (`this` only).
 const FORM_TYPE: u32 = 0x0040_1170;
@@ -202,7 +205,7 @@ fn set_trait_from_int(e: &mut Engine, tile: u32, trait_id: i32, value: i32) {
 /// The type byte of the selected item's object.
 fn current_item_type(e: &mut Engine) -> u8 {
     let item = current_item(e);
-    let object = e.call(ITEM_OBJECT, &args![item]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     e.call(FORM_TYPE, &args![object]).u8()
 }
 
@@ -220,7 +223,11 @@ pub fn inventory_menu_inventory_menu(
     e.call(MENU_CONSTRUCTOR, &args![this]);
     e.mem.set_u32(this.addr(), INVENTORY_MENU_VTABLE);
     e.call(LIST_BOX_CONSTRUCTOR, &args![this.byte_add(INVENTORY_LIST)]);
-    e.call(WHEEL_CONSTRUCTOR, &args![this.byte_add(HOT_KEY_WHEEL)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(HOT_KEY_WHEEL))
+    );
     e.call(
         UPDATE_LIST_CONSTRUCTOR,
         &args![this.byte_add(ITEM_UPDATE_LIST)],
@@ -317,7 +324,7 @@ pub fn inventory_menu_create(e: &mut Engine) -> u32 {
             return finish_create(e, root);
         }
     }
-    if me(e) != 0 && e.call(WORD_AT_FOUR, &args![me(e)]).u32() != 0 {
+    if me(e) != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e))) != 0 {
         let menu = me(e);
         e.vcall(menu, 0, &args![1u32]);
     }
@@ -510,7 +517,7 @@ fn gamepad_wheel_shown(e: &mut Engine, this: Ptr<InventoryMenu>) {
         show_message(e, BROKEN_ITEM_SETTING);
     } else {
         let keyring_trait = e.global::<u32>(TRAIT_FROM_NAME_01073974);
-        let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+        let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         let refused = !e.call(TILE_IS_TRUE, &args![tile, keyring_trait]).bool()
             || (current_item(e) != 0 && current_item_type(e) == 0x19);
         if refused {
@@ -519,7 +526,7 @@ fn gamepad_wheel_shown(e: &mut Engine, this: Ptr<InventoryMenu>) {
             let item = current_item(e);
             e.call(WHEEL_ASSIGN, &args![wheel, item]);
             let item = current_item(e);
-            let object = e.call(ITEM_OBJECT, &args![item]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             e.with_stack(4, |e, slot| {
                 e.mem.set_u32(slot.addr(), object);
                 e.call(LIST_ADD_OBJECT, &args![me_addr + ITEM_UPDATE_LIST, slot]);
@@ -547,7 +554,7 @@ fn mouse_hot_keys(e: &mut Engine, this: Ptr<InventoryMenu>) {
             break;
         }
         let keyring_open = e.global::<u32>(TRAIT_FROM_NAME_01073984);
-        let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+        let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         if e.call(TILE_IS_TRUE, &args![tile, keyring_open]).bool() {
             break;
         }
@@ -620,7 +627,7 @@ fn finish_idle(e: &mut Engine, this: Ptr<InventoryMenu>) {
     } else if tab == 0x19 {
         let second = if current_item(e) != 0 && {
             let item = current_item(e);
-            let object = e.call(ITEM_OBJECT, &args![item]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             let value = e.call(OBJECT_VALUE_004BE180, &args![object]).f64();
             value != e.global::<f64>(ZERO_DOUBLE)
         } {
@@ -630,7 +637,7 @@ fn finish_idle(e: &mut Engine, this: Ptr<InventoryMenu>) {
         };
         let first = if current_item(e) != 0 && {
             let item = current_item(e);
-            let object = e.call(ITEM_OBJECT, &args![item]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             let value = e.call(OBJECT_VALUE_004BE060, &args![object]).f64();
             value != e.global::<f64>(ZERO_DOUBLE)
         } {
@@ -684,7 +691,9 @@ const PIPBOY_MANAGER: u32 = 0x0070_4370;
 const SET_TAB_KNOB_POSITION: u32 = 0x007f_a0f0;
 const MOVE_KNOB: u32 = 0x007f_8610;
 /// The word at +0 of an object (`00559450`) and the identity `006815c0`.
+#[cfg(test)]
 const WORD_AT_ZERO: u32 = 0x0055_9450;
+#[cfg(test)]
 const IDENTITY: u32 = 0x0068_15c0;
 /// `ExtraDataList::GetCount` (Xbox PDB; a 16-bit count).
 const EXTRA_GET_COUNT: u32 = 0x0041_8770;
@@ -787,7 +796,7 @@ const TILE_GET_STRING: u32 = 0x00a0_11f0;
 
 /// The element of a list node: the word at the address `006815c0` answers.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(IDENTITY, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -799,7 +808,7 @@ fn ftol(e: &mut Engine, value: f64) -> i32 {
 /// The page state slot for the current tab: 5 while the keyring is open.
 fn page_slot(e: &mut Engine) -> u32 {
     let keyring = e.global::<u32>(TRAIT_FROM_NAME_01073984);
-    let tile = e.call(WORD_AT_FOUR, &args![me(e)]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e)));
     if e.call(TILE_IS_TRUE, &args![tile, keyring]).bool() {
         5
     } else {
@@ -866,11 +875,11 @@ pub fn fn_00780c00(e: &mut Engine, tile: u32) {
 
 /// The first extra data list of an item (`*006815c0(item's list)`), or 0.
 fn first_extra_list(e: &mut Engine, item: u32) -> u32 {
-    if e.call(WORD_AT_ZERO, &args![item]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) == 0 {
         return 0;
     }
-    let list = e.call(WORD_AT_ZERO, &args![item]).u32();
-    let node = e.call(IDENTITY, &args![list]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+    let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     e.mem.u32(node)
 }
 
@@ -886,7 +895,11 @@ pub fn inventory_menu_drop_current_item(e: &mut Engine, count: i32) {
             let word = e.mem.u32(DROP_POSITION + 4 * i);
             e.mem.set_u32(position.addr() + 4 * i, word);
         }
-        let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+        let object = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, current_item(e))
+        );
         let mut extra = first_extra_list(e, current_item(e));
         if count == 0 {
             return;
@@ -905,7 +918,11 @@ pub fn inventory_menu_drop_current_item(e: &mut Engine, count: i32) {
             return;
         }
         if current_item(e) != 0 {
-            let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+            let object = typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, current_item(e))
+            );
             e.with_stack(4, |e, slot| {
                 e.mem.set_u32(slot.addr(), object);
                 e.call(LIST_ADD_OBJECT, &args![me(e) + ITEM_UPDATE_LIST, slot]);
@@ -940,35 +957,59 @@ fn player_value(e: &mut Engine, slot: u32, id: u32) -> i32 {
 /// item. Updates the menu.
 pub fn inventory_menu_select_current_item(e: &mut Engine, this: Ptr<InventoryMenu>) {
     let base = this.addr();
-    let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, current_item(e))
+    );
     let extra = first_extra_list(e, current_item(e));
     let keyring = e.global::<u32>(TRAIT_FROM_NAME_01073974);
-    let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     if e.call(TILE_IS_TRUE, &args![tile, keyring]).bool() {
         e.call(
             LIST_SORT,
             &args![base + INVENTORY_LIST, 0x0078_32a0u32, 0u32, 0x7fff_ffffu32],
         );
     }
-    let updated = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+    let updated = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, current_item(e))
+    );
     e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), updated);
         e.call(LIST_ADD_OBJECT, &args![base + ITEM_UPDATE_LIST, slot]);
     });
-    let current = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+    let current = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, current_item(e))
+    );
     let special = current == e.call(GET_DEFAULT_OBJECT, &args![0u32]).u32() || {
-        let current = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+        let current = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, current_item(e))
+        );
         current == e.call(LOOKUP_FORM_BY_ID, &args![FORM_ID_000CCEF2]).u32()
     };
     if special && player_value(e, 8, 0x10) == player_value(e, 0x1c, 0x10) {
         show_cannot_use(e);
     } else {
-        let current = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+        let current = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, current_item(e))
+        );
         if current == e.call(GET_DEFAULT_OBJECT, &args![0x15u32]).u32() && !fn_00780f70(e) {
             show_cannot_use(e);
         } else {
             let worn = e.call(ITEM_GET_WORN, &args![current_item(e), 0u32]).bool();
-            let count = e.call(WORD_AT_FOUR, &args![current_item(e)]).u32();
+            let count = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, current_item(e))
+            );
             let player = e.global::<u32>(PLAYER);
             let queue = if worn { QUEUE_UNEQUIP } else { QUEUE_EQUIP };
             e.call(
@@ -1139,7 +1180,7 @@ fn enter_item(e: &mut Engine, this: Ptr<InventoryMenu>) {
         .call(PLAYER_CAN_USE, &args![player, current_item(e)])
         .bool();
     let keyring = e.global::<u32>(TRAIT_FROM_NAME_01073974);
-    let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     e.call(SET_TRAIT_FROM_INT, &args![tile, keyring, u32::from(usable)]);
     let icon = e
         .call(ITEM_GET_ICON_ONE, &args![current_item(e), 0u32])
@@ -1147,7 +1188,11 @@ fn enter_item(e: &mut Engine, this: Ptr<InventoryMenu>) {
     let image = tile_at(e, base, 0x54);
     e.call(SET_STRING_TRAIT, &args![image, 0xfccu32, icon, 1u32]);
     if current_item_type(e) == 0x28 {
-        let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+        let object = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, current_item(e))
+        );
         let weapon = e.call(OBJECT_GETTER_008D85E0, &args![object]).u32();
         let badge = e.call(WEAPON_TYPE_BADGE, &args![weapon]).u32();
         let card = tile_at(e, base, 0x78);
@@ -1186,7 +1231,11 @@ fn enter_item(e: &mut Engine, this: Ptr<InventoryMenu>) {
     e.with_stack(0x104, |e, path| {
         e.call(STRCPY_S, &args![path, 0x104u32, ICON_FOLDER]);
         let folder_length = e.call(STRLEN, &args![path]).u32();
-        let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+        let object = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, current_item(e))
+        );
         let equip_type = e.call(GET_EQUIP_TYPE, &args![object]).u32();
         let icon = e.call(GET_EQUIP_TYPE_ICON, &args![equip_type]).u32();
         e.call(STRCAT_S, &args![path, 0x104u32, icon]);
@@ -1231,7 +1280,7 @@ pub fn inventory_menu_do_leave(e: &mut Engine, this: Ptr<InventoryMenu>, id: i32
         inventory_menu_clear_current_item(e, this);
     }
     let keyring = e.global::<u32>(TRAIT_FROM_NAME_01073974);
-    let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     e.call(SET_TRAIT_FROM_INT, &args![tile, keyring, 0u32]);
 }
 
@@ -1258,7 +1307,7 @@ pub fn inventory_menu_update_buttons(e: &mut Engine, this: Ptr<InventoryMenu>) {
             e.call(SET_STRING_TRAIT, &args![button, TRAIT_STRING, text, 1u32]);
         }
         let keyring = e.global::<u32>(TRAIT_FROM_NAME_01073974);
-        let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+        let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         let usable = e.call(GET_FLOAT_TRAIT, &args![tile, keyring]).f64();
         let button = tile_at(e, base, 0x40);
         e.call(
@@ -1314,7 +1363,7 @@ pub fn inventory_menu_is_item_repairable(
 ) -> bool {
     let full = e.global::<f64>(FULL_HEALTH);
     let object = if item != 0 {
-        e.call(ITEM_OBJECT, &args![item]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
     } else {
         0
     };
@@ -1333,7 +1382,11 @@ pub fn inventory_menu_is_item_repairable(
     if !(health < full) {
         return false;
     }
-    if e.call(WORD_AT_FOUR, &args![item]).i32() > 1 {
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+        .into_ret()
+        .i32()
+        > 1
+    {
         return true;
     }
     e.with_stack(8, |e, group| {
@@ -1345,12 +1398,12 @@ pub fn inventory_menu_is_item_repairable(
         let mut repairable = false;
         let mut node = group.addr();
         while node != 0 {
-            let entry_slot = e.call(IDENTITY, &args![node]).u32();
+            let entry_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(entry_slot) == 0 {
                 break;
             }
             let entry = node_item(e, node);
-            let other = e.call(ITEM_OBJECT, &args![entry]).u32();
+            let other = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             let entry = node_item(e, node);
             let other_extra = first_extra_list(e, entry);
             let entry = node_item(e, node);
@@ -1368,11 +1421,11 @@ pub fn inventory_menu_is_item_repairable(
                     }
                 }
             }
-            node = e.call(WORD_AT_FOUR, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let head = group.addr();
         loop {
-            let slot = e.call(IDENTITY, &args![head]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, head));
             if e.mem.u32(slot) == 0 {
                 break;
             }
@@ -1598,7 +1651,7 @@ pub fn inventory_menu_filter_func(e: &mut Engine, item: u32) -> bool {
         return true;
     }
     let object = if item != 0 {
-        e.call(ITEM_OBJECT, &args![item]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
     } else {
         0
     };
@@ -1648,14 +1701,18 @@ pub fn fn_00782810(e: &mut Engine, item: u32) -> bool {
     if item == 0 {
         return true;
     }
-    let object = e.call(ITEM_OBJECT, &args![item]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     e.call(FORM_TYPE, &args![object]).u32() != 0x2e
 }
 
 /// Sets the visibility (`0xfa3`) of the list entry's tile through
 /// `006317a0` (the tile's word at +4).
 fn set_entry_flag(e: &mut Engine, tile: u32, flag: u32) {
-    let word = e.call(WORD_AT_ZERO, &args![tile.wrapping_add(4)]).u32();
+    let word = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, tile.wrapping_add(4))
+    );
     let slot = e
         .call(TILE_LIST_LOOKUP, &args![tile.wrapping_add(4), word])
         .u32();
@@ -1674,14 +1731,18 @@ pub fn inventory_menu_init_func(e: &mut Engine, tile: u32, item: u32) {
     if item == 0 {
         return;
     }
-    if e.call(WORD_AT_FOUR, &args![item]).i32() > 1 {
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+        .into_ret()
+        .i32()
+        > 1
+    {
         e.with_stack(0x80, |e, buffer| {
             let format = if e.call(ITEM_GET_MOD_SLOTS, &args![item]).bool() {
                 MOD_COUNT_FORMAT
             } else {
                 COUNT_FORMAT
             };
-            let count = e.call(WORD_AT_FOUR, &args![item]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
             let name = e.call(ITEM_GET_FULL_NAME, &args![item]).u32();
             e.call(SPRINTF_S, &args![buffer, 0x80u32, format, name, count]);
             e.call(SET_STRING_TRAIT, &args![tile, TRAIT_STRING, buffer, 1u32]);
@@ -1689,7 +1750,7 @@ pub fn inventory_menu_init_func(e: &mut Engine, tile: u32, item: u32) {
     }
     e.call(SET_TRAIT_FROM_INT, &args![tile, 0xfaau32, 0x1du32]);
     let item_type = |e: &mut Engine| {
-        let object = e.call(ITEM_OBJECT, &args![item]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         e.call(FORM_TYPE, &args![object]).u32()
     };
     if item_type(e) == 0x29 || item_type(e) == 0x18 || item_type(e) == 0x28 {
@@ -1708,7 +1769,7 @@ pub fn inventory_menu_init_func(e: &mut Engine, tile: u32, item: u32) {
     };
     let flag = if ammo {
         item != 0 && {
-            let object = e.call(ITEM_OBJECT, &args![item]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             let player = e.global::<u32>(PLAYER);
             let weapon = e.call(GET_CURRENT_WEAPON, &args![player]).u32();
             object == e.call(GET_CURRENT_AMMO, &args![weapon, player]).u32()
@@ -1737,9 +1798,6 @@ const WEIGHT_FORMAT: u32 = 0x0107_3b20;
 const CAPS_LIMIT_SETTING: u32 = 0x011d_3a08;
 const CAPS_LIMIT_FORMAT: u32 = 0x0107_3b1c;
 const PAIR_FORMAT: u32 = 0x0107_3b14;
-/// `MiddleHighProcess::GetSavedAcquireObject` (the engine map's name for
-/// the getter body `008d8520`, on the player).
-const PLAYER_GETTER_008D8520: u32 = 0x008d_8520;
 /// `BGSEntryPoint::HandleEntryPoint` (Xbox PDB, cdecl).
 const HANDLE_ENTRY_POINT: u32 = 0x005e_58f0;
 /// `Actor::GetGoldAmount` (Xbox PDB) and the player's float `008a0c20`.
@@ -1753,8 +1811,6 @@ const LABEL_TRAIT_NAME: u32 = 0x0106_ed20;
 const LABEL_CHILD_NAME: u32 = 0x0107_3b00;
 /// `Tile::GetChildByName` (Xbox PDB; `this`, name).
 const TILE_GET_CHILD_BY_NAME: u32 = 0x00a0_3da0;
-/// Whether the update list is empty (`008256d0`), its clear (`00470470`).
-const UPDATE_LIST_IS_EMPTY: u32 = 0x0082_56d0;
 const UPDATE_LIST_CLEAR: u32 = 0x0047_0470;
 /// `InventoryChanges::GetItemGroup` (Xbox PDB; `this`, object, list), the
 /// lookup of an object type (`004c6ba0`; `this`, type, address).
@@ -1824,21 +1880,21 @@ pub fn inventory_menu_update_inventory_menu(e: &mut Engine) {
     let tile = tile_at(e, me(e), 0x3c);
     set_trait_from_int(e, tile, TRAIT_VISIBLE, 0);
     let keyring = e.global::<u32>(TRAIT_FROM_NAME_01073984);
-    let tile = e.call(WORD_AT_FOUR, &args![me(e)]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e)));
     e.call(SET_TRAIT_FROM_INT, &args![tile, keyring, 0u32]);
     e.vcall(me(e), 0x14, &args![0x1du32, 0u32]);
     let updates = me(e) + ITEM_UPDATE_LIST;
-    if !e.call(UPDATE_LIST_IS_EMPTY, &args![updates]).bool() && changes != 0 {
+    if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, updates)) && changes != 0 {
         inventory_menu_save_page_state(e);
         e.vcall(me(e) + INVENTORY_LIST, 0, &args![0u32]);
         let mut node = me(e) + ITEM_UPDATE_LIST;
         while node != 0 {
-            let slot = e.call(IDENTITY, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 {
                 break;
             }
             rebuild_group(e, changes, node);
-            node = e.call(WORD_AT_FOUR, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let list = me(e) + INVENTORY_LIST;
         e.call(
@@ -1897,10 +1953,10 @@ fn write_status_line(e: &mut Engine, buffer: Ptr) {
     let weight = e.call(FLOAT_TO_INT, &args![x87_store32(weight)]).i32();
     let weight = x87_store32(f64::from(weight));
     let player = e.global::<u32>(PLAYER);
-    let process = e.call(PLAYER_GETTER_008D8520, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     let held = e.vcall(process, 0x148, &args![]).u32();
     let form = if held != 0 {
-        e.call(ITEM_OBJECT, &args![held]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, held))
     } else {
         e.call(LOOKUP_FORM_BY_ID, &args![0x1f4u32]).u32()
     };
@@ -1965,7 +2021,7 @@ fn relabel(e: &mut Engine) {
         e.call(SET_STRING_TRAIT, &args![tile, TRAIT_STRING, text, 1u32]);
     }
     let text = e.call(SETTING_STRING, &args![0x011d_4378u32]).u32();
-    let menu_tile = e.call(WORD_AT_FOUR, &args![me(e)]).u32();
+    let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e)));
     let child = e
         .call(TILE_GET_CHILD_BY_NAME, &args![menu_tile, LABEL_CHILD_NAME])
         .u32();
@@ -1996,12 +2052,12 @@ fn rebuild_group(e: &mut Engine, changes: u32, node: u32) {
         );
         let mut entry_node = group.addr();
         while entry_node != 0 {
-            let slot = e.call(IDENTITY, &args![entry_node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, entry_node));
             if e.mem.u32(slot) == 0 {
                 break;
             }
             let item = node_item(e, entry_node);
-            let object = e.call(ITEM_OBJECT, &args![item]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             let named = e
                 .call(
                     RT_DYNAMIC_CAST,
@@ -2023,7 +2079,7 @@ fn rebuild_group(e: &mut Engine, changes: u32, node: u32) {
                     &args![me(e) + INVENTORY_LIST, item, text, 0x0078_24e0u32, 0u32],
                 );
             });
-            entry_node = e.call(WORD_AT_FOUR, &args![entry_node]).u32();
+            entry_node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry_node));
         }
         e.call(SIMPLE_LIST_DESTRUCTOR, &args![group]);
     });
@@ -2094,7 +2150,7 @@ fn refresh_player(e: &mut Engine) {
     let player = e.global::<u32>(PLAYER);
     e.call(UPDATE_PLAYER_3D, &args![player]);
     let player = e.global::<u32>(PLAYER);
-    let process = e.call(PLAYER_GETTER_008D8520, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     e.vcall(process, 0x580, &args![1u32, 0u32, 0u32]);
     let player = e.global::<u32>(PLAYER);
     e.vcall(player, 0x3c4, &args![]);
@@ -2103,14 +2159,14 @@ fn refresh_player(e: &mut Engine) {
 /// The keyring trait of the menu tile.
 fn keyring_open(e: &mut Engine, this: Ptr<InventoryMenu>) -> bool {
     let keyring = e.global::<u32>(TRAIT_FROM_NAME_01073984);
-    let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     e.call(TILE_IS_TRUE, &args![tile, keyring]).bool()
 }
 
 /// Sets the keyring trait of the menu tile.
 fn set_keyring(e: &mut Engine, this: Ptr<InventoryMenu>, value: u32) {
     let keyring = e.global::<u32>(TRAIT_FROM_NAME_01073984);
-    let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     e.call(SET_TRAIT_FROM_INT, &args![tile, keyring, value]);
 }
 
@@ -2125,7 +2181,11 @@ fn filter_and_sort(e: &mut Engine, list: u32, filter: u32) {
 
 /// Marks the selected item's object for update and updates the menu.
 fn update_current_object(e: &mut Engine, this: Ptr<InventoryMenu>) {
-    let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, current_item(e))
+    );
     e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), object);
         e.call(
@@ -2167,13 +2227,30 @@ pub fn inventory_menu_do_click(e: &mut Engine, this: Ptr<InventoryMenu>, id: i32
             if current_item(e) != 0 && current_item_type(e) == 0x28 {
                 e.call(PLAY_MENU_SOUND, &args![0x24u32]);
                 inventory_menu_save_page_state(e);
-                if e.call(WORD_AT_ZERO, &args![current_item(e)]).u32() != 0 {
-                    let list = e.call(WORD_AT_ZERO, &args![current_item(e)]).u32();
+                if typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, current_item(e))
+                ) != 0
+                {
+                    let list = typed_call!(
+                        leaf::FAMILY,
+                        0x0055_9450,
+                        leaf::word_at_0(e, current_item(e))
+                    );
                     if node_item(e, list) == 0 {
                         let player = e.global::<u32>(PLAYER);
                         let changes = e.call(GET_INVENTORY_CHANGES, &args![player]).u32();
-                        let count = e.call(WORD_AT_FOUR, &args![current_item(e)]).u32();
-                        let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+                        let count = typed_call!(
+                            leaf::FAMILY,
+                            0x0072_6070,
+                            leaf::word_at_4(e, current_item(e))
+                        );
+                        let object = typed_call!(
+                            leaf::FAMILY,
+                            0x0044_ddc0,
+                            leaf::word_at_8(e, current_item(e))
+                        );
                         let player = e.global::<u32>(PLAYER);
                         e.call(
                             CHANGES_PREPARE_MOD,
@@ -2291,7 +2368,7 @@ fn click_use(e: &mut Engine, this: Ptr<InventoryMenu>) {
                     message_box(e, BROKEN_ITEM_SETTING, [2, 0, MESSAGE_TEXT_TWO]);
                 } else {
                     let keyring = e.global::<u32>(TRAIT_FROM_NAME_01073974);
-                    let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+                    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
                     let refused = !e.call(TILE_IS_TRUE, &args![tile, keyring]).bool()
                         || current_item_type(e) == 0x19;
                     if refused {
@@ -2317,26 +2394,38 @@ fn click_use(e: &mut Engine, this: Ptr<InventoryMenu>) {
     if current_item_type(e) != 0x29 {
         return;
     }
-    let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, current_item(e))
+    );
     if object == 0 {
         return;
     }
     let keyring = e.global::<u32>(TRAIT_FROM_NAME_01073974);
-    let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     if !e.call(TILE_IS_TRUE, &args![tile, keyring]).bool() {
         return;
     }
     let block = e.call(OPERATOR_NEW_WORD, &args![0xcu32]).u32();
     let item = if block != 0 {
-        let count = e.call(WORD_AT_FOUR, &args![current_item(e)]).u32();
-        let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+        let count = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, current_item(e))
+        );
+        let object = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, current_item(e))
+        );
         e.call(ITEM_CHANGE_CONSTRUCTOR, &args![block, object, count])
             .u32()
     } else {
         0
     };
     let player = e.global::<u32>(PLAYER);
-    let process = e.call(PLAYER_GETTER_008D8520, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     let player = e.global::<u32>(PLAYER);
     let npc = e.call(PLAYER_GETTER_006044C0, &args![player]).u32();
     let player = e.global::<u32>(PLAYER);
@@ -2344,7 +2433,11 @@ fn click_use(e: &mut Engine, this: Ptr<InventoryMenu>) {
     e.vcall(process, 0x168, &args![item]);
     let link = e.vcall(process, 0x14c, &args![]).u32();
     e.call(CLEAR_LINK, &args![link, 0u32]);
-    let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, current_item(e))
+    );
     let player = e.global::<u32>(PLAYER);
     e.call(PLAYER_SWAP_AMMO, &args![player, object, 1u32, 0u32]);
     let flag = if npc != 0 && !e.call(TEST_004938C0, &args![npc]).bool() {
@@ -2369,7 +2462,11 @@ fn click_drop(e: &mut Engine, this: Ptr<InventoryMenu>) {
             let word = e.mem.u32(DROP_POSITION + 4 * i);
             e.mem.set_u32(position.addr() + 4 * i, word);
         }
-        let object = e.call(ITEM_OBJECT, &args![current_item(e)]).u32();
+        let object = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, current_item(e))
+        );
         let extra = first_extra_list(e, current_item(e));
         if keyring_open(e, this) {
             e.with_stack(0xc, |e, handle| {
@@ -2419,10 +2516,20 @@ fn click_drop(e: &mut Engine, this: Ptr<InventoryMenu>) {
             message_box(e, 0x011d_3d30, [2, 0, 0]);
             return;
         }
-        let count = e.call(WORD_AT_FOUR, &args![current_item(e)]).i32();
+        let count = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, current_item(e))
+        )
+        .into_ret()
+        .i32();
         let limit = e.call(SETTING_VALUE_WORD, &args![QUANTITY_SETTING]).u32();
         if count > e.mem.i32(limit) {
-            let count = e.call(WORD_AT_FOUR, &args![current_item(e)]).u32();
+            let count = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, current_item(e))
+            );
             e.call(
                 QUANTITY_MENU_CREATE,
                 &args![count, 0x0078_0c50u32, 0x7fff_ffffu32],

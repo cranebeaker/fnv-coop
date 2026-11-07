@@ -53,8 +53,11 @@ const DISPLAY_STRING_0083D8B0: u32 = 0x0083_d8b0;
 /// (+4, the emotion value), `BGSSaveFormBuffer::GetForm` (`007af430`), `0059bb30`,
 /// `BaseProcess::GetCurrentProcedureIndex` (`0044edb0`) and `00843150` (folded getters as
 /// the engine map names them), `006174b0`.
+#[cfg(test)]
 const RECORD_WORD_0: u32 = 0x0055_9450;
+#[cfg(test)]
 const RECORD_WORD_4: u32 = 0x0072_6070;
+#[cfg(test)]
 const RECORD_SPEAKER_IDLE_007AF430: u32 = 0x007a_f430;
 const RECORD_LISTEN_IDLE_0059BB30: u32 = 0x0059_bb30;
 const RECORD_SOUND_0044EDB0: u32 = 0x0044_edb0;
@@ -114,16 +117,16 @@ pub fn dialogue_response_constructor(
         let shown = e.call(DISPLAY_STRING_0083D8B0, &args![raw, shown]).u32();
         e.call(STRING_SET, &args![text, shown]);
         e.call(STRING_DESTRUCTOR, &args![locals]);
-        let emotion = e.call(RECORD_WORD_0, &args![record]).u32();
+        let emotion = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, record));
         e.set(this, DialogueResponse::eEmotion, emotion);
-        let value = e.call(RECORD_WORD_4, &args![record]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, record));
         e.set(this, DialogueResponse::uiEmotion, value);
         let owner = e.call(GET_OWNER_TOPIC, &args![info]).u32();
         e.call(
             VOICE_FILE_NAME_00616F40,
             &args![record, speaker, quest, owner, info, voice],
         );
-        let idle = e.call(RECORD_SPEAKER_IDLE_007AF430, &args![record]).u32();
+        let idle = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, record));
         e.set(this, DialogueResponse::pSpeakerIdle, idle);
         let idle = e.call(RECORD_LISTEN_IDLE_0059BB30, &args![record]).u32();
         e.set(this, DialogueResponse::pListenIdle, idle);
@@ -145,7 +148,11 @@ pub fn dialogue_response_constructor(
 /// and the voice sound.
 pub fn dialogue_response_save_game(e: &mut Engine, this: Ptr<DialogueResponse>, buffer: u32) {
     for string in [0u32, 0x10] {
-        let chars = e.call(RECORD_WORD_0, &args![this.addr() + string]).u32();
+        let chars = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.addr() + string)
+        );
         e.call(SAVE_STRING, &args![buffer, chars, 0u32]);
     }
     for (offset, size) in [(8u32, 4u32), (0xc, 4), (0x24, 1)] {
@@ -236,7 +243,7 @@ pub fn fn_0083d490(e: &mut Engine, this: Ptr<DialogueResponse>) {
             e.call(SAVE_WRITE_008579B0, &args![saver, length_at, 1u32]);
             let length = e.mem.u8(length_at.addr());
             if length != 0 {
-                let chars = e.call(RECORD_WORD_0, &args![string]).u32();
+                let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
                 let saver = e.global::<u32>(SAVE_LOAD_GAME_011DE45C);
                 e.call(SAVE_WRITE_008579B0, &args![saver, chars, u32::from(length)]);
             }

@@ -518,6 +518,7 @@ const GET_MENU_BY_CLASS: u32 = 0x00a0_9030;
 /// `Interface::QueueMenuCreate` (engine map, `00709470`, `cdecl`, 6 words).
 const QUEUE_MENU_CREATE: u32 = 0x0070_9470;
 /// `00559450` (`thiscall`, plain `RET`) on the object at `011deb30`.
+#[cfg(test)]
 const TEST_00559450: u32 = 0x0055_9450;
 const OBJECT_011DEB30: u32 = 0x011d_eb30;
 /// `00871d10` (`thiscall` on `Main`, `RET 8`, `main.cpp`): the mouse
@@ -691,7 +692,13 @@ fn deactivate(e: &mut Engine) {
             &args![6u32, 0u32, 0u32, 0u32, 1u32, 0u32],
         );
     }
-    if e.global::<u32>(MAIN) != 0 && e.call(TEST_00559450, &args![OBJECT_011DEB30]).u32() == 0 {
+    if e.global::<u32>(MAIN) != 0
+        && typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, OBJECT_011DEB30)
+        ) == 0
+    {
         let main = e.global::<u32>(MAIN);
         e.call(MAIN_SET_ACTIVE, &args![main, 0u32]);
     }

@@ -28,6 +28,7 @@ const MAGIC_TARGET_GET_TARGET_AS_ACTOR: u32 = 0x0082_2b40;
 /// `0059bb30` (thiscall): the effect's target (+0x24).
 const EFFECT_TARGET_0059BB30: u32 = 0x0059_bb30;
 /// `0045cd60` (thiscall): the effect's caster (+0x28).
+#[cfg(test)]
 const EFFECT_CASTER_0045CD60: u32 = 0x0045_cd60;
 /// `MagicCaster::GetCasterAsActor` (`00815410`).
 const MAGIC_CASTER_GET_CASTER_AS_ACTOR: u32 = 0x0081_5410;
@@ -35,6 +36,7 @@ const MAGIC_CASTER_GET_CASTER_AS_ACTOR: u32 = 0x0081_5410;
 const ACTIVE_EFFECT_DISPEL: u32 = 0x0080_4210;
 /// `008d8520` (thiscall on an actor; the map's name `MiddleHighProcess::GetSavedAcquireObject`
 /// may come from folded code): the object whose slots +0x27c, +0x528 and +0x52c run here.
+#[cfg(test)]
 const ACTOR_OBJECT_008D8520: u32 = 0x008d_8520;
 /// The player pointer (`011dea3c`).
 const PLAYER_POINTER: u32 = 0x011d_ea3c;
@@ -61,10 +63,10 @@ fn actor_and_commander(e: &mut Engine, this: u32) -> (u32, u32) {
         e.call(MAGIC_TARGET_GET_TARGET_AS_ACTOR, &args![target])
             .u32()
     };
-    let commander = if e.call(EFFECT_CASTER_0045CD60, &args![this]).u32() == 0 {
+    let commander = if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this)) == 0 {
         0
     } else {
-        let caster = e.call(EFFECT_CASTER_0045CD60, &args![this]).u32();
+        let caster = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
         e.call(MAGIC_CASTER_GET_CASTER_AS_ACTOR, &args![caster])
             .u32()
     };
@@ -137,12 +139,12 @@ pub fn command_effect_finish(e: &mut Engine, this: Ptr) {
 pub fn command_effect_init_commanded_actor(e: &mut Engine, actor: u32, commander: u32) {
     let disposition = x87_quiet_bits(e.global::<u32>(PLUS_HUNDRED));
     e.vcall(actor, 0x460, &args![commander, disposition]);
-    let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(object, 0x528, &args![commander]);
     e.vcall(actor, 0x3a0, &args![1u32, 0x64u32, 0u32]);
     let mut package = 0;
     if commander != e.global::<u32>(PLAYER_POINTER) {
-        let object = e.call(ACTOR_OBJECT_008D8520, &args![commander]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, commander));
         package = e.vcall(object, 0x27c, &[]).u32();
     }
     if package != 0 {
@@ -158,12 +160,12 @@ pub fn command_effect_init_commanded_actor(e: &mut Engine, actor: u32, commander
 /// the actor has none or is not running a run-once package (`Actor::IsRunningRunOnce`),
 /// `004534f0` runs on the actor with the commander.
 pub fn fn_0080b8f0(e: &mut Engine, actor: u32, commander: u32) {
-    if e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) == 0 {
         return;
     }
-    let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     if e.vcall(object, 0x52c, &[]).u32() != commander {
-        let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(object, 0x528, &args![commander]);
     }
     if e.call(ACTOR_TEST_00493BB0, &args![actor]).bool() {
@@ -171,10 +173,10 @@ pub fn fn_0080b8f0(e: &mut Engine, actor: u32, commander: u32) {
     }
     let mut commander_package = 0;
     if commander != e.global::<u32>(PLAYER_POINTER) {
-        let object = e.call(ACTOR_OBJECT_008D8520, &args![commander]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, commander));
         commander_package = e.vcall(object, 0x27c, &[]).u32();
     }
-    let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     let actor_package = e.vcall(object, 0x27c, &[]).u32();
     if commander_package != 0 && e.call(KIND_0041CA90, &args![commander_package]).u32() != 0x12 {
         return;
@@ -196,8 +198,8 @@ pub fn command_effect_cleanup_commanded_actor(
     commander: u32,
     release: u8,
 ) {
-    if e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32() != 0 && release != 0 {
-        let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 && release != 0 {
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(object, 0x528, &args![0u32]);
     }
     let disposition = x87_quiet_bits(e.global::<u32>(MINUS_HUNDRED));

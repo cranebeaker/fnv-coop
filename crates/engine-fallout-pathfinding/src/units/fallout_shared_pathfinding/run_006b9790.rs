@@ -37,6 +37,7 @@ const VECTOR_ADD: u32 = 0x0043_9e90;
 const VECTOR_SCALE: u32 = 0x004a_3760;
 /// `NiPoint3::Dot` (`004b6190`, Xbox PDB name in the map; thiscall
 /// `(point, other)`), result in ST0.
+#[cfg(test)]
 const DOT: u32 = 0x004b_6190;
 /// `00457990(point)`: the length of the vector, in ST0.
 const LENGTH: u32 = 0x0045_7990;
@@ -98,7 +99,9 @@ fn copy_words(e: &mut Engine, dest: u32, source: u32, words: u32) {
 
 /// `NiPoint3::Dot(a, b)` in ST0.
 fn dot(e: &mut Engine, a: u32, b: u32) -> f64 {
-    e.call(DOT, &args![a, b]).f64()
+    typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, a, b))
+        .into_ret()
+        .f64()
 }
 
 // Translated from 006b9790 (decompiled, FalloutNV.exe 1.4.0.525)

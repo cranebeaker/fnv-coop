@@ -116,20 +116,26 @@ const MAGIC_HIT_EFFECT_DESTRUCTOR: u32 = 0x0081_b7b0;
 const NI_POINTER_FROM_00633C90: u32 = 0x0063_3c90; // [1]
 const NI_POINTER_ASSIGN_0066B0D0: u32 = 0x0066_b0d0; // [1]
 const NI_POINTER_DESTRUCT_0045CEC0: u32 = 0x0045_cec0;
+#[cfg(test)]
 const WORD_AT_0_00559450: u32 = 0x0055_9450;
 const WORD_DIFFERS_0052AA80: u32 = 0x0052_aa80; // [1]
+#[cfg(test)]
 const WORD_AT_8_0044DDC0: u32 = 0x0044_ddc0;
 const ARRAY_AT_006A7AD0: u32 = 0x006a_7ad0; // [1]
 const MAGIC_ITEM_GET_AV_EFFECT: u32 = 0x0040_a300; // [1]
 const WORD_AT_78_00407820: u32 = 0x0040_7820;
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 const PLAYER_NODE_00950BB0: u32 = 0x0095_0bb0; // [1]
 const PLAYER_GET_BIPED: u32 = 0x0095_0b00; // [1]
 const QUERY_00456610: u32 = 0x0045_6610;
 const WORD_AT_10C_005A29B0: u32 = 0x005a_29b0;
 const LIST_HEAD_00409140: u32 = 0x0040_9140;
+#[cfg(test)]
 const NODE_EMPTY_008256D0: u32 = 0x0082_56d0;
+#[cfg(test)]
 const SELF_006815C0: u32 = 0x0068_15c0;
+#[cfg(test)]
 const WORD_AT_4_00726070: u32 = 0x0072_6070;
 const MODEL_LOADER_LOAD_FILE: u32 = 0x0044_7080; // [6]
 const MODEL_RELEASE_0045A5E0: u32 = 0x0045_a5e0; // [1]
@@ -148,10 +154,13 @@ const TES_REMOVE_TEXTURE_IMAGE: u32 = 0x0045_6800; // [2]
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb; // cdecl [5]
 const ANIMATION_00490F80: u32 = 0x0049_0f80;
 const ACTIVE_HIT_EFFECT_00820BF0: u32 = 0x0082_0bf0;
+#[cfg(test)]
 const SAVED_ACQUIRE_OBJECT_008D8520: u32 = 0x008d_8520;
 const LOCATION_006733E0: u32 = 0x0067_33e0;
 const BIPED_SLOT_004AAF30: u32 = 0x004a_af30; // [1]
+#[cfg(test)]
 const FORM_007AF430: u32 = 0x007a_f430;
+#[cfg(test)]
 const WORLD_BOUND_0043D450: u32 = 0x0043_d450;
 const BOUND_RADIUS_0084D030: u32 = 0x0084_d030;
 const POINT_SET_0043D410: u32 = 0x0043_d410; // [3]
@@ -227,14 +236,14 @@ fn walk_addon_models(e: &mut Engine, shader: u32, mut model: impl FnMut(&mut Eng
     let source = e.call(WORD_AT_10C_005A29B0, &args![shader]).u32();
     let mut node = e.call(LIST_HEAD_00409140, &args![source]).u32();
     while node != 0 {
-        if e.call(NODE_EMPTY_008256D0, &args![node]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             break;
         }
-        let entry = e.call(SELF_006815C0, &args![node]).u32();
+        let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let name = e.mem.u32(e.mem.u32(entry).wrapping_add(4));
         let loader = e.mem.u32(MODEL_LOADER_011C3B3C);
         model(e, loader, name);
-        node = e.call(WORD_AT_4_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -275,7 +284,7 @@ pub fn magic_shader_hit_effect_magic_shader_hit_effect(
         &args![base.wrapping_add(TEX_EFFECT_DATA), 0u32],
     );
     e.set(this, MagicShaderHitEffect::pEffectData, 0);
-    let item = e.call(WORD_AT_8_0044DDC0, &args![effect]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, effect));
     let setting = e.call(MAGIC_ITEM_GET_AV_EFFECT, &args![item, 0u32]).u32();
     let shader = e.call(WORD_AT_78_00407820, &args![setting]).u32();
     e.set(this, MagicShaderHitEffect::pEffectData, shader);
@@ -327,12 +336,11 @@ fn load_model(e: &mut Engine, loader: u32, name: u32) {
 /// Stops the texture shader of `pEffectData` on `target` with `spTexEffectData`
 /// (`TESEffectShader::StopTextureShader`).
 fn stop_texture_shader(e: &mut Engine, this: Ptr<MagicShaderHitEffect>, target: u32) {
-    let data = e
-        .call(
-            WORD_AT_0_00559450,
-            &args![this.addr().wrapping_add(TEX_EFFECT_DATA)],
-        )
-        .u32();
+    let data = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(TEX_EFFECT_DATA))
+    );
     let shader = e.get(this, MagicShaderHitEffect::pEffectData);
     e.call(STOP_TEXTURE_SHADER, &args![shader, target, data]);
 }
@@ -373,12 +381,17 @@ pub fn magic_shader_hit_effect_destructor(e: &mut Engine, this: Ptr<MagicShaderH
     let particle_node = base.wrapping_add(PARTICLE_NODE);
     let tex_effect_data = base.wrapping_add(TEX_EFFECT_DATA);
     e.mem.set_u32(base, MAGIC_SHADER_HIT_EFFECT_VTABLE);
-    let id_is_zero = e.call(FORM_ID_0084E3A0, &args![this]).u32() == 0;
+    let id_is_zero = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == 0;
     let not_player = e.get(this, MagicShaderHitEffect::pTarget) != e.mem.u32(PLAYER);
     if id_is_zero && not_player {
         e.set(this, MagicShaderHitEffect::pTarget, 0);
     }
-    if e.call(WORD_AT_0_00559450, &args![tex_effect_data]).u32() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, tex_effect_data)
+    ) != 0
+    {
         let target = e.get(this, MagicShaderHitEffect::pTarget);
         if target == e.mem.u32(PLAYER) {
             for third_person in [1u32, 0] {
@@ -401,20 +414,20 @@ pub fn magic_shader_hit_effect_destructor(e: &mut Engine, this: Ptr<MagicShaderH
         .bool()
     {
         let mut index = 0u32;
-        while index < e.call(WORD_AT_8_0044DDC0, &args![particles]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, particles)) {
             let slot = e.call(ARRAY_AT_006A7AD0, &args![particles, index]).u32();
-            let property = e.call(WORD_AT_0_00559450, &args![slot]).u32();
-            let node = e.call(WORD_AT_0_00559450, &args![particle_node]).u32();
+            let property = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, particle_node));
             let shader = e.get(this, MagicShaderHitEffect::pEffectData);
             e.call(STOP_PARTICLE_SHADER, &args![shader, node, property]);
             index += 1;
         }
     }
-    if e.call(WORD_AT_8_0044DDC0, &args![objects]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, objects)) != 0 {
         let mut index = 0u32;
-        while index < e.call(WORD_AT_8_0044DDC0, &args![objects]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, objects)) {
             let slot = e.call(ARRAY_AT_006A7AD0, &args![objects, index]).u32();
-            let object = e.call(WORD_AT_0_00559450, &args![slot]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
             if e.call(WORD_AT_18_009611E0, &args![object]).u32() != 0 {
                 let parent = e.call(WORD_AT_18_009611E0, &args![object]).u32();
                 e.vcall(parent, 0xe8, &args![object]);
@@ -426,7 +439,7 @@ pub fn magic_shader_hit_effect_destructor(e: &mut Engine, this: Ptr<MagicShaderH
     if e.call(WORD_DIFFERS_0052AA80, &args![particle_node, 0u32])
         .bool()
     {
-        let node = e.call(WORD_AT_0_00559450, &args![particle_node]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, particle_node));
         e.call(ATTACH_PARENT_00A59D00, &args![node, 0u32]);
     }
     e.call(NI_POINTER_ASSIGN_0066B0D0, &args![particle_node, 0u32]);
@@ -434,10 +447,13 @@ pub fn magic_shader_hit_effect_destructor(e: &mut Engine, this: Ptr<MagicShaderH
     if e.get(this, MagicShaderHitEffect::pEffectData) != 0 {
         if e.get(this, MagicShaderHitEffect::pTarget) != 0 {
             let shader = e.get(this, MagicShaderHitEffect::pEffectData);
-            let fire = e.call(FORM_ID_0084E3A0, &args![shader]).u32() == FIRE_SHADER_852FE || {
-                let shader = e.get(this, MagicShaderHitEffect::pEffectData);
-                e.call(FORM_ID_0084E3A0, &args![shader]).u32() == FIRE_SHADER_84A51
-            };
+            let fire = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, shader))
+                == FIRE_SHADER_852FE
+                || {
+                    let shader = e.get(this, MagicShaderHitEffect::pEffectData);
+                    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, shader))
+                        == FIRE_SHADER_84A51
+                };
             if fire {
                 let target = e.get(this, MagicShaderHitEffect::pTarget);
                 let node = e.vcall(target, 0x1d0, &args![]).u32();
@@ -540,6 +556,7 @@ const ACTOR_SET_ALPHA_MULT: u32 = 0x008c_4890;
 const ACTOR_UPDATE_ALPHA: u32 = 0x008c_4640;
 const PARTICLE_OBJECTS_00820B50: u32 = 0x0082_0b50;
 const COUNT_00658930: u32 = 0x0065_8930;
+#[cfg(test)]
 const ELEMENT_00877A30: u32 = 0x0087_7a30;
 const WEIGHTED_RANDOM_CONSTRUCT_00822440: u32 = 0x0082_2440;
 const ADD_WEIGHTED_RESULT: u32 = 0x009b_7990;
@@ -697,10 +714,13 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
             return false;
         }
         let shader = e.get(this, MagicShaderHitEffect::pEffectData);
-        let fire = e.call(FORM_ID_0084E3A0, &args![shader]).u32() == FIRE_SHADER_852FE || {
-            let shader = e.get(this, MagicShaderHitEffect::pEffectData);
-            e.call(FORM_ID_0084E3A0, &args![shader]).u32() == FIRE_SHADER_84A51
-        };
+        let fire = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, shader))
+            == FIRE_SHADER_852FE
+            || {
+                let shader = e.get(this, MagicShaderHitEffect::pEffectData);
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, shader))
+                    == FIRE_SHADER_84A51
+            };
         if fire {
             let sound = at(FRAME_SOUND);
             let audio = e.call(BS_AUDIO_INSTANCE, &[]).u32();
@@ -725,15 +745,15 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
         if e.get(this, MagicShaderHitEffect::bWeaponEnchantment) != 0 {
             let target = e.get(this, MagicShaderHitEffect::pTarget);
             if e.vcall(target, 0x100, &args![]).bool()
-                && e.call(SAVED_ACQUIRE_OBJECT_008D8520, &args![target]).u32() != 0
+                && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target)) != 0
             {
                 let target = e.get(this, MagicShaderHitEffect::pTarget);
-                let acquired = e.call(SAVED_ACQUIRE_OBJECT_008D8520, &args![target]).u32();
+                let acquired = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
                 if e.vcall(acquired, 0x1b0, &args![]).bool() {
                     attach = false;
                 }
                 let target = e.get(this, MagicShaderHitEffect::pTarget);
-                let acquired = e.call(SAVED_ACQUIRE_OBJECT_008D8520, &args![target]).u32();
+                let acquired = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
                 if !e.vcall(acquired, 0x454, &args![]).bool() {
                     let player = e.mem.u32(PLAYER);
                     if e.call(ACTIVE_HIT_EFFECT_00820BF0, &args![player]).u32() != base {
@@ -763,13 +783,15 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
                         &args![name_slot, PARTICLE_NODE_NAME],
                     )
                     .u32();
-                let node = e.call(WORD_AT_0_00559450, &args![particle_node]).u32();
+                let node =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, particle_node));
                 e.call(SET_NAME_00A5B950, &args![node, name]);
                 e.call(FIXED_STRING_DESTRUCT_004381B0, &args![name_slot]);
-                let node = e.call(WORD_AT_0_00559450, &args![particle_node]).u32();
+                let node =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, particle_node));
                 e.call(NODE_SET_0043FA80, &args![node, NODE_ARGUMENT_011A9448]);
             }
-            if e.call(WORD_AT_8_0044DDC0, &args![particles]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, particles)) == 0 {
                 let fill = at(FRAME_FILL);
                 e.call(NI_POINTER_FROM_00633C90, &args![fill, 0u32]);
                 let shader = e.get(this, MagicShaderHitEffect::pEffectData);
@@ -791,9 +813,14 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
                     let mut index = 0i32;
                     while index.wrapping_mul(step) < total {
                         let alpha = x87_quiet_bits(e.get(this, MagicShaderHitEffect::fAlphaTimer));
-                        let texture = e.call(WORD_AT_0_00559450, &args![fill]).u32();
+                        let texture =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, fill));
                         let node_2 = e.mem.u32(at(FRAME_NODE_2));
-                        let node = e.call(WORD_AT_0_00559450, &args![particle_node]).u32();
+                        let node = typed_call!(
+                            leaf::FAMILY,
+                            0x0055_9450,
+                            leaf::word_at_0(e, particle_node)
+                        );
                         let shader = e.get(this, MagicShaderHitEffect::pEffectData);
                         let property = e
                             .call(
@@ -811,9 +838,9 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
                 e.call(NI_POINTER_DESTRUCT_0045CEC0, &args![fill]);
             }
             let mut index = 0u32;
-            while index < e.call(WORD_AT_8_0044DDC0, &args![particles]).u32() {
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, particles)) {
                 let slot = e.call(ARRAY_AT_006A7AD0, &args![particles, index]).u32();
-                let property = e.call(WORD_AT_0_00559450, &args![slot]).u32();
+                let property = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
                 if e.mem.u8(at(FRAME_SECOND_FLAG)) != 0 {
                     let radius = x87_quiet_bits(e.mem.u32(at(FRAME_RADIUS)));
                     e.call(PARTICLE_SET_RADIUS_00820B70, &args![property, radius]);
@@ -823,7 +850,7 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
                 }
                 let target = e.get(this, MagicShaderHitEffect::pTarget);
                 if target != 0 {
-                    let form = e.call(FORM_007AF430, &args![target]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target));
                     let cast = e
                         .call(
                             RT_DYNAMIC_CAST,
@@ -854,21 +881,23 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
                 index += 1;
             }
             e.vcall(base, 0xcc, &args![]);
-        } else if e.call(WORD_AT_8_0044DDC0, &args![particles]).u32() != 0
-            && e.call(WORD_AT_0_00559450, &args![particle_node]).u32() != 0
+        } else if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, particles)) != 0
+            && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, particle_node)) != 0
         {
             let mut index = 0u32;
-            while index < e.call(WORD_AT_8_0044DDC0, &args![particles]).u32() {
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, particles)) {
                 let slot = e.call(ARRAY_AT_006A7AD0, &args![particles, index]).u32();
-                let property = e.call(WORD_AT_0_00559450, &args![slot]).u32();
-                let node = e.call(WORD_AT_0_00559450, &args![particle_node]).u32();
+                let property = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
+                let node =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, particle_node));
                 let shader = e.get(this, MagicShaderHitEffect::pEffectData);
                 e.call(STOP_PARTICLE_SHADER, &args![shader, node, property]);
                 index += 1;
             }
             fn_006c6200(e, Ptr::new(particles), 1);
-            if e.call(WORD_AT_0_00559450, &args![particle_node]).u32() != 0 {
-                let node = e.call(WORD_AT_0_00559450, &args![particle_node]).u32();
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, particle_node)) != 0 {
+                let node =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, particle_node));
                 e.call(ATTACH_PARENT_00A59D00, &args![node, 0u32]);
             }
             e.call(NI_POINTER_ASSIGN_0066B0D0, &args![particle_node, 0u32]);
@@ -896,8 +925,8 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
                     let name = e.call(NAME_STRING_00408DA0, &args![texture]).u32();
                     create_texture_image(e, at(FRAME_PATH_3), name, texture_b);
                 }
-                let second = e.call(WORD_AT_0_00559450, &args![texture_b]).u32();
-                let first = e.call(WORD_AT_0_00559450, &args![texture_a]).u32();
+                let second = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture_b));
+                let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture_a));
                 let node = e.mem.u32(at(FRAME_NODE));
                 let shader = e.get(this, MagicShaderHitEffect::pEffectData);
                 let data = e
@@ -907,12 +936,23 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
                     )
                     .u32();
                 e.call(NI_POINTER_ASSIGN_0066B0D0, &args![tex_effect_data, data]);
-                if e.call(WORD_AT_0_00559450, &args![tex_effect_data]).u32() != 0 {
-                    let data = e.call(WORD_AT_0_00559450, &args![tex_effect_data]).u32();
+                if typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, tex_effect_data)
+                ) != 0
+                {
+                    let data = typed_call!(
+                        leaf::FAMILY,
+                        0x0055_9450,
+                        leaf::word_at_0(e, tex_effect_data)
+                    );
                     let target = e.get(this, MagicShaderHitEffect::pTarget);
-                    if e.call(WORD_AT_0_00559450, &args![data.wrapping_add(0x6c)])
-                        .u32()
-                        != 0
+                    if typed_call!(
+                        leaf::FAMILY,
+                        0x0055_9450,
+                        leaf::word_at_0(e, data.wrapping_add(0x6c))
+                    ) != 0
                         && target != 0
                         && e.vcall(target, 0x100, &args![]).bool()
                     {
@@ -932,21 +972,25 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
                 e.call(NI_POINTER_DESTRUCT_0045CEC0, &args![texture_b]);
                 e.call(NI_POINTER_DESTRUCT_0045CEC0, &args![texture_a]);
             }
-            let data = e.call(WORD_AT_0_00559450, &args![tex_effect_data]).u32();
+            let data = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, tex_effect_data)
+            );
             let node = e.mem.u32(at(FRAME_NODE));
             let shader = e.get(this, MagicShaderHitEffect::pEffectData);
             e.call(START_TEXTURE_SHADER, &args![shader, node, data]);
         }
         let first_property = |e: &mut Engine| {
             let slot = e.call(ARRAY_AT_006A7AD0, &args![particles, 0u32]).u32();
-            e.call(WORD_AT_0_00559450, &args![slot]).u32()
+            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
         };
         let shader = e.get(this, MagicShaderHitEffect::pEffectData);
         if restart == 0
-            && e.call(WORD_AT_8_0044DDC0, &args![objects]).u32() == 0
+            && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, objects)) == 0
             && shader != 0
             && e.call(WORD_AT_10C_005A29B0, &args![shader]).u32() != 0
-            && e.call(WORD_AT_8_0044DDC0, &args![particles]).u32() != 0
+            && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, particles)) != 0
             && first_property(e) != 0
         {
             let property = first_property(e);
@@ -957,17 +1001,19 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
                 let shader = e.get(this, MagicShaderHitEffect::pEffectData);
                 let source = e.call(WORD_AT_10C_005A29B0, &args![shader]).u32();
                 let mut node = e.call(LIST_HEAD_00409140, &args![source]).u32();
-                while node != 0 && !e.call(NODE_EMPTY_008256D0, &args![node]).bool() {
-                    let entry = e.call(SELF_006815C0, &args![node]).u32();
+                while node != 0
+                    && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+                {
+                    let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let name = e.mem.u32(e.mem.u32(entry).wrapping_add(4));
                     let loader = e.mem.u32(MODEL_LOADER_011C3B3C);
                     load_model(e, loader, name);
-                    let entry = e.call(SELF_006815C0, &args![node]).u32();
+                    let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let kind = e.mem.u8(e.mem.u32(entry)) as i8 as i32;
-                    let entry = e.call(SELF_006815C0, &args![node]).u32();
+                    let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let name = e.mem.u32(e.mem.u32(entry).wrapping_add(4));
                     e.call(ADD_WEIGHTED_RESULT, &args![weighted, name, kind]);
-                    node = e.call(WORD_AT_4_00726070, &args![node]).u32();
+                    node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 }
                 let property = first_property(e);
                 let mut index = 0u32;
@@ -977,8 +1023,13 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
                         break;
                     }
                     let list = e.call(PARTICLE_OBJECTS_00820B50, &args![property]).u32();
-                    let element = e.call(ELEMENT_00877A30, &args![list, index]).u32();
-                    let object = e.call(WORD_AT_0_00559450, &args![element]).u32();
+                    let element = typed_call!(
+                        leaf::FAMILY,
+                        0x0087_7a30,
+                        leaf::array_element(e, list, index)
+                    );
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element));
                     if e.vcall(object, 0xc, &args![]).u32() != 0 {
                         let model = at(FRAME_MODEL);
                         e.call(NI_POINTER_FROM_00633C90, &args![model, 0u32]);
@@ -987,14 +1038,16 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
                             .u32();
                         let loader = e.mem.u32(MODEL_LOADER_011C3B3C);
                         e.call(FIND_MODEL, &args![loader, pick, model]);
-                        let found = e.call(WORD_AT_0_00559450, &args![model]).u32();
+                        let found =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model));
                         if found != 0 && e.call(MODEL_ROOT_0043B230, &args![found]).u32() != 0 {
                             let cloning = at(FRAME_CLONING);
                             e.call(
                                 CLONING_PROCESS_CONSTRUCT_004AD050,
                                 &args![cloning, 1.0f32.to_bits()],
                             );
-                            let found = e.call(WORD_AT_0_00559450, &args![model]).u32();
+                            let found =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model));
                             let root = e.call(MODEL_ROOT_0043B230, &args![found]).u32();
                             let clone = e.call(NI_OBJECT_CLONE, &args![root, cloning]).u32();
                             if e.call(QUEUE_ATTACH_TEST_008C7AA0, &[]).bool() {
@@ -1029,8 +1082,12 @@ pub fn magic_shader_hit_effect_init(e: &mut Engine, this: Ptr<MagicShaderHitEffe
                 e.call(WEIGHTED_RANDOM_DESTRUCT_008224B0, &args![weighted]);
             }
         }
-        e.call(WORD_AT_8_0044DDC0, &args![particles]).u32() != 0
-            || e.call(WORD_AT_0_00559450, &args![tex_effect_data]).u32() != 0
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, particles)) != 0
+            || typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, tex_effect_data)
+            ) != 0
     })
 }
 
@@ -1099,7 +1156,7 @@ pub fn fn_00820c10(
         let target = e.get(this, MagicShaderHitEffect::pTarget);
         if target != 0 && e.vcall(target, 0x100, &args![]).bool() {
             let target = e.get(this, MagicShaderHitEffect::pTarget);
-            let acquired = e.call(SAVED_ACQUIRE_OBJECT_008D8520, &args![target]).u32();
+            let acquired = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
             if acquired != 0 {
                 e.vcall(acquired, 0x148, &args![]);
             }
@@ -1115,7 +1172,7 @@ pub fn fn_00820c10(
         if process != 0 {
             let location = e.call(LOCATION_006733E0, &args![process]).u32();
             if location != 0 {
-                let worn = e.call(WORD_AT_8_0044DDC0, &args![location]).u32();
+                let worn = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, location));
                 e.set(this, MagicShaderHitEffect::pWornObject, worn);
             }
         }
@@ -1148,7 +1205,7 @@ pub fn fn_00820c10(
                 e.mem.set_u8(first_flag, 1);
             } else {
                 let target = e.get(this, MagicShaderHitEffect::pTarget);
-                let form = e.call(FORM_007AF430, &args![target]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target));
                 let cast = e
                     .call(
                         RT_DYNAMIC_CAST,
@@ -1157,7 +1214,7 @@ pub fn fn_00820c10(
                     .u32();
                 if cast != 0 && node != 0 {
                     e.mem.set_u8(second_flag, 1);
-                    let bound = e.call(WORLD_BOUND_0043D450, &args![node]).u32();
+                    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
                     let size = e.call(BOUND_RADIUS_0084D030, &args![bound]).st0;
                     let zero: f64 = e.global(ZERO_01012060);
                     // FCOMP; TEST AH,0x41; JP: skipped when above (or unordered).
@@ -1172,12 +1229,14 @@ pub fn fn_00820c10(
                     }
                     let camera = e.call(CAMERA_POSITION_0045BB80, &args![node]).u32();
                     let distance = e.with_stack(0xc, |e, offset| {
-                        let bound = e.call(WORLD_BOUND_0043D450, &args![node]).u32();
-                        let centre = e.call(SELF_006815C0, &args![bound]).u32();
+                        let bound =
+                            typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
+                        let centre =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
                         e.call(POINT_SUBTRACT_00439EF0, &args![centre, offset, camera]);
                         e.call(POINT_LENGTH_00457990, &args![offset]).st0
                     });
-                    let bound = e.call(WORLD_BOUND_0043D450, &args![node]).u32();
+                    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
                     let size = e.call(BOUND_RADIUS_0084D030, &args![bound]).st0;
                     e.mem.set_u32(radius, x87_store32(x87_add(size, distance)));
                 }
@@ -1375,19 +1434,25 @@ fn array_item(e: &mut Engine, this: u32, array: u32, index: u32) -> u32 {
     let slot = e
         .call(ARRAY_AT_006A7AD0, &args![this.wrapping_add(array), index])
         .u32();
-    e.call(WORD_AT_0_00559450, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// The count of the array at `this + array` (`0044ddc0`).
 fn array_count(e: &mut Engine, this: u32, array: u32) -> u32 {
-    e.call(WORD_AT_8_0044DDC0, &args![this.wrapping_add(array)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.wrapping_add(array))
+    )
 }
 
 /// The object held by the `NiPointer` at `this + offset` (`00559450`).
 fn held(e: &mut Engine, this: u32, offset: u32) -> u32 {
-    e.call(WORD_AT_0_00559450, &args![this.wrapping_add(offset)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.wrapping_add(offset))
+    )
 }
 
 // Translated from 0081d390 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1755,10 +1820,10 @@ pub fn magic_shader_hit_effect_update(
     if e.get(this, MagicShaderHitEffect::bFinished) != 0 && done != 0 {
         let target = e.get(this, MagicShaderHitEffect::pTarget);
         if e.vcall(target, 0x100, &[]).bool()
-            && e.call(SAVED_ACQUIRE_OBJECT_008D8520, &args![target]).u32() != 0
+            && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target)) != 0
         {
             let target = e.get(this, MagicShaderHitEffect::pTarget);
-            let process = e.call(SAVED_ACQUIRE_OBJECT_008D8520, &args![target]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
             e.vcall(process, 0x580, &args![1u32, 1u32, 0u32]);
         }
         e.vcall(base, 0xc8, &[]);
@@ -2026,10 +2091,12 @@ pub fn magic_shader_hit_effect_clear_target(e: &mut Engine, this: Ptr<MagicShade
         && e.get(this, MagicShaderHitEffect::pEffectData) != 0
         && {
             let shader = e.get(this, MagicShaderHitEffect::pEffectData);
-            e.call(FORM_ID_0084E3A0, &args![shader]).u32() == FIRE_SHADER_852FE || {
-                let shader = e.get(this, MagicShaderHitEffect::pEffectData);
-                e.call(FORM_ID_0084E3A0, &args![shader]).u32() == FIRE_SHADER_84A51
-            }
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, shader)) == FIRE_SHADER_852FE
+                || {
+                    let shader = e.get(this, MagicShaderHitEffect::pEffectData);
+                    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, shader))
+                        == FIRE_SHADER_84A51
+                }
         };
     if fire {
         let target = e.get(this, MagicShaderHitEffect::pTarget);
@@ -2131,7 +2198,7 @@ pub fn magic_shader_hit_effect_save_game(
         e.mem.set_u32(id.addr(), 0);
         if e.get(this, MagicShaderHitEffect::pWornObject) != 0 {
             let worn = e.get(this, MagicShaderHitEffect::pWornObject);
-            let value = e.call(FORM_ID_0084E3A0, &args![worn]).u32();
+            let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, worn));
             e.mem.set_u32(id.addr(), value);
         }
         let save_load = e.mem.u32(SAVE_LOAD_GAME);
@@ -2197,7 +2264,7 @@ pub fn magic_shader_hit_effect_finish_init_load_game(
         &args![base, effect, reference, 0u32],
     );
     if effect != 0 {
-        let item = e.call(WORD_AT_8_0044DDC0, &args![effect]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, effect));
         let setting = e.call(MAGIC_ITEM_GET_AV_EFFECT, &args![item, 0u32]).u32();
         let found = e.call(WORD_AT_78_00407820, &args![setting]).u32();
         e.set(this, MagicShaderHitEffect::pEffectData, found);
@@ -2256,12 +2323,12 @@ pub fn magic_shader_hit_effect_save_game_ov2(e: &mut Engine, this: Ptr<MagicShad
         let target_id = frame.addr().wrapping_add(4);
         let shader_id = frame.addr();
         let target = e.get(this, MagicShaderHitEffect::pTarget);
-        let id = e.call(FORM_ID_0084E3A0, &args![target]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, target));
         e.mem.set_u32(target_id, id);
         let save_load = e.mem.u32(SAVE_LOAD_GAME);
         e.call(SAVE_NUMERIC_ID, &args![save_load, target_id, 4u32]);
         let shader = e.get(this, MagicShaderHitEffect::pEffectData);
-        let id = e.call(FORM_ID_0084E3A0, &args![shader]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, shader));
         e.mem.set_u32(shader_id, id);
         let save_load = e.mem.u32(SAVE_LOAD_GAME);
         e.call(SAVE_NUMERIC_ID, &args![save_load, shader_id, 4u32]);
@@ -2471,7 +2538,7 @@ pub fn fn_00822650(e: &mut Engine, this: Ptr) -> u32 {
     let mut left = e.call(ROLL_005A00A0, &args![total]).u32();
     let mut index = 0u32;
     loop {
-        let count = e.call(WORD_AT_8_0044DDC0, &args![base]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base));
         if index >= count || found {
             break;
         }

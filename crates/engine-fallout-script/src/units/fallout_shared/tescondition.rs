@@ -13,9 +13,11 @@ use crate::prelude::*;
 
 /// The list head of the condition list (`006815c0`, `this`): also, on a
 /// node, the address of the node's item word.
+#[cfg(test)]
 const LIST_NODE_ITEM_SLOT: u32 = 0x0068_15c0;
 /// Whether a list node is the end of the list (`008256d0`, `ECX` = node;
 /// the exe has no name for it).
+#[cfg(test)]
 const NODE_IS_END: u32 = 0x0082_56d0;
 /// `005693d0(ECX = reference)`: a replacement for the reference argument
 /// when it answers nonzero.
@@ -29,6 +31,7 @@ const ITEM_IS_OR: u32 = 0x005e_c040;
 /// result of one condition item.
 const ITEM_EVALUATE: u32 = 0x0068_1600;
 /// The next list node (`00726070`).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `TESFile::GetTESChunk` (`004726b0`, `ECX` = file): the current chunk's
 /// tag.
@@ -94,8 +97,8 @@ pub fn tes_condition_is_true_ov2(
     out_flag: Ptr,
     filter: u8,
 ) -> bool {
-    let mut node = e.call(LIST_NODE_ITEM_SLOT, &args![this]).u32();
-    if e.call(NODE_IS_END, &args![node]).bool() {
+    let mut node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         e.mem.set_u8(out_flag.addr(), 0);
         return true;
     }
@@ -115,8 +118,8 @@ pub fn tes_condition_is_true_ov2(
     }
     // The item's own flag byte: a local of the game's stack, passed by address.
     e.with_stack(4, |e, local| {
-        while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
-            let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(slot);
             let mut skip = false;
             if filter != 0 {
@@ -180,7 +183,7 @@ pub fn tes_condition_is_true_ov2(
             if !all_true && !in_or_group && e.mem.u8(out_flag.addr()) == 0 {
                 break;
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
     if in_or_group {
@@ -207,7 +210,7 @@ pub fn tes_condition_is_true_ov2(
 pub fn bs_simple_list_tes_condition_item_add_tail(e: &mut Engine, this: Ptr, item: u32) {
     e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), item);
-        let head = e.call(LIST_NODE_ITEM_SLOT, &args![this]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
         e.call(LIST_APPEND, &args![head, slot]);
     });
 }
@@ -217,12 +220,12 @@ pub fn bs_simple_list_tes_condition_item_add_tail(e: &mut Engine, this: Ptr, ite
 /// (`00681840`) on every item of the list at `this` (`ECX`, no stack
 /// words), from the head until a null node or the empty end node.
 pub fn tes_condition_save(e: &mut Engine, this: Ptr) {
-    let mut node = e.call(LIST_NODE_ITEM_SLOT, &args![this]).u32();
-    while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
-        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         e.call(ITEM_SAVE, &args![item]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -258,12 +261,12 @@ pub fn tes_condition_load(e: &mut Engine, this: Ptr, file: Ptr) {
 /// quest calls it) on every item of the list at `this`, from the head until
 /// a null node or the empty end node.
 pub fn tes_condition_init_item(e: &mut Engine, this: Ptr, owner: u32) {
-    let mut node = e.call(LIST_NODE_ITEM_SLOT, &args![this]).u32();
-    while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
-        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         e.call(ITEM_INIT_ITEM, &args![item, owner]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -289,24 +292,25 @@ const ITEMS_DIFFER: u32 = 0x0068_15d0;
 /// (`006815d0`); when `other` ends, true only when `this` still has an
 /// item.
 pub fn fn_00680b70(e: &mut Engine, this: Ptr, other: u32) -> bool {
-    let mut mine = e.call(LIST_NODE_ITEM_SLOT, &args![this]).u32();
-    let mut theirs = e.call(LIST_NODE_ITEM_SLOT, &args![other]).u32();
+    let mut mine = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    let mut theirs = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
     loop {
-        if theirs == 0 || e.call(NODE_IS_END, &args![theirs]).bool() {
-            return mine != 0 && !e.call(NODE_IS_END, &args![mine]).bool();
+        if theirs == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, theirs)) {
+            return mine != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, mine));
         }
-        if mine == 0 || e.call(NODE_IS_END, &args![mine]).bool() {
+        if mine == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, mine)) {
             return true;
         }
-        let mine_slot = e.call(LIST_NODE_ITEM_SLOT, &args![mine]).u32();
+        let mine_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
         let mine_item = e.mem.u32(mine_slot);
-        let theirs_slot = e.call(LIST_NODE_ITEM_SLOT, &args![theirs]).u32();
+        let theirs_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         let theirs_item = e.mem.u32(theirs_slot);
         if e.call(ITEMS_DIFFER, &args![mine_item, theirs_item]).bool() {
             return true;
         }
-        mine = e.call(NODE_NEXT, &args![mine]).u32();
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
     }
 }
 
@@ -315,14 +319,14 @@ pub fn fn_00680b70(e: &mut Engine, this: Ptr, other: u32) -> bool {
 /// list (counting nodes until the list ends), or null.
 pub fn tes_condition_get_condition_item(e: &mut Engine, this: Ptr, index: i32) -> u32 {
     let mut position = 0i32;
-    let mut node = e.call(LIST_NODE_ITEM_SLOT, &args![this]).u32();
-    while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
+    let mut node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         if position == index {
-            let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             return e.mem.u32(slot);
         }
         position = position.wrapping_add(1);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     0
 }
@@ -344,9 +348,14 @@ const MEMCMP: u32 = 0x00ec_4835;
 /// this list's node (`00905820`), which moves on when it has a next node.
 pub fn fn_00680a70(e: &mut Engine, this: Ptr, other: u32, second: u32) {
     e.call(CONDITION_CLEAR, &args![this]);
-    let mut mine = e.call(LIST_NODE_ITEM_SLOT, &args![this]).u32();
-    let mut theirs = e.call(LIST_NODE_ITEM_SLOT, &args![other]).u32();
-    while theirs != 0 && e.call(NODE_IS_END, &args![theirs]).u8() == 0 {
+    let mut mine = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    let mut theirs = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
+    while theirs != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, theirs))
+            .into_ret()
+            .u8()
+            == 0
+    {
         let block = e.call(OPERATOR_NEW, &args![CONDITION_ITEM_SIZE]).u32();
         let item = if block != 0 {
             fn_006811e0(e, Ptr::new(block)).addr()
@@ -355,15 +364,15 @@ pub fn fn_00680a70(e: &mut Engine, this: Ptr, other: u32, second: u32) {
         };
         e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), item);
-            let source = e.call(LIST_NODE_ITEM_SLOT, &args![theirs]).u32();
+            let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
             let source = e.mem.u32(source);
             fn_00681590(e, Ptr::new(item), source, second);
             e.call(LIST_APPEND, &args![mine, slot]);
         });
-        if e.call(NODE_NEXT, &args![mine]).u32() != 0 {
-            mine = e.call(NODE_NEXT, &args![mine]).u32();
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine)) != 0 {
+            mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
         }
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
     }
 }
 
@@ -372,7 +381,7 @@ pub fn fn_00680a70(e: &mut Engine, this: Ptr, other: u32, second: u32) {
 /// condition item): the 0x1C bytes of `source` (through `006815c0`) into
 /// this item; the second word is not read.
 pub fn fn_00681590(e: &mut Engine, this: Ptr, source: u32, _unused_2: u32) {
-    let from = e.call(LIST_NODE_ITEM_SLOT, &args![source]).u32();
+    let from = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, source));
     e.call(COPY_BYTES, &args![this, from, CONDITION_ITEM_SIZE]);
 }
 
@@ -381,7 +390,7 @@ pub fn fn_00681590(e: &mut Engine, this: Ptr, source: u32, _unused_2: u32) {
 /// items differ): `memcmp` of `other` (through `006815c0`) with this item
 /// over 0x1C bytes is non-zero.
 pub fn fn_006815d0(e: &mut Engine, this: Ptr, other: u32) -> bool {
-    let theirs = e.call(LIST_NODE_ITEM_SLOT, &args![other]).u32();
+    let theirs = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
     e.call(MEMCMP, &args![theirs, this, CONDITION_ITEM_SIZE])
         .u32()
         != 0

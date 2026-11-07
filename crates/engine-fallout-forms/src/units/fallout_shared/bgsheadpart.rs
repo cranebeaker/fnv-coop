@@ -149,8 +149,8 @@ pub fn bgs_head_part_init_item(e: &mut Engine, this: Ptr) {
     e.call(0x0048_aa80, &args![part + 0x24, this]);
     let mut node = e.call(0x0062_4700, &args![this]).u32();
     let mut previous = 0u32;
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let data = e.call(0x0068_15c0, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let raw = e.mem.u32(data);
         let (id, found) = e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), raw);
@@ -167,7 +167,7 @@ pub fn bgs_head_part_init_item(e: &mut Engine, this: Ptr) {
             (id, found)
         });
         if found == 0 {
-            let form_id = e.call(0x0084_e3a0, &args![this]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(part, 0x130, &args![]).u32();
             e.call(0x005b_5e40, &args![0x0104_65ecu32, id, name, form_id]);
             if previous != 0 {
@@ -175,7 +175,7 @@ pub fn bgs_head_part_init_item(e: &mut Engine, this: Ptr) {
                     e.mem.set_u32(entry.addr(), id);
                     e.call(0x0090_5330, &args![previous, entry]);
                 });
-                node = e.call(0x0072_6070, &args![previous]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
             } else {
                 e.call(0x0063_f7b0, &args![node]);
             }
@@ -185,7 +185,7 @@ pub fn bgs_head_part_init_item(e: &mut Engine, this: Ptr) {
                 e.call(0x0072_6c60, &args![node, slot]);
             });
             previous = node;
-            node = e.call(0x0072_6070, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     e.call(0x0048_4ab0, &args![this, 1u32]);
@@ -208,11 +208,11 @@ pub fn bgs_head_part_save(e: &mut Engine, this: Ptr) {
     let flags = u32::from(e.mem.u8(this.addr() + 0x44));
     e.call(0x0048_58f0, &args![CHUNK_DATA, flags]);
     let mut node = e.call(0x0062_4700, &args![this]).u32();
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let item = e.call(0x0068_15c0, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let extra_part = e.mem.u32(item);
-        node = e.call(0x0072_6070, &args![node]).u32();
-        let id = e.call(0x0084_e3a0, &args![extra_part]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, extra_part));
         e.call(0x0048_5910, &args![CHUNK_HNAM, id]);
     }
     e.call(0x0048_5680, &args![this]);

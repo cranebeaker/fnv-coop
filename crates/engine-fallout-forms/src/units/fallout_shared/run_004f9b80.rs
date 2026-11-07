@@ -115,8 +115,8 @@ pub fn fn_004f9db0(e: &mut Engine, this: Ptr) {
 /// the head is removed (`0063f7b0`).
 pub fn fn_004f9e30(e: &mut Engine, this: Ptr) {
     let head = this.addr() + 0x1c;
-    while !e.call(0x0082_56d0, &args![head]).bool() {
-        let slot = e.call(0x0068_15c0, &args![head]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, head));
         let entry = e.mem.u32(slot);
         if entry != 0 {
             let name = e.mem.u32(entry + 4);

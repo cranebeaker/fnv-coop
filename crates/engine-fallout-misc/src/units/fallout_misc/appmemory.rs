@@ -267,7 +267,7 @@ fn array_element(e: &Engine, this: Ptr, index: u32) -> u32 {
 /// its result.
 pub fn fn_00866da0(e: &mut Engine, this: Ptr, index: u32) -> u32 {
     let element = array_element(e, this, index);
-    e.call(0x0044_ddc0, &args![element]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, element))
 }
 
 // Translated from 00866dc0 (decompiled, FalloutNV.exe 1.4.0.525)

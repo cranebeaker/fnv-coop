@@ -18,6 +18,7 @@ const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// virtual slot `0x130`, or 0.
 const FORM_NAME_LENGTH: u32 = 0x0047_4cb0;
 /// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `005b5e40` (`cdecl` format, ...): the log print.
 const PRINT: u32 = 0x005b_5e40;
@@ -28,11 +29,14 @@ const NAME_SLOT: u32 = 0x130;
 const LIST_HEAD: u32 = 0x0050_0940;
 /// `008256d0` (`ECX` = list node): true when the node has neither an item nor
 /// a next node (the words at +0 and +4 are both 0).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (`ECX` = list node): the node's own address, the place its item
 /// is read from.
+#[cfg(test)]
 const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
 /// `00726070` (`ECX` = list node): the word at +4, the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `TESBipedModelForm::GetFormAsBipedModel` (Xbox PDB name of `00480db0`;
 /// `cdecl`, a form): the form's biped model component, or 0.
@@ -108,25 +112,25 @@ pub fn bgs_biped_model_list_init_item(e: &mut Engine, this: Ptr<BGSBipedModelLis
             let name = e.vcall(owner.addr(), NAME_SLOT, &[]).u32();
             e.call(PRINT, &args![MESSAGE_OWNER_NAME, adjusted, name]);
         } else {
-            let owner_id = e.call(FORM_ID, &args![owner]).u32();
+            let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             e.call(PRINT, &args![MESSAGE_OWNER_ID, adjusted, owner_id]);
         }
         return;
     }
     let mut node = e.call(LIST_HEAD, &args![list]).u32();
     while node != 0 {
-        if e.call(NODE_IS_EMPTY, &args![node]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             return;
         }
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         let biped_model = e.call(GET_FORM_AS_BIPED_MODEL, &args![item]).u32();
         if biped_model == 0 {
-            let owner_id = e.call(FORM_ID, &args![owner]).u32();
+            let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             let owner_name = e.vcall(owner.addr(), NAME_SLOT, &[]).u32();
-            let list_id = e.call(FORM_ID, &args![list]).u32();
+            let list_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, list));
             let list_name = e.vcall(list, NAME_SLOT, &[]).u32();
-            let item_id = e.call(FORM_ID, &args![item]).u32();
+            let item_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
             let item_name = e.vcall(item, NAME_SLOT, &[]).u32();
             e.call(
                 PRINT,
@@ -144,7 +148,7 @@ pub fn bgs_biped_model_list_init_item(e: &mut Engine, this: Ptr<BGSBipedModelLis
             return;
         }
         e.call(SET_FLAG_10, &args![biped_model, 1u32]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -211,7 +215,7 @@ pub fn bgs_biped_model_list_save(e: &mut Engine, this: Ptr<BGSBipedModelList>) {
     if list == 0 {
         return;
     }
-    let id = e.call(FORM_ID, &args![list]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, list));
     e.call(ADD_CHUNK_WORD, &args![CHUNK_BIPL, id]);
 }
 
@@ -228,7 +232,7 @@ pub fn bgs_biped_model_list_copy_component(
     if cast == 0 {
         return;
     }
-    let list = e.call(NODE_NEXT, &args![cast]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cast));
     e.call(SET_WORD_4, &args![this, list]);
 }
 
@@ -245,8 +249,8 @@ pub fn bgs_biped_model_list_compare_component(
     if cast == 0 {
         return true;
     }
-    let theirs = e.call(NODE_NEXT, &args![cast]).u32();
-    let ours = e.call(NODE_NEXT, &args![this]).u32();
+    let theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cast));
+    let ours = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     theirs != ours
 }
 

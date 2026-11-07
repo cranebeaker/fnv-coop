@@ -129,6 +129,7 @@ const PATHING_REQUEST_DESTRUCT: u32 = 0x006e_2620;
 /// time), and the `CombatTimer::SaveGame` / `LoadGame` (Xbox PDB).
 const POINT_DIFFERENCE: u32 = 0x0043_9ef0;
 const POINT_LENGTH_SQUARED: u32 = 0x004a_7290;
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
 const TIMER_CONSTRUCT: u32 = 0x0090_6f60;
 const TIMER_RUNNING: u32 = 0x0097_fa50;
@@ -279,7 +280,7 @@ pub fn construct(
     e.set(this, CombatProcedureBeInCover::eState, 0);
     e.mem.set_u32(t + 0x14, cover_location);
     for point in [COVER_POSITION, FIRE_POSITION, LOOK_AT_POSITION] {
-        e.call(POINT_CONSTRUCT, &args![t + point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, t + point));
     }
     for timer in [
         WAIT_BEHIND_COVER_TIMER,

@@ -66,6 +66,7 @@ const CALC_WEAPON_REACH: u32 = 0x0064_63e0;
 const ANIMATION_0048F7F0: u32 = 0x0048_f7f0;
 /// `MiddleHighProcess::GetSavedAcquireObject` (map name; thiscall on an
 /// actor, as this unit calls it).
+#[cfg(test)]
 const ACTOR_8D8520: u32 = 0x008d_8520;
 /// `Actor::GetCurrentWeapon` (map, Xbox PDB; thiscall).
 const ACTOR_GET_CURRENT_WEAPON: u32 = 0x008a_1710;
@@ -206,6 +207,7 @@ const FLOAT_MIN: u32 = 0x0040_ebd0;
 /// returns `this`.
 const COLOR_SET: u32 = 0x0041_4430;
 /// `00416870` (thiscall on an `NiPoint3`, three floats): sets x, y, z.
+#[cfg(test)]
 const POINT_SET: u32 = 0x0041_6870;
 /// `0042f5a0` (cdecl, two words): the smaller (as `min`).
 const WORD_MIN: u32 = 0x0042_f5a0;
@@ -222,6 +224,7 @@ const NODE_SET_TRANSLATE: u32 = 0x0044_0460;
 /// `00441110` (thiscall): the target map of the object at `011f1958`.
 const TARGET_MAP_441110: u32 = 0x0044_1110;
 /// `0044ddc0` (thiscall on an array): the word at +8 (its element count).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 /// `NiPoint3::UnitizeGetLength` (map, Xbox PDB; thiscall).
 const POINT_UNITIZE_GET_LENGTH: u32 = 0x0045_7910;
@@ -338,6 +341,7 @@ const CHARACTER_PROXY_GET_LINEAR_VELOCITY: u32 = 0x0066_ca00;
 const PROJECTILE_SPEED: u32 = 0x0069_ef80;
 /// `006815c0` (thiscall on an `NiPoint3`): returns `this` (its default
 /// constructor).
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
 /// `006a78f0` (thiscall on an explosion): the float at +0x78 (its damage, as the
 /// settings it is compared with say).
@@ -945,13 +949,15 @@ pub fn fn_009a6ae0(e: &mut Engine, actor: Ptr, target: Ptr, angle_out: Ptr) -> b
         let mut inside = false;
         let mut group: u32 = 0x1a;
         let player: u32 = e.global(PLAYER_CHARACTER);
-        if actor.addr() == player && e.call(ACTOR_8D8520, &args![actor]).u32() != 0 {
-            let object = e.call(ACTOR_8D8520, &args![actor]).u32();
+        if actor.addr() == player
+            && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
+        {
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if e.vcall(object, 0x3e8, &[]).u32() != 0 {
-                let object = e.call(ACTOR_8D8520, &args![actor]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 let animation = e.vcall(object, 0x3e8, &[]).u32();
                 if e.call(ANIMATION_0048F7F0, &args![animation]).u32() != 0 {
-                    let object = e.call(ACTOR_8D8520, &args![actor]).u32();
+                    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     let animation = e.vcall(object, 0x3e8, &[]).u32();
                     let entry = e.call(ANIMATION_0048F7F0, &args![animation]).u32();
                     group = e.call(ANIM_GROUP_005F2420, &args![entry]).u32();
@@ -1318,7 +1324,7 @@ pub fn combat_utilities_check_projectile_arc(
     }
     e.with_stack(0x30, |e, frame| {
         let local = |offset: u32| frame.addr() + 0x30 - offset;
-        e.call(POINT_CONSTRUCT, &args![local(0x18)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local(0x18)));
         if from.is_null() {
             let location =
                 combat_utilities_get_attacker_firing_location(e, Ptr::new(local(0x30)), attacker);
@@ -1794,7 +1800,7 @@ pub fn combat_utilities_get_attacker_firing_location(
             e.call(ACTOR_GET_CURRENT_WEAPON, &args![attacker]).u32()
         };
         if weapon == 0 || e.call(WEAPON_FLAG_4C0C30, &args![weapon]).bool() {
-            let object = e.call(ACTOR_8D8520, &args![attacker]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
             let mut use_biped = !attacker.is_null() && object != 0;
             if use_biped && weapon != 0 {
                 use_biped = false;
@@ -1872,7 +1878,7 @@ pub fn combat_utilities_get_back_projected_attacker_firing_location(
             let along = e.call(POINT2_DOT, &args![offset, axis]).f32();
             e.mem.set_f32(local(0x14), along);
             let back = local(0x28);
-            e.call(POINT_CONSTRUCT, &args![back]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, back));
             let along = load_f32(e, local(0x14));
             store_f32(e, back, load_f32(e, axis) * along + load_f32(e, origin));
             store_f32(
@@ -2212,7 +2218,11 @@ pub fn combat_utilities_get_angle_to_projected_point_ov2(
         wrap_angle(e, local(0x18));
         let pitch = f32::from_bits(x87_quiet_bits(e.mem.u32(local(0x8))));
         let yaw = f32::from_bits(x87_quiet_bits(e.mem.u32(local(0x18))));
-        e.call(POINT_SET, &args![result, pitch, 0.0f32, yaw]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, result, pitch, 0.0f32, yaw)
+        );
         result
     })
 }
@@ -2336,7 +2346,7 @@ pub fn combat_utilities_get_projected_point_for_target_ov3(
     e.with_stack(0x1c, |e, frame| {
         let local = |offset: u32| frame.addr() + 0x1c - offset;
         let start = local(0x10);
-        e.call(POINT_CONSTRUCT, &args![start]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, start));
         if from.is_null() {
             let location =
                 combat_utilities_get_attacker_firing_location(e, Ptr::new(local(0x1c)), attacker);
@@ -2861,7 +2871,7 @@ pub fn fn_009a9a20(e: &mut Engine, target: Ptr, actor: Ptr) -> bool {
         let mut recorded: u32 = 0;
         let mut flagged: u32 = 0;
         let mut mask: u32 = 0;
-        let size = e.call(ARRAY_COUNT, &args![array]).u32();
+        let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array));
         let size = e.call(WORD_MIN, &args![size, 0x40u32]).u32();
         let mut index: u32 = 0;
         while index < size {

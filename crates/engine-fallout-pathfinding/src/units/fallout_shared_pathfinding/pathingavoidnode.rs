@@ -17,8 +17,10 @@ const POINT_SUBTRACT: u32 = 0x0043_9ef0;
 /// `004a7290`: a point's squared length (`thiscall`, ST0).
 const POINT_LENGTH_SQUARED: u32 = 0x004a_7290;
 /// `NiPoint3::Dot` (engine map), `thiscall`, one word, ST0.
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 /// `0044ddc0`: the array's count (`thiscall`).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 /// `006a1400`: the array's element `index` (`thiscall`, one word).
 const ARRAY_AT: u32 = 0x006a_1400;
@@ -54,7 +56,13 @@ pub fn fn_006dc780(e: &mut Engine, this: Ptr, point: Ptr) -> f32 {
                 e.call(POINT_SUBTRACT, &args![point, from_start, node]);
                 let length = e.call(POINT_LENGTH_SQUARED, &args![segment]).f64();
                 let segment_squared = x87_store32(length);
-                let dot = e.call(POINT_DOT, &args![from_start, segment]).f64();
+                let dot = typed_call!(
+                    leaf::FAMILY,
+                    0x004b_6190,
+                    leaf::point3_dot(e, from_start, segment)
+                )
+                .into_ret()
+                .f64();
                 let along = x87_store32(dot);
                 let zero: f64 = e.global(ZERO);
                 // `TEST AH,5; JNP`: below 0 goes to `FLT_MAX`; then
@@ -88,7 +96,7 @@ pub fn fn_006dc780(e: &mut Engine, this: Ptr, point: Ptr) -> f32 {
 /// node's cost at `point` ([`fn_006dc780`]), kept as a `float`.
 pub fn pathing_avoid_node_array_get_cost_for_point(e: &mut Engine, this: Ptr, point: Ptr) -> f32 {
     let mut sum = 0u32;
-    let count = e.call(ARRAY_COUNT, &args![this]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     let mut index = 0u32;
     while index < count {
         let node = e.call(ARRAY_AT, &args![this, index]).ptr();

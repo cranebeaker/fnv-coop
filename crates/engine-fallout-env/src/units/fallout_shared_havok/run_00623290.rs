@@ -23,6 +23,7 @@ const OWNER_ADDRESS: u32 = 0x004b_59d0;
 /// returns. The caller tests the result against 0.
 const OBJECT_CAST: u32 = 0x004b_5a50;
 /// `0044ddc0`: the word at `this + 8`.
+#[cfg(test)]
 const WORD_AT_8: u32 = 0x0044_ddc0;
 
 /// The word at `+0x48` of a hit entry (a pointer to a root collidable; the
@@ -56,7 +57,7 @@ pub fn fn_00623290(e: &mut Engine, this: Ptr, index: u32) -> u32 {
     if object == 0 {
         return 0;
     }
-    e.call(WORD_AT_8, &args![object]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object))
 }
 
 /// This unit's translated functions, by exe address.

@@ -32,6 +32,8 @@ engine-fallout-misc = { path = "../engine-fallout-misc" }
 engine-platform = { path = "../engine-platform" }
 
 [dev-dependencies]
+# The differential tests of the typed leaves (`tests/typed_leaves.rs`).
+engine-core = { path = "../engine-core", features = ["test-support"] }
 # The opt-in real-script run (`tests/real_scda.rs`) reads the player's
 # FalloutNV.esm.
 esm = { path = "../esm" }

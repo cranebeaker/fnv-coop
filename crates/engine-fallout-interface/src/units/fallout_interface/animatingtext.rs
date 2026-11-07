@@ -35,6 +35,7 @@ layout! {
 /// Cdecl: frees a block (`00401030`).
 const FREE: u32 = 0x0040_1030;
 /// Thiscall on a string: its characters (`00559450`, the word at +0).
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 /// Thiscall on a string: its length (`004048e0`, the word at +4, 0 without
 /// text).
@@ -75,7 +76,7 @@ fn set_float(e: &mut Engine, tile_value: u32, value: f32) {
 pub fn fn_006ffda0(e: &mut Engine, this: Ptr<AnimatingText>) {
     let buffer = e.get(this, AnimatingText::pBuffer);
     e.call(FREE, &args![buffer]);
-    let buffer = if e.call(STRING_TEXT, &args![this]).u32() != 0 {
+    let buffer = if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) != 0 {
         let length = e.call(STRING_LENGTH, &args![this]).u32();
         e.call(ALLOCATE_005AAEE0, &args![length.wrapping_add(1), 1u32])
             .u32()
@@ -97,7 +98,7 @@ fn show_tiles(e: &mut Engine, this: Ptr<AnimatingText>) {
     }
     if e.get(this, AnimatingText::pVisTrait) != 0
         && e.get(this, AnimatingText::pStringTrait) != 0
-        && e.call(STRING_TEXT, &args![this]).u32() == 0
+        && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) == 0
     {
         let vis = e.get(this, AnimatingText::pVisTrait);
         set_float(e, vis, 0.0);
@@ -147,7 +148,7 @@ pub fn animating_text_update(e: &mut Engine, this: Ptr<AnimatingText>) {
                     .wrapping_sub(shown);
                 e.set(this, AnimatingText::bDisplayFinished, 1);
             }
-            let text = e.call(STRING_TEXT, &args![this]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
             let buffer = e.get(this, AnimatingText::pBuffer);
             e.call(
                 COPY_CHARACTERS_00401460,
@@ -218,9 +219,9 @@ pub fn animating_text_force_finish(e: &mut Engine, this: Ptr<AnimatingText>) {
     if e.get(this, AnimatingText::pStringTrait) == 0 || e.get(this, AnimatingText::pBuffer) == 0 {
         return;
     }
-    let text = e.call(STRING_TEXT, &args![this]).u32();
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     let length = e.call(TEXT_LENGTH_0044A670, &args![text]).u32();
-    let text = e.call(STRING_TEXT, &args![this]).u32();
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     let buffer = e.get(this, AnimatingText::pBuffer);
     e.call(COPY_CHARACTERS_00401460, &args![buffer, text, length]);
     let string_tile = e.get(this, AnimatingText::pStringTrait);

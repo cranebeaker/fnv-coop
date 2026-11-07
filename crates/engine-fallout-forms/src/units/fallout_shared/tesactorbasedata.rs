@@ -60,6 +60,7 @@ const BYTE_FIELD_POINTER: u32 = 0x0040_8d60;
 /// `float` stack arguments `a`, `b`, `tolerance`).
 const FLOATS_NEAR: u32 = 0x0040_eb10;
 /// The log function, one `char *` format string followed by its arguments.
+#[cfg(test)]
 const ERROR_LOG: u32 = 0x0040_fbe0;
 /// A second logging function with the same convention (`005b5e40`).
 const MESSAGE_LOG: u32 = 0x005b_5e40;
@@ -94,6 +95,7 @@ const ADD_CHUNK_VALUE: u32 = 0x0048_5910;
 /// Looks a form up by its form ID.
 const LOOKUP_FORM_BY_ID: u32 = 0x0048_39c0;
 /// The word at `+0xc` of a form: its form ID.
+#[cfg(test)]
 const FORM_ID_GETTER: u32 = 0x0084_e3a0;
 /// `__RTDynamicCast` (replaced by the platform layer).
 const DYNAMIC_CAST: u32 = 0x00ec_43fb;
@@ -103,12 +105,6 @@ const ATEXIT: u32 = 0x00ec_658f;
 /// Linked-list helpers of the faction list (a `BSSimpleList`: item, next).
 /// `this + 0x2c`.
 const FACTION_LIST_HEAD: u32 = 0x005d_8a70;
-/// Returns the node itself: the address of its item word.
-const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
-/// The node's next-node word at `+4`.
-const NODE_NEXT: u32 = 0x0072_6070;
-/// Whether both words of a list head node are zero.
-const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// Removes the first node of a chain (the head takes the next node's item).
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
 /// Number of nodes whose item is not null.
@@ -159,6 +155,7 @@ const TEXT_LOAD_UNDERRUN_FORM: u32 = 0x0101_5500;
 /// The object with the `+0x20` word the level calculation reads (`011dea3c`).
 const LEVEL_SOURCE_OBJECT: u32 = 0x011d_ea3c;
 /// The word at `+0x20` of `this` (`007af430`).
+#[cfg(test)]
 const WORD_AT_20: u32 = 0x007a_f430;
 
 /// `TESContainer` is 0xc bytes (Xbox PDB).
@@ -179,7 +176,9 @@ const ACTOR_TEMPLATE_BLOCKED: u32 = 0x0056_afc0;
 const TEMPLATE_FORM_GETTER: u32 = 0x0059_bb30;
 const BUILD_TEMPLATE_CONTAINER: u32 = 0x0048_8350;
 const ADDRESS_PLUS_4: u32 = 0x0071_7e50;
+#[cfg(test)]
 const WORD_AT_68: u32 = 0x008d_8520;
+#[cfg(test)]
 const WORD_AT_0: u32 = 0x0055_9450;
 const ADDRESS_PLUS_44: u32 = 0x005d_43c0;
 const CLEAR_ACTOR_PROCESS_FLAGS: u32 = 0x0088_4f80;
@@ -354,13 +353,13 @@ fn faction_list_head(e: &mut Engine, this: Ptr<TESActorBaseData>) -> u32 {
 
 /// The item (a `FACTION_RANK *`) stored in a list node.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 /// The node after `node`.
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 // Translated from 0047c700 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -507,7 +506,7 @@ pub fn tes_actor_base_data_clear_data_component(e: &mut Engine, this: Ptr<TESAct
 /// empty, deletes the first `FACTION_RANK` and removes the first node.
 pub fn tes_actor_base_data_clear_faction_list(e: &mut Engine, this: Ptr<TESActorBaseData>) {
     let head = faction_list_head(e, this);
-    while head != 0 && !e.call(LIST_IS_EMPTY, &args![head]).bool() {
+    while head != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head)) {
         let item = node_item(e, head);
         e.call(OPERATOR_DELETE, &args![item]);
         e.call(LIST_REMOVE_HEAD, &args![head]);
@@ -565,7 +564,7 @@ pub fn tes_actor_base_data_save(e: &mut Engine, this: Ptr<TESActorBaseData>) {
     ] {
         let form = e.get(this, field);
         if !form.is_null() {
-            let id = e.call(FORM_ID_GETTER, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(ADD_CHUNK_VALUE, &args![tag, id]);
         }
     }
@@ -705,14 +704,14 @@ pub fn fn_0047ce10(e: &mut Engine, this: Ptr<TESActorBaseData>, actor: Ptr) {
         let handler = e.mem.u32(DATA_HANDLER_GLOBAL);
         if handler == 0 || !e.call(TLS_FLAG_FOUR, &args![handler]).bool() {
             if e.vcall(actor.addr(), 0xfc, &args![]).bool()
-                && e.call(WORD_AT_68, &args![actor]).u32() != 0
+                && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
             {
                 e.vcall(actor.addr(), 0x244, &args![]);
             }
             e.vcall(actor.addr(), 0x1cc, &args![0u32, 1u32]);
         }
         let manager = path_manager_q_instance(e);
-        if e.call(WORD_AT_0, &args![manager]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, manager)) != 0 {
             let extra_list = e.call(ADDRESS_PLUS_44, &args![actor]).u32();
             let changes = e.call(GET_CONTAINER_CHANGES, &args![extra_list]).u32();
             let manager = path_manager_q_instance(e);
@@ -728,7 +727,7 @@ pub fn fn_0047ce10(e: &mut Engine, this: Ptr<TESActorBaseData>, actor: Ptr) {
         if e.vcall(actor.addr(), 0x100, &args![]).bool() {
             e.call(CLEAR_ACTOR_PROCESS_FLAGS, &args![actor]);
         }
-        let saved_form = e.call(WORD_AT_20, &args![actor]).u32();
+        let saved_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
         let template_base = create_template_actor_base(e, saved_form, first_entry_word);
         e.call(
             APPLY_TEMPLATE_FORM,
@@ -1034,7 +1033,7 @@ pub fn tes_actor_base_data_is_in_evil_factions_only(
 ) -> bool {
     let mut result = true;
     let mut node = faction_list_head(e, this);
-    if e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         result = false;
     }
     while node != 0 && result {
@@ -1256,7 +1255,7 @@ fn resolve_form_id(e: &mut Engine, id: u32, file: u32, cast_to: Option<u32>) -> 
 /// ID, the form ID (`0084e3a0`) and name (form virtual `+0x130`) of `form`.
 fn log_missing_form(e: &mut Engine, text: u32, id: u32, form: Ptr) {
     let name = e.vcall(form.addr(), 0x130, &args![]).u32();
-    let form_id = e.call(FORM_ID_GETTER, &args![form]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     e.call(MESSAGE_LOG, &args![text, id, form_id, name]);
 }
 
@@ -1358,7 +1357,7 @@ pub fn fn_0047ded0(e: &mut Engine, this: Ptr<TESActorBaseData>) -> u16 {
         let divisor: f64 = e.global(THOUSAND);
         let scale = (level as f64 / divisor) as f32;
         let source = e.mem.u32(LEVEL_SOURCE_OBJECT);
-        let form = e.call(WORD_AT_20, &args![source]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, source));
         let component = if form != 0 { form + 0x30 } else { 0 };
         if component != 0 {
             let other = fn_0047d370(e, Ptr::new(component));
@@ -1588,23 +1587,9 @@ fn log_save_function(
         let form = e.call(LOOKUP_FORM_BY_ID, &args![form_id]).u32();
         let name = e.vcall(form, 0x130, &args![]).u32();
         let entry_flags = e.mem.u32(entry + 5);
-        e.call(
-            ERROR_LOG,
-            &args![
-                text_with_form,
-                amount,
-                form_id,
-                name,
-                entry_flags,
-                line,
-                SOURCE_FILE_PATH
-            ],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words text_with_form, amount, form_id, name, entry_flags, line, SOURCE_FILE_PATH);
     } else {
-        e.call(
-            ERROR_LOG,
-            &args![text_plain, amount, line, SOURCE_FILE_PATH],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words text_plain, amount, line, SOURCE_FILE_PATH);
     }
 }
 
@@ -1648,7 +1633,7 @@ pub fn fn_0047e4a0(e: &mut Engine, this: Ptr<TESActorBaseData>, flags: u32) {
         let entry = node_item(e, node);
         if entry != 0 {
             let faction = e.mem.u32(entry);
-            let numeric_id = e.call(FORM_ID_GETTER, &args![faction]).u32();
+            let numeric_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, faction));
             let rank = e.mem.u8(entry + 4);
             e.with_stack(4, |e, id_slot| {
                 e.mem.set_u32(id_slot.addr(), numeric_id);

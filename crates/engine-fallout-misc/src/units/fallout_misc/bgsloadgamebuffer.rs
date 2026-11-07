@@ -230,6 +230,7 @@ const SAVE_LOAD_GAME: u32 = 0x011d_df38;
 /// `BGSSaveLoadGame::GetCurrentMinorVersion` (`00847570`, `thiscall`).
 const CURRENT_MINOR_VERSION: u32 = 0x0084_7570;
 /// `006815c0` (`thiscall`): the quaternion local's (empty) constructor.
+#[cfg(test)]
 const TRIVIAL_CONSTRUCT: u32 = 0x0068_15c0;
 /// `NiQuaternion::ToRotation` (`004f0180`, `thiscall`, `RET 4`: the
 /// matrix).
@@ -256,7 +257,7 @@ pub fn bgs_load_game_buffer_load_data(
     _unused_2: u32,
 ) {
     e.with_stack(0x10, |e, quaternion| {
-        e.call(TRIVIAL_CONSTRUCT, &args![quaternion]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, quaternion));
         load_raw(e, this, quaternion, 0x10);
         e.call(QUATERNION_TO_ROTATION, &args![quaternion, rotation]);
     });

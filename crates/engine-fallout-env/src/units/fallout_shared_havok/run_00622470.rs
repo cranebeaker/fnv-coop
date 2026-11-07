@@ -9,14 +9,17 @@ use crate::prelude::*;
 const ARRAY_COUNT: u32 = 0x0099_38b0;
 /// `00877a30` (`fallout/misc/main.cpp` in the engine map): `thiscall` on an array, `RET 4`;
 /// answers the element at an index.
+#[cfg(test)]
 const ARRAY_AT: u32 = 0x0087_7a30;
 /// `00537bb0` (`fallout shared/tesland.cpp` in the engine map): `thiscall`, plain `RET`.
 const BASE_CONSTRUCT: u32 = 0x0053_7bb0;
 /// `006815c0` (unnamed in the engine map): `thiscall`, plain `RET`.
+#[cfg(test)]
 const RECORD_CONSTRUCT: u32 = 0x0068_15c0;
 /// `004b4d50` (unnamed in the engine map): `thiscall` with four `float`s, `RET 0x10`.
 const SET_FOUR_FLOATS: u32 = 0x004b_4d50;
 /// `00559450` (unnamed in the engine map): `thiscall`, plain `RET`.
+#[cfg(test)]
 const ELEMENT_OBJECT: u32 = 0x0055_9450;
 /// `005610f0` (`fallout shared/tesobjectrefr.cpp` in the engine map): `thiscall`, `RET 4`, the
 /// address of three `float`s.
@@ -67,8 +70,12 @@ pub fn fn_00622470(e: &mut Engine, this: Ptr) -> bool {
 /// `01012054`, and clears the byte at `+0x20` (`00622570`). Answers `this`.
 pub fn fn_006224f0(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
-    e.call(RECORD_CONSTRUCT, &args![base]);
-    e.call(RECORD_CONSTRUCT, &args![base.wrapping_add(0x20)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base));
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base.wrapping_add(0x20))
+    );
     e.call(
         SET_FOUR_FLOATS,
         &args![
@@ -149,7 +156,7 @@ pub fn fn_00622590(e: &mut Engine, this: Ptr, world: u32, position: Ptr, _unused
     e.with_stack(0x20, |e, frame| {
         let point = frame.addr();
         let record = frame.addr().wrapping_add(0x10);
-        e.call(RECORD_CONSTRUCT, &args![record]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, record));
         let angle = f32::from_bits(x87_quiet_bits(e.mem.u32(QUARTER_TURN)));
         fn_00622730(e, Ptr::new(record), angle);
         let step: f64 = e.global(GRID_STEP);
@@ -160,9 +167,13 @@ pub fn fn_00622590(e: &mut Engine, this: Ptr, world: u32, position: Ptr, _unused
             let mut column_offset = x87_quiet_bits(e.mem.u32(FIRST_COLUMN));
             let mut column = 0u32;
             while column < 2 {
-                let element = e.call(ARRAY_AT, &args![array, index]).u32();
+                let element = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, array, index)
+                );
                 index = index.wrapping_add(1);
-                let object = e.call(ELEMENT_OBJECT, &args![element]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element));
                 let px = e.mem.u32(position.addr());
                 let py = e.mem.u32(position.addr().wrapping_add(4));
                 let pz = e.mem.u32(position.addr().wrapping_add(8));
@@ -183,8 +194,12 @@ pub fn fn_00622590(e: &mut Engine, this: Ptr, world: u32, position: Ptr, _unused
     if e.call(CELL_CHECK, &args![this]).u32() == 0 {
         let mut index = 0u32;
         while index < e.call(ARRAY_COUNT, &args![array]).u32() {
-            let element = e.call(ARRAY_AT, &args![array, index]).u32();
-            let object = e.call(ELEMENT_OBJECT, &args![element]).u32();
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element));
             e.call(WORLD_ADD_OBJECT, &args![world, object]);
             let color = e
                 .call(RGB_FROM_CHARS, &args![0xdcu32, 0x96u32, 0x28u32, 0xffu32])

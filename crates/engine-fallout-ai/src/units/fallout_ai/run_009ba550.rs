@@ -31,6 +31,7 @@ use crate::prelude::*;
 const FREE: u32 = 0x0040_1030;
 /// Returns its `this` (an identity function the code uses to address a
 /// member).
+#[cfg(test)]
 const SELF_GETTER: u32 = 0x0068_15c0;
 /// `hkConstraintCinfo::SetData`-named function (map name; `this`, pointer):
 /// the destructor calls it with null.
@@ -39,8 +40,10 @@ const CONSTRAINT_SET_DATA: u32 = 0x00c8_9ac0;
 const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 const NI_POINTER_SET: u32 = 0x0066_b0d0;
 /// Reads the word at +4 of a `BSSimpleList` node (`m_pkNext`).
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// `BSSimpleList::IsEmpty` (`m_item` and `m_pkNext` both null).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 
 /// `hkConstraintCinfo` vtable (RTTI name confirmed).
@@ -145,7 +148,11 @@ pub fn hk_constraint_cinfo_construct(
     e: &mut Engine,
     this: Ptr<HkConstraintCinfo>,
 ) -> Ptr<HkConstraintCinfo> {
-    e.call(SELF_GETTER, &args![this.addr() + 4]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 4)
+    );
     e.set(this, HkConstraintCinfo::vfptr, CONSTRAINT_CINFO_VTABLE);
     e.set(this, HkConstraintCinfo::pData, Ptr::new(0));
     e.set(this, HkConstraintCinfo::ePriority, 1);
@@ -231,16 +238,21 @@ pub fn fn_009ba660(e: &mut Engine, this: Ptr<MissileProjectile>) {
         return;
     }
     let list = this_addr + 0x88;
-    if e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         return;
     }
-    if e.call(0x007a_f430, &args![REFERENCE_HOLDER]).u32() == this_addr {
+    if typed_call!(
+        leaf::FAMILY,
+        0x007a_f430,
+        leaf::word_at_20(e, REFERENCE_HOLDER)
+    ) == this_addr
+    {
         e.call(0x009c_8c40, &args![REFERENCE_HOLDER, 0u32]);
     }
     let stick_time = x87_quiet(e.global::<f32>(STICK_TIME));
     e.set(this, MissileProjectile::fStickTime, stick_time);
 
-    let list_head = e.call(SELF_GETTER, &args![list]).u32();
+    let list_head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     let impact = e.mem.u32(list_head);
     if impact == 0 || e.mem.u32(impact + 0x1c) == 0 {
         return;
@@ -424,12 +436,12 @@ pub fn fn_009babe0(e: &mut Engine, this: Ptr<MissileProjectile>) {
     let state = e.get(this, MissileProjectile::eImpactResult);
     if state == 4 || state == 3 {
         let list = this.addr() + 0x88;
-        let list_head = e.call(SELF_GETTER, &args![list]).u32();
+        let list_head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let mut impact = e.mem.u32(list_head);
         if e.get(this, MissileProjectile::eImpactResult) == 4 {
-            impact = if e.call(LIST_NEXT, &args![list]).u32() != 0 {
-                let next = e.call(LIST_NEXT, &args![list]).u32();
-                let node = e.call(SELF_GETTER, &args![next]).u32();
+            impact = if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list)) != 0 {
+                let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list));
+                let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, next));
                 e.mem.u32(node)
             } else {
                 0

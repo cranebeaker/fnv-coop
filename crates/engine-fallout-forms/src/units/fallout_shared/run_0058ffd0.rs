@@ -24,8 +24,10 @@ const SAVE_DATA: u32 = 0x0086_5e50;
 /// `BGSSaveGameBuffer::SaveFormID_ov2` (engine map), `thiscall`: form, 0.
 const SAVE_FORM_ID: u32 = 0x0086_5df0;
 /// `006815c0` (`thiscall`): a list node's item address.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`thiscall`): the next list node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The flag word both functions use (the form's changed flag and the save
 /// flag tested).
@@ -76,9 +78,9 @@ pub fn fn_00590080(e: &mut Engine, this: Ptr, buffer: u32) {
     );
     let mut index = 0u32;
     while index < e.mem.u32(this.addr() + 0x20) {
-        let item_address = e.call(NODE_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         e.call(SAVE_FORM_ID, &args![buffer, item, 0u32]);
         index = index.wrapping_add(1);
     }

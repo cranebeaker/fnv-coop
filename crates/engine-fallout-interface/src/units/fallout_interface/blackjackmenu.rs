@@ -45,6 +45,7 @@ const NI_POINTER_COPY_006E5CC0: u32 = 0x006e_5cc0;
 /// The interface manager (`004b7210`), its menu tile (`0045cd60`), the tile float setter
 /// (`00a012d0`, `RET 0xc`) and the string trait setter (`00a01350`, `RET 0xc`).
 const INTERFACE_MANAGER: u32 = 0x004b_7210;
+#[cfg(test)]
 const WORD_AT_0X28: u32 = 0x0045_cd60;
 const TILE_SET_FLOAT: u32 = 0x00a0_12d0;
 const TILE_SET_STRING: u32 = 0x00a0_1350;
@@ -53,8 +54,11 @@ const FULL_ALPHA: u32 = 0x0102_3cd8;
 const MINUS_FIVE_0102CAF8: u32 = 0x0102_caf8;
 /// The first word of an object (`00559450`), a list node's item slot (`006815c0`) and
 /// next node (`00726070`).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// A tile's child list walk: `0073ac90` (the current item's slot), `006317a0` (the child
 /// at a node, `RET 4`) and `007b52d0` (the next node, `RET 4`).
@@ -142,7 +146,7 @@ pub fn fn_00731d30(e: &mut Engine) {
     e.mem.set_u32(me + 0x28, 0xd);
     let alpha = x87_quiet_bits(e.global::<u32>(FULL_ALPHA));
     let manager = e.call(INTERFACE_MANAGER, &args![]).u32();
-    let tile = e.call(WORD_AT_0X28, &args![manager]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, manager));
     e.call(TILE_SET_FLOAT, &args![tile, 0xfa9u32, alpha, 1u32]);
 }
 
@@ -224,7 +228,7 @@ pub fn black_jack_menu_set_tile_text_alpha(e: &mut Engine, _this: Ptr, index: i3
         )
     };
     let list = tile_of(e).wrapping_add(4);
-    let mut node = e.call(FIRST_WORD, &args![list]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     let list = tile_of(e).wrapping_add(4);
     while node != 0 && list != 0 {
         let item = e.call(CHILD_LIST_ITEM_0073AC90, &args![list]).u32();
@@ -267,18 +271,18 @@ pub fn fn_00738ff0(e: &mut Engine, this: Ptr, hand: u32) -> i32 {
     let mut aces = 0i32;
     let mut node = hand;
     while node != 0 {
-        let slot = e.call(NODE_SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(NODE_SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let card = e.mem.u32(slot);
         let rank = e.mem.i32(card);
         total = fn_00738fb0(e, this, rank).wrapping_add(total);
         if e.mem.u32(card) == 0xc {
             aces += 1;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     while total > 0x15 && aces > 0 {
         total -= 0xa;
@@ -298,15 +302,15 @@ pub fn fn_007395a0(e: &mut Engine, this: Ptr) -> bool {
     let mut index = 0;
     let mut split = false;
     while node != 0 {
-        let slot = e.call(NODE_SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
         if index == 0 {
-            let slot = e.call(NODE_SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             first = e.mem.u32(slot);
         } else if index == 1 {
-            let slot = e.call(NODE_SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let card = e.mem.u32(slot);
             if e.mem.u32(first) == e.mem.u32(card)
                 && e.mem.i32(base + 0x74) >= e.mem.i32(base + 0x6c).wrapping_shl(1)
@@ -317,7 +321,7 @@ pub fn fn_007395a0(e: &mut Engine, this: Ptr) -> bool {
             split = false;
             break;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         index += 1;
     }
     fn_00734d50(e, this, 4, u8::from(split));
@@ -392,7 +396,11 @@ pub fn fn_007399f0(e: &mut Engine, this: Ptr) {
             UPDATE_DATA_INIT_0043D410,
             &args![data, x87_store32(0.0), 0u32, 0u32],
         );
-        let model = e.call(FIRST_WORD, &args![TABLE_MODEL_011D9098]).u32();
+        let model = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, TABLE_MODEL_011D9098)
+        );
         let node = e.call(NODE_0043B4A0, &args![model, 1u32]).u32();
         e.call(UPDATE_00A59C60, &args![node, data]);
     });
@@ -551,11 +559,19 @@ pub fn fn_00731800(e: &mut Engine, this: Ptr) {
         release_model(e, mesh);
     }
     let scene = e.call(SHADOW_SCENE_NODE, &args![1u32]).u32();
-    let model = e.call(FIRST_WORD, &args![TABLE_MODEL_011D9098]).u32();
+    let model = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, TABLE_MODEL_011D9098)
+    );
     e.vcall(scene, 0xe8, &args![model]);
     let scene = e.call(SHADOW_SCENE_NODE, &args![1u32]).u32();
     e.call(SCENE_00B5D180, &args![scene]);
-    let model = e.call(FIRST_WORD, &args![TABLE_MODEL_011D9098]).u32();
+    let model = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, TABLE_MODEL_011D9098)
+    );
     e.call(MODEL_00572160, &args![model]);
     e.call(NI_POINTER_ASSIGN, &args![TABLE_MODEL_011D9098, 0u32]);
     for offset in [0xdb4u32, 0xdb8, 0xdbc, 0xdc0, 0xdf4, 0xdf8, 0xdfc] {
@@ -631,7 +647,11 @@ pub fn fn_00733500(e: &mut Engine) {
     let object = e.call(GETTER_0045C670, &args![]).u32();
     let culler = e.call(CULLER_008D80E0, &args![object]).u32();
     e.call(CULLER_00C4F270, &args![culler, 1u32]);
-    let camera = e.call(FIRST_WORD, &args![CAMERA_011D90BC]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_011D90BC)
+    );
     let value = x87_quiet_bits(e.global::<u32>(CAMERA_VALUE_01030FF4));
     e.call(CAMERA_00709D50, &args![camera, value]);
     let manager = e.call(INTERFACE_MANAGER, &args![]).u32();
@@ -639,7 +659,7 @@ pub fn fn_00733500(e: &mut Engine) {
     // The local `NiPointer` at `EBP - 0x20`.
     e.with_stack(4, |e, pointer| {
         e.call(NI_POINTER_CONSTRUCT, &args![pointer, texture]);
-        let held = e.call(FIRST_WORD, &args![pointer]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(CULLER_SET_ACCUMULATOR, &args![culler, held]);
         let view = if camera != 0 {
             camera
@@ -648,7 +668,7 @@ pub fn fn_00733500(e: &mut Engine) {
         };
         let scene = e.call(SHADOW_SCENE_NODE, &args![1u32]).u32();
         e.call(ACCUMULATE_SCENE, &args![view, scene, culler]);
-        let held = e.call(FIRST_WORD, &args![pointer]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(RENDER_00B6C0D0, &args![view, held, 0u32]);
         e.call(CULLER_SET_ACCUMULATOR, &args![culler, 0u32]);
         e.call(NI_POINTER_ASSIGN, &args![pointer, 0u32]);
@@ -684,6 +704,7 @@ const RANDOM_INDEX_00944460: u32 = 0x0094_4460;
 const ABS_00EC7D40: u32 = 0x00ec_7d40;
 /// A hand list's empty test (`008256d0`, a `bool`), its adds: `00726c60` and
 /// `005ae3d0` (`RET 4`, the address of the item word) and `00905820` (`RET 4`).
+#[cfg(test)]
 const LIST_IS_EMPTY_008256D0: u32 = 0x0082_56d0;
 const LIST_ADD_00726C60: u32 = 0x0072_6c60;
 const LIST_ADD_005AE3D0: u32 = 0x005a_e3d0;
@@ -761,7 +782,8 @@ pub fn fn_007393f0(e: &mut Engine, this: Ptr) -> i32 {
     for (hand, other) in [(0xd90u32, 0xd90u32), (0xd94, 0xd90)] {
         let index = fn_00739090(e, this, 0, 0, 0);
         let list = e.mem.u32(base + hand);
-        let fresh = list == 0 || e.call(LIST_IS_EMPTY_008256D0, &args![list]).bool();
+        let fresh =
+            list == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list));
         if fresh {
             let list = e.mem.u32(base + hand);
             add_card(e, this, list, index, LIST_ADD_00726C60);
@@ -909,7 +931,11 @@ pub fn fn_00739090(e: &mut Engine, this: Ptr, hand: u32, luck: u8, dealer: u8) -
 /// The texturing property of a named card mesh of the table (`004aae30` on the table
 /// model's node `0043b4a0(hand)`; property 3 when its type word is 8 to 12, else none).
 fn card_property(e: &mut Engine, hand: u32, name: u32) -> u32 {
-    let model = e.call(FIRST_WORD, &args![TABLE_MODEL_011D9098]).u32();
+    let model = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, TABLE_MODEL_011D9098)
+    );
     let node = e.call(NODE_0043B4A0, &args![model, hand]).u32();
     let object = e.call(FIND_OBJECT_004AAE30, &args![node, name]).u32();
     let usable = e.call(GET_PROPERTY, &args![object, 3u32]).u32() != 0 && {
@@ -975,7 +1001,11 @@ pub fn black_jack_menu_swap_card_textures(
         for (name, texture) in [(front, 8u32), (back, 0xc)] {
             let property = card_property(e, hand as u32, name);
             if property != 0 {
-                let image = e.call(FIRST_WORD, &args![card + texture]).u32();
+                let image = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, card + texture)
+                );
                 e.vcall(property, 0xf0, &args![0u32, 0u32, image]);
             }
         }
@@ -1070,7 +1100,11 @@ fn cull_card_meshes(e: &mut Engine, this: Ptr, culled: impl Fn(&Engine, &HandMes
                 &args![data, x87_store32(0.0), 0u32, 0u32],
             )
             .u32();
-        let model = e.call(FIRST_WORD, &args![TABLE_MODEL_011D9098]).u32();
+        let model = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, TABLE_MODEL_011D9098)
+        );
         e.call(UPDATE_00A59C60, &args![model, data]);
     });
 }
@@ -1489,7 +1523,11 @@ fn update_table_model_at(e: &mut Engine, data: u32) {
         UPDATE_DATA_INIT_0043D410,
         &args![data, x87_store32(0.0), 0u32, 0u32],
     );
-    let model = e.call(FIRST_WORD, &args![TABLE_MODEL_011D9098]).u32();
+    let model = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, TABLE_MODEL_011D9098)
+    );
     e.call(UPDATE_00A59C60, &args![model, data]);
 }
 
@@ -1697,6 +1735,7 @@ const START_ANIMATIONS: u32 = 0x00a6_d2d0;
 /// and the bound's radius (`0084d030`, `ST0`), `3.0` (`double`, `01021928`) and
 /// `ShadowSceneNode::AddAllLightsFromNode_Recurse` (`00b5ca70`, `RET 8`).
 const MAKE_CAMERA_007C2180: u32 = 0x007c_2180;
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 const BOUND_RADIUS_0084D030: u32 = 0x0084_d030;
 const THREE_01021928: u32 = 0x0102_1928;
@@ -1817,7 +1856,11 @@ pub fn black_jack_menu_prepare_3d_elements(e: &mut Engine, this: Ptr) {
     };
     e.call(NI_POINTER_ASSIGN, &args![TABLE_MODEL_011D9098, node]);
     let attach = |e: &mut Engine, offset: u32| {
-        let model = e.call(FIRST_WORD, &args![TABLE_MODEL_011D9098]).u32();
+        let model = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, TABLE_MODEL_011D9098)
+        );
         let child = e.mem.u32(base + offset);
         e.vcall(model, 0xdc, &args![child, 1u32]);
     };
@@ -1862,7 +1905,12 @@ pub fn black_jack_menu_prepare_3d_elements(e: &mut Engine, this: Ptr) {
         }
         update_table_model_at(e, ebp - 0x1c);
     });
-    if e.call(FIRST_WORD, &args![CAMERA_011D90BC]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_011D90BC)
+    ) == 0
+    {
         let camera = e.call(MAKE_CAMERA_007C2180, &args![this]).u32();
         e.call(NI_POINTER_ASSIGN, &args![CAMERA_011D90BC, camera]);
     }
@@ -1872,18 +1920,30 @@ pub fn black_jack_menu_prepare_3d_elements(e: &mut Engine, this: Ptr) {
         .u32();
     let property = texturing_property(e, deck);
     if property != 0 {
-        let image = e.call(FIRST_WORD, &args![base + 0x9c]).u32();
+        let image = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x9c));
         e.vcall(property, 0xf0, &args![0u32, 0u32, image]);
     }
     let scene = e.call(SHADOW_SCENE_NODE, &args![1u32]).u32();
-    let model = e.call(FIRST_WORD, &args![TABLE_MODEL_011D9098]).u32();
+    let model = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, TABLE_MODEL_011D9098)
+    );
     e.vcall(scene, 0xdc, &args![model, 1u32]);
-    let model = e.call(FIRST_WORD, &args![TABLE_MODEL_011D9098]).u32();
-    let bound = e.call(GET_WORLD_BOUND, &args![model]).u32();
+    let model = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, TABLE_MODEL_011D9098)
+    );
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, model));
     let radius = e.call(BOUND_RADIUS_0084D030, &args![bound]).f64();
     let three: f64 = e.global(THREE_01021928);
     let reach = x87_quiet_bits(x87_store32(x87_mul(radius, three)));
-    let model = e.call(FIRST_WORD, &args![TABLE_MODEL_011D9098]).u32();
+    let model = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, TABLE_MODEL_011D9098)
+    );
     let scene = e.call(SHADOW_SCENE_NODE, &args![1u32]).u32();
     e.call(ADD_ALL_LIGHTS, &args![scene, model, reach]);
 }
@@ -1898,6 +1958,7 @@ const VALUE_TRAIT_011D9048: u32 = 0x011d_9048;
 /// The player's casino records list (`005a6260`: the player's +0x610), a form's id
 /// (`0084e3a0`: the word at +0xc), the allocator (`00401000`, cdecl).
 const CASINO_RECORDS_005A6260: u32 = 0x005a_6260;
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 const ALLOCATE_00401000: u32 = 0x0040_1000;
 /// Whether the player is barred from the casinos (`00969b80`) and the time left
@@ -2014,24 +2075,24 @@ pub fn black_jack_menu_create(
         let player = e.global::<u32>(PLAYER);
         let mut node = e.call(CASINO_RECORDS_005A6260, &args![player]).u32();
         while node != 0 {
-            let slot = e.call(NODE_SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 {
                 break;
             }
             let casino = e.global::<u32>(CASINO_011D9058);
-            let id = e.call(FORM_ID_0084E3A0, &args![casino]).u32();
-            let slot = e.call(NODE_SELF, &args![node]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, casino));
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let record = e.mem.u32(slot);
             if id == e.mem.u32(record) {
-                let slot = e.call(NODE_SELF, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let record = e.mem.u32(slot);
                 e.set_global(BET_DATA_011D9054, record);
                 break;
             }
-            if e.call(NODE_NEXT, &args![node]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node)) == 0 {
                 break;
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         if e.global::<u32>(BET_DATA_011D9054) == 0 {
             let block = e.call(ALLOCATE_00401000, &args![0xcu32]).u32();
@@ -2043,14 +2104,14 @@ pub fn black_jack_menu_create(
             let holder = local(0x20);
             e.mem.set_u32(holder, record);
             let casino = e.global::<u32>(CASINO_011D9058);
-            let id = e.call(FORM_ID_0084E3A0, &args![casino]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, casino));
             let record = e.mem.u32(holder);
             e.mem.set_u32(record, id);
             let record = e.mem.u32(holder);
             e.mem.set_u32(record.wrapping_add(4), 0);
             let player = e.global::<u32>(PLAYER);
             let list = e.call(CASINO_RECORDS_005A6260, &args![player]).u32();
-            if list == 0 || e.call(LIST_IS_EMPTY_008256D0, &args![list]).bool() {
+            if list == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
                 e.call(LIST_ADD_00726C60, &args![list, holder]);
             } else {
                 e.call(LIST_ADD_005AE3D0, &args![list, holder]);
@@ -2115,7 +2176,10 @@ pub fn black_jack_menu_create(
                 return set_up_menu(e, tile, local(0x4d0), local(0x484));
             }
         }
-        if me(e) != 0 && e.call(NODE_NEXT, &args![me(e)]).u32() != 0 && me(e) != 0 {
+        if me(e) != 0
+            && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e))) != 0
+            && me(e) != 0
+        {
             e.vcall(me(e), 0, &args![1u32]);
         }
         0
@@ -2248,12 +2312,12 @@ fn show_bet_value(e: &mut Engine, value: impl Fn(&Engine) -> u32) {
 fn hand_size(e: &mut Engine, mut node: u32) -> i32 {
     let mut count = 0i32;
     while node != 0 {
-        let slot = e.call(NODE_SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
         count += 1;
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     count
 }
@@ -2507,15 +2571,15 @@ fn split_hand(e: &mut Engine, this: Ptr, ebp: u32) {
     e.mem.set_u32(base + 0x28, 3);
     set(e, 1, 1);
     let hand = e.mem.u32(base + 0xd94);
-    let second = e.call(NODE_NEXT, &args![hand]).u32();
-    let slot = e.call(NODE_SELF, &args![second]).u32();
+    let second = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, hand));
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
     let card = ebp - 0x38;
     let moved = e.mem.u32(slot);
     e.mem.set_u32(card, moved);
     let bet = e.mem.u32(base + 0x6c);
     e.mem.set_u32(base + 0x70, bet);
     let split = e.mem.u32(base + 0xd98);
-    if split == 0 || e.call(LIST_IS_EMPTY_008256D0, &args![split]).bool() {
+    if split == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, split)) {
         let split = e.mem.u32(base + 0xd98);
         e.call(LIST_ADD_00726C60, &args![split, card]);
     } else {
@@ -2688,14 +2752,22 @@ fn init_update_data(e: &mut Engine, data: u32, time: u32) {
 
 /// Updates the table model's node `node` (`0043b4a0`) with the data at `data`.
 fn update_model_node(e: &mut Engine, data: u32, node: u32) {
-    let model = e.call(FIRST_WORD, &args![TABLE_MODEL_011D9098]).u32();
+    let model = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, TABLE_MODEL_011D9098)
+    );
     let object = e.call(NODE_0043B4A0, &args![model, node]).u32();
     e.call(UPDATE_00A59C60, &args![object, data]);
 }
 
 /// Updates the table model itself with the data at `data`.
 fn update_model(e: &mut Engine, data: u32) {
-    let model = e.call(FIRST_WORD, &args![TABLE_MODEL_011D9098]).u32();
+    let model = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, TABLE_MODEL_011D9098)
+    );
     e.call(UPDATE_00A59C60, &args![model, data]);
 }
 
@@ -2782,7 +2854,7 @@ pub fn black_jack_menu_do_idle(e: &mut Engine, this: Ptr) {
     if !top {
         let alpha = x87_quiet_bits(e.global::<u32>(FULL_ALPHA));
         let manager = e.call(INTERFACE_MANAGER, &args![]).u32();
-        let tile = e.call(WORD_AT_0X28, &args![manager]).u32();
+        let tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, manager));
         e.call(TILE_SET_FLOAT, &args![tile, 0xfa9u32, alpha, 1u32]);
     }
     // The frame below `EBP`: `local(n)` is `EBP - n` (0x520 bytes).
@@ -2829,7 +2901,7 @@ fn idle_deal(e: &mut Engine, this: Ptr, ebp: u32) {
     init_update_data(e, ebp - 0x50, time);
     update_model_node(e, ebp - 0x50, 0);
     let card_of = |e: &mut Engine, node: u32| {
-        let slot = e.call(NODE_SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.mem.u32(slot)
     };
     if idle_time(e) == e.global::<f64>(ZERO_DOUBLE) {
@@ -2841,12 +2913,12 @@ fn idle_deal(e: &mut Engine, this: Ptr, ebp: u32) {
         let mut house = e.mem.u32(base + 0xd90);
         let card = card_of(e, player);
         black_jack_menu_swap_card_textures(e, this, 0, 1, card);
-        player = e.call(NODE_NEXT, &args![player]).u32();
+        player = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, player));
         let card = card_of(e, player);
         black_jack_menu_swap_card_textures(e, this, 0, 2, card);
         let card = card_of(e, house);
         black_jack_menu_swap_card_textures(e, this, 2, 1, card);
-        house = e.call(NODE_NEXT, &args![house]).u32();
+        house = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, house));
         let card = card_of(e, house);
         black_jack_menu_swap_card_textures(e, this, 2, 2, card);
         play_sequence(e, this, 0xdf8, 0xe10);
@@ -3007,23 +3079,23 @@ fn idle_hit(e: &mut Engine, this: Ptr, ebp: u32) {
         let mut card = 0u32;
         let mut place = 0u32;
         while node != 0 {
-            let slot = e.call(NODE_SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 || place == e.mem.u32(base + count) {
                 break;
             }
-            let slot = e.call(NODE_SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             card = e.mem.u32(slot);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             place = place.wrapping_add(1);
         }
         while node != 0 {
-            let slot = e.call(NODE_SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 || place == 0 {
                 break;
             }
-            let slot = e.call(NODE_SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             card = e.mem.u32(slot);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             place = place.wrapping_add(1);
         }
         black_jack_menu_swap_card_textures(e, this, hand as i32, place as i32, card);
@@ -3283,13 +3355,13 @@ fn idle_dealer_draw(e: &mut Engine, this: Ptr, ebp: u32) {
         let mut card = 0u32;
         let mut place = 0i32;
         while node != 0 {
-            let slot = e.call(NODE_SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 {
                 break;
             }
-            let slot = e.call(NODE_SELF, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             card = e.mem.u32(slot);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             place = place.wrapping_add(1);
         }
         if card != 0 {
@@ -3367,17 +3439,17 @@ fn idle_dealer_turn(e: &mut Engine, this: Ptr, ebp: u32) {
     let mut ace = false;
     let mut node = e.mem.u32(base + 0xd90);
     while node != 0 {
-        let slot = e.call(NODE_SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
         cards += 1;
-        let slot = e.call(NODE_SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let card = e.mem.u32(slot);
         if e.mem.u32(card) == 0xc {
             ace = true;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let draws = value < 0x11 || (value == 0x11 && ace && e.mem.u8(base + 0xdac) == 0);
     if draws && cards < 7 {
@@ -3552,9 +3624,9 @@ fn idle_close(e: &mut Engine, this: Ptr, ebp: u32) {
     }
     let alpha = x87_quiet_bits(e.global::<u32>(FULL_ALPHA));
     let manager = e.call(INTERFACE_MANAGER, &args![]).u32();
-    let tile = e.call(WORD_AT_0X28, &args![manager]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, manager));
     e.call(TILE_SET_FLOAT, &args![tile, 0xfa9u32, alpha, 1u32]);
-    let tile = e.call(NODE_NEXT, &args![this]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     e.call(TILE_SET_INT, &args![tile, 0x1772u32, 1u32]);
     e.call(MENU_START_FADE_OUT, &args![this]);
     let casino = e.global::<u32>(CASINO_011D9058);
@@ -3595,7 +3667,7 @@ fn idle_close(e: &mut Engine, this: Ptr, ebp: u32) {
         );
         let seconds = x87_quiet_bits(e.global::<u32>(MESSAGE_TIME_010162C0));
         let sound = pick_up_sound(e);
-        let message = e.call(FIRST_WORD, &args![text]).u32();
+        let message = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         e.call(
             SHOW_MESSAGE_007052F0,
             &args![message, 0u32, LOSS_ICON_010208A0, sound, seconds, 0u32],
@@ -3638,7 +3710,7 @@ fn idle_close(e: &mut Engine, this: Ptr, ebp: u32) {
             );
             let seconds = x87_quiet_bits(e.global::<u32>(MESSAGE_TIME_010162C0));
             let sound = pick_up_sound(e);
-            let message = e.call(FIRST_WORD, &args![text]).u32();
+            let message = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             e.call(
                 SHOW_MESSAGE_007052F0,
                 &args![message, 0u32, GAIN_ICON_0103A830, sound, seconds, 0u32],

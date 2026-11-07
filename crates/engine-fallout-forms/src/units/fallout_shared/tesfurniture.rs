@@ -177,6 +177,7 @@ const SLOT_PLAYER_TRESPASSING: u32 = 0x448;
 /// arguments) that yields the first argument of `GetClosestFreeMarker`.
 const SLOT_ACTIVATOR_MARKER_SOURCE: u32 = 0x1f4;
 /// `006815c0`: returns `this` (identical-code folded; called by address).
+#[cfg(test)]
 const RETURN_THIS: u32 = 0x0068_15c0;
 /// `009938b0` and `00558dd0`: the members at `this + 0xc` that
 /// `005094xx` forward to.
@@ -599,7 +600,7 @@ pub fn tes_furniture_activate(
 /// stores the byte `marker_type` at +0xe. Returns `this`. (No class name in
 /// the exe.)
 pub fn fn_00509890(e: &mut Engine, this: Ptr, marker_type: u8) -> Ptr {
-    e.call(RETURN_THIS, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     e.mem.set_u16(this.addr() + 0xc, 0);
     e.mem.set_u8(this.addr() + 0xe, marker_type);
     this

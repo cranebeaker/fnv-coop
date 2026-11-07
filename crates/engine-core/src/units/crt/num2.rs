@@ -12,6 +12,7 @@ const FTOL2_X87: u32 = 0x00ec_62f6;
 /// `00ed2808` (stack double in, `EAX` the exponent bits; `ZF` set for all ones), the shared
 /// x87 square-root body `00ec605d` (`ZF`, `ST0`, the stack double) and `__fload_withFB`
 /// (`00ed27c5`; `ECX` unused, `EDX` the double's address).
+#[cfg(test)]
 const EXPONENT_BITS_HELPER: u32 = 0x00ed_2808;
 const SQRT_BODY: u32 = 0x00ec_605d;
 const FLOAD_WITH_FB_ADDR: u32 = 0x00ed_27c5;
@@ -49,7 +50,11 @@ pub fn ftol2_sse(e: &mut Engine, value: f64) -> u64 {
 pub fn ci_sqrt(e: &mut Engine, st0: f64) -> f64 {
     let stored = x87_load64(st0.to_bits()).to_bits();
     let (low, high) = (stored as u32, (stored >> 32) as u32);
-    e.call(EXPONENT_BITS_HELPER, &args![low, high]);
+    typed_call!(
+        leaf::FAMILY,
+        0x00ed_2808,
+        leaf::double_exponent(e, low, high)
+    );
     let zf = high & 0x7ff0_0000 == 0x7ff0_0000;
     e.call(SQRT_BODY, &args![zf, f64::from_bits(stored), low, high])
         .f64()

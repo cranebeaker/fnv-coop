@@ -61,7 +61,7 @@ pub fn bgs_touch_spell_form_init_item(e: &mut Engine, this: Ptr, owner: Ptr) {
             let name = e.vcall(owner.addr(), 0x130, &args![]).u32();
             e.call(WARNING, &args![MISSING_ON_OWNER_NAME, id, name]);
         } else {
-            let owner_id = e.call(0x0084_e3a0, &args![owner]).u32();
+            let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             e.call(WARNING, &args![MISSING_ON_OWNER_ID, id, owner_id]);
         }
     }
@@ -83,11 +83,11 @@ pub fn bgs_touch_spell_form_init_item(e: &mut Engine, this: Ptr, owner: Ptr) {
         return;
     }
     let owner_name = e.vcall(owner.addr(), 0x130, &args![]).u32();
-    let owner_id = e.call(0x0084_e3a0, &args![owner]).u32();
+    let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
     let spell = e.mem.u32(base + 4);
     let spell_name = e.vcall(spell, 0x130, &args![]).u32();
     let spell = e.mem.u32(base + 4);
-    let spell_id = e.call(0x0084_e3a0, &args![spell]).u32();
+    let spell_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, spell));
     e.call(
         WARNING,
         &args![

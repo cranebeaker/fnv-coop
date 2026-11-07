@@ -99,9 +99,18 @@ fn word(words: &[u32], i: &mut usize) -> u32 {
 }
 
 /// The one argument word of a one-word type ([`Arg::put`]'s word without a buffer): what
-/// [`RetVal::into_ret`] puts in `EAX`.
-trait OneWord {
+/// [`RetVal::into_ret`] puts in `EAX`. A typed function folded across classes takes its parameters
+/// as this, so a caller passes whichever it holds, a `Ptr<T>` of any class or a plain word, and both
+/// branches of a `typed_call!` see the same word.
+pub trait OneWord {
     fn one_word(self) -> u32;
+}
+
+impl<T> OneWord for Ptr<T> {
+    #[inline(always)]
+    fn one_word(self) -> u32 {
+        self.0
+    }
 }
 
 macro_rules! word_arg {

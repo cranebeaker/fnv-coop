@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// `*this` of a `NiPointer` (`00559450`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `hkColor::rgbFromChars` (engine map name of `00cabb00`; cdecl, four
 /// bytes).
@@ -25,16 +26,16 @@ const SLOT_9C: u32 = 0x9c;
 /// `rgbFromChars(0xff, 0x2e, 0x2e, 0x19)` for that object.
 pub fn fn_00621370(e: &mut Engine, this: Ptr, world: u32) {
     for pointer in [this.addr(), this.addr() + 4] {
-        if e.call(POINTER_GET, &args![pointer]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) == 0 {
             continue;
         }
-        let object = e.call(POINTER_GET, &args![pointer]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.vcall(object, SLOT_9C, &args![world]);
         if world != 0 {
             let color = e
                 .call(RGB_FROM_CHARS, &args![0xffu32, 0x2eu32, 0x2eu32, 0x19u32])
                 .u32();
-            let object = e.call(POINTER_GET, &args![pointer]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             e.call(SET_DEBUG_OBJECT_COLOR, &args![world, object, color]);
         }
     }

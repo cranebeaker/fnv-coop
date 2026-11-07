@@ -58,6 +58,7 @@ const GLOBAL_POINTER_A: u32 = 0x011f_95e4;
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 /// `NiPointer` destructor (`0045cec0`) and `*this` (`00559450`).
 const NI_POINTER_DESTRUCT: u32 = 0x0045_cec0;
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer` constructor from a pointer (`00633c90`, thiscall, one word).
 const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
@@ -74,6 +75,7 @@ const TREE_DISTANCE_SETTING: u32 = 0x011d_5d98;
 const SETTING_VALUE_BYTE: u32 = 0x0040_8d60;
 const SETTING_VALUE_WORD: u32 = 0x0043_d4d0;
 /// `NiColor::NiColor(r, g, b)` (`00416870`, thiscall, `RET 0xc`).
+#[cfg(test)]
 const COLOR_CONSTRUCT: u32 = 0x0041_6870;
 /// `NiMaterialProperty::NiMaterialProperty` (`00a75650`) and the setters of
 /// colours the constructor calls: two no-ops (`004534f0`) and
@@ -139,10 +141,12 @@ pub fn bs_tree_manager_bs_tree_manager(
             .enumerate()
         {
             let color = colors.addr() + 0x0c * index as u32;
-            let made = e
-                .call(COLOR_CONSTRUCT, &args![color, 1.0f32, 1.0f32, 1.0f32])
-                .u32();
-            let property = e.call(NI_POINTER_GET, &args![base + 0x08]).u32();
+            let made = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, color, 1.0f32, 1.0f32, 1.0f32)
+            );
+            let property = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x08));
             e.call(setter, &args![property, made]);
         }
     });
@@ -160,7 +164,7 @@ pub fn bs_tree_manager_bs_tree_manager(
         (0x0094_db80, 0x54),
         (0x0049_ed90, 0),
     ] {
-        let property = e.call(NI_POINTER_GET, &args![base + 0x0c]).u32();
+        let property = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x0c));
         e.call(setter, &args![property, value]);
     }
 

@@ -2722,6 +2722,7 @@ fn ceil_x87(e: &mut Engine, x: f64) -> f64 {
 /// `EAX` = the exponent bits, or the whole high word for an infinity or NaN; `ZF` set exactly in
 /// that case) and the x87 body `00ec96a8` (`ZF`, `EAX`, `ST0`, the stack double).
 const ASIN_SSE2: u32 = 0x00ed_7720;
+#[cfg(test)]
 const LOAD_FLAGS_HELPER: u32 = 0x00ed_2808;
 const ASIN_X87: u32 = 0x00ec_96a8;
 
@@ -2741,7 +2742,11 @@ pub fn ci_asin(e: &mut Engine, st0: f64) -> f64 {
     let st0 = x87_load64(st0.to_bits());
     let bits = st0.to_bits();
     let (low, high) = (bits as u32, (bits >> 32) as u32);
-    let eax = e.call(LOAD_FLAGS_HELPER, &args![low, high]).u32();
+    let eax = typed_call!(
+        leaf::FAMILY,
+        0x00ed_2808,
+        leaf::double_exponent(e, low, high)
+    );
     // `ZF` is the result of `00ed2808`'s `CMP EAX, 0x7ff00000`.
     let zf = high & 0x7ff0_0000 == 0x7ff0_0000;
     e.call(ASIN_X87, &args![zf, eax, st0, low, high]).f64()
@@ -2755,6 +2760,7 @@ const SQRT_NAME: u32 = 0x011c_1740;
 /// `ST0`, the saved control word, the caller's return address, the double) and `00ed2737` (the
 /// error handler: `EAX` = type, `ECX` = name, `EDX` = operation, `ST0`, the saved control word,
 /// the caller's return address, the double).
+#[cfg(test)]
 const SET_CONTROL_WORD_HELPER: u32 = 0x00ed_2795;
 const NAN_TYPE_HELPER: u32 = 0x00ed_27ac;
 const MATH_EXIT: u32 = 0x00ed_282b;
@@ -2852,7 +2858,11 @@ pub fn fn_00ec605d(e: &mut Engine, zf: bool, st0: f64, low: u32, high: u32) -> f
         }
     } else {
         if saved_control != 0x027f {
-            e.call(SET_CONTROL_WORD_HELPER, &args![u32::from(saved_control)]);
+            typed_call!(
+                leaf::FAMILY,
+                0x00ed_2795,
+                leaf::load_math_control_word(e, u32::from(saved_control))
+            );
         }
         if high & 0x8000_0000 == 0 {
             // FSQRT

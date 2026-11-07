@@ -86,6 +86,7 @@ pub fn fn_00a694a0(e: &mut Engine, this: Ptr, frustum: Ptr) {
 }
 
 /// `NiAVObject::GetWorldBound` (`0043d450`, `thiscall`, no stack words).
+#[cfg(test)]
 const AV_OBJECT_GET_WORLD_BOUND: u32 = 0x0043_d450;
 /// `NiBound::WhichSide` (`004b6100`, `thiscall` on the bound, `RET 4`: the plane).
 const BOUND_WHICH_SIDE: u32 = 0x004b_6100;
@@ -115,7 +116,7 @@ pub fn ni_culling_process_do_culling(e: &mut Engine, this: Ptr, object: Ptr) {
     let mut plane = t + 0x2c;
     while plane_index < 6 {
         if e.mem.u32(t + 0x8c) & mask != 0 {
-            let world_bound = e.call(AV_OBJECT_GET_WORLD_BOUND, &args![object]).u32();
+            let world_bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, object));
             let side = e.call(BOUND_WHICH_SIDE, &args![world_bound, plane]).u32();
             if side == 2 {
                 break;

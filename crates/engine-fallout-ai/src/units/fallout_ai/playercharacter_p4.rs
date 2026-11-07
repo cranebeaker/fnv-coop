@@ -114,13 +114,18 @@ const OPERATOR_NEW: u32 = 0x0040_1000;
 /// `_ftol2_sse` (`00ec62c0`): the value comes as a leading `f64`.
 const FLOAT_TO_INT: u32 = 0x00ec_62c0;
 /// Word at +0 / +4 / +8 of an object (see the module notes).
+#[cfg(test)]
 const WORD_AT_0: u32 = 0x0055_9450;
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
+#[cfg(test)]
 const WORD_AT_8: u32 = 0x0044_ddc0;
 /// A list node's own address (`006815c0`).
+#[cfg(test)]
 const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
 /// Element address of a `BSSimpleArray` of pointers (`00877a30`: `this[+4] +
 /// index * 4`).
+#[cfg(test)]
 const ARRAY_ELEMENT_SLOT: u32 = 0x0087_7a30;
 /// The form type byte at +4 of a form (`00401170`).
 const FORM_TYPE: u32 = 0x0040_1170;
@@ -230,6 +235,7 @@ const LIST_REMOVE: u32 = 0x0090_5330;
 /// it (`0063f7b0`).
 const LIST_POP_FRONT: u32 = 0x0063_f7b0;
 /// `BSSimpleList` head test (`008256d0`): both words zero.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 
 // The ammunition list.
@@ -285,6 +291,7 @@ const PACKAGE_SET_FLAG_4: u32 = 0x0082_6b90;
 const SET_PACKAGE_LOCATION: u32 = 0x0067_1d30;
 const SET_PACKAGE_TARGET: u32 = 0x0067_2fc0;
 /// The package's target object (`00671d10`: the word at `+0x30`).
+#[cfg(test)]
 const PACKAGE_TARGET_OBJECT: u32 = 0x0067_1d10;
 /// `PackageLocation::PackageLocation` (Xbox PDB), a `PackageLocation` method
 /// called with 0 (`0067f140`), `SetLocReference` and the destructor
@@ -303,6 +310,7 @@ const PACKAGE_TARGET_DESTRUCTOR: u32 = 0x007b_3fa0;
 /// Sets the word at +0x18 of a package (`00984f60`).
 const SET_PACKAGE_WORD_AT_0X18: u32 = 0x0098_4f60;
 /// The actor's process (`008d8520`: the word at `+0x68`).
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// `ProcessLists` call that `00969260` stores at +0x1fc (`00973710`: the
 /// player and a flag).
@@ -465,29 +473,33 @@ layout! {
 /// The item of a `BSSimpleList` node (`006815c0` gives the node's own
 /// address; the item is the word there).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 /// The next node of a `BSSimpleList` node (`00726070`).
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(WORD_AT_4, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// The count of a `BSSimpleArray` (`0044ddc0`: the word at +8).
 fn array_count(e: &mut Engine, array: u32) -> u32 {
-    e.call(WORD_AT_8, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 /// Element `index` of a `BSSimpleArray` of pointers (`00877a30`).
 fn array_item(e: &mut Engine, array: u32, index: u32) -> u32 {
-    let slot = e.call(ARRAY_ELEMENT_SLOT, &args![array, index]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    );
     e.mem.u32(slot)
 }
 
 /// The number of an `ItemChange` (`00726070`: the word at +4).
 fn item_number(e: &mut Engine, item: u32) -> u32 {
-    e.call(WORD_AT_4, &args![item]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
 }
 
 /// The `float` setting stored in the setting object (`00403e20`).
@@ -538,7 +550,7 @@ fn new_extra_copy(e: &mut Engine, source: u32, number: u32) -> u32 {
 fn add_extra_to_item(e: &mut Engine, item: u32, extra: u32) {
     e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), extra);
-        let list = e.call(WORD_AT_0, &args![item]).u32();
+        let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
         e.call(LIST_ADD, &args![list, slot]);
     });
 }
@@ -605,8 +617,8 @@ pub fn player_character_is_pipboy_active(e: &mut Engine, this: Ptr<PlayerCharact
 /// float or the form's own health.
 pub fn fn_00967b70(e: &mut Engine, this: Ptr<PlayerCharacter>, entry: Ptr<ItemChange>) -> bool {
     let mut usable = true;
-    let form = e.call(WORD_AT_8, &args![entry]).u32();
-    let list = e.call(WORD_AT_0, &args![entry]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
+    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
     let extra = if list != 0 { node_item(e, list) } else { 0 };
     if e.vcall(form, 0x94, &args![]).bool() {
         let kind = e.call(FORM_TYPE, &args![form]).u32();
@@ -630,7 +642,7 @@ pub fn fn_00967b70(e: &mut Engine, this: Ptr<PlayerCharacter>, entry: Ptr<ItemCh
     } else {
         e.call(GET_FORM_HEALTH, &args![form]).u32() as f32
     };
-    let entry_form = e.call(WORD_AT_8, &args![entry]).u32();
+    let entry_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
     let kind = e.call(FORM_TYPE, &args![entry_form]).u32();
     match kind {
         0x18 | 0x28 => {
@@ -646,7 +658,7 @@ pub fn fn_00967b70(e: &mut Engine, this: Ptr<PlayerCharacter>, entry: Ptr<ItemCh
         }
         0x29 => {
             usable = true;
-            let form = e.call(WORD_AT_8, &args![entry]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             let weapon = e.call(GET_CURRENT_WEAPON, &args![this]).u32();
             if weapon == 0 || form == 0 {
                 usable = false;
@@ -831,18 +843,23 @@ pub fn fn_00967da0(e: &mut Engine, this: Ptr<PlayerCharacter>) -> u32 {
                 // Take the candidate's entry out of the list `971fd0` gave.
                 let mut current = entries;
                 let mut previous = 0u32;
-                while current != 0 && !e.call(LIST_IS_EMPTY, &args![current]).bool() {
+                while current != 0
+                    && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, current))
+                {
                     let item = node_item(e, current);
                     let mut remove = false;
                     if item == 0 {
                         remove = true;
-                    } else if e.call(WORD_AT_8, &args![item]).u32() == candidate {
+                    } else if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
+                        == candidate
+                    {
                         e.call(ENTRY_DESTROY, &args![item, 1u32]);
                         remove = true;
                     }
                     if remove {
                         if previous != 0 {
-                            let slot = e.call(NODE_ITEM_SLOT, &args![current]).u32();
+                            let slot =
+                                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, current));
                             e.call(LIST_REMOVE, &args![previous, slot]);
                             current = node_next(e, previous);
                         } else {
@@ -910,7 +927,7 @@ pub fn fn_00967da0(e: &mut Engine, this: Ptr<PlayerCharacter>) -> u32 {
     while node != 0 {
         let item = node_item(e, node);
         if item != 0 {
-            let actor = e.call(WORD_AT_8, &args![item]).u32();
+            let actor = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             if actor != 0 {
                 e.call(HANDLE_ENTRY, &args![actor, item]);
             }
@@ -992,9 +1009,9 @@ pub fn fn_00968690(e: &mut Engine, this: Ptr, result: Ptr, time: f32) -> Ptr {
 /// 0x76c) plus `GetRadiationWaterDelta` (slot 0x764) as the second: the sum is pushed first
 /// (00968786), the magic delta last (0096879a).
 pub fn fn_00968730(e: &mut Engine, this: Ptr) {
-    let first = e.call(ACTOR_PROCESS, &args![this]).u32();
-    let second = e.call(ACTOR_PROCESS, &args![this]).u32();
-    let third = e.call(ACTOR_PROCESS, &args![this]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
+    let second = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
+    let third = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
     let water = e.vcall(second, 0x764, &args![]).f64();
     let delta = e.vcall(first, 0x76c, &args![]).f64();
     let total = (delta + water) as f32;
@@ -1022,9 +1039,9 @@ pub fn player_character_add_rock_it_ammo(
     let mut index = 0u32;
     while !added && index < array_count(e, array) {
         let item = array_item(e, array, index);
-        if e.call(WORD_AT_8, &args![item]).u32() == form {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item)) == form {
             // The entry has no extra data list, or only a default one.
-            let list = e.call(WORD_AT_0, &args![item]).u32();
+            let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
             let default_extras = !(list != 0 && {
                 let first = node_item(e, list);
                 first != 0
@@ -1039,7 +1056,7 @@ pub fn player_character_add_rock_it_ammo(
                     added = true;
                 }
             } else {
-                let mut node = e.call(WORD_AT_0, &args![item]).u32();
+                let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                 while !added && node != 0 && node_item(e, node) != 0 {
                     let held = node_item(e, node);
                     let differs = e
@@ -1071,7 +1088,7 @@ pub fn player_character_add_rock_it_ammo(
                     && default_extras
                 {
                     let copy = new_extra_copy(e, extra, number as u16 as u32);
-                    if e.call(WORD_AT_0, &args![item]).u32() == 0 {
+                    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) == 0 {
                         let node = new_object(e, 8, LIST_NODE_CONSTRUCT);
                         e.mem.set_u32(item, node);
                     }
@@ -1128,9 +1145,9 @@ pub fn player_character_remove_rock_it_ammo(
     let mut index = 0u32;
     while !done && index < array_count(e, array) {
         let item = array_item(e, array, index);
-        if e.call(WORD_AT_8, &args![item]).u32() == form {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item)) == form {
             if extra == 0 {
-                let list = e.call(WORD_AT_0, &args![item]).u32();
+                let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                 if list == 0 || node_item(e, list) == 0 {
                     if keep != 0 {
                         taken = new_item_change(e, form, remaining as u32);
@@ -1144,7 +1161,7 @@ pub fn player_character_remove_rock_it_ammo(
                     done = true;
                 }
             } else {
-                let mut node = e.call(WORD_AT_0, &args![item]).u32();
+                let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                 while !done && node != 0 && node_item(e, node) != 0 {
                     if node_item(e, node) == extra {
                         let held = e.call(EXTRA_GET_COUNT, &args![extra]).u16() as i16 as i32;
@@ -1163,7 +1180,8 @@ pub fn player_character_remove_rock_it_ammo(
                         if !whole {
                             e.call(EXTRA_SET_COUNT, &args![extra, (held - number) as u32]);
                         } else {
-                            let list = e.call(WORD_AT_0, &args![item]).u32();
+                            let list =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                             if list != 0 {
                                 e.with_stack(4, |e, slot| {
                                     e.mem.set_u32(slot.addr(), extra);
@@ -1212,9 +1230,9 @@ pub fn fn_00968f90(e: &mut Engine, this: Ptr<PlayerCharacter>) -> u32 {
     let random = e.call(RANDOM, &args![]).u32();
     let count = array_count(e, array);
     let item = array_item(e, array, random % count);
-    let list = e.call(WORD_AT_0, &args![item]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
     let extra = if list != 0 { node_item(e, list) } else { 0 };
-    let form = e.call(WORD_AT_8, &args![item]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     player_character_remove_rock_it_ammo(e, this, form, extra, 1, 1)
 }
 
@@ -1263,7 +1281,7 @@ pub fn player_character_reset_rock_it_ammo_weight(
         let mut index = 0;
         while index < array_count(e, array) {
             let item = array_item(e, array, index);
-            let form = e.call(WORD_AT_8, &args![item]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             let weight = form_weight(e, this, form);
             let number = item_number(e, item) as i32;
             let old = e.get(this, PlayerCharacter::fRockItLauncherAmmoWeight);
@@ -1316,11 +1334,11 @@ fn build_package(e: &mut Engine, kind: u32, word: u32, this: u32, reference: u32
         e.call(PACKAGE_TARGET_DESTRUCTOR, &args![target, 1u32]);
     }
     e.call(SET_PACKAGE_WORD_AT_0X18, &args![package, word]);
-    let object = e.call(PACKAGE_TARGET_OBJECT, &args![package]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     e.call(SET_TARG_TYPE, &args![object, 0u32]);
-    let object = e.call(PACKAGE_TARGET_OBJECT, &args![package]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     e.call(SET_TARG_REFERENCE, &args![object, reference]);
-    let object = e.call(PACKAGE_TARGET_OBJECT, &args![package]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     e.call(SET_TARGET_WORD_AT_8, &args![object, 0u32]);
     package
 }
@@ -1357,7 +1375,7 @@ pub fn fn_00969260(
     let process = e.get(this, PlayerCharacter::pProcess).addr();
     e.vcall(process, 0x644, &args![0u32]);
     let package = build_package(e, 0x25, 0x1d, this.addr(), reference);
-    let process = e.call(ACTOR_PROCESS, &args![this]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
     e.vcall(process, 0x28, &args![]);
     e.vcall(this.addr(), 0x370, &args![1u32]);
     let process = e.get(this, PlayerCharacter::pProcess).addr();
@@ -1382,7 +1400,7 @@ pub fn fn_009694d0(e: &mut Engine, this: Ptr<PlayerCharacter>, reference: u32) {
     let process = e.get(this, PlayerCharacter::pProcess).addr();
     e.vcall(process, 0x644, &args![0u32]);
     let package = build_package(e, 0x26, 0x2f, this.addr(), reference);
-    let process = e.call(ACTOR_PROCESS, &args![this]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
     e.vcall(process, 0x28, &args![]);
     e.vcall(this.addr(), 0x2f4, &args![package, 0u32, 1u32]);
 }
@@ -1392,7 +1410,7 @@ pub fn fn_009694d0(e: &mut Engine, this: Ptr<PlayerCharacter>, reference: u32) {
 /// then asks the process (slot 0x22c) for its current package.
 fn current_package_is(e: &mut Engine, this: Ptr<PlayerCharacter>, kind: i32) -> bool {
     if e.call(PLAYER_ANY_FLAG, &args![this]).bool() {
-        let process = e.call(ACTOR_PROCESS, &args![this]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
         let package = e.vcall(process, 0x22c, &args![]).u32();
         if package != 0 && e.call(PACKAGE_TYPE, &args![package]).i32() == kind {
             return true;
@@ -1482,7 +1500,7 @@ pub fn fn_00969930(e: &mut Engine, this: Ptr<PlayerCharacter>) -> u32 {
         return cached.addr();
     }
     let head = this.at(PlayerCharacter::AudioMarkerList).addr();
-    if e.call(LIST_IS_EMPTY, &args![head]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, head)) {
         return 0;
     }
     let mut best = 0u32;
@@ -1802,8 +1820,8 @@ pub fn fn_00969fa0(e: &mut Engine, this: Ptr<PlayerCharacter>) {
         show_message(e, MESSAGE_SEVENTH);
         return;
     }
-    if e.call(ACTOR_PROCESS, &args![this]).u32() != 0 {
-        let process = e.call(ACTOR_PROCESS, &args![this]).u32();
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this)) != 0 {
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
         if e.vcall(process, 0x764, &args![]).f64() != 0.0 {
             show_message(e, MESSAGE_SEVENTH);
             return;

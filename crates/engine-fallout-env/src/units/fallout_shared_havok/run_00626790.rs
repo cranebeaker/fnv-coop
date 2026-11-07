@@ -23,6 +23,7 @@ pub fn fn_006267c0(e: &mut Engine, destination: u32, source: u32) {
 /// (`bhkCharacterProxy::operatorP` plus `+0x10`), or zero without a proxy.
 const CHARACTER_PROXY_FIELD: u32 = 0x004a_e700;
 /// `00559450` (unnamed in the engine map): `thiscall`, answers the dword at `this`.
+#[cfg(test)]
 const READ_FIRST_WORD: u32 = 0x0055_9450;
 /// `00403550` (unnamed in the engine map): `thiscall`, `RET 4`; stores its word at `+8` of `this`.
 const STORE_WORD_AT_8: u32 = 0x0040_3550;
@@ -49,7 +50,7 @@ pub fn fn_00626cb0(e: &mut Engine, this: Ptr, held: u32) {
     if proxy_field != 0 {
         let value = e.with_stack(4, |e, word| {
             e.mem.set_u32(word.addr(), held);
-            e.call(READ_FIRST_WORD, &args![word]).u32()
+            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, word))
         });
         fn_00626d00(e, Ptr::new(proxy_field), value);
     }
@@ -111,6 +112,7 @@ const VECTOR_SUM: u32 = 0x0043_9e90;
 /// `00626da0` (`run_00626da0.rs`): `thiscall`, plain `RET`.
 const CASTER_RESET: u32 = 0x0062_6da0;
 /// `006815c0` (unnamed in the engine map): `thiscall`, plain `RET`.
+#[cfg(test)]
 const RECORD_CONSTRUCT: u32 = 0x0068_15c0;
 /// `00621290` (`fallout shared/havok/cameracaster.cpp` in the engine map): `thiscall`, plain
 /// `RET`.
@@ -196,7 +198,7 @@ pub fn fn_006269a0(e: &mut Engine, this: Ptr, radius: f32, filter: u32) {
         e.call(RECORD_SET_LAYER, &args![record, 0x27u32]);
         e.call(RECORD_SET_WORD, &args![record, filter]);
         e.mem.set_u32(this.addr().wrapping_add(0x3a8), filter);
-        let word = e.call(READ_FIRST_WORD, &args![record]).u32();
+        let word = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, record));
         e.mem.set_u32(info, word);
         let shape = e.call(HELD_OBJECT, &args![sphere]).u32();
         e.mem.set_u32(at(0x8c), shape);
@@ -267,11 +269,11 @@ pub fn fn_00626b30(e: &mut Engine, this: Ptr, from: u32, direction: u32, length:
         e.call(VECTOR_SUM, &args![from, end, offset]);
         e.call(CASTER_RESET, &args![this]);
         let pointer = this.addr().wrapping_add(POINTER_OFFSET);
-        if e.call(READ_FIRST_WORD, &args![pointer]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) == 0 {
             e.vcall(this.addr(), 8, &args![]);
             return false;
         }
-        e.call(RECORD_CONSTRUCT, &args![start_record]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, start_record));
         e.call(SECOND_RECORD_CONSTRUCT, &args![end_record]);
         let value = x87_quiet_bits(e.mem.u32(RECORD_FLOAT));
         e.mem.set_u32(at(0x3c), value);
@@ -279,7 +281,7 @@ pub fn fn_00626b30(e: &mut Engine, this: Ptr, from: u32, direction: u32, length:
         e.call(COPY_VECTOR, &args![start_record, from]);
         e.call(COPY_VECTOR, &args![end_record, end]);
         e.vcall(this.addr(), 8, &args![]);
-        let phantom = e.call(READ_FIRST_WORD, &args![pointer]).u32();
+        let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(CAST, &args![phantom, start_record, end_record, this, 0u32]);
         let result = e.call(RESULT_HOLDER, &args![this, at(0x51)]).u32();
         if e.call(RESULT_HAS_HITS, &args![result]).u8() != 0 {
@@ -299,12 +301,12 @@ pub fn fn_00626b30(e: &mut Engine, this: Ptr, from: u32, direction: u32, length:
 pub fn fn_00626c50(e: &mut Engine, this: Ptr, filter: u32) {
     let pointer = this.addr().wrapping_add(POINTER_OFFSET);
     e.with_stack(4, |e, record| {
-        let phantom = e.call(READ_FIRST_WORD, &args![pointer]).u32();
+        let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(FILTER_RECORD, &args![phantom, record]);
         e.call(RECORD_SET_WORD, &args![record, filter]);
         e.mem.set_u32(this.addr().wrapping_add(0x3a8), filter);
         let word = e.mem.u32(record.addr());
-        let phantom = e.call(READ_FIRST_WORD, &args![pointer]).u32();
+        let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         fn_00626cb0(e, Ptr::new(phantom), word);
     });
 }

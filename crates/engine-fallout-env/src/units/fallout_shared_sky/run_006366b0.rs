@@ -6,6 +6,7 @@ use crate::prelude::*;
 
 /// thiscall (object, mask): 1 when the word at +0x30 has any bit of the
 /// mask, else 0 (`00456630`).
+#[cfg(test)]
 const FLAG_TEST: u32 = 0x0045_6630;
 
 // Translated from 006366b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -13,7 +14,13 @@ const FLAG_TEST: u32 = 0x0045_6630;
 /// object's word at +0x30) through `00456630` and answers its result
 /// unchanged (thiscall, no stack words).
 pub fn fn_006366b0(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(FLAG_TEST, &args![this, 0x20u32]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0045_6630,
+        leaf::flags_at_30_any(e, this, 0x20u32)
+    )
+    .into_ret()
+    .u32()
 }
 
 /// This unit's translated functions, by exe address.

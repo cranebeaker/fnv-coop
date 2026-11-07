@@ -122,6 +122,7 @@ pub const RANDOM_GENERATOR_INITIALIZED: u32 = 0x011c_4b4c;
 /// Returns the form type byte (+4) of its `ECX`.
 const GET_FORM_TYPE: u32 = 0x0040_1170;
 /// Returns the word at +4 of its `ECX`: the component's data pointer.
+#[cfg(test)]
 const GET_COMPONENT_DATA: u32 = 0x0072_6070;
 /// `ECX` = reference: its `ExtraDataList`.
 const GET_EXTRA_LIST: u32 = 0x005d_43c0;
@@ -134,9 +135,12 @@ const SET_OBJECT_HEALTH: u32 = 0x0041_b6e0;
 const TRUNCATE_FLOAT: u32 = 0x0040_4090;
 /// Two tests of a reference (`ECX`) after which the damage routine does
 /// nothing.
+#[cfg(test)]
 const REFERENCE_TEST_A: u32 = 0x0044_0da0;
+#[cfg(test)]
 const REFERENCE_TEST_B: u32 = 0x0044_0d80;
 /// Returns the word its `ECX` points at (`NiPointer` get).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer<NiNode>` constructor (`ECX` = holder, the node as argument)
 /// and destructor (`ECX` = holder).
@@ -149,6 +153,7 @@ const GET_TRANSFORM: u32 = 0x0046_1130;
 const GET_TRANSLATION: u32 = 0x0045_bb80;
 /// `NiAVObject::GetWorldBound` (Xbox PDB), `ECX` = object: 4 floats
 /// (centre, radius).
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 /// Returns the word at +0x40 of its `ECX` (a reference).
 const GET_REFERENCE_WORD: u32 = 0x008d_6f30;
@@ -180,6 +185,7 @@ const MAP_SET_AT: u32 = 0x0084_4700;
 const ARRAY_CONSTRUCT: u32 = 0x0047_9110;
 const ARRAY_DESTROY: u32 = 0x0047_9140;
 /// `ECX` = array: the element count (`iSize`).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `ECX` = array, index argument: pointer to the element.
 const ARRAY_ELEMENT: u32 = 0x006a_7ad0;
@@ -319,7 +325,10 @@ pub fn bgs_destructible_object_form_get_model_swap_index(
     if component.is_null() {
         return u32::MAX;
     }
-    let data: Ptr<DestructibleObjectData> = e.call(GET_COMPONENT_DATA, &args![component]).ptr();
+    let data: Ptr<DestructibleObjectData> =
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, component))
+            .into_ret()
+            .ptr();
     if data.is_null() {
         return u32::MAX;
     }
@@ -346,7 +355,10 @@ pub fn fn_004759a0(e: &mut Engine, form: Ptr, index: i32) -> u32 {
     if component.is_null() || index == -1 {
         return 0;
     }
-    let data: Ptr<DestructibleObjectData> = e.call(GET_COMPONENT_DATA, &args![component]).ptr();
+    let data: Ptr<DestructibleObjectData> =
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, component))
+            .into_ret()
+            .ptr();
     if data.is_null() {
         return 0;
     }
@@ -501,9 +513,9 @@ pub fn fn_00476a40(
 /// an `NiPoint3` at `this + 0x24`: the first two members of an
 /// `NiTransform`. Returns `this`.
 pub fn fn_00476a80(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(0x0068_15c0, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     let translation = this.addr() + 0x24;
-    e.call(0x0068_15c0, &args![translation]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, translation));
     this
 }
 
@@ -826,7 +838,7 @@ pub fn fn_00477090(e: &mut Engine, this: Ptr<BGSDestructibleObjectForm>, referen
         e.call(SET_OBJECT_HEALTH, &args![list, new_health]);
         if model != 0 {
             e.vcall(reference.addr(), 0x1cc, &args![0u32, 1u32]);
-            let form = e.call(0x007a_f430, &args![reference]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             let list = e.call(GET_EXTRA_LIST, &args![reference]).u32();
             e.call(0x0042_e150, &args![list, model, form]);
         }
@@ -902,8 +914,8 @@ pub fn fn_004772f0(e: &mut Engine) {
         let reference = e.mem.u32(locals + 4);
         let rate = e.mem.u32(locals + 8);
         if reference != 0
-            && !e.call(REFERENCE_TEST_A, &args![reference]).bool()
-            && !e.call(REFERENCE_TEST_B, &args![reference]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
+            && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, reference))
         {
             let damage = (rate as f64 * scale as f64) as f32;
             let mode_pointer = e.call(0x0043_d4d0, &args![0x011c_3ea4u32]).u32();
@@ -938,12 +950,14 @@ pub fn fn_00477430(e: &mut Engine, reference: Ptr) -> u32 {
     if reference.is_null() {
         return u32::MAX;
     }
-    let form = e.call(0x007a_f430, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let component = bgs_destructible_object_form_get_destruction_form(e, Ptr::new(form));
     let data: Ptr<DestructibleObjectData> = if component.is_null() {
         Ptr::NULL
     } else {
-        e.call(GET_COMPONENT_DATA, &args![component]).ptr()
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, component))
+            .into_ret()
+            .ptr()
     };
     if data.is_null() {
         return u32::MAX;
@@ -1104,8 +1118,8 @@ pub fn fn_00475b20(
     if data.is_null() || reference.is_null() || damage as f64 <= zero {
         return;
     }
-    if e.call(REFERENCE_TEST_A, &args![reference]).bool()
-        || e.call(REFERENCE_TEST_B, &args![reference]).bool()
+    if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
+        || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, reference))
     {
         return;
     }
@@ -1202,7 +1216,7 @@ pub fn fn_00475b20(
     e.vcall(reference.addr(), 0x48, &args![0x8000_0000u32]);
 
     if crossed_end > earlier_end {
-        if !e.call(REFERENCE_TEST_A, &args![reference]).bool() {
+        if !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference)) {
             if crossed_model != 0 {
                 swap_in_replacement_model(e, this, reference, crossed_model);
             } else if crossed_damage_stage > earlier_damage_stage {
@@ -1243,7 +1257,9 @@ pub fn fn_00475b20(
         let debris = e.get(stage, DestructibleObjectStage::pDebris);
         let count = e.get(stage, DestructibleObjectStage::iDebrisCount);
         if !debris.is_null() && count != 0 {
-            let node = e.call(POINTER_GET, &args![holder]).ptr::<()>();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder))
+                .into_ret()
+                .ptr::<()>();
             let spawned = bgs_destructible_object_form_spawn_debris_at_debris_nodes(
                 e, this, node, debris, selector, reference, count,
             );
@@ -1260,7 +1276,9 @@ pub fn fn_00475b20(
         }
         let explosion = e.get(stage, DestructibleObjectStage::pExplosion);
         if !explosion.is_null() {
-            let node = e.call(POINTER_GET, &args![holder]).ptr::<()>();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder))
+                .into_ret()
+                .ptr::<()>();
             let created = fn_00476cb0(e, this, node, explosion, selector, reference);
             if created == 0 {
                 create_explosion_near_bound(e, reference, holder, explosion);
@@ -1361,14 +1379,18 @@ fn swap_in_replacement_model(
     fn_00476a80(e, Ptr::new(old_transform));
     let root = e.vcall(reference.addr(), 0x1d0, &args![]).ptr::<()>();
     fn_00477230(e, this, root, Ptr::new(nodes));
-    if e.call(ARRAY_SIZE, &args![nodes]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, nodes)) != 0 {
         let element = e.call(ARRAY_ELEMENT, &args![nodes, 0u32]).u32();
         let first = e.mem.u32(element);
         let transform = e.call(GET_TRANSFORM, &args![first]).u32();
         copy_bytes(e, transform, old_transform, 0x34);
     }
     let mut had_preloaded_model = false;
-    let preloaded = e.call(POINTER_GET, &args![data.addr() + 0x10]).u32();
+    let preloaded = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, data.addr() + 0x10)
+    );
     if preloaded != 0 {
         e.call(0x0040_b460, &args![data.addr() + 0xc]);
         had_preloaded_model = true;
@@ -1381,7 +1403,7 @@ fn swap_in_replacement_model(
         e.call(0x0057_b240, &args![reference, 1u32]);
     }
     e.call(0x0046_23f0, &args![swap_flags, flag_c as u32]);
-    let form = e.call(0x007a_f430, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let list = e.call(GET_EXTRA_LIST, &args![reference]).u32();
     e.call(0x0042_e150, &args![list, model, form]);
     e.vcall(reference.addr(), 0x48, &args![0x8000_0000u32]);
@@ -1407,11 +1429,11 @@ fn swap_in_replacement_model(
         if collision != 0 {
             fn_00476ab0(e, Ptr::new(collision));
         }
-        if e.call(ARRAY_SIZE, &args![nodes]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, nodes)) != 0 {
             let new_nodes = e.mem.alloc(0x10);
             e.call(ARRAY_CONSTRUCT, &args![new_nodes]);
             fn_00477230(e, this, Ptr::new(new_root), Ptr::new(new_nodes));
-            if e.call(ARRAY_SIZE, &args![new_nodes]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, new_nodes)) != 0 {
                 carry_over_transform(e, reference, old_transform, new_nodes);
             }
             e.call(ARRAY_DESTROY, &args![new_nodes]);
@@ -1491,12 +1513,12 @@ fn carry_over_transform(e: &mut Engine, reference: Ptr, old_transform: u32, new_
 fn create_explosion_near_bound(e: &mut Engine, reference: Ptr, holder: u32, explosion: Ptr) {
     let orientation = e.mem.alloc(0x24);
     e.call(GET_ORIENTATION, &args![reference, orientation]);
-    let node = e.call(POINTER_GET, &args![holder]).u32();
-    let bound_source = e.call(GET_WORLD_BOUND, &args![node]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
+    let bound_source = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
     let bound = e.mem.alloc(16);
     copy_bytes(e, bound_source, bound, 16);
     let vector = e.mem.alloc(12);
-    e.call(0x0068_15c0, &args![vector]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
     let minus_one: f32 = e.global(MINUS_ONE);
     let x = random_float(e, minus_one, 1.0);
     e.mem.set_f32(vector, x);
@@ -1507,7 +1529,7 @@ fn create_explosion_near_bound(e: &mut Engine, reference: Ptr, holder: u32, expl
     let radius = e.call(0x0084_d030, &args![bound]).f32();
     e.call(0x0043_9180, &args![vector, radius]);
     let position = e.mem.alloc(12);
-    let bound_centre = e.call(0x0068_15c0, &args![bound]).u32();
+    let bound_centre = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
     e.call(0x0043_9e90, &args![bound_centre, position, vector]);
 
     let mut words = vec![explosion.addr()];
@@ -1550,6 +1572,7 @@ const DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// Writes a line to the log (cdecl: format, arguments...).
 const LOG_MESSAGE: u32 = 0x005b_5e40;
 /// `ECX` = form: the form id (used in the log messages and in `Save`).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// `NiPointer<QueuedFile>::operator=` (`ECX` = the holder, the file as
 /// argument).
@@ -1586,7 +1609,7 @@ pub fn bgs_destructible_object_form_preload_replacement_models(
     }
     let holder = |e: &Engine| e.get(this, BGSDestructibleObjectForm::pData).addr() + 0x10;
     let current = holder(e);
-    if e.call(POINTER_GET, &args![current]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, current)) == 0 {
         let block = e.call(OPERATOR_NEW, &args![0x28u32]).u32();
         let file = if block != 0 {
             e.call(0x00c3_c590, &args![block, 5u32]).u32()
@@ -1596,17 +1619,17 @@ pub fn bgs_destructible_object_form_preload_replacement_models(
         let current = holder(e);
         e.call(QUEUED_FILE_ASSIGN, &args![current, file]);
         let current = holder(e);
-        let held = e.call(POINTER_GET, &args![current]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, current));
         bgs_destructible_object_form_queue_files(e, this, queue_arg, 5, held);
         let current = holder(e);
-        let held = e.call(POINTER_GET, &args![current]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, current));
         if e.call(0x0044_6990, &args![held]).u32() == 0 {
             let current = holder(e);
             e.call(QUEUED_FILE_ASSIGN, &args![current, 0u32]);
         }
     }
     let current = holder(e);
-    if e.call(POINTER_GET, &args![current]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, current)) != 0 {
         let count = e.get(this, BGSDestructibleObjectForm::pData).addr() + 0xc;
         e.call(0x0040_b460, &args![count]);
     }
@@ -1621,7 +1644,12 @@ pub fn fn_004778a0(e: &mut Engine, this: Ptr<BGSDestructibleObjectForm>) {
     if data.is_null() {
         return;
     }
-    if e.call(POINTER_GET, &args![data.addr() + 0x10]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, data.addr() + 0x10)
+    ) == 0
+    {
         return;
     }
     let data = e.get(this, BGSDestructibleObjectForm::pData);
@@ -1787,7 +1815,7 @@ pub fn fn_00477d10(e: &mut Engine, reference: Ptr) {
     if e.call(0x0045_2370, &args![reference]).u8() == 0 {
         return;
     }
-    let form = e.call(0x007a_f430, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     // The component is looked up and never used (debug build).
     let _component = bgs_destructible_object_form_get_destruction_form(e, Ptr::new(form));
     let list = e.call(GET_EXTRA_LIST, &args![reference]).u32();
@@ -1841,7 +1869,11 @@ pub fn fn_00477d10(e: &mut Engine, reference: Ptr) {
         let node = e.call(0x0043_fcd0, &args![reference]).u32();
         bgs_destructible_object_form_update_damage_stage_nodes(e, Ptr::new(node), 0);
     }
-    if e.call(REFERENCE_TEST_A, &args![reference]).u8() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
+        .into_ret()
+        .u8()
+        != 0
+    {
         e.call(0x0057_3f40, &args![reference]);
     }
     e.call(MAP_REMOVE_AT, &args![DESTRUCTIBLE_OBJECTS, reference]);
@@ -1918,13 +1950,13 @@ pub fn bgs_destructible_object_form_save(e: &mut Engine, this: Ptr<BGSDestructib
         if !explosion.is_null() {
             let stage = current(e);
             let explosion = e.get(stage, DestructibleObjectStage::pExplosion);
-            let id = e.call(GET_FORM_ID, &args![explosion]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, explosion));
             e.mem.set_u32(record + 8, id);
         }
         let stage = current(e);
         let debris = e.get(stage, DestructibleObjectStage::pDebris);
         if !debris.is_null() {
-            let id = e.call(GET_FORM_ID, &args![debris]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, debris));
             e.mem.set_u32(record + 0xc, id);
         }
         if e.call(IS_SWAPPED_BYTE_ORDER, &args![]).u8() != 0 {
@@ -2000,8 +2032,11 @@ pub fn bgs_destructible_object_form_load_chunk(
     }
     let chunk = e.call(0x0047_26b0, &args![file]).u32();
     fn_00478600(e, this);
-    let data: Ptr<DestructibleObjectData> =
-        Ptr::new(e.call(GET_COMPONENT_DATA, &args![this]).u32());
+    let data: Ptr<DestructibleObjectData> = Ptr::new(typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this)
+    ));
     if chunk == CHUNK_DSTD {
         load_stage_chunk(e, file, data);
     } else if chunk == CHUNK_DEST {
@@ -2031,7 +2066,7 @@ pub fn bgs_destructible_object_form_load_chunk(
                 )
                 .u32();
             let name = e.vcall(form, 0x130, &args![]).u32();
-            let id = e.call(GET_FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(LOG_MESSAGE, &args![0x0101_a6c8u32, id, name]);
             fn_00478690(e, this);
         }
@@ -2196,8 +2231,11 @@ pub fn fn_004786e0(e: &mut Engine, this: Ptr<BGSDestructibleObjectForm>, other: 
     if cast == 0 {
         return;
     }
-    let source: Ptr<DestructibleObjectData> =
-        Ptr::new(e.call(GET_COMPONENT_DATA, &args![cast]).u32());
+    let source: Ptr<DestructibleObjectData> = Ptr::new(typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, cast)
+    ));
     if source.is_null() {
         fn_00478690(e, this);
         return;
@@ -2274,8 +2312,11 @@ pub fn fn_00478900(e: &mut Engine, this: Ptr<BGSDestructibleObjectForm>, other: 
     if cast == 0 {
         return true;
     }
-    let theirs: Ptr<DestructibleObjectData> =
-        Ptr::new(e.call(GET_COMPONENT_DATA, &args![cast]).u32());
+    let theirs: Ptr<DestructibleObjectData> = Ptr::new(typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, cast)
+    ));
     let ours = e.get(this, BGSDestructibleObjectForm::pData);
     if theirs.is_null() || ours.is_null() {
         return !(theirs.is_null() && ours.is_null());
@@ -2435,7 +2476,7 @@ fn resolve_stage_form(
             let name = e.vcall(owner.addr(), 0x130, &args![]).u32();
             e.call(LOG_MESSAGE, &args![messages[1], index, absolute, name]);
         } else {
-            let form_id = e.call(GET_FORM_ID, &args![owner]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             e.call(LOG_MESSAGE, &args![messages[2], index, absolute, form_id]);
         }
     }

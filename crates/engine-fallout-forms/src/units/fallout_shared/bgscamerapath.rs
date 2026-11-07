@@ -37,6 +37,7 @@ const ALLOCATE: u32 = 0x0040_1000;
 /// `00500940` (`thiscall`): the path's `TESCondition` (+0x18).
 const CONDITIONS_OF: u32 = 0x0050_0940;
 /// `006815c0` (`thiscall`): returns its `this`.
+#[cfg(test)]
 const IDENTITY: u32 = 0x0068_15c0;
 /// The root camera path array (`011ca700`).
 const ROOT_PATHS: u32 = 0x011c_a700;
@@ -54,8 +55,10 @@ const ARRAY_INSERT: u32 = 0x0061_bc10;
 /// out word.
 const ARRAY_TAKE: u32 = 0x0061_bd20;
 /// `0084e3a0` (`thiscall`): the number of entries of a form array.
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0084_e3a0;
 /// `00877a30` (`thiscall`, `RET 4`): the address of entry `i`.
+#[cfg(test)]
 const ARRAY_ENTRY: u32 = 0x0087_7a30;
 /// `005f36f0` (`thiscall`; the engine map's
 /// `ActorMover::GetPreferredMoveMode` is folded code): `pPrevPath` (+0x34).
@@ -83,6 +86,7 @@ const WARN: u32 = 0x005b_5e40;
 /// `BSStringT` constructor, characters and destructor (`004037b0`,
 /// `00559450`, `004037d0`).
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
+#[cfg(test)]
 const STRING_CHARS: u32 = 0x0055_9450;
 const STRING_DESTROY: u32 = 0x0040_37d0;
 /// The `TESFile` reading functions: form type, `TESForm::LoadForm`, chunk
@@ -134,7 +138,7 @@ fn warn_with_name(e: &mut Engine, this: Ptr, format: u32, id: Option<u32>) {
     e.with_stack(8, |e, name| {
         e.call(STRING_CONSTRUCT, &args![name]);
         e.vcall(this.addr(), 0x90, &args![name]);
-        let chars = e.call(STRING_CHARS, &args![name]).u32();
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
         match id {
             Some(id) => e.call(WARN, &args![format, id, chars]),
             None => e.call(WARN, &args![format, chars]),
@@ -161,12 +165,12 @@ pub fn fn_0058a450(e: &mut Engine, this: Ptr) {
     fn_0058a650(e, this);
     let guard = e.mem.u32(0x011c_3f2c);
     if !e.call(0x0042_26e0, &args![guard]).bool() {
-        if e.call(0x0067_1d10, &args![this]).u32() != 0 {
-            let parent = e.call(0x0067_1d10, &args![this]).u32();
+        if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, this)) != 0 {
+            let parent = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, this));
             e.call(0x0058_b730, &args![parent, this]);
         } else {
             let roots = e.mem.u32(ROOT_PATHS);
-            let roots = e.call(IDENTITY, &args![roots]).u32();
+            let roots = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, roots));
             if roots != 0 {
                 let index = e.call(ARRAY_INDEX_OF, &args![roots, this]).u32();
                 if index != 0xffff_ffff {
@@ -243,7 +247,7 @@ pub fn bgs_camera_path_load(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
     }
     if base == e.call(0x0058_b960, &args![]).u32() {
         let roots = e.mem.u32(ROOT_PATHS);
-        let roots = e.call(IDENTITY, &args![roots]).u32();
+        let roots = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, roots));
         let index = e.call(ARRAY_INDEX_OF, &args![roots, this]).u32();
         if index != 0xffff_ffff {
             e.call(ARRAY_REMOVE_AT, &args![roots, index]);
@@ -326,15 +330,15 @@ pub fn bgs_camera_path_init_item(e: &mut Engine, this: Ptr) {
     e.call(0x0068_0a20, &args![conditions, this]);
     let mut node = e.call(0x0089_1170, &args![this]).u32();
     let mut previous = 0u32;
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let item = e.call(IDENTITY, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let id = e.mem.u32(item);
         let (shot, id) = resolve(e, this, id, TYPE_CAMERA_SHOT);
         if shot == 0 {
             if previous != 0 {
-                let item = e.call(IDENTITY, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 e.call(0x0090_5330, &args![previous, item]);
-                node = e.call(0x0072_6070, &args![previous]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
             } else {
                 e.call(0x0063_f7b0, &args![node]);
             }
@@ -342,7 +346,7 @@ pub fn bgs_camera_path_init_item(e: &mut Engine, this: Ptr) {
                 let name = e.vcall(this.addr(), 0x130, &args![]).u32();
                 e.call(WARN, &args![0x0103_25e8u32, id, name]);
             } else {
-                let form_id = e.call(0x0084_e3a0, &args![this]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 e.call(WARN, &args![0x0103_2598u32, id, form_id]);
             }
         } else {
@@ -351,7 +355,7 @@ pub fn bgs_camera_path_init_item(e: &mut Engine, this: Ptr) {
                 e.call(0x0072_6c60, &args![node, slot]);
             });
             previous = node;
-            node = e.call(0x0072_6070, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     e.call(0x0048_4ab0, &args![this, 1u32]);
@@ -396,7 +400,7 @@ pub fn bgs_camera_path_init_parents(e: &mut Engine, this: Ptr) -> bool {
         fn_0058b350(e, Ptr::new(parent))
     } else {
         let roots = e.mem.u32(ROOT_PATHS);
-        e.call(IDENTITY, &args![roots]).u32()
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, roots))
     };
     if array == 0 {
         warn_with_name(e, this, 0x0103_2634, None);
@@ -409,8 +413,8 @@ pub fn bgs_camera_path_init_parents(e: &mut Engine, this: Ptr) -> bool {
         }
         index = at;
     }
-    if index == 0xffff_ffff || e.call(0x0044_0d80, &args![this]).bool() {
-        index = e.call(ARRAY_COUNT, &args![array]).u32().wrapping_add(1);
+    if index == 0xffff_ffff || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
+        index = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array)).wrapping_add(1);
     }
     e.call(ARRAY_INSERT, &args![array, index, this]);
     bgs_camera_path_fix_next_paths(e, this, array);
@@ -431,12 +435,12 @@ pub fn bgs_camera_path_fix_next_paths(e: &mut Engine, this: Ptr, array: u32) {
     }
     let mut skipped = 0u32;
     let mut self_index = 0xffff_ffffu32;
-    let count = e.call(ARRAY_COUNT, &args![array]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array));
     let mut next_index = 0xffff_ffffu32;
     let mut next = 0u32;
     let mut i = 0u32;
     while i < count {
-        let entry = e.call(ARRAY_ENTRY, &args![array, i]).u32();
+        let entry = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, array, i));
         let form = e.mem.u32(entry);
         let path = cast(e, form, TYPE_CAMERA_PATH);
         if path == 0 {
@@ -514,8 +518,10 @@ const MEMCMP: u32 = 0x00ec_4835;
 /// `00891170` (`ECX` = path): the address of its shot list (+0x20).
 const SHOT_LIST_OF: u32 = 0x0089_1170;
 /// `008256d0` (`ECX` = list node, `AL`): true when the node is empty.
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `00726070` (`ECX` = list node): the next node (the word at +4).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `00470470` (`ECX` = list): removes every item.
 const LIST_REMOVE_ALL: u32 = 0x0047_0470;
@@ -531,8 +537,10 @@ const ARRAY_SET_SIZE: u32 = 0x0086_4280;
 /// The child's virtual slot that duplicates it (`RET 8`: the byte and the map).
 const SLOT_DUPLICATE: u32 = 0x40;
 /// `00671d10` (`ECX` = path): the parent path.
+#[cfg(test)]
 const PARENT_PATH_OF: u32 = 0x0067_1d10;
 /// `00440d80` (`ECX` = form, `AL`): whether bit 0x20 of the form flags (+8) is set.
+#[cfg(test)]
 const FORM_FLAG_20_SET: u32 = 0x0044_0d80;
 /// `00403d30` (`cdecl`: address, byte, count): fills memory.
 const FILL_MEMORY: u32 = 0x0040_3d30;
@@ -551,8 +559,6 @@ const ADD_CHUNK_WORD: u32 = 0x0048_5910;
 /// `TESForm::StartForm` and `TESForm::CloseForm` (`004855a0`, `00485680`, `thiscall`).
 const FORM_START_FORM: u32 = 0x0048_55a0;
 const FORM_CLOSE_FORM: u32 = 0x0048_5680;
-/// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
-const FORM_ID: u32 = 0x0084_e3a0;
 /// `0058b680` (`ECX` = path, `RET 4`): the index of a child in the child array.
 const CHILD_INDEX_OF: u32 = 0x0058_b680;
 /// `0058b6c0` (`ECX` = path, `RET 4`): removes the child at an index.
@@ -589,10 +595,10 @@ pub fn fn_0058a680(e: &mut Engine, this: Ptr, other: Ptr) {
     let shots = this.addr() + 0x20;
     e.call(LIST_REMOVE_ALL, &args![shots]);
     let mut node = e.call(SHOT_LIST_OF, &args![source]).u32();
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(IDENTITY, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         e.with_stack(4, |e, local| {
             e.mem.set_u32(local.addr(), item);
             e.call(LIST_ADD_TAIL, &args![shots, local]);
@@ -637,19 +643,19 @@ pub fn fn_0058a750(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
     }
     let mut ours = e.call(SHOT_LIST_OF, &args![this]).u32();
     let mut theirs = e.call(SHOT_LIST_OF, &args![source]).u32();
-    while theirs != 0 && !e.call(NODE_IS_EMPTY, &args![theirs]).bool() {
+    while theirs != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, theirs)) {
         if ours == 0 {
             return true;
         }
-        let our_slot = e.call(IDENTITY, &args![ours]).u32();
-        let their_slot = e.call(IDENTITY, &args![theirs]).u32();
+        let our_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, ours));
+        let their_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         if e.mem.u32(our_slot) != e.mem.u32(their_slot) {
             return true;
         }
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
-        ours = e.call(NODE_NEXT, &args![ours]).u32();
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
+        ours = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, ours));
     }
-    ours != 0 && !e.call(NODE_IS_EMPTY, &args![ours]).bool()
+    ours != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, ours))
 }
 
 /// The form `map` gives for `form` (`00853130` into a cleared local), or `form` itself
@@ -689,13 +695,17 @@ pub fn fn_0058a870(e: &mut Engine, this: Ptr, flag: u8, map: u32) -> u32 {
         let children = e.mem.u32(this.addr() + CHILDREN_OFFSET);
         e.call(ARRAY_COMPACT, &args![children]);
         let children = e.mem.u32(this.addr() + CHILDREN_OFFSET);
-        let count = e.call(ARRAY_COUNT, &args![children]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, children));
         let array = fn_0058b350(e, Ptr::new(duplicate));
         e.call(ARRAY_SET_SIZE, &args![array, count]);
         let mut index = 0u32;
         while index < count {
             let children = e.mem.u32(this.addr() + CHILDREN_OFFSET);
-            let slot = e.call(ARRAY_ENTRY, &args![children, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, children, index)
+            );
             let child = e.mem.u32(slot);
             let copy = e
                 .vcall(child, SLOT_DUPLICATE, &args![u32::from(flag), map])
@@ -724,18 +734,27 @@ pub fn fn_0058ac10(e: &mut Engine, this: Ptr) {
     e.call(CONDITIONS_SAVE, &args![conditions]);
     e.with_stack(8, |e, ids| {
         e.call(FILL_MEMORY, &args![ids, 0u32, 8u32]);
-        if e.call(PARENT_PATH_OF, &args![this]).u32() != 0 {
-            let parent = e.call(PARENT_PATH_OF, &args![this]).u32();
-            let id = e.call(FORM_ID, &args![parent]).u32();
+        if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, this)) != 0 {
+            let parent = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, this));
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, parent));
             e.mem.set_u32(ids.addr(), id);
         }
-        if e.call(FORM_FLAG_20_SET, &args![this]).u8() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this))
+            .into_ret()
+            .u8()
+            == 0
+        {
             let mut previous = e.call(PREVIOUS_PATH_OF, &args![this]).u32();
-            while previous != 0 && e.call(FORM_FLAG_20_SET, &args![previous]).u8() != 0 {
+            while previous != 0
+                && typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, previous))
+                    .into_ret()
+                    .u8()
+                    != 0
+            {
                 previous = e.call(PREVIOUS_PATH_OF, &args![previous]).u32();
             }
             if previous != 0 {
-                let id = e.call(FORM_ID, &args![previous]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, previous));
                 e.mem.set_u32(ids.addr() + 4, id);
             }
         }
@@ -756,11 +775,11 @@ pub fn fn_0058ac10(e: &mut Engine, this: Ptr) {
         e.call(SWAP_DATA_BYTE, &args![data]);
     }
     let mut node = e.call(SHOT_LIST_OF, &args![this]).u32();
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(IDENTITY, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let shot = e.mem.u32(slot);
-        node = e.call(NODE_NEXT, &args![node]).u32();
-        let id = e.call(FORM_ID, &args![shot]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, shot));
         e.call(ADD_CHUNK_WORD, &args![CHUNK_SNAM, id]);
     }
     e.call(FORM_CLOSE_FORM, &args![this]);

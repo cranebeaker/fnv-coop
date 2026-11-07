@@ -36,6 +36,7 @@ const EH_VECTOR_DESTRUCT: u32 = 0x00ec_5fce;
 const NI_POINTER_CONSTRUCT_006694E0: u32 = 0x0066_94e0;
 const NI_POINTER_DESTRUCT: u32 = 0x0045_cec0;
 /// `NiColor::NiColor(r, g, b)` (`00416870`, `thiscall`, three `float`s).
+#[cfg(test)]
 const COLOR_CONSTRUCT: u32 = 0x0041_6870;
 /// The `NiColorA` constructor (`00414430`, `thiscall`, four `float`s).
 const COLOR_A_CONSTRUCT: u32 = 0x0041_4430;
@@ -212,8 +213,11 @@ pub fn clouds_scalar_deleting_destructor(
 /// `NiColor`, no stack words): `NiColor::NiColor(0, 0, 0)`; answers what it answers.
 pub fn fn_00633e00(e: &mut Engine, this: Ptr) -> u32 {
     let zero = 0.0f32.to_bits();
-    e.call(COLOR_CONSTRUCT, &args![this, zero, zero, zero])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, this, zero, zero, zero)
+    )
 }
 
 // Translated from 00633e30 (decompiled, FalloutNV.exe 1.4.0.525)

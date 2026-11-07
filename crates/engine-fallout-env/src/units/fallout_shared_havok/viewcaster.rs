@@ -10,6 +10,7 @@ use crate::prelude::*;
 use super::run_006319e0::ViewCaster;
 
 /// `*this` of a `NiPointer` (`00559450`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `bhkWorldObject::GethkWorld` (engine map name of `00c87a40`): the
 /// world pointer of the object's world entry, or 0.
@@ -23,10 +24,10 @@ const WORLD_FROM_HK_WORLD: u32 = 0x0062_1480;
 /// caster has no phantom, else `00621480` applied to the phantom's
 /// `GethkWorld`.
 pub fn view_caster_get_world(e: &mut Engine, this: Ptr<ViewCaster>) -> u32 {
-    if e.call(POINTER_GET, &args![this]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) == 0 {
         return 0;
     }
-    let phantom = e.call(POINTER_GET, &args![this]).u32();
+    let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     let hk_world = e.call(GET_HK_WORLD, &args![phantom]).u32();
     e.call(WORLD_FROM_HK_WORLD, &args![hk_world]).u32()
 }

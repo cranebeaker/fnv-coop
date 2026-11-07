@@ -12,6 +12,7 @@ const PHONEME_COEFFICIENTS: u32 = 0x0118_9230;
 const FIVE: u32 = 0x0102_0998;
 const TWO: u32 = 0x0101_1590;
 /// `00559450`: the word at `this` (a string's text).
+#[cfg(test)]
 const WORD_AT_ZERO: u32 = 0x0055_9450;
 /// `LipSynchAnim::LoadFromFile` (engine map), `cdecl`, one word.
 const LIP_SYNCH_ANIM_LOAD_FROM_FILE: u32 = 0x004d_52f0;
@@ -95,7 +96,7 @@ pub fn fn_004d50e0(e: &mut Engine, this: Ptr<LipSynchAnim>, frame: u32) -> f32 {
 /// No map name, `cdecl`: `LipSynchAnim::LoadFromFile` on the text of the
 /// string `path`. `EAX` is left as that call's result, which this returns.
 pub fn fn_004d52d0(e: &mut Engine, path: Ptr) -> u32 {
-    let text = e.call(WORD_AT_ZERO, &args![path]).u32();
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, path));
     e.call(LIP_SYNCH_ANIM_LOAD_FROM_FILE, &args![text]).u32()
 }
 

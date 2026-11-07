@@ -29,6 +29,7 @@ const TYPE_WEAPON: u32 = 0x0118_3998;
 const COPY_ALL_COMPONENTS: u32 = 0x0048_51b0;
 /// `00559450` (`ECX`): the object a pointer holder holds; `004037f0` (`ECX` = a holder,
 /// two stack words: the object and 0) sets it.
+#[cfg(test)]
 const HOLDER_OBJECT: u32 = 0x0055_9450;
 const HOLDER_SET: u32 = 0x0040_37f0;
 /// `00401460` (`cdecl`: destination, source, size): copies bytes.
@@ -93,7 +94,11 @@ pub fn fn_00522020(e: &mut Engine, this: Ptr, source: Ptr) {
     e.call(COPY_ALL_COMPONENTS, &args![this, source]);
     e.vcall(base + 0x1d0, 8, &args![weapon + 0x1d0]);
     for offset in [0x35cu32, 0x368] {
-        let object = e.call(HOLDER_OBJECT, &args![weapon + offset]).u32();
+        let object = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, weapon + offset)
+        );
         e.call(HOLDER_SET, &args![base + offset, object, 0u32]);
     }
     for offset in COMPONENTS_FIRST {

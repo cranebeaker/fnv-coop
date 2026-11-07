@@ -56,6 +56,7 @@ const STORAGE_CONSTRUCT: u32 = 0x006c_73b0;
 /// The storage object's destructor `thiscall(storage, 1)` (`00666570`).
 const STORAGE_DESTROY: u32 = 0x0066_6570;
 /// The storage object's first word (`thiscall`, `00559450` returns `[this]`).
+#[cfg(test)]
 const STORAGE_FIRST_WORD: u32 = 0x0055_9450;
 /// A marked pointer's value without the mark (`[this] & ~1`, `0044dec0`).
 const MARKED_POINTER_GET: u32 = 0x0044_dec0;
@@ -79,6 +80,7 @@ const ITERATOR_SET_BIT_0: u32 = 0x0044_de40;
 /// `MapMarkerData::SetTravelLoc`).
 const ITERATOR_SET_BIT_1: u32 = 0x0044_de80;
 /// The map's bucket count (`[this + 8]`, `0044ddc0`).
+#[cfg(test)]
 const MAP_BUCKET_COUNT: u32 = 0x0044_ddc0;
 /// The bucket step taken when the iterator's bit 0 is clear,
 /// `thiscall(map, bucket, &key, extra)` (`0044ea60`).
@@ -245,7 +247,7 @@ pub fn fn_0044c480(e: &mut Engine, this: Ptr, keep_none: u8) {
         }
         e.call(LOCK, &args![this_addr + 0x20, 0u32]);
         let storage = e.mem.u32(this_addr + 0x14);
-        let size = e.call(STORAGE_FIRST_WORD, &args![storage]).u32();
+        let size = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, storage));
         let storage = e.mem.u32(this_addr + 0x14);
         if storage != 0 {
             e.call(STORAGE_DESTROY, &args![storage, 1u32]);
@@ -330,7 +332,7 @@ pub fn fn_0044c640(
             }
             let next = e.mem.u32(iterator_addr + 4).wrapping_add(1);
             e.mem.set_u32(iterator_addr + 4, next);
-            let count = e.call(MAP_BUCKET_COUNT, &args![this]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
             if e.mem.u32(iterator_addr + 4) >= count {
                 e.call(ITERATOR_SET_BIT_1, &args![iterator, 1u32]);
                 break;

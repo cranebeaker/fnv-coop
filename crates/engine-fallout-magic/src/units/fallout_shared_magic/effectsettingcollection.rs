@@ -11,8 +11,10 @@ const EFFECT_SETTINGS: u32 = 0x011c_3400;
 /// effect it makes here).
 const USAGE_MONITOR_EFFECT: u32 = 0x011c_33f4;
 /// Thiscall: returns `this` (on a list node: the address of its item).
+#[cfg(test)]
 const SELF: u32 = 0x0068_15c0;
 /// Thiscall: the word at +4 (on a list node: the next node).
+#[cfg(test)]
 const NEXT_NODE: u32 = 0x0072_6070;
 /// Thiscall on a list: removes its items.
 const LIST_REMOVE_ALL: u32 = 0x0047_0470;
@@ -64,7 +66,7 @@ pub fn fn_00408b60(e: &mut Engine, this: Ptr) {
 pub fn effect_setting_collection_clear_data(e: &mut Engine, this: Ptr) {
     let mut node = this.addr();
     while node != 0 {
-        let slot = e.call(SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         if item == 0 {
             break;
@@ -73,7 +75,7 @@ pub fn effect_setting_collection_clear_data(e: &mut Engine, this: Ptr) {
         if item != 0 {
             e.vcall(item, 0x10, &args![1u32]);
         }
-        node = e.call(NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(LIST_REMOVE_ALL, &args![this]);
 }
@@ -91,13 +93,13 @@ pub fn effect_setting_collection_reset(e: &mut Engine) {
 pub fn fn_00408df0(e: &mut Engine) {
     let mut node = EFFECT_SETTINGS;
     while node != 0 {
-        let slot = e.call(SELF, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         if item == 0 {
             break;
         }
         e.vcall(item, 0x88, &args![]);
-        node = e.call(NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 

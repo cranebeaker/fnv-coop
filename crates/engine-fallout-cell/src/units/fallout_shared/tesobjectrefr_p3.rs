@@ -43,12 +43,14 @@ const GET_EXTRA_LIST: u32 = 0x005d_43c0;
 /// The reference's base object, `this + 0x20` (`007af430`; the engine map
 /// names it `BGSSaveFormBuffer::GetForm` because the linker folded the
 /// identical code).
+#[cfg(test)]
 const GET_BASE_FORM: u32 = 0x007a_f430;
 /// `TESForm::GetFormType` (`00401170`, `MOVZX EAX,[ECX+4]`).
 const FORM_TYPE: u32 = 0x0040_1170;
 /// `TESObjectREFR::GetRefPersists` (`005653d0`).
 const GET_REF_PERSISTS: u32 = 0x0056_53d0;
 /// `TESForm::iFormID` getter (`0084e3a0`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `this + 0x40`, the reference's parent cell (`008d6f30`).
 const GET_PARENT_CELL: u32 = 0x008d_6f30;
@@ -56,8 +58,10 @@ const GET_PARENT_CELL: u32 = 0x008d_6f30;
 /// node, which is the node's first field.
 const LIST_ITEM_SLOT: u32 = 0x0068_15c0;
 /// The next node of a list node (`00726070`).
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// `NiPointer<T>::operator T*`: the first dword of the pointer (`00559450`).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer<T>::NiPointer(T*)` (`00633c90`).
 const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
@@ -90,7 +94,7 @@ fn extra_list(e: &mut Engine, refr: u32) -> u32 {
 }
 
 fn base_form(e: &mut Engine, refr: u32) -> u32 {
-    e.call(GET_BASE_FORM, &args![refr]).u32()
+    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, refr))
 }
 
 fn form_type(e: &mut Engine, form: u32) -> u32 {
@@ -99,7 +103,7 @@ fn form_type(e: &mut Engine, form: u32) -> u32 {
 
 /// The first dword of a `NiPointer` slot.
 fn ni_pointer_get(e: &mut Engine, slot: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// `__RTDynamicCast(object, 0, from, to, 0)`.
@@ -316,19 +320,25 @@ pub fn tes_object_refr_update_enable_state_children_flags_recursive(
 ) {
     let mut node = fn_0056ac90(e, this);
     while node != 0 {
-        let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let child = e.mem.u32(slot);
         if child != 0 {
-            let mut disabled = e.call(0x0044_0da0, &args![this]).u8();
+            let mut disabled = typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, this))
+                .into_ret()
+                .u8();
             if fn_0056aa70(e, Ptr::new(child)) {
                 disabled = u8::from(disabled == 0);
             }
-            if e.call(0x0044_0da0, &args![child]).u8() != disabled {
+            if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, child))
+                .into_ret()
+                .u8()
+                != disabled
+            {
                 e.call(0x0048_4af0, &args![child, disabled]);
                 tes_object_refr_update_enable_state_children_flags_recursive(e, Ptr::new(child));
             }
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -551,7 +561,7 @@ pub fn tes_object_refr_restore_leveled_creature_original_base(
     if base == 0 {
         return;
     }
-    let id = e.call(FORM_ID, &args![base]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, base));
     let table = e.global::<u32>(0x011c_3f2c);
     if !e.call(0x0046_9860, &args![table, id]).bool() || !fn_0056af40(e, this) {
         return;
@@ -764,7 +774,7 @@ fn unlink_shadow_light(e: &mut Engine, light_slot: u32, reference: u32) {
     let finder = e.call(0x0070_ec90, &args![table]).u32();
     let record = e.call(0x004e_8030, &args![finder, reference]).u32();
     let owner = e.call(0x0040_30b0, &args![record]).u32();
-    if owner == 0 || e.call(0x008d_8520, &args![owner]).u32() != 0xd {
+    if owner == 0 || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner)) != 0xd {
         return;
     }
     let property = e.call(0x00a5_9d30, &args![record, 3u32]).u32();
@@ -806,10 +816,10 @@ fn unlink_shadow_light(e: &mut Engine, light_slot: u32, reference: u32) {
 /// reads again are still computed (their callees are getters).
 pub fn tes_object_refr_load_3d(e: &mut Engine, this: Ptr<TESObjectREFR>, flag: u8) -> Ptr {
     let me = this.addr();
-    let disabled = e.call(0x0044_0da0, &args![me]).bool();
+    let disabled = typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, me));
     let state = e.global::<u32>(GLOBAL_LOADING_STATE);
     let loading = e.call(0x0042_ce10, &args![state]).bool();
-    if e.call(0x0044_0d80, &args![me]).bool() || disabled {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, me)) || disabled {
         return Ptr::NULL;
     }
 
@@ -994,8 +1004,8 @@ pub fn tes_object_refr_load_3d(e: &mut Engine, this: Ptr<TESObjectREFR>, flag: u
                 let node = ni_pointer_get(e, slot);
                 e.call(0x00c6_a040, &args![node, 1u32, 1u32, 1u32]);
                 let node = ni_pointer_get(e, slot);
-                let bound = e.call(0x0043_d450, &args![node]).u32();
-                let center = e.call(LIST_ITEM_SLOT, &args![bound]).u32();
+                let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
+                let center = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
                 let bounds = locals.alloc(e, 12);
                 e.call(0x0043_9ef0, &args![me + 0x30, bounds, center]);
                 e.call(0x0063_c8a0, &args![me + 0x30, bounds]);
@@ -1062,10 +1072,11 @@ pub fn tes_object_refr_load_3d(e: &mut Engine, this: Ptr<TESObjectREFR>, flag: u
                 let mut acquired = 0u32;
                 let node = ni_pointer_get(e, slot);
                 e.call(0x008b_0bd0, &args![actor, node]);
-                if e.call(0x008d_8520, &args![actor]).u32() != 0 {
-                    let object = e.call(0x008d_8520, &args![actor]).u32();
-                    if e.call(0x0045_cd60, &args![object]).u32() == 0 {
-                        acquired = e.call(0x008d_8520, &args![actor]).u32();
+                if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+                    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+                    if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, object)) == 0 {
+                        acquired =
+                            typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     }
                 }
                 if acquired != 0 {
@@ -1110,12 +1121,20 @@ pub fn tes_object_refr_load_3d(e: &mut Engine, this: Ptr<TESObjectREFR>, flag: u
                                 // the knock-down direction: a rotation about the
                                 // reference's heading applied to (0, 1, 0)
                                 let rotation = locals.alloc(e, 0x24);
-                                e.call(LIST_ITEM_SLOT, &args![rotation]);
+                                typed_call!(
+                                    leaf::FAMILY,
+                                    0x0068_15c0,
+                                    leaf::same_word(e, rotation)
+                                );
                                 let heading = e.call(0x0043_0830, &args![me]).u32();
                                 let angle = e.mem.f32(heading + 8);
                                 e.call(0x004a_0c90, &args![rotation, angle]);
                                 let direction = locals.alloc(e, 12);
-                                e.call(0x0041_6870, &args![direction, 0.0f32, 1.0f32, 0.0f32]);
+                                typed_call!(
+                                    leaf::FAMILY,
+                                    0x0041_6870,
+                                    leaf::point3_new(e, direction, 0.0f32, 1.0f32, 0.0f32)
+                                );
                                 let rotated = locals.alloc(e, 12);
                                 let result = e
                                     .call(0x004b_4500, &args![rotation, rotated, direction])
@@ -1190,11 +1209,11 @@ pub fn tes_object_refr_load_3d(e: &mut Engine, this: Ptr<TESObjectREFR>, flag: u
                 && !e.call(0x0040_77c0, &args![me]).bool()
             {
                 while lit != 0 {
-                    let item = e.call(LIST_ITEM_SLOT, &args![lit]).u32();
+                    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, lit));
                     if e.mem.u32(item) == 0 {
                         break;
                     }
-                    let item = e.call(LIST_ITEM_SLOT, &args![lit]).u32();
+                    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, lit));
                     let light_ref = e.mem.u32(item);
                     if e.vcall(light_ref, SLOT_GET_3D, &args![]).u32() != 0 {
                         // the game fetches the 3D root a second time into a
@@ -1202,7 +1221,7 @@ pub fn tes_object_refr_load_3d(e: &mut Engine, this: Ptr<TESObjectREFR>, flag: u
                         e.vcall(light_ref, SLOT_GET_3D, &args![]);
                         unlink_shadow_light(e, light_slot, light_ref);
                     }
-                    lit = e.call(LIST_NEXT, &args![lit]).u32();
+                    lit = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, lit));
                 }
             }
             e.call(0x0048_3710, &args![sound]);
@@ -1215,11 +1234,11 @@ pub fn tes_object_refr_load_3d(e: &mut Engine, this: Ptr<TESObjectREFR>, flag: u
             let list = extra_list(e, me);
             let mut lit = e.call(0x0041_f7e0, &args![list]).u32();
             while lit != 0 {
-                let item = e.call(LIST_ITEM_SLOT, &args![lit]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, lit));
                 if e.mem.u32(item) == 0 {
                     break;
                 }
-                let item = e.call(LIST_ITEM_SLOT, &args![lit]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, lit));
                 let light_ref = e.mem.u32(item);
                 let light_slot = e.call(0x0057_25f0, &args![light_ref]).u32();
                 if light_slot != 0
@@ -1229,7 +1248,7 @@ pub fn tes_object_refr_load_3d(e: &mut Engine, this: Ptr<TESObjectREFR>, flag: u
                 {
                     unlink_shadow_light(e, light_slot, me);
                 }
-                lit = e.call(LIST_NEXT, &args![lit]).u32();
+                lit = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, lit));
             }
         }
     }
@@ -1271,7 +1290,7 @@ pub fn tes_object_refr_load_3d(e: &mut Engine, this: Ptr<TESObjectREFR>, flag: u
                 let node = ni_pointer_get(e, slot);
                 e.vcall(node, 0xbc, &args![]);
                 if found == 0 {
-                    let id = e.call(FORM_ID, &args![me]).u32();
+                    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, me));
                     let name = e.vcall(me, 0x130, &args![]).u32();
                     let text = locals.alloc(e, 0x100);
                     e.call(
@@ -1397,12 +1416,17 @@ pub fn tes_object_refr_init_havok_for_placeable_water(e: &mut Engine, this: Ptr<
         let extents = locals.alloc(e, 12);
         let half_width = e.global::<f32>(0x0101_8bfc);
         let half_height = e.global::<f32>(0x0101_3d84);
-        e.call(
+        typed_call!(
+            leaf::FAMILY,
             0x0041_6870,
-            &args![extents, half_width, half_width, half_height],
+            leaf::point3_new(e, extents, half_width, half_width, half_height)
         );
         let extents_vector = locals.alloc(e, 16);
-        e.call(LIST_ITEM_SLOT, &args![extents_vector]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, extents_vector)
+        );
         e.call(0x004a_3e00, &args![extents_vector, extents]);
         let raw = e.call(0x0056_d280, &args![0x30u32]).u32();
         // 0056ca11: FLD dword / FSTP dword, which quiets a signalling NaN.
@@ -1431,12 +1455,16 @@ pub fn tes_object_refr_init_havok_for_placeable_water(e: &mut Engine, this: Ptr<
         e.set(cinfo_ptr, BhkRigidBodyCinfo::m_shape, Ptr::<()>::new(shape));
         e.call(0x0056_d360, &args![cinfo, 5u32]);
         let position_vector = locals.alloc(e, 16);
-        e.call(LIST_ITEM_SLOT, &args![position_vector]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, position_vector)
+        );
         let rotation = locals.alloc(e, 16);
         e.call(0x0062_40d0, &args![rotation]);
         e.call(0x0056_d250, &args![rotation]);
         let position = locals.alloc(e, 12);
-        e.call(LIST_ITEM_SLOT, &args![position]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
         let cell = e.call(GET_PARENT_CELL, &args![me]).u32();
         let cell_x = e.call(0x0054_4c30, &args![cell]).i32();
         let x = cell_x.wrapping_shl(12).wrapping_add(0x800);
@@ -1467,7 +1495,7 @@ pub fn tes_object_refr_init_havok_for_placeable_water(e: &mut Engine, this: Ptr<
         let node = e.vcall(me, SLOT_GET_3D, &args![]).u32();
         let collision = e.call(0x004a_8b00, &args![node]).u32();
         if collision == 0 {
-            let id = e.call(FORM_ID, &args![me]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, me));
             e.call(0x005b_5e40, &args![0x0103_016cu32, id]);
             locals.release(e);
             return;
@@ -1476,7 +1504,7 @@ pub fn tes_object_refr_init_havok_for_placeable_water(e: &mut Engine, this: Ptr<
         let shape_slot = e.call(0x0043_b560, &args![rigid]).u32();
         let source_shape = ni_pointer_get(e, shape_slot);
         if source_shape == 0 {
-            let id = e.call(FORM_ID, &args![me]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, me));
             e.call(0x005b_5e40, &args![0x0103_012cu32, id]);
             locals.release(e);
             return;
@@ -1504,9 +1532,17 @@ pub fn tes_object_refr_init_havok_for_placeable_water(e: &mut Engine, this: Ptr<
         e.set(cinfo_ptr, BhkRigidBodyCinfo::m_shape, Ptr::<()>::new(shape));
         e.call(0x0056_d360, &args![cinfo, 5u32]);
         let position_vector = locals.alloc(e, 16);
-        e.call(LIST_ITEM_SLOT, &args![position_vector]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, position_vector)
+        );
         let local_rotation = locals.alloc(e, 16);
-        e.call(LIST_ITEM_SLOT, &args![local_rotation]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, local_rotation)
+        );
         let rotation = locals.alloc(e, 16);
         e.call(0x0062_40d0, &args![rotation]);
         let node = e.vcall(me, SLOT_GET_3D, &args![]).u32();
@@ -1553,9 +1589,6 @@ const TRIVIAL_CONSTRUCTOR: u32 = LIST_ITEM_SLOT;
 /// `ExtraDataList::GetCollisionData` (Xbox PDB, `004211a0`).
 const GET_PRIMITIVE: u32 = 0x0041_fbe0;
 const GET_COLLISION_DATA: u32 = 0x0042_11a0;
-/// The word at `this + 4` of a primitive record (`00726070`): 1 for a box,
-/// 2 for a sphere in `InitHavokForPrimitiveTrigger`.
-const PRIMITIVE_TYPE: u32 = 0x0072_6070;
 /// Copies the three floats at `this + 0x18` of a primitive record into the
 /// argument and returns it (`00413fc0`).
 const PRIMITIVE_BOUNDS: u32 = 0x0041_3fc0;
@@ -2087,7 +2120,7 @@ pub fn tes_object_refr_init_havok_for_primitive_trigger(e: &mut Engine, this: Pt
         DEFAULT_COLLISION_FILTER
     };
     let aabb = filter != SHAPE_PHANTOM_FILTER
-        && e.call(PRIMITIVE_TYPE, &args![primitive]).u32() == 1
+        && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, primitive)) == 1
         && e.call(0x004d_9ae0, &args![transform, IDENTITY_MATRIX])
             .bool();
     let position = transform + 0x24;
@@ -2132,7 +2165,7 @@ pub fn tes_object_refr_init_havok_for_primitive_trigger(e: &mut Engine, this: Pt
         e.call(NI_POINTER_ASSIGN, &args![slot, phantom]);
         fn_0056d730(e, Ptr::new(cinfo));
     } else {
-        if e.call(PRIMITIVE_TYPE, &args![primitive]).u32() == 1 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, primitive)) == 1 {
             let bounds = locals.alloc(e, 12);
             let result = e.call(PRIMITIVE_BOUNDS, &args![primitive, bounds]).u32();
             e.call(VECTOR3_TO_VECTOR4, &args![box_vector, result]);
@@ -2143,7 +2176,7 @@ pub fn tes_object_refr_init_havok_for_primitive_trigger(e: &mut Engine, this: Pt
                 0
             };
         }
-        if e.call(PRIMITIVE_TYPE, &args![primitive]).u32() == 2 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, primitive)) == 2 {
             let raw = e.call(ALLOCATE, &args![0x14u32]).u32();
             shape = if raw != 0 {
                 let bounds = locals.alloc(e, 12);
@@ -2289,8 +2322,12 @@ pub fn fn_0056e180(e: &mut Engine, this: Ptr) -> Ptr {
 /// and `this + 4` zeroed, then `005407b0` on `this + 8` with 1. Returns
 /// `this`. The exception-unwinding frame is not translated.
 pub fn fn_0056e1e0(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(0x0068_15c0, &args![this]);
-    e.call(0x0068_15c0, &args![this.addr() + 8]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 8)
+    );
     e.call(0x0062_99a0, &args![this.addr() + 0xc]);
     e.mem.set_u32(this.addr(), 0);
     e.mem.set_u32(this.addr() + 4, 0);

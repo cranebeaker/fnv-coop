@@ -49,6 +49,7 @@ const SETTING_BYTE_ADDRESS: u32 = 0x0040_8d60;
 const SETTING_FLOAT_ADDRESS: u32 = 0x0040_3e20;
 /// The identity function (`006815c0`), used by the exe to "construct" plain
 /// vectors and matrices.
+#[cfg(test)]
 const IDENTITY: u32 = 0x0068_15c0;
 /// `NiPick::NiPick(bool, unsigned)` (`00e98f20`) and its destructor
 /// (`00e98fa0`).
@@ -75,8 +76,6 @@ const SET_INFO_FOR_REF: u32 = 0x0077_5a00;
 /// of a base form (`00401170`).
 const CONTAINER_CAN_HOLD_TYPE: u32 = 0x0048_1f30;
 const GET_FORM_TYPE: u32 = 0x0040_1170;
-/// The word at `+0x20` (`007af430`: the base form of a reference).
-const GET_BASE_FORM: u32 = 0x007a_f430;
 
 // Translated from 0070bbe0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Calls `00ad8510` (`BSAudio`) on `this` with `(6, 1)`.
@@ -146,7 +145,7 @@ pub fn fn_0070bc20(e: &mut Engine, this: Ptr<InterfaceManager>) {
         let mut telekinesis_ref = 0u32;
         let mut activate_ref = 0u32;
         for vector in [position, direction, rotation, pitch] {
-            e.call(IDENTITY, &args![vector]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
         }
 
         if e.global::<u32>(USE_CAMERA_POSITION) != 0 {
@@ -258,7 +257,8 @@ pub fn fn_0070bc20(e: &mut Engine, this: Ptr<InterfaceManager>) {
                 e.set_global(STAGE, 0x22u32);
                 let handle = e.call(0x0093_1ed0, &args![player, eye_handle]).u32();
                 let pointer = e.call(0x004a_3a20, &args![handle]).u32();
-                let current = e.call(0x0044_ddc0, &args![view_caster]).u32();
+                let current =
+                    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, view_caster));
                 if current != pointer {
                     e.call(0x0063_1c50, &args![view_caster, pointer]);
                 }
@@ -280,7 +280,8 @@ pub fn fn_0070bc20(e: &mut Engine, this: Ptr<InterfaceManager>) {
                 distance = e.mem.f32(pick_end);
                 let mut accept = true;
                 if reference != 0 {
-                    let base = e.call(GET_BASE_FORM, &args![reference]).u32();
+                    let base =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                     let form_type = e.call(GET_FORM_TYPE, &args![base]).u8();
                     match form_type {
                         0x15 | 0x1b | 0x1c | 0x2a | 0x2b => accept = false,
@@ -378,10 +379,10 @@ pub fn fn_0070c410(e: &mut Engine, this: Ptr<PlayerCharacter>, result: Ptr) -> P
 /// when it is set, else a null handle (`008c71b0(0)`). Returns `result`.
 pub fn fn_0070c440(e: &mut Engine, this: Ptr, result: Ptr) -> Ptr {
     let slot = this.addr() + 0x594;
-    let held = e.call(0x0055_9450, &args![slot]).u32();
+    let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     let handle = if held != 0 {
         e.with_stack(8, |e, scratch| {
-            let held = e.call(0x0055_9450, &args![slot]).u32();
+            let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
             e.call(0x0043_b4f0, &args![held, scratch]).u32()
         })
     } else {

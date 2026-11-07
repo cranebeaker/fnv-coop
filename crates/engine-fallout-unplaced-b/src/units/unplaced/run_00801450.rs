@@ -13,6 +13,7 @@
 use crate::prelude::*;
 
 /// `00559450` (`thiscall`, no stack word): the word at `this`.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `0043c4b0` (no arguments): an object the draw functions ask for first.
 const OBJECT_0043C4B0: u32 = 0x0043_c4b0;
@@ -33,6 +34,7 @@ const ACCUMULATE_SCENE: u32 = 0x00b6_bee0;
 const FINISH_00B6C0D0: u32 = 0x00b6_c0d0;
 /// `008d8520` (`thiscall`, no stack word; the engine map's name is
 /// `MiddleHighProcess::GetSavedAcquireObject`).
+#[cfg(test)]
 const PROCESS_OBJECT_008D8520: u32 = 0x008d_8520;
 /// `00456610` (`thiscall`, `bool`) and `00450f90` (`thiscall`, one word: hidden or not) on
 /// a scene object.
@@ -199,14 +201,14 @@ pub fn fn_00801450(e: &mut Engine, this: Ptr, flag: u8, mode: u32) {
     let source = e.call(OBJECT_0045C670, &[]).u32();
     let actor = e.mem.u32(at + 4);
     let accumulator = e.call(ACCUMULATOR_008D80E0, &args![source]).u32();
-    let held = e.call(FIRST_WORD, &args![at + 0x2cc]).u32();
+    let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0x2cc));
     e.call(SET_004A0FD0, &args![accumulator, held]);
     e.call(SET_004FB0B0, &args![accumulator, 1u32]);
     let list = e.call(LIST_006629F0, &args![source]).u32();
     let mut process = 0;
     let mut node = 0;
     if e.vcall(e.mem.u32(at + 4), 0x100, &[]).bool() {
-        process = e.call(PROCESS_OBJECT_008D8520, &args![actor]).u32();
+        process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     }
     if process != 0 {
         let key = e.vcall(actor, 0x1e8, &[]).u32();
@@ -226,7 +228,7 @@ pub fn fn_00801450(e: &mut Engine, this: Ptr, flag: u8, mode: u32) {
             restore = !e.call(IS_HIDDEN_00456610, &args![node]).bool();
             e.call(SET_HIDDEN_00450F90, &args![node, 1u32]);
         }
-        let root = e.call(FIRST_WORD, &args![at + 8]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 8));
         e.call(ACCUMULATE_SCENE, &args![list, root, accumulator]);
         if e.vcall(e.mem.u32(at + 4), 0x100, &[]).bool() {
             let object = e.mem.u32(at + 4);
@@ -253,7 +255,7 @@ pub fn fn_00801450(e: &mut Engine, this: Ptr, flag: u8, mode: u32) {
             e.call(SET_HIDDEN_00450F90, &args![node, 0u32]);
         }
     }
-    let held = e.call(FIRST_WORD, &args![at + 0x2cc]).u32();
+    let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0x2cc));
     e.call(FINISH_00B6C0D0, &args![list, held, 0u32]);
     e.call(SET_004A0FD0, &args![accumulator, 0u32]);
     e.call(SET_004FB0B0, &args![accumulator, 0u32]);
@@ -277,7 +279,7 @@ pub fn fn_00801880(e: &mut Engine, this: Ptr) {
     e.call(OBJECT_0043C4B0, &[]);
     let source = e.call(OBJECT_0045C670, &[]).u32();
     let accumulator = e.call(ACCUMULATOR_008D80E0, &args![source]).u32();
-    let held = e.call(FIRST_WORD, &args![at + 0x2cc]).u32();
+    let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0x2cc));
     e.call(SET_004A0FD0, &args![accumulator, held]);
     let list = e.call(LIST_006629F0, &args![source]).u32();
     let object = e.call(OBJECT_0043C4B0, &[]).u32();
@@ -288,12 +290,11 @@ pub fn fn_00801880(e: &mut Engine, this: Ptr) {
     let mut selected = None;
     let mut i = 0i32;
     while i < e.mem.i32(at + 0xc) {
-        let root = e
-            .call(
-                FIRST_WORD,
-                &args![at.wrapping_add((i as u32).wrapping_mul(8)) + 0x18],
-            )
-            .u32();
+        let root = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, at.wrapping_add((i as u32).wrapping_mul(8)) + 0x18)
+        );
         if i == e.mem.i32(at + 0x10) {
             e.call(SET_FLAG_RECURSE, &args![root, 0x31u32, 1u32]);
             selected = Some(root);
@@ -301,7 +302,7 @@ pub fn fn_00801880(e: &mut Engine, this: Ptr) {
         e.call(ACCUMULATE_SCENE, &args![list, root, accumulator]);
         i += 1;
     }
-    let held = e.call(FIRST_WORD, &args![at + 0x2cc]).u32();
+    let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0x2cc));
     e.call(FINISH_00B6C0D0, &args![list, held, 0u32]);
     e.call(SET_004A0FD0, &args![accumulator, 0u32]);
     if let Some(root) = selected {

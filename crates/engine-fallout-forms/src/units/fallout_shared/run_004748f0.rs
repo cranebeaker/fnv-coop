@@ -67,7 +67,7 @@ pub fn fn_00474920(e: &mut Engine, this: Ptr) -> u32 {
         return 0;
     }
     let list = fn_00474a40(e, this);
-    let index = e.call(0x007a_f430, &args![list]).u32();
+    let index = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, list));
     let list = fn_00474a40(e, this);
     let first = e.call(0x0050_0940, &args![list]).u32();
     let count = e.call(0x005a_e380, &args![first]).u32();
@@ -76,14 +76,14 @@ pub fn fn_00474920(e: &mut Engine, this: Ptr) -> u32 {
         let mut node = e.call(0x0050_0940, &args![list]).u32();
         let mut step = 0u32;
         while step < index {
-            node = e.call(0x0072_6070, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             step += 1;
         }
-        e.call(0x0068_15c0, &args![node]).u32()
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
     } else {
         let list = fn_00474a40(e, this);
         let node = e.call(0x0050_0940, &args![list]).u32();
-        e.call(0x0068_15c0, &args![node]).u32()
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
     };
     e.mem.u32(item)
 }

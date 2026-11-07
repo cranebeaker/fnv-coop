@@ -12,6 +12,7 @@ pub fn fn_005ff880(e: &mut Engine, this: Ptr, flags: u32) -> u32 {
 }
 
 /// `00440d80` (`ECX` = form): a byte; true makes `005ff2e0` give 0.
+#[cfg(test)]
 const FORM_00440D80: u32 = 0x0044_0d80;
 /// `00436aa0` (`ECX` = idle): its conditions.
 const CONDITIONS: u32 = 0x0043_6aa0;
@@ -23,15 +24,19 @@ const CHECK_IDLE_FILE: u32 = 0x005f_f280;
 /// `005ff1d0` (`ECX` = idle): bit 7 of the anim data byte.
 const IDLE_005FF1D0: u32 = 0x005f_f1d0;
 /// `008256d0` (`ECX` = list node): a byte; true at the end of the list.
+#[cfg(test)]
 const NODE_IS_END: u32 = 0x0082_56d0;
 /// `006815c0` (`ECX` = list node): the address of its item.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`ECX` = list node): the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `LowProcess::GetGenericLocation` (engine map name of `008041a0`; `ECX` =
 /// idle): the word at +0x44 (`pParentIdle`, Xbox PDB).
 const IDLE_PARENT: u32 = 0x0080_41a0;
 /// `0084e3a0` (`ECX` = array): the word at +0xc, its count.
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0084_e3a0;
 /// `NiFormArray::GetFormAt` (Xbox PDB name of `004d6170`; `ECX` = array, an
 /// index; `RET 4`).
@@ -65,7 +70,7 @@ const STRING_SET: u32 = 0x0040_37f0;
 /// candidate.
 pub fn fn_005ff2e0(e: &mut Engine, this: Ptr, first: u32, second: u32, list: u32) -> u32 {
     let mut result = 0u32;
-    if e.call(FORM_00440D80, &args![this]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
         return result;
     }
     let conditions = e.call(CONDITIONS, &args![this]).u32();
@@ -78,13 +83,16 @@ pub fn fn_005ff2e0(e: &mut Engine, this: Ptr, first: u32, second: u32, list: u32
     if e.call(CHECK_IDLE_FILE, &args![this]).bool() {
         let mut node = list;
         let mut found = false;
-        while node != 0 && !found && !e.call(NODE_IS_END, &args![node]).bool() {
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+        while node != 0
+            && !found
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+        {
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let entry = e.mem.u32(item);
             if e.mem.u32(entry) == this.addr() {
                 found = true;
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         if !found {
             result = this.addr();
@@ -142,7 +150,7 @@ pub fn fn_005ff4a0(e: &mut Engine, this: Ptr) -> u32 {
     if children == 0 {
         return 0;
     }
-    e.call(ARRAY_COUNT, &args![children]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, children))
 }
 
 // Translated from 005ff4d0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -316,7 +324,11 @@ pub fn fn_005ff610(e: &mut Engine, this: Ptr) {
     }
     remove_at(e, array, index as u32);
     e.call(SET_IDLE_PARENT, &args![idle, 0u32]);
-    let slot = e.call(0x0087_7a30, &args![array, index as u32]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index as u32)
+    );
     let next = e.mem.u32(slot);
     if next == 0 {
         return;
@@ -327,7 +339,7 @@ pub fn fn_005ff610(e: &mut Engine, this: Ptr) {
     } else {
         let previous = e.call(IDLE_PREVIOUS, &args![idle]).u32();
         let id = if previous != 0 {
-            e.call(0x0084_e3a0, &args![previous]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, previous))
         } else {
             0
         };

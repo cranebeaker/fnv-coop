@@ -26,6 +26,7 @@ const SECOND_MEMBER: u32 = 0x08;
 /// `00c85750` (unit `hkmemoryrouter.cpp`, no arguments): the thread's Havok
 /// memory router; `006815c0` (`thiscall`) returns its object.
 const THREAD_ROUTER: u32 = 0x00c8_5750;
+#[cfg(test)]
 const ROUTER_OBJECT: u32 = 0x0068_15c0;
 
 // Translated from 005e0ad0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -75,7 +76,7 @@ pub fn fn_005e0b50(_e: &mut Engine, a: u32, b: u32) -> u32 {
 /// `005e0b80` pops (`RET 4`). Returns what `005e0b80` returns.
 pub fn fn_005e0b60(e: &mut Engine, block: Ptr) -> Ptr {
     let router = e.call(THREAD_ROUTER, &args![]).u32();
-    let object = e.call(ROUTER_OBJECT, &args![router]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, router));
     fn_005e0b80(e, Ptr::new(object), block)
 }
 

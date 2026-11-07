@@ -19,6 +19,7 @@ const BASE_DESTRUCTOR: u32 = 0x0046_ffb0;
 /// (`005ae380`, engine map `VATS::GetCount`, a body shared by folding), the head item's
 /// address (`006815c0`) and the head's removal (`0063f7b0`).
 const LIST_COUNT: u32 = 0x005a_e380;
+#[cfg(test)]
 const LIST_HEAD_ITEM: u32 = 0x0068_15c0;
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
 
@@ -57,7 +58,7 @@ pub fn fn_004f3330(e: &mut Engine, this: Ptr, owns: u32) -> Ptr {
 /// null, deletes the item (its slot 0 with 1).
 pub fn fn_004f3400(e: &mut Engine, this: Ptr) {
     while e.call(LIST_COUNT, &args![this]).u32() != 0 {
-        let slot = e.call(LIST_HEAD_ITEM, &args![this]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
         let item = e.mem.u32(slot);
         e.call(LIST_REMOVE_HEAD, &args![this]);
         if e.mem.u8(this.addr() + 8) != 0 && item != 0 {
@@ -84,6 +85,7 @@ const LIST_ADD: u32 = 0x005a_e3d0;
 /// The game's allocator (`00401000`, cdecl: size).
 const ALLOCATE: u32 = 0x0040_1000;
 /// `00726070` (`thiscall`): the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 
 // Translated from 004f33c0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -130,18 +132,18 @@ pub fn fn_004f3470(e: &mut Engine, this: Ptr, target: u32) -> u32 {
     let mut node = this.addr();
     while node != 0 {
         if e.mem.u8(target.wrapping_add(8)) != 0 {
-            let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_address);
             let copy = e.vcall(item, 0x14, &args![]).u32();
             if !fn_004f33c0(e, Ptr::new(target), copy) && copy != 0 {
                 e.vcall(copy, 0, &args![1u32]);
             }
         } else {
-            let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_address);
             fn_004f33c0(e, Ptr::new(target), item);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     target
 }

@@ -320,10 +320,12 @@ const FORM_ADD_COMPILE_INDEX: u32 = 0x0048_5d50;
 /// The form with a given ID (`004839c0`).
 const FORM_BY_ID: u32 = 0x0048_39c0;
 /// The word at `+0xC` (`0084e3a0`): a form's ID, a map's item count.
+#[cfg(test)]
 const WORD_AT_0C: u32 = 0x0084_e3a0;
 /// The record type byte of a form (`00401170`, `+4`).
 const FORM_TYPE: u32 = 0x0040_1170;
 /// The flags word of a form (`0044ddc0`, `+8`).
+#[cfg(test)]
 const FORM_FLAGS: u32 = 0x0044_ddc0;
 /// The form flag 8 test (`004013e0`).
 const FORM_FLAG_8: u32 = 0x0040_13e0;
@@ -582,8 +584,11 @@ const MSG_CELL_LOAD_FAILED: u32 = 0x0103_1ec0;
 /// address is passed (`00905330`), clear (`00470470`: deletes every node
 /// after the head and empties the head), the destructor with delete flag
 /// (`004702f0`) and the constructor (`0096a2d0`: both words 0).
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 const LIST_ADD: u32 = 0x005a_e3d0;
 const LIST_REMOVE: u32 = 0x0090_5330;
@@ -626,6 +631,7 @@ const SPRINTF_S: u32 = 0x0040_6d00;
 /// multibound marker (`00439f90`).
 const FORM_FLAG_4000: u32 = 0x0040_77c0;
 const FORM_FLAG_400: u32 = 0x0055_16c0;
+#[cfg(test)]
 const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 const REFERENCE_WORD_40: u32 = 0x008d_6f30;
 const REFERENCE_MULTIBOUND_HALF_EXTENT: u32 = 0x0056_9880;
@@ -687,6 +693,7 @@ const REGION_DATA_LIST_FIND: u32 = 0x004f_35b0;
 const REGION_DATA_BYTE_4: u32 = 0x004f_1540;
 const REGION_DATA_BYTE_6: u32 = 0x005b_b4d0;
 const REGION_ENTRY_LIST: u32 = 0x0044_1110;
+#[cfg(test)]
 const REGION_ENTRY_FLAG_20: u32 = 0x0044_0d80;
 const REGION_POINT_BUILD: u32 = 0x004f_7030;
 const REGION_POINT_IN_ENTRY: u32 = 0x004f_8360;
@@ -695,6 +702,7 @@ const REGION_POINT_IN_ENTRY: u32 = 0x004f_8360;
 /// ignore case)` (`00408a80`); the empty text (`0x01011584`).
 const BSSTRING_CONSTRUCT: u32 = 0x0040_37b0;
 const BSSTRING_SET: u32 = 0x0040_37f0;
+#[cfg(test)]
 const BSSTRING_TEXT: u32 = 0x0055_9450;
 const BSSTRING_LENGTH: u32 = 0x0040_48e0;
 const BSSTRING_COMPARE: u32 = 0x0040_8a80;
@@ -863,7 +871,7 @@ fn log_unresolved(
         let name = e.vcall(this.addr(), SLOT_EDITOR_ID, &args![]).u32();
         e.call(LOG, &args![message_named, id, name]);
     } else {
-        let own_id = e.call(WORD_AT_0C, &args![this]).u32();
+        let own_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         e.call(LOG, &args![message_id, id, own_id]);
     }
 }
@@ -965,7 +973,7 @@ pub fn fn_00583560(e: &mut Engine, this: Ptr<TESWorldSpace>, file: Ptr) -> bool 
     }
     // An empty cell map (and a world space that keeps cells) is replaced.
     let map = e.get(this, TESWorldSpace::pCellMap);
-    let count = e.call(WORD_AT_0C, &args![map]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, map));
     if count == 0 && !fn_005861b0(e, this) {
         let map = e.get(this, TESWorldSpace::pCellMap);
         if !map.is_null() {
@@ -1118,7 +1126,7 @@ fn read_chunk_word(e: &mut Engine, file: Ptr) -> u32 {
 fn load_corner_chunk(e: &mut Engine, this: Ptr<TESWorldSpace>, file: Ptr, chunk: u32) {
     let is_min = chunk == CHUNK_MIN_COORDS;
     e.with_stack(8, |e, corner| {
-        e.call(LOCAL_STRUCT_CONSTRUCT, &args![corner]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, corner));
         e.call(FILE_READ_CHUNK, &args![file, corner, 8u32]);
         if e.call(FILE_NEEDS_SWAP, &args![file]).bool() {
             swap_dword(e, corner.addr());
@@ -1223,12 +1231,12 @@ pub fn fn_00584170(e: &mut Engine, this: Ptr<TESWorldSpace>) {
     e.call(FULL_NAME_SAVE, &args![this.addr() + 0x18]);
     if !e.get(this, TESWorldSpace::pEncounterZone).is_null() {
         let zone = e.get(this, TESWorldSpace::pEncounterZone);
-        let id = e.call(WORD_AT_0C, &args![zone]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, zone));
         e.call(ADD_CHUNK_U32, &args![CHUNK_ENCOUNTER_ZONE, id]);
     }
     if !e.get(this, TESWorldSpace::pParentWorld).is_null() {
         let parent = e.get(this, TESWorldSpace::pParentWorld);
-        let id = e.call(WORD_AT_0C, &args![parent]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, parent));
         e.call(ADD_CHUNK_U32, &args![CHUNK_PARENT_WORLD, id]);
         let flags = e.get(this, TESWorldSpace::sParentUseFlags) as u32;
         e.call(ADD_CHUNK_U16, &args![CHUNK_PARENT_USE_FLAGS, flags]);
@@ -1237,7 +1245,7 @@ pub fn fn_00584170(e: &mut Engine, this: Ptr<TESWorldSpace>) {
         let climate = fn_00585fe0(e, this);
         if !climate.is_null() {
             let climate = fn_00585fe0(e, this);
-            let id = e.call(WORD_AT_0C, &args![climate]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, climate));
             e.call(ADD_CHUNK_U32, &args![CHUNK_CLIMATE, id]);
         }
     }
@@ -1245,7 +1253,7 @@ pub fn fn_00584170(e: &mut Engine, this: Ptr<TESWorldSpace>) {
         let water = fn_00586070(e, this);
         if !water.is_null() {
             let water = fn_00586070(e, this);
-            let id = e.call(WORD_AT_0C, &args![water]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, water));
             e.call(ADD_CHUNK_U32, &args![CHUNK_WATER, id]);
         }
     }
@@ -1253,7 +1261,7 @@ pub fn fn_00584170(e: &mut Engine, this: Ptr<TESWorldSpace>) {
         let lod_water = fn_005860c0(e, this);
         if !lod_water.is_null() {
             let lod_water = fn_005860c0(e, this);
-            let id = e.call(WORD_AT_0C, &args![lod_water]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, lod_water));
             e.call(ADD_CHUNK_U32, &args![CHUNK_LOD_WATER, id]);
             let height = e.call(GET_LOD_WATER_HEIGHT, &args![this]).f32();
             e.call(ADD_CHUNK_U32, &args![CHUNK_LOD_WATER_HEIGHT, height]);
@@ -1302,7 +1310,7 @@ pub fn fn_00584170(e: &mut Engine, this: Ptr<TESWorldSpace>) {
         let image_space = e.call(GET_IMAGE_SPACE_RAW, &args![this]).u32();
         if image_space != 0 {
             let image_space = e.call(GET_IMAGE_SPACE_RAW, &args![this]).u32();
-            let id = e.call(WORD_AT_0C, &args![image_space]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, image_space));
             e.call(ADD_CHUNK_U32, &args![CHUNK_IMAGE_SPACE, id]);
         }
     }
@@ -1318,7 +1326,7 @@ pub fn fn_00584170(e: &mut Engine, this: Ptr<TESWorldSpace>) {
     );
     if !fn_00586150(e, this).is_null() {
         let music = fn_00586150(e, this);
-        let id = e.call(WORD_AT_0C, &args![music]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, music));
         e.call(ADD_CHUNK_U32, &args![CHUNK_MUSIC_TYPE, id]);
     }
     save_texture_name(e, this.addr() + 0xD4, CHUNK_CANOPY_TEXTURE);
@@ -1534,8 +1542,8 @@ pub fn fn_00584be0(e: &mut Engine, this: Ptr<TESWorldSpace>, form: Ptr) -> bool 
             e.vcall(this.addr(), 0x3C, &args![owner]).bool()
         }
         0x41 => {
-            let own_id = e.call(WORD_AT_0C, &args![this]).u32();
-            let other_id = e.call(WORD_AT_0C, &args![form]).u32();
+            let own_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
+            let other_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             own_id < other_id
         }
         _ => e.call(FORM_SAVES_BEFORE_FORM, &args![this, form]).bool(),
@@ -1954,7 +1962,7 @@ pub fn fn_005858b0(e: &mut Engine, this: Ptr<TESWorldSpace>, file: Ptr) -> bool 
             let record_type = e.call(FILE_RECORD_TYPE, &args![file]).u32();
             if record_type == e.global::<u8>(WORLD_SPACE_RECORD_TYPE) as u32 {
                 let record_id = e.call(FILE_CURRENT_FORM_ID, &args![file]).u32();
-                let own_id = e.call(WORD_AT_0C, &args![this]).u32();
+                let own_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 return record_id == own_id;
             }
         }
@@ -2062,7 +2070,7 @@ pub fn tes_world_space_load_cell(e: &mut Engine, this: Ptr<TESWorldSpace>, x: i3
                     e.call(CELL_CREATE_DATA, &args![cell]);
                     e.call(CELL_SET_DATA_COORD, &args![cell, x, y]);
                     e.call(ADD_CELL, &args![this, cell]);
-                    let world_id = e.call(WORD_AT_0C, &args![this]).u32();
+                    let world_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                     let save_load = e.global::<u32>(SAVE_LOAD_GAME);
                     let created_id = e
                         .call(SAVE_LOAD_CREATED_CELL_ID, &args![save_load, world_id, x, y])
@@ -2095,7 +2103,7 @@ pub fn tes_world_space_load_cell(e: &mut Engine, this: Ptr<TESWorldSpace>, x: i3
             }
         }
         if !loaded {
-            let world_id = e.call(WORD_AT_0C, &args![this]).u32();
+            let world_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(this.addr(), SLOT_EDITOR_ID, &args![]).u32();
             e.call(LOG, &args![MSG_CELL_LOAD_FAILED, x, y, name, world_id]);
         }
@@ -2119,7 +2127,7 @@ pub fn tes_world_space_un_load_cell(e: &mut Engine, this: Ptr<TESWorldSpace>, ce
         e.call(CELL_CLEANUP, &args![cell]);
         let save_load = e.global::<u32>(SAVE_LOAD_GAME);
         e.call(SAVE_LOAD_NOTE_CELL, &args![save_load, cell]);
-        let cell_id = e.call(WORD_AT_0C, &args![cell]).u32();
+        let cell_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell));
         let loader_state = e.global::<u32>(LOADER_STATE);
         if !e
             .call(LOADER_STATE_QUERY, &args![loader_state, cell_id])
@@ -2314,7 +2322,7 @@ pub fn fn_00586210(e: &mut Engine, this: Ptr<TESWorldSpace>) -> bool {
 // Translated from 00586230 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Form flag `0x80000` (the form flags word is read through `0044ddc0`).
 pub fn fn_00586230(e: &mut Engine, this: Ptr<TESWorldSpace>) -> bool {
-    e.call(FORM_FLAGS, &args![this]).u32() & 0x8_0000 != 0
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) & 0x8_0000 != 0
 }
 
 // Translated from 00586260 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2370,18 +2378,18 @@ pub fn fn_00586340(e: &mut Engine, this: Ptr<TESWorldSpace>, which: i32) -> bool
 
 /// The item of a `BSSimpleList` node (`*006815c0(node)`).
 fn list_item(e: &mut Engine, node: u32) -> u32 {
-    let at = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(at)
 }
 
 /// The next node of a `BSSimpleList` (`00726070`).
 fn list_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// Whether a `BSSimpleList` node is empty (`008256d0`).
 fn list_is_empty(e: &mut Engine, node: u32) -> bool {
-    e.call(LIST_IS_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 /// Adds `item` to a list (`005ae3d0` takes the address of the item).
@@ -2526,7 +2534,11 @@ pub fn fn_00586500(
     let guard = e.global::<u32>(LOCATION_CACHE_GUARD);
     if guard & 2 == 0 {
         e.set_global(LOCATION_CACHE_GUARD, guard | 2);
-        e.call(LOCAL_STRUCT_CONSTRUCT, &args![LOCATION_CACHE_POINT]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, LOCATION_CACHE_POINT)
+        );
     }
     let handler = e.global::<u32>(DATA_HANDLER_POINTER);
     if handler == 0 {
@@ -2553,7 +2565,11 @@ fn location_name(
         && e.call(POINT_EQUAL, &args![LOCATION_CACHE_POINT, point])
             .bool()
     {
-        let text = e.call(BSSTRING_TEXT, &args![LOCATION_CACHE_TEXT]).u32();
+        let text = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, LOCATION_CACHE_TEXT)
+        );
         e.call(BSSTRING_SET, &args![out, text, 0u32]);
         return false;
     }
@@ -2603,9 +2619,13 @@ fn location_name(
         let text = fn_00586980(e).addr();
         e.call(BSSTRING_SET, &args![out, text, 0u32]);
     }
-    let cached = e.call(BSSTRING_TEXT, &args![LOCATION_CACHE_TEXT]).u32();
+    let cached = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, LOCATION_CACHE_TEXT)
+    );
     if e.call(BSSTRING_COMPARE, &args![out, cached, 1u32]).i32() != 0 {
-        let text = e.call(BSSTRING_TEXT, &args![out]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, out));
         e.call(BSSTRING_SET, &args![LOCATION_CACHE_TEXT, text, 0u32]);
         true
     } else {
@@ -2625,14 +2645,15 @@ fn best_region_name(e: &mut Engine, this: Ptr<TESWorldSpace>, out: Ptr, handler:
     e.with_stack(8, |e, probe| {
         e.call(REGION_POINT_BUILD, &args![probe, point]);
         while node != 0 {
-            let item_at = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item_at) == 0 {
                 break;
             }
             let entry = list_item(e, node);
             let mut found = false;
-            let skip = e.call(REGION_ENTRY_FLAG_20, &args![entry]).bool()
-                || e.call(REFERENCE_BASE_FORM, &args![entry]).u32() != this.addr()
+            let skip = typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, entry))
+                || typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, entry))
+                    != this.addr()
                 || e.call(REGION_ENTRY_LIST, &args![entry]).u32() == 0
                 || {
                     let entries = e.call(REGION_ENTRY_LIST, &args![entry]).u32();
@@ -2719,7 +2740,7 @@ pub fn tes_world_space_get_grass_for_location(
             VECTOR_CONSTRUCTOR,
             &args![points, 0xCu32, 9u32, LOCAL_STRUCT_CONSTRUCT],
         );
-        e.call(LOCAL_STRUCT_CONSTRUCT, &args![centre]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, centre));
         let handler = e.global::<u32>(DATA_HANDLER_POINTER);
         if handler == 0 || count == 0 {
             return;
@@ -2850,7 +2871,7 @@ fn grass_entries(
         let name = e.call(FORM_NAME_TEXT, &args![form]).u32();
         e.call(SPRINTF_S, &args![path, 0x104u32, MESH_PATH_FORMAT, name]);
         e.mem.set_u32(slot, path);
-        let form_id = e.call(WORD_AT_0C, &args![form]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.mem.set_u32(slot + 4, form_id);
         for (offset, vtable_slot) in [(8u32, 0x1b0u32), (0xc, 0x1b8), (0x10, 0x1c0), (0x18, 0x1c8)]
         {
@@ -3009,7 +3030,7 @@ pub fn tes_world_space_add_cell(e: &mut Engine, this: Ptr<TESWorldSpace>, cell: 
             let y = e.call(CELL_GET_DATA_Y, &args![cell]).u32();
             let x = e.call(CELL_GET_DATA_X, &args![cell]).u32();
             let name = e.vcall(existing, SLOT_EDITOR_ID, &args![]).u32();
-            let existing_id = e.call(WORD_AT_0C, &args![existing]).u32();
+            let existing_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, existing));
             e.call(LOG, &args![MSG_CELL_EXISTS, existing_id, name, x, y]);
             return false;
         }
@@ -3177,11 +3198,11 @@ pub fn tes_world_space_is_fixed_ref(e: &mut Engine, reference: Ptr) -> bool {
     if reference.is_null() {
         return false;
     }
-    let base = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if base == 0 {
         return false;
     }
-    let base = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     matches!(
         e.call(FORM_TYPE, &args![base]).u32(),
         0xd | 0x15 | 0x1b | 0x1c | 0x20 | 0x21 | 0x25 | 0x26 | 0x27 | 0x2c | 0x2d
@@ -3706,8 +3727,16 @@ pub fn tes_world_space_create_offset_data(
 /// the folded constructors of the two `NiPoint2` members (`+4` and `+0xC`,
 /// which do nothing) and returns `this`. The caller sets the fields.
 pub fn fn_00588c50(e: &mut Engine, this: Ptr<OffsetData>) -> Ptr<OffsetData> {
-    e.call(LOCAL_STRUCT_CONSTRUCT, &args![this.addr() + 4]);
-    e.call(LOCAL_STRUCT_CONSTRUCT, &args![this.addr() + 0xC]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 4)
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0xC)
+    );
     this
 }
 
@@ -3746,14 +3775,14 @@ pub fn fn_00588d10(e: &mut Engine, this: Ptr<TESWorldSpace>, point: Ptr) -> bool
         let list = e.call(DATA_HANDLER_LIST_1D8, &args![handler]).u32();
         let mut node = if list != 0 { list + 4 } else { 0 };
         while node != 0 {
-            let item_at = e.call(LIST_NODE_ITEM, &args![node]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item_at) == 0 {
                 break;
             }
             let entry = list_item(e, node);
             if e.call(REGION_ENTRY_FLAG_40, &args![entry]).bool()
-                && !e.call(REGION_ENTRY_FLAG_20, &args![entry]).bool()
-                && e.call(REFERENCE_BASE_FORM, &args![entry]).u32() == this.addr()
+                && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, entry))
+                && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, entry)) == this.addr()
             {
                 let mut entries = e.call(REGION_ENTRY_LIST, &args![entry]).u32();
                 while entries != 0 && list_item(e, entries) != 0 {
@@ -3805,7 +3834,7 @@ pub fn tes_world_space_adjust_map_marker_coord(
         let half = e.global::<f32>(FLOAT_HALF);
         let factor = if to_map == 0 { scale } else { 1.0 / scale } as f32;
         e.with_stack(12, |e, middle| {
-            e.call(LOCAL_STRUCT_CONSTRUCT, &args![middle]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, middle));
             let m = middle.addr();
             e.mem.set_u32(m, ((minimum_x + maximum_x) as f32).to_bits());
             e.mem

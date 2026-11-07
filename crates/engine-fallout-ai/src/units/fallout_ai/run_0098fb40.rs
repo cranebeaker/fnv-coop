@@ -14,7 +14,7 @@ pub fn fn_0098fb40(e: &mut Engine, _this: Ptr, entries: u32, count: u32) {
         let at = index.wrapping_mul(0x14).wrapping_add(entries);
         let block = e.call(0x006e_6da0, &args![0x14u32, at]).u32();
         if block != 0 {
-            e.call(0x0068_15c0, &args![block]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, block));
         }
         index += 1;
     }

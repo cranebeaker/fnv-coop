@@ -67,8 +67,11 @@ const MEMCPY: u32 = 0x0040_1460;
 const SCOPE_GUARD_OPEN: u32 = 0x0040_4eb0;
 const SCOPE_GUARD_CLOSE: u32 = 0x0040_4ee0;
 /// `BSSimpleList` accessors (see the module notes).
+#[cfg(test)]
 const LIST_ITEM_SLOT: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 const LIST_POP_FIRST: u32 = 0x0063_f7b0;
 const LIST_ADD_HEAD: u32 = 0x005a_e3d0;
@@ -82,7 +85,9 @@ const LIST_DESTRUCT: u32 = 0x0046_ffb0;
 const LIST_DELETE: u32 = 0x0047_02f0;
 /// `0044ddc0(object)`: the word at +8 (the action list of a `ScriptLocals`)
 /// and `0084e3a0(locals)`: the word at +0xC (the variable list).
+#[cfg(test)]
 const ACTION_LIST_OF: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const LOCAL_LIST_OF: u32 = 0x0084_e3a0;
 /// `005d43c0(script)` and `005d43e0(script)`: the addresses of a script's
 /// two embedded lists, `listRefObjects` (+0x44) and `listVariables` (+0x4C).
@@ -211,6 +216,7 @@ const REFERENCES_TO_FADE_DISABLE: u32 = 0x011c_ace8;
 /// test of a flag in the word at +0x30 (`00456630(object, mask)`).
 const REFERENCE_ENABLE: u32 = 0x0057_3f40;
 const REFERENCE_DISABLE: u32 = 0x0057_4400;
+#[cfg(test)]
 const FLAGS_TEST: u32 = 0x0045_6630;
 /// Byte that is non-zero while the fade-out of a disabled reference counts.
 const FADE_ENABLED_BYTE: u32 = 0x011a_d7b4;
@@ -228,6 +234,7 @@ const SCRIPT_SET_TEXT: u32 = 0x005a_be50;
 /// (`00671d10`, +0x30), the text (`0055b980`, +0x2C) and the flag test
 /// (`004013e0`, bit 3 of the form flags).
 const SCRIPT_HEADER_OF: u32 = 0x0050_0940;
+#[cfg(test)]
 const SCRIPT_COMPILE_DATA_OF: u32 = 0x0067_1d10;
 const SCRIPT_TEXT_OF: u32 = 0x0055_b980;
 const FORM_FLAG_BIT_3: u32 = 0x0040_13e0;
@@ -269,6 +276,7 @@ const MEMORY_MANAGER_ALLOCATE: u32 = 0x00aa_3e40;
 /// `00404dc0(first, second)` (`cdecl`), a string comparison that answers
 /// zero when the strings are equal (`FindVariable` takes zero as a match).
 const STRING_LENGTH: u32 = 0x0040_48e0;
+#[cfg(test)]
 const STRING_DATA: u32 = 0x0055_9450;
 const STRING_COMPARE: u32 = 0x0040_4dc0;
 /// The comparison `00469880(first, second)` of `CompareResultScripts`
@@ -313,6 +321,7 @@ const FORM_ADD_COMPILE_INDEX: u32 = 0x0048_5d50;
 const SCRIPT_INIT_ITEM_CHECK: u32 = 0x0040_77c0;
 const EMPTY_METHOD: u32 = 0x0048_3710;
 /// The word at +0xC of a form (`0084e3a0(form)`): its form id.
+#[cfg(test)]
 const FORM_ID_OF: u32 = 0x0084_e3a0;
 /// `TESForm` methods the script's save and load use: `StartForm`
 /// (`004855a0`), `AddChunkData(type, data, size)` (`00485990`, `cdecl`),
@@ -412,6 +421,7 @@ const EXTRA_LIST_SCRIPT_LOCALS: u32 = 0x0041_8830;
 const EXTRA_LIST_REFERENCE_POINTER: u32 = 0x0041_c8d0;
 const INVENTORY_ITEM_OF: u32 = 0x0057_6260;
 const ITEM_SCRIPT_LOCALS: u32 = 0x004b_dea0;
+#[cfg(test)]
 const INVENTORY_KEY_OF: u32 = 0x007a_f430;
 const RELEASE_ITEM: u32 = 0x0044_59e0;
 const QUEST_SCRIPT_LOCALS: u32 = 0x0059_e300;
@@ -540,18 +550,18 @@ layout! {
 
 /// The item word of a list node (`006815c0` gives its address).
 fn list_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 /// The next node of a list node.
 fn list_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// Whether the list starting at `node` has no item (`008256d0`).
 fn list_is_empty(e: &mut Engine, node: u32) -> bool {
-    e.call(LIST_IS_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 fn delete_block(e: &mut Engine, block: u32) {
@@ -798,7 +808,7 @@ pub fn fn_005a8f40(e: &mut Engine, this: Ptr<ScriptLocals>, source: u32) {
     if source == 0 {
         return;
     }
-    let mut node = e.call(ACTION_LIST_OF, &args![source]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, source));
     if node == 0 || list_is_empty(e, node) {
         return;
     }
@@ -880,7 +890,7 @@ pub fn script_locals_get_variable(
         variable = e.mem.u32(tls + TLS_LAST_VARIABLE);
     }
     if variable == 0 {
-        let mut node = e.call(LOCAL_LIST_OF, &args![this]).u32();
+        let mut node = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         while node != 0 && !list_is_empty(e, node) {
             let candidate = list_item(e, node);
             if e.mem.u32(candidate) == id {
@@ -913,7 +923,7 @@ pub fn script_locals_get_variable(
 /// object, a stub that returns 0), with the file name and the form being
 /// loaded; otherwise with the id alone.
 pub fn script_locals_set_variable(e: &mut Engine, this: Ptr<ScriptLocals>, id: u32, value: f64) {
-    let mut node = e.call(LOCAL_LIST_OF, &args![this]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     while node != 0 {
         if list_item(e, node) == 0 {
             break;
@@ -1568,7 +1578,7 @@ pub fn script_copy_result_script(e: &mut Engine, this: Ptr<Script>, other: Ptr<S
     let header = this.at(Script::m_header);
     e.call(MEMCPY, &args![header, other_header, 0x14u32]);
     e.set(header, ScriptHeader::variableCount, 0);
-    let compile_data = e.call(SCRIPT_COMPILE_DATA_OF, &args![other]).u32();
+    let compile_data = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, other));
     let data_size = e.get(header, ScriptHeader::dataSize);
     e.call(
         SCRIPT_SET_COMPILE_DATA,
@@ -1765,7 +1775,11 @@ pub fn fn_005aa8c0(e: &mut Engine, this: Ptr) -> bool {
 // Translated from 005aa910 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Whether the object has flag `0x8000` in the word at +0x30 (`00456630`).
 pub fn fn_005aa910(e: &mut Engine, this: Ptr) -> bool {
-    e.call(FLAGS_TEST, &args![this, 0x8000u32]).bool()
+    typed_call!(
+        leaf::FAMILY,
+        0x0045_6630,
+        leaf::flags_at_30_any(e, this, 0x8000u32)
+    )
 }
 
 // Translated from 005aa930 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1811,7 +1825,7 @@ fn form_type(e: &mut Engine, form: u32) -> u32 {
 
 /// A form's id (the word at +0xC, `0084e3a0`).
 fn form_id_of(e: &mut Engine, form: u32) -> u32 {
-    e.call(FORM_ID_OF, &args![form]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
 }
 
 /// Whether bit 3 of the form flags of `form` is set (`004013e0`).
@@ -1949,7 +1963,7 @@ pub fn script_init(e: &mut Engine, this: Ptr<Script>, buffer: Ptr<ScriptCompileD
     if !fn_005ab040(e, this, buffer) {
         return;
     }
-    let text = e.call(STRING_DATA, &args![name]).u32();
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
     e.vcall(this.addr(), SLOT_SET_EDITOR_ID, &args![text]);
     let source_header = buffer.at(ScriptCompileData::header);
     e.call(MEMCPY, &args![header_of(this), source_header, 0x14u32]);
@@ -1983,7 +1997,7 @@ pub fn fn_005ab040(e: &mut Engine, this: Ptr<Script>, buffer: Ptr<ScriptCompileD
     if e.call(SCRIPT_IS_NAMED_CHECK, &args![this]).u32() != 0
         && e.call(STRING_LENGTH, &args![name]).u32() != 0
     {
-        let text = e.call(STRING_DATA, &args![name]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
         let type_name = script_type_name(e, this);
         if e.call(STRING_COMPARE, &args![type_name, text]).u32() != 0 {
             return true;
@@ -2069,7 +2083,7 @@ pub fn script_compare_result_scripts(
     if e.mem.u8(header.addr() + ScriptHeader::bIsCompiled.off) != e.mem.u8(other_header + 0x12) {
         return true;
     }
-    let other_data = e.call(SCRIPT_COMPILE_DATA_OF, &args![other]).u32();
+    let other_data = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, other));
     let data = e.get(this, Script::m_data).addr();
     for i in 0..e.get(header, ScriptHeader::dataSize) {
         if e.mem.i8(data + i) != e.mem.i8(other_data + i) {
@@ -2165,7 +2179,7 @@ pub fn script_init_item(e: &mut Engine, this: Ptr<Script>, source: Ptr) {
                 node = list_next(e, node);
             } else {
                 if previous != 0 {
-                    let slot = e.call(LIST_ITEM_SLOT, &args![node]).u32();
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     e.call(LIST_REMOVE, &args![previous, slot]);
                     node = list_next(e, previous);
                 } else {
@@ -2502,7 +2516,11 @@ pub fn script_get_variable_name(e: &mut Engine, this: Ptr<Script>, id: u32) -> u
         node = list_next(e, node);
         // ScriptVariable::data.uiID (+0) and cName (+0x18).
         if e.mem.u32(variable) == id {
-            return e.call(STRING_DATA, &args![variable + 0x18]).u32();
+            return typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, variable + 0x18)
+            );
         }
     }
     let name = script_type_name(e, this);
@@ -2838,7 +2856,11 @@ pub fn script_find_variable(e: &mut Engine, this: Ptr<Script>, name: u32, out: P
     while node != 0 && list_item(e, node) != 0 {
         let variable = list_item(e, node);
         node = list_next(e, node);
-        let variable_name = e.call(STRING_DATA, &args![variable + 0x18]).u32();
+        let variable_name = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, variable + 0x18)
+        );
         if e.call(STRING_COMPARE, &args![variable_name, name]).u32() == 0 {
             let id = e.mem.u32(variable);
             e.mem.set_u32(out.addr(), id);
@@ -2990,7 +3012,8 @@ pub fn fn_005ac7a0(
                             let list = e.call(SCRIPT_REF_OBJECT_LIST, &args![holder]).u32();
                             let pointer = e.call(EXTRA_LIST_REFERENCE_POINTER, &args![list]).u32();
                             let id = form_id_of(e, holder);
-                            let key = e.call(INVENTORY_KEY_OF, &args![holder]).u32();
+                            let key =
+                                typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, holder));
                             let item = e.call(INVENTORY_ITEM_OF, &args![pointer, key, id]).u32();
                             if item != 0 {
                                 locals_to_use = e.call(ITEM_SCRIPT_LOCALS, &args![item]).u32();

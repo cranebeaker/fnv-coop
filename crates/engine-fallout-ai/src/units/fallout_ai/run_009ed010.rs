@@ -22,6 +22,7 @@ const PACKAGE_CONSTRUCT: u32 = 0x0067_07c0;
 /// The `BackUpPackage` vtable (`01092d84`, RTTI `.?AVBackUpPackage@@`).
 const BACK_UP_PACKAGE_VTABLE: u32 = 0x0109_2d84;
 /// `006815c0` (unnamed): returns `this` (the point's no-op constructor).
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
 /// `009ed330` (unnamed, `run_009ed330`): the `BackUpPackage` destructor (`ECX` only).
 const BACK_UP_PACKAGE_DESTRUCT: u32 = 0x009e_d330;
@@ -36,7 +37,11 @@ const OPERATOR_DELETE: u32 = 0x0040_1030;
 pub fn fn_009ed030(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(PACKAGE_CONSTRUCT, &args![this]);
     e.mem.set_u32(this.addr(), BACK_UP_PACKAGE_VTABLE);
-    e.call(POINT_CONSTRUCT, &args![this.addr() + 0x80]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0x80)
+    );
     this
 }
 

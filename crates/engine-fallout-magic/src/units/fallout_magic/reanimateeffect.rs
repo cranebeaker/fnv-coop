@@ -53,8 +53,10 @@ const REANIMATE_EFFECT_VTABLE: u32 = 0x0107_c06c;
 /// `ActiveEffect`'s constructor body (`00803d30`, `thiscall`, three words).
 const ACTIVE_EFFECT_CONSTRUCT: u32 = 0x0080_3d30;
 /// `006815c0` (`thiscall`): answers `this`.
+#[cfg(test)]
 const SELF_006815C0: u32 = 0x0068_15c0;
 /// `00416870` (`thiscall`, three floats): fills a point.
+#[cfg(test)]
 const SET_POINT_00416870: u32 = 0x0041_6870;
 /// The four words of the identity rotation the constructor copies
 /// (`011a9ea4`).
@@ -64,6 +66,7 @@ const OPERATOR_NEW: u32 = 0x0040_1000;
 /// `0045cd60` (`thiscall`): the effect's (or a process's) word the code
 /// tests as the caster; `MagicCaster::GetCasterAsActor` (engine map,
 /// `00815410`).
+#[cfg(test)]
 const EFFECT_CASTER_0045CD60: u32 = 0x0045_cd60;
 const GET_CASTER_AS_ACTOR: u32 = 0x0081_5410;
 /// `ActiveEffect::Dispel` (engine map, `00804210`, `thiscall`, one word).
@@ -83,6 +86,7 @@ const GET_TARGET_AS_ACTOR: u32 = 0x0082_2b40;
 const SET_LIFE_STATE: u32 = 0x008a_1800;
 const SET_GHOST: u32 = 0x008a_cf10;
 const ACTOR_TEST_00493BB0: u32 = 0x0049_3bb0;
+#[cfg(test)]
 const PROCESS_OF: u32 = 0x008d_8520;
 const POSITION_0045BB80: u32 = 0x0045_bb80;
 const SET_LOCATION_ON_REFERENCE: u32 = 0x0057_5830;
@@ -168,6 +172,7 @@ const SET_RAGDOLL_DATA: u32 = 0x0041_d490;
 /// reference's base form), `__RTDynamicCast` (`00ec43fb`) and the type
 /// descriptors `01183108` (`TESBoundObject`), `01183a1c` (`TESNPC`),
 /// `011841cc` (`TESObjectREFR`) and `011a0f14` (`Character`).
+#[cfg(test)]
 const BASE_FORM_007AF430: u32 = 0x007a_f430;
 const DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const TYPE_TES_BOUND_OBJECT: u32 = 0x0118_3108;
@@ -233,15 +238,25 @@ pub fn fn_008265b0(
     let base = this.addr();
     e.call(ACTIVE_EFFECT_CONSTRUCT, &args![this, caster, spell, effect]);
     e.mem.set_u32(base, REANIMATE_EFFECT_VTABLE);
-    e.call(SELF_006815C0, &args![base.wrapping_add(START_POS)]);
-    e.call(SELF_006815C0, &args![base.wrapping_add(START_ROT)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base.wrapping_add(START_POS))
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base.wrapping_add(START_ROT))
+    );
     e.set(this, ReanimateEffect::pBody, 0);
     e.set(this, ReanimateEffect::fSaveTime, 0);
     e.set(this, ReanimateEffect::iState, 0);
     e.with_stack(0xc, |e, point| {
-        let filled = e
-            .call(SET_POINT_00416870, &args![point, 0u32, 0u32, 0u32])
-            .u32();
+        let filled = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, 0u32, 0u32, 0u32)
+        );
         for i in 0..3 {
             let word = e.mem.u32(filled.wrapping_add(4 * i));
             e.mem.set_u32(base.wrapping_add(START_POS + 4 * i), word);
@@ -305,10 +320,10 @@ fn target_actor(e: &mut Engine, this: u32) -> u32 {
 /// The effect's caster as an actor (`0045cd60`, then
 /// `MagicCaster::GetCasterAsActor`), or 0.
 fn caster_actor(e: &mut Engine, this: u32) -> u32 {
-    if e.call(EFFECT_CASTER_0045CD60, &args![this]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this)) == 0 {
         return 0;
     }
-    let caster = e.call(EFFECT_CASTER_0045CD60, &args![this]).u32();
+    let caster = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
     e.call(GET_CASTER_AS_ACTOR, &args![caster]).u32()
 }
 
@@ -360,7 +375,7 @@ fn take_body(e: &mut Engine, this: Ptr<ReanimateEffect>, bone: u32) -> bool {
 // Translation incomplete: 008267b0 - the FS:[0] exception frame (destroying the fixed string on a throw) is not translated
 pub fn reanimate_effect_start(e: &mut Engine, this: Ptr<ReanimateEffect>) {
     let base = this.addr();
-    if e.call(EFFECT_CASTER_0045CD60, &args![base]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, base)) == 0 {
         e.call(DISPEL, &args![base, 1u32]);
         return;
     }
@@ -374,12 +389,12 @@ pub fn reanimate_effect_start(e: &mut Engine, this: Ptr<ReanimateEffect>) {
     if e.call(ACTOR_TEST_00493BB0, &args![actor]).bool() {
         e.vcall(actor, 0x434, &args![0u32]);
     }
-    let process = e.call(PROCESS_OF, &args![actor]).u32();
-    if e.call(EFFECT_CASTER_0045CD60, &args![process]).u32() == 0 {
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+    if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == 0 {
         e.vcall(process, 0x6f8, &args![1u32]);
     }
     e.call(SET_GHOST, &args![actor, 1u32]);
-    let caster = e.call(EFFECT_CASTER_0045CD60, &args![base]).u32();
+    let caster = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, base));
     let heading = e.vcall(caster, 0x2c, &[]).u32();
     e.vcall(actor, 0x2c0, &args![heading]);
     if e.vcall(actor, 0x1d0, &[]).u32() != 0 {
@@ -388,7 +403,7 @@ pub fn reanimate_effect_start(e: &mut Engine, this: Ptr<ReanimateEffect>) {
         e.call(SET_LOCATION_ON_REFERENCE, &args![actor, position]);
     }
     e.vcall(actor, 0x1c4, &[]);
-    let process = e.call(PROCESS_OF, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(process, 0x628, &args![0u32]);
     e.call(ACTOR_00826941_008A6840, &args![actor, 0u32]);
     let values = actor.wrapping_add(0xa4);
@@ -446,8 +461,8 @@ fn rise(
 ) {
     let base = this.addr();
     let local = |offset: u32| ebp.wrapping_sub(offset);
-    let process = e.call(PROCESS_OF, &args![actor]).u32();
-    if e.call(EFFECT_CASTER_0045CD60, &args![process]).u32() == 0 {
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+    if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == 0 {
         e.vcall(process, 0x6f8, &args![1u32]);
     }
     if time_in_state(e, this) > e.global::<f64>(RISE_TIME) {
@@ -467,8 +482,8 @@ fn rise(
     );
     e.mem.set_u32(local(0x24), fraction);
     let (low, high) = (local(0x50), local(0x40));
-    e.call(SELF_006815C0, &args![high]);
-    e.call(SELF_006815C0, &args![low]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, high));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, low));
     e.call(
         COPY_POINT_004A3E00,
         &args![high, base.wrapping_add(START_POS)],
@@ -483,7 +498,7 @@ fn rise(
     let lifted = x87_store32(x87_add(lift, x87_m32(e.mem.u32(z))));
     e.mem.set_u32(z, lifted);
     let position = local(0x70);
-    e.call(SELF_006815C0, &args![position]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
     let blend = local(0x80);
     e.call(
         SET_FRACTION_005DBF20,
@@ -491,7 +506,7 @@ fn rise(
     );
     e.call(LERP_005DBF70, &args![position, low, high, blend]);
     let body_position = local(0x8c);
-    e.call(SELF_006815C0, &args![body_position]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, body_position));
     let body = e.get(this, ReanimateEffect::pBody);
     e.call(GET_POSITION, &args![body, body_position]);
     let caster_position = e.vcall(caster, 0x1f4, &[]).u32();
@@ -511,7 +526,7 @@ fn rise(
     let half = x87_quiet_bits(e.global::<u32>(HALF));
     e.mem.set_u32(local(0xa4), half);
     let rotation = local(0xc8);
-    e.call(SELF_006815C0, &args![rotation]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
     let heading = x87_quiet_bits(e.mem.u32(local(0x9c)));
     let half = x87_quiet_bits(e.mem.u32(local(0xa4)));
     let angle = x87_quiet_bits(e.mem.u32(local(0xa0)));
@@ -547,7 +562,7 @@ fn rise(
             1.0f32.to_bits()
         ],
     );
-    let caster = e.call(EFFECT_CASTER_0045CD60, &args![base]).u32();
+    let caster = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, base));
     let heading = e.vcall(caster, 0x2c, &[]).u32();
     e.vcall(actor, 0x2c0, &args![heading]);
 }
@@ -610,8 +625,8 @@ pub fn reanimate_effect_update(e: &mut Engine, this: Ptr<ReanimateEffect>, secon
                 &args![biped, 0u32, 0u32, 0xffff_ffffu32, 0xffff_ffffu32],
             );
             e.call(RAGDOLL_00C9BDF0, &args![node, 0u32]);
-            let process = e.call(PROCESS_OF, &args![actor]).u32();
-            if e.call(EFFECT_CASTER_0045CD60, &args![process]).u32() == 0 {
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+            if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == 0 {
                 e.vcall(process, 0x6f8, &args![0u32]);
             }
             let list = e.call(EXTRA_LIST_005D43C0, &args![actor]).u32();
@@ -628,7 +643,7 @@ pub fn reanimate_effect_update(e: &mut Engine, this: Ptr<ReanimateEffect>, secon
             if node != 0 {
                 e.call(SET_MOTION, &args![node, 4u32, 1u32, 0u32, 1u32]);
             }
-            let form = e.call(BASE_FORM_007AF430, &args![actor]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
             let npc = e
                 .call(
                     DYNAMIC_CAST,
@@ -652,7 +667,7 @@ pub fn reanimate_effect_update(e: &mut Engine, this: Ptr<ReanimateEffect>, secon
             e.call(INIT_COMMANDED_ACTOR, &args![actor, caster]);
         }
     } else if state == STATE_COMMANDED {
-        let process = e.call(PROCESS_OF, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, 0x644, &args![0u32]);
         e.call(COMMANDED_UPDATE_0080B8F0, &args![actor, caster]);
     }
@@ -662,7 +677,7 @@ pub fn reanimate_effect_update(e: &mut Engine, this: Ptr<ReanimateEffect>, secon
 /// Unnamed (`thiscall`, `RET 4`): constructs `this` (`006815c0`) and sets it
 /// from the word (`hkQuaternion::set`, `00cb26e0`). Returns `this`.
 pub fn fn_00827200(e: &mut Engine, this: Ptr, source: u32) -> Ptr {
-    e.call(SELF_006815C0, &args![this]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     e.call(QUATERNION_SET, &args![this, source]);
     this
 }

@@ -51,10 +51,13 @@ const MISSING_REPUTATION: u32 = 0x0103_4248;
 const MISSING_MEDIA_SET: u32 = 0x0103_4210;
 /// `008256d0` (`thiscall`): whether a list node is empty (no item and no
 /// next node).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (`thiscall`): returns `this`; here a node's item word.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`thiscall`): the word at +4; here the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `00726c60` (`thiscall`, one word: the address of a word): stores that
 /// word as the node's item when it is non-zero.
@@ -70,6 +73,7 @@ const LIST_REMOVE_00905330: u32 = 0x0090_5330;
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 const STRING_DESTROY: u32 = 0x0040_37d0;
 /// `00559450` (`thiscall`): here the text of the `BSStringT`.
+#[cfg(test)]
 const STRING_CHARS_00559450: u32 = 0x0055_9450;
 /// The form's vtable slot +0x90: fills a `BSStringT` with the form's name
 /// for the warning.
@@ -133,8 +137,8 @@ pub fn media_location_controller_init_item_list(
         let found = base + 4;
         let string = base + 8;
         let copy = base + 0x10;
-        while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.mem.set_u32(form_id, e.mem.u32(slot));
             let file = e.call(FORM_GET_FILE, &args![this, -1i32]).u32();
             e.call(FORM_ADD_COMPILE_INDEX, &args![form_id, file]);
@@ -150,13 +154,13 @@ pub fn media_location_controller_init_item_list(
             if set == 0 {
                 e.call(STRING_CONSTRUCT, &args![string]);
                 e.vcall(this.addr(), NAME_STRING_SLOT, &args![string]);
-                let text = e.call(STRING_CHARS_00559450, &args![string]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
                 let id = e.mem.u32(form_id);
                 e.call(PRINT_WARNING, &args![MISSING_MEDIA_SET, id, text]);
                 if previous != 0 {
                     e.mem.set_u32(copy, e.mem.u32(form_id));
                     e.call(LIST_REMOVE_00905330, &args![previous, copy]);
-                    node = e.call(NODE_NEXT, &args![previous]).u32();
+                    node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
                 } else {
                     e.call(NODE_REMOVE_0063F7B0, &args![node]);
                 }
@@ -164,7 +168,7 @@ pub fn media_location_controller_init_item_list(
             } else {
                 e.call(NODE_SET_ITEM, &args![node, found]);
                 previous = node;
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
     });

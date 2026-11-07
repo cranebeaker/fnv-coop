@@ -7,6 +7,7 @@ use crate::prelude::*;
 /// `0046e8c0` (`tesdatahandler.cpp`; thiscall on `this`, a `bool` in AL).
 const CHECK_0046E8C0: u32 = 0x0046_e8c0;
 /// Reads the word at its `this` (`00559450`, thiscall).
+#[cfg(test)]
 const READ_POINTER: u32 = 0x0055_9450;
 /// `004fb7a0` (`bgsexplosion.cpp`; thiscall on the object at +0x24c, one
 /// word).
@@ -58,7 +59,11 @@ pub fn fn_00522c00(e: &mut Engine, this: Ptr) -> u32 {
     if e.call(CHECK_0046E8C0, &args![this]).u32() & 0xff == 0 {
         return 0;
     }
-    e.call(READ_POINTER, &args![this.addr() + HOLDER_35C]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + HOLDER_35C)
+    )
 }
 
 // Translated from 00522c30 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -231,7 +236,11 @@ pub fn fn_00522590(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
 /// The object held at +0x368 of `this` (`00559450`; unnamed in the engine map; called by
 /// `007eb920` and `UpdateQueuedActionList`).
 pub fn fn_00522be0(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(READ_POINTER, &args![this.addr() + 0x368]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x368)
+    )
 }
 
 /// This unit's translated functions, by exe address.

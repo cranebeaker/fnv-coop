@@ -171,6 +171,7 @@ const MENU_PREP_FOR_VISIBILITY: u32 = 0x00a1_dc20;
 const MENU_START_FADE_OUT: u32 = 0x00a1_d910;
 const TILE_GET_MAXIMUM_DEPTH: u32 = 0x00a0_1530;
 const TILE_GET_CHILD_BY_NAME: u32 = 0x00a0_3da0;
+#[cfg(test)]
 const MENU_TILE_00726070: u32 = 0x0072_6070;
 /// `007abdb0` (`thiscall` on the menu, a byte: whether its tiles are there).
 const MENU_CHECK_007ABDB0: u32 = 0x007a_bdb0;
@@ -208,6 +209,7 @@ const CALENDAR_GET_HOUR: u32 = 0x0086_7da0;
 const CALENDAR_GET_DATE_STRING: u32 = 0x0086_7970;
 const CALENDAR_TEXT_00867F10: u32 = 0x0086_7f10;
 const STRING_DESTROY: u32 = 0x0040_37d0;
+#[cfg(test)]
 const STRING_CHARS: u32 = 0x0055_9450;
 /// The object at `011ddf38` and its test (`0042ce10`), the process lists (`011e0e80`) with
 /// `Update3DAfterResting` (`00975d10`), `StopAllActorsInDialog` (`00974fc0`) and
@@ -367,7 +369,9 @@ pub fn sleep_wait_menu_create(e: &mut Engine, sleeping: u8) -> u32 {
         class == e.call(MENU_CLASS_00705770, &args![]).u32()
     };
     if !made {
-        if open_menu(e) != 0 && e.call(MENU_TILE_00726070, &args![open_menu(e)]).u32() != 0 {
+        if open_menu(e) != 0
+            && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, open_menu(e))) != 0
+        {
             let menu = open_menu(e);
             if menu != 0 {
                 e.vcall(menu, 0, &args![1u32]);
@@ -444,7 +448,7 @@ pub fn sleep_wait_menu_create(e: &mut Engine, sleeping: u8) -> u32 {
     let scale: f64 = e.global(BYTE_SCALE_DOUBLE);
     let alpha = x87_store32(x87_mul(x87_load32(e.mem.u32(value)), scale));
     let menu = open_menu(e);
-    let root = e.call(MENU_TILE_00726070, &args![menu]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
     let child = e
         .call(TILE_GET_CHILD_BY_NAME, &args![root, BACKGROUND_TEXT])
         .u32();
@@ -497,7 +501,7 @@ pub fn sleep_wait_menu_set_time_text(e: &mut Engine, this: Ptr) {
         let string = e
             .call(CALENDAR_GET_DATE_STRING, &args![CALENDAR, date])
             .u32();
-        let chars = e.call(STRING_CHARS, &args![string]).u32();
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
         let text = e.call(CALENDAR_TEXT_00867F10, &args![CALENDAR]).u32();
         e.call(
             FORMAT_00406D00,
@@ -536,7 +540,7 @@ pub fn sleep_wait_menu_close(e: &mut Engine) {
         e.call(FADER_REMOVE, &args![faders, 0u32, 0u32]);
     }
     let menu = open_menu(e);
-    let tile = e.call(MENU_TILE_00726070, &args![menu]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
     e.call(SET_TRAIT_FROM_INT, &args![tile, 0x1772u32, 1u32]);
     let menu = open_menu(e);
     e.call(MENU_START_FADE_OUT, &args![menu]);

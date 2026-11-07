@@ -16,6 +16,7 @@ const SLOT_PROCESS_RECORD_FOR: u32 = 0x504;
 /// Default when there is no process or no record.
 const NO_LEVEL: u32 = 0xffff_ff9c;
 /// `00416870`: `NiPoint3::NiPoint3(x, y, z)`.
+#[cfg(test)]
 const NI_POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// `011dea3c`: the player character.
 const PLAYER_CHARACTER: u32 = 0x011d_ea3c;
@@ -60,7 +61,11 @@ pub fn fn_008a8230(e: &mut Engine, this: Ptr<Actor>, other: Ptr) -> u32 {
 pub fn fn_008a8290(e: &mut Engine, this: Ptr<Actor>, result: Ptr) -> Ptr {
     let z = x87_quiet_bits(e.get(this, Actor::fEditorLocZRot).to_bits());
     e.with_stack(12, |e, point| {
-        e.call(NI_POINT3_CONSTRUCT, &args![point, 0u32, 0u32, z]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, 0u32, 0u32, z)
+        );
         for i in 0..3 {
             let word = e.mem.u32(point.addr() + 4 * i);
             e.mem.set_u32(result.addr() + 4 * i, word);

@@ -16,6 +16,7 @@ const LOCATION_CONSTRUCT: u32 = 0x0097_ede0;
 const CLEAR_TWO_FLOATS: u32 = 0x0090_6f60;
 /// `006815c0` (unnamed): returns `this` (the point's no-op constructor, and the location
 /// read).
+#[cfg(test)]
 const SELF_006815C0: u32 = 0x0068_15c0;
 /// `00633c90` (unnamed): `thiscall`, one word (`RET 4`); constructs the pointer at `+0x58`.
 const POINTER_CONSTRUCT: u32 = 0x0063_3c90;
@@ -52,7 +53,7 @@ pub fn fn_009d69f0(e: &mut Engine, this: Ptr, location: u32, radius: f32, index:
     // iLocation
     e.mem.set_u32(p + 0x3c, index);
     e.call(CLEAR_TWO_FLOATS, &args![p + 0x40]);
-    e.call(SELF_006815C0, &args![p + 0x48]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, p + 0x48));
     // bReservedSecondaryLocation
     e.mem.set_u8(p + 0x54, 0);
     e.call(POINTER_CONSTRUCT, &args![p + 0x58, 0u32]);
@@ -63,7 +64,7 @@ pub fn fn_009d69f0(e: &mut Engine, this: Ptr, location: u32, radius: f32, index:
         e.call(CLEAR_TWO_FLOATS, &args![p + offset]);
     }
     if location != 0 {
-        let source = e.call(SELF_006815C0, &args![location]).u32();
+        let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
         let words = e.mem.bytes(source, 0x10);
         e.mem.write(p + 0x14, &words);
         let words = e.mem.bytes(p + 0x14, 0x10);

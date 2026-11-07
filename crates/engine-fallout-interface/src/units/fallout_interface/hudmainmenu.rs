@@ -764,7 +764,7 @@ fn create_scene(e: &mut Engine, menu: u32) {
         e.call(0x0066_b0d0, &args![cancellation, texture]);
         e.call(0x0043_81b0, &args![texture_name]);
 
-        let image = e.call(0x0055_9450, &args![cancellation]).u32();
+        let image = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, cancellation));
         let tile = hud_field(e, 0x40);
         let object = e.vcall(tile, 0x20, &args![]).u32();
         fn_007700b0(e, Ptr::new(object), Ptr::new(image));
@@ -779,8 +779,8 @@ fn create_scene(e: &mut Engine, menu: u32) {
             e.call(0x00a5_ecb0, &args![allocation, 0_u32]).u32()
         };
         e.call(0x0066_b0d0, &args![0x011d_9770_u32, attachment]);
-        e.call(0x0068_15c0, &args![matrix_x]);
-        e.call(0x0068_15c0, &args![matrix_y]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix_x));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix_y));
         let rotation = quiet_f32(e.global(0x0101_ff38));
         e.call(0x0052_4ac0, &args![matrix_x, rotation]);
         let rotation = quiet_f32(e.global(0x0101_ff38));
@@ -788,16 +788,32 @@ fn create_scene(e: &mut Engine, menu: u32) {
         let product = e
             .call(0x0043_f8d0, &args![matrix_x, matrix_product, matrix_y])
             .u32();
-        let scene = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+        let scene = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, 0x011d_9770_u32)
+        );
         e.call(0x0043_fa80, &args![scene, product]);
         let distance = quiet_f32(e.global(0x0101_e2bc));
-        let scene = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+        let scene = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, 0x011d_9770_u32)
+        );
         e.call(0x0044_0490, &args![scene, distance]);
         let field_of_view = quiet_f32(e.global(0x0107_2e3c));
-        let scene = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+        let scene = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, 0x011d_9770_u32)
+        );
         e.call(0x004b_c1f0, &args![scene, field_of_view, 0.0_f32, 0.0_f32]);
         e.call(0x0043_d410, &args![vector, 0.0_f32, 0_u32, 0_u32]);
-        let scene = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+        let scene = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, 0x011d_9770_u32)
+        );
         e.call(0x00a5_9c60, &args![scene, vector]);
 
         let current_menu = current_hud(e);
@@ -806,13 +822,25 @@ fn create_scene(e: &mut Engine, menu: u32) {
         let heap_object = e.call(0x0040_1000, &args![1_u32]).u32();
         e.mem.set_u32(0x011d_96bc, heap_object);
         let audio = e.call(0x0045_0b80, &args![1_u32]).u32();
-        let scene = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+        let scene = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, 0x011d_9770_u32)
+        );
         e.vcall(audio, 0xdc, &args![scene, 1_u32]);
-        let scene = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
-        let bound = e.call(0x0043_d450, &args![scene]).u32();
+        let scene = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, 0x011d_9770_u32)
+        );
+        let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, scene));
         let distance = e.call(0x0084_d030, &args![bound]).f64();
         let shadow_distance = (distance * e.global::<f64>(0x0102_1928)) as f32;
-        let scene = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+        let scene = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, 0x011d_9770_u32)
+        );
         let audio = e.call(0x0045_0b80, &args![1_u32]).u32();
         e.call(0x00b5_ca70, &args![audio, scene, shadow_distance]);
 
@@ -881,7 +909,7 @@ pub fn hud_main_menu_create(e: &mut Engine) -> Ptr {
         class == expected
     };
     if !valid_menu {
-        if menu != 0 && e.call(0x0072_6070, &args![menu]).u32() != 0 {
+        if menu != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
             e.vcall(menu, 0, &args![1_u32]);
         }
         let critical = e.call(0x0071_3d70, &args![]).u32();
@@ -921,7 +949,7 @@ pub fn hud_main_menu_create(e: &mut Engine) -> Ptr {
 
     let current_menu = current_hud(e);
     if !fn_00770070(e, Ptr::new(current_menu)) {
-        e.call(0x0040_fbe0, &args![0x0107_2e70_u32]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0107_2e70_u32);
         e.call(0x0070_37e0, &args![]);
     }
     create_maximum_depth(e, xml, maximum_depth);
@@ -941,7 +969,7 @@ pub fn hud_main_menu_create(e: &mut Engine) -> Ptr {
     set_hud_field(e, 0x218, 0x46);
     hud_trait(e, xml, 0xfa3, 1);
     let current_menu = current_hud(e);
-    e.call(0x0072_6070, &args![current_menu]);
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, current_menu));
     create_scene(e, menu);
     Ptr::new(xml)
 }
@@ -1067,7 +1095,8 @@ fn set_info_teleport_name(e: &mut Engine, teleport: u32) {
     e.with_stack(8, |e, destination| {
         e.call(0x0040_37b0, &args![destination]);
         e.call(0x0043_a2e0, &args![teleport, destination]);
-        let destination_name = e.call(0x0055_9450, &args![destination]).u32();
+        let destination_name =
+            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, destination));
         let separator = e.call(0x0040_3df0, &args![0x011d_3738_u32]).u32();
         e.with_stack(0x104, |e, buffer| {
             e.call(
@@ -1108,7 +1137,7 @@ fn set_info_inventory_action(
             e.call(0x0050_1c10, &args![action, inventory + 0x18]);
         }
         if e.call(0x0040_48e0, &args![action]).u32() == 0 {
-            let base = e.call(0x007a_f430, &args![reference]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             let cast = e
                 .call(
                     0x00ec_43fb,
@@ -1124,7 +1153,7 @@ fn set_info_inventory_action(
             }
         }
         if e.call(0x0040_48e0, &args![action]).u32() != 0 {
-            let text = e.call(0x0055_9450, &args![action]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, action));
             let tile = hud_field(e, 0x9c);
             hud_set_text(e, tile, text);
             let name_tile = hud_field(e, 0xa8);
@@ -1150,10 +1179,11 @@ fn set_info_inventory_action(
             set_info_action_setting(e, setting);
             *display_mask |= 2;
         } else {
-            let first_base = e.call(0x007a_f430, &args![reference]).u32();
+            let first_base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             let special = first_base == e.mem.u32(0x011c_a27c)
                 || {
-                    let second_base = e.call(0x007a_f430, &args![reference]).u32();
+                    let second_base =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                     second_base == e.mem.u32(0x011c_a280)
                 }
                 || (target_type == 2 && (form_type == 0x2a || form_type == 0x2b));
@@ -1318,7 +1348,7 @@ fn set_info_item_details(
             let form = if item_form_override != 0 {
                 item_form_override
             } else {
-                e.call(0x007a_f430, &args![reference]).u32()
+                typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
             };
             e.with_stack(0xc, |e, temporary| {
                 let constructed = e.call(0x004b_c550, &args![temporary, form, 0_u32]).u32();
@@ -1342,10 +1372,10 @@ fn set_info_item_details(
             e.call(0x005a_e3d0, &args![list, extra_slot]);
         });
 
-        let first_form = e.call(0x007a_f430, &args![reference]).u32();
+        let first_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let first_type = e.call(0x0040_1170, &args![first_form]).u32();
         let water = if first_type == 0x15 || first_type == 0x23 {
-            let form = e.call(0x007a_f430, &args![reference]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             e.vcall(form, 0x140, &args![]).u32()
         } else {
             0
@@ -1375,16 +1405,16 @@ fn set_info_item_details(
                 );
             }
 
-            let form = e.call(0x0044_ddc0, &args![item]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             let form_type = e.call(0x0040_1170, &args![form]).u32();
             let mut weight = if form_type == 0x28 {
-                let form = e.call(0x0044_ddc0, &args![item]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                 let mod_active = e.call(0x004b_da70, &args![item, 4_u32]).bool();
                 quiet_f32(e.call(0x004b_e380, &args![form, mod_active]).f64() as f32)
             } else {
                 let player = current_player(e);
                 let uses_weight = e.call(0x004d_1360, &args![player]).bool();
-                let form = e.call(0x0044_ddc0, &args![item]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                 quiet_f32(e.call(0x0048_ebc0, &args![form, uses_weight]).f64() as f32)
             };
             if form_type == 0x28 && f64::from(weight) >= e.global::<f64>(0x0102_0758) {
@@ -1642,18 +1672,30 @@ pub fn hud_main_menu_scalar_deleting_destructor(
 /// The compiler's SEH/unwind bookkeeping is omitted.
 pub fn fn_0076be30(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     e.mem.set_u32(this.addr(), 0x0107_2df4);
-    let menu_tile = e.call(0x0072_6070, &args![e.mem.u32(0x011d_96c0)]).u32();
+    let menu_tile = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, e.mem.u32(0x011d_96c0))
+    );
     if menu_tile != 0 {
         e.vcall(menu_tile, 0, &args![1_u32]);
     }
     let audio = e.call(0x0045_0b80, &args![1_u32]).u32();
-    let fade = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+    let fade = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_9770_u32)
+    );
     e.vcall(audio, 0xe8, &args![fade]);
     e.call(0x0066_b0d0, &args![0x011d_9770_u32, 0_u32]);
     e.call(0x0066_b0d0, &args![0x011d_975c_u32, 0_u32]);
     e.mem.set_u32(0x011d_96bc, 0);
     loop {
-        let node = e.call(0x0068_15c0, &args![this.addr() + 0x18c]).u32();
+        let node = typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.addr() + 0x18c)
+        );
         let message = e.mem.u32(node);
         if message == 0 {
             break;
@@ -1708,12 +1750,12 @@ pub fn fn_007700f0(e: &mut Engine, player: Ptr, target: Ptr) -> f64 {
     }
     let base = e.vcall(target.addr() + 0xa4, 0x0c, &args![0x4c_u32]).f32();
     let base = e.call(0x0040_4010, &args![base, 0.0_f32]).f32();
-    let process = e.call(0x008d_8520, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     let acquired = e.vcall(process, 0x148, &args![]).u32();
     let form = if acquired == 0 {
         e.mem.u32(0x011c_a278)
     } else {
-        e.call(0x0044_ddc0, &args![acquired]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, acquired))
     };
     e.with_stack(8, |e, storage| {
         e.mem.set_f32(storage.addr(), 0.0);
@@ -1975,8 +2017,13 @@ fn do_idle_target(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     if e.mem.u32(this.addr() + 0x21c) != 0 {
         let player = e.mem.u32(0x011d_ea3c);
         let mut entry = e.call(0x0059_5d10, &args![player]).u32();
-        while entry != 0 && e.call(0x0082_56d0, &args![entry]).u8() == 0 {
-            let first = e.call(0x0068_15c0, &args![entry]).u32();
+        while entry != 0
+            && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, entry))
+                .into_ret()
+                .u8()
+                == 0
+        {
+            let first = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, entry));
             let object = e.mem.u32(first);
             if e.mem.u32(object) == e.mem.u32(this.addr() + 0x21c)
                 && e.mem.u8(object + 4) != 0
@@ -1985,7 +2032,7 @@ fn do_idle_target(e: &mut Engine, this: Ptr<HUDMainMenu>) {
                 e.mem.set_u8(0x011d_96c5, 1);
                 break;
             }
-            entry = e.call(0x0072_6070, &args![entry]).u32();
+            entry = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
         }
     }
     let player = e.mem.u32(0x011d_ea3c);
@@ -2015,7 +2062,12 @@ fn do_idle_target(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         angle < e.global::<f64>(0x0103_57e8)
     };
     let mut show_enemy = false;
-    if e.call(0x0044_ddc0, &args![0x011f_2250_u32]).u32() == 4 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, 0x011f_2250_u32)
+    ) == 4
+    {
         let actor = e.mem.u32(0x011f_21cc);
         if actor != 0 && e.vcall(actor, 0x100, &args![]).u8() != 0 {
             let actor = e.mem.u32(0x011f_21cc);
@@ -2089,7 +2141,11 @@ fn do_idle_target(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     let target = e.mem.u32(this.addr() + 0x21c);
     if target != 0 {
         let qualifies = e.call(0x0049_3bb0, &args![target]).u8() != 0
-            || e.call(0x0044_ddc0, &args![0x011f_2250_u32]).u32() == 4;
+            || typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, 0x011f_2250_u32)
+            ) == 4;
         if qualifies {
             let target = e.mem.u32(this.addr() + 0x21c);
             hud_main_menu_update_enemy_health(e, this, Ptr::new(target));
@@ -2148,31 +2204,43 @@ fn do_idle_quests(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     }
     let mut index = 0_u32;
     loop {
-        let count = e.call(0x0044_ddc0, &args![this.addr() + 0x198]).u32();
+        let count = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, this.addr() + 0x198)
+        );
         if index >= count {
             break;
         }
         let now = hud_time(e, this.addr() + 0x224);
-        let entry = e
-            .call(0x0087_7a30, &args![this.addr() + 0x198, index])
-            .u32();
+        let entry = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, this.addr() + 0x198, index)
+        );
         let message = e.mem.u32(entry);
         let elapsed = now.wrapping_sub(e.mem.u32(message + 0x104));
-        let entry = e
-            .call(0x0087_7a30, &args![this.addr() + 0x198, index])
-            .u32();
+        let entry = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, this.addr() + 0x198, index)
+        );
         let message = e.mem.u32(entry);
         let duration = seconds_to_ms(e, e.mem.u32(message + 0x108));
         if duration <= f64::from(elapsed) {
-            let entry = e
-                .call(0x0087_7a30, &args![this.addr() + 0x198, index])
-                .u32();
+            let entry = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, this.addr() + 0x198, index)
+            );
             if e.mem.u32(entry) == e.mem.u32(this.addr() + 0x1a8) {
                 e.call(0x0077_5670, &args![this]);
             }
-            let entry = e
-                .call(0x0087_7a30, &args![this.addr() + 0x198, index])
-                .u32();
+            let entry = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, this.addr() + 0x198, index)
+            );
             let message = e.mem.u32(entry);
             e.call(0x0040_1030, &args![message]);
             e.call(0x006b_f8f0, &args![this.addr() + 0x198, index, 1_u32]);
@@ -2209,7 +2277,11 @@ fn do_idle_messages(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         }
     }
     if fade_finished(e, 0x94) {
-        let first = e.call(0x0068_15c0, &args![this.addr() + 0x18c]).u32();
+        let first = typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.addr() + 0x18c)
+        );
         let message = e.mem.u32(first);
         if e.mem.u32(this.addr() + 0x194) == 0 {
             let now = hud_time(e, this.addr() + 0x224);
@@ -2370,7 +2442,12 @@ pub fn hud_main_menu_set_menu_mode(e: &mut Engine, requested_mode: i32) {
                         let player = e.mem.u32(0x011d_ea3c);
                         if e.vcall(player, 0x214, &args![]).u32() != 0 {
                             10
-                        } else if e.call(0x0044_ddc0, &args![0x011f_2250_u32]).u32() == 4 {
+                        } else if typed_call!(
+                            leaf::FAMILY,
+                            0x0044_ddc0,
+                            leaf::word_at_8(e, 0x011f_2250_u32)
+                        ) == 4
+                        {
                             8
                         } else {
                             let player = e.mem.u32(0x011d_ea3c);
@@ -2401,9 +2478,17 @@ pub fn hud_main_menu_set_menu_mode(e: &mut Engine, requested_mode: i32) {
         };
     }
     if mode == 0x16 {
-        let weapon = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+        let weapon = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, 0x011d_9770_u32)
+        );
         if weapon != 0 {
-            let weapon = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+            let weapon = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, 0x011d_9770_u32)
+            );
             if e.call(0x0045_bc00, &args![weapon, 0_u32]).u32() != 0 {
                 let player = e.mem.u32(0x011d_ea3c);
                 if e.call(0x008a_16d0, &args![player]).u8() != 0 {
@@ -2559,7 +2644,13 @@ pub fn fn_007721a0(e: &mut Engine, object: Ptr) -> Ptr {
 // Translated from 00772820 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns the value held by the object's inline pointer at +0xcc.
 pub fn fn_00772820(e: &mut Engine, object: Ptr) -> Ptr {
-    e.call(0x0055_9450, &args![object.addr() + 0xcc]).ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, object.addr() + 0xcc)
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 00772840 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2735,7 +2826,13 @@ pub fn hud_main_menu_set_enemy_actor(e: &mut Engine, enemy: Ptr) {
     if menu == 0 {
         return;
     }
-    let mode = e.call(0x0044_ddc0, &args![0x011f_2250_u32]).i32();
+    let mode = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, 0x011f_2250_u32)
+    )
+    .into_ret()
+    .i32();
     let chosen = if mode == 4 {
         let alternative = e.mem.u32(0x011f_21cc);
         if alternative != 0 && e.vcall(alternative, 0x100, &args![]).bool() {
@@ -2790,7 +2887,7 @@ fn quest_text_showing(
     let singleton = e.mem.u32(0x011d_96c0);
     let tile = e.mem.u32(singleton + 0x28 + tile_id * 4);
     e.with_stack(4, |e, cursor| {
-        let first = e.call(0x0055_9450, &args![tile + 4]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, tile + 4));
         e.mem.set_u32(cursor.addr(), first);
         while e.mem.u32(cursor.addr()) != 0 {
             let item = e.call(0x0057_cbe0, &args![tile + 4, cursor]).u32();
@@ -2833,25 +2930,29 @@ pub fn hud_main_menu_display_quest_reminder(e: &mut Engine, quest: Ptr) {
         return;
     }
     if hud_main_menu_are_objectives_showing(e, Ptr::new(menu))
-        || !e.call(0x0082_56d0, &args![menu + 0x258]).bool()
+        || !typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, menu + 0x258)
+        )
     {
         return;
     }
     let mut node = e.call(0x005d_43e0, &args![quest]).u32();
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let element = e.call(0x0068_15c0, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let element = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let objective = e.mem.u32(element);
         if fn_007737a0(e, Ptr::new(objective), 1) {
-            let element = e.call(0x0068_15c0, &args![node]).u32();
+            let element = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let objective = e.mem.u32(element);
             if !fn_007737a0(e, Ptr::new(objective), 2) {
-                let element = e.call(0x0068_15c0, &args![node]).u32();
+                let element = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let objective = e.mem.u32(element);
                 let data = e.call(0x005e_c330, &args![objective]).u32();
                 e.call(0x0077_a5b0, &args![data, 0_u32, 1_u32]);
             }
         }
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -3229,7 +3330,11 @@ pub fn hud_main_menu_show_subtitle(
 /// Initializes the three-word point member at +0x10c in the newly
 /// allocated subtitle record, then returns that record.
 pub fn fn_00775210(e: &mut Engine, subtitle: Ptr) -> Ptr {
-    e.call(0x0068_15c0, &args![subtitle.addr() + 0x10c]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, subtitle.addr() + 0x10c)
+    );
     subtitle
 }
 
@@ -3253,13 +3358,19 @@ pub fn fn_00775230(e: &mut Engine, this: Ptr<HUDMainMenu>) -> Ptr {
         }
         let mut index = 0_u32;
         loop {
-            let count = e.call(0x0044_ddc0, &args![this.addr() + 0x198]).u32();
+            let count = typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, this.addr() + 0x198)
+            );
             if index >= count {
                 break;
             }
-            let element = e
-                .call(0x0087_7a30, &args![this.addr() + 0x198, index])
-                .u32();
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, this.addr() + 0x198, index)
+            );
             let subtitle = e.mem.u32(element);
             let vector = e
                 .call(
@@ -3277,23 +3388,29 @@ pub fn fn_00775230(e: &mut Engine, this: Ptr<HUDMainMenu>) -> Ptr {
             };
             let mut choose = selected == 0 && in_range;
             if selected != 0 && distance < best_distance {
-                let element = e
-                    .call(0x0087_7a30, &args![this.addr() + 0x198, index])
-                    .u32();
+                let element = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, this.addr() + 0x198, index)
+                );
                 let subtitle = e.mem.u32(element);
                 choose = e.mem.i32(subtitle + 0x118) >= e.mem.i32(selected + 0x118);
             }
             if !choose {
-                let element = e
-                    .call(0x0087_7a30, &args![this.addr() + 0x198, index])
-                    .u32();
+                let element = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, this.addr() + 0x198, index)
+                );
                 let subtitle = e.mem.u32(element);
                 choose = e.mem.i32(subtitle + 0x118) == i32::MAX;
             }
             if choose {
-                let element = e
-                    .call(0x0087_7a30, &args![this.addr() + 0x198, index])
-                    .u32();
+                let element = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, this.addr() + 0x198, index)
+                );
                 selected = e.mem.u32(element);
                 best_distance = distance;
             }
@@ -3348,16 +3465,16 @@ pub fn fn_00775380(
     e.with_stack(4, |e, record_pointer| {
         e.mem.set_u32(record_pointer.addr(), record);
         let list = this.addr() + 0x18c;
-        if e.call(0x0082_56d0, &args![list]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
             e.call(0x0090_5820, &args![list, record_pointer]);
-            let first_node = e.call(0x0068_15c0, &args![list]).u32();
+            let first_node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let first_record = e.mem.u32(first_node);
             let menu = e.mem.u32(0x011d_96c0);
             e.call(
                 0x00a0_1350,
                 &args![e.mem.u32(menu + 0x90), 0xfc4_u32, first_record, 1_u32],
             );
-            let first_node = e.call(0x0068_15c0, &args![list]).u32();
+            let first_node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let first_record = e.mem.u32(first_node);
             let menu = e.mem.u32(0x011d_96c0);
             e.call(
@@ -3382,13 +3499,13 @@ pub fn fn_00775380(
         } else {
             let mut tail = list;
             loop {
-                let next = e.call(0x0072_6070, &args![tail]).u32();
+                let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, tail));
                 if next == 0 {
                     break;
                 }
-                tail = e.call(0x0072_6070, &args![tail]).u32();
+                tail = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, tail));
             }
-            let node = e.call(0x0068_15c0, &args![tail]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, tail));
             let old_record = e.mem.u32(node);
             let duplicate = e.call(0x0040_8b20, &args![old_record, record]).i32() == 0;
             if duplicate {
@@ -3396,7 +3513,7 @@ pub fn fn_00775380(
             } else if urgent == 0 {
                 e.call(0x0090_5820, &args![list, record_pointer]);
             } else {
-                let first_node = e.call(0x0068_15c0, &args![list]).u32();
+                let first_node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                 let first_record = e.mem.u32(first_node);
                 e.mem.set_f32(first_record + 0x30c, 0.0);
                 e.call(0x005a_e3d0, &args![list, record_pointer]);
@@ -3431,12 +3548,12 @@ pub fn hud_main_menu_hide_subtitle(e: &mut Engine, this: Ptr<HUDMainMenu>) {
 /// message tiles when the list becomes empty.
 pub fn hud_main_menu_hide_message(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     let list = this.addr() + 0x18c;
-    if e.call(0x0082_56d0, &args![list]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         return;
     }
     let mut node = list;
     while node != 0 {
-        let node_value = e.call(0x0068_15c0, &args![node]).u32();
+        let node_value = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let record = e.mem.u32(node_value);
         if record != 0 {
             let menu = e.mem.u32(0x011d_96c0);
@@ -3448,11 +3565,13 @@ pub fn hud_main_menu_hide_message(e: &mut Engine, this: Ptr<HUDMainMenu>) {
                     e.call(0x0090_5330, &args![list, record_pointer]);
                 });
                 e.call(0x0040_1030, &args![record]);
-                if !e.call(0x0082_56d0, &args![list]).bool() {
-                    let first_node = e.call(0x0068_15c0, &args![list]).u32();
+                if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+                    let first_node =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                     let first_record = e.mem.u32(first_node);
                     if e.mem.u8(first_record + 0x208) != 0 {
-                        let first_node = e.call(0x0068_15c0, &args![list]).u32();
+                        let first_node =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                         let first_record = e.mem.u32(first_node);
                         e.with_stack(12, |e, sound| {
                             let player = e.mem.u32(0x011d_ea3c);
@@ -3470,12 +3589,14 @@ pub fn hud_main_menu_hide_message(e: &mut Engine, this: Ptr<HUDMainMenu>) {
                             e.call(0x0048_3710, &args![sound]);
                         });
                     }
-                    let first_node = e.call(0x0068_15c0, &args![list]).u32();
+                    let first_node =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                     let first_record = e.mem.u32(first_node);
                     let menu = e.mem.u32(0x011d_96c0);
                     let tile = e.mem.u32(menu + 0x90);
                     e.call(0x00a0_1350, &args![tile, 0xfc4_u32, first_record, 1_u32]);
-                    let first_node = e.call(0x0068_15c0, &args![list]).u32();
+                    let first_node =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                     let first_record = e.mem.u32(first_node);
                     let menu = e.mem.u32(0x011d_96c0);
                     let tile = e.mem.u32(menu + 0x8c);
@@ -3501,7 +3622,7 @@ pub fn hud_main_menu_hide_message(e: &mut Engine, this: Ptr<HUDMainMenu>) {
                 return;
             }
         }
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -3512,13 +3633,13 @@ pub fn fn_00775920(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     let list = this.addr() + 0x18c;
     let mut node = list;
     while node != 0 {
-        if e.call(0x0082_56d0, &args![node]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             break;
         }
-        let node_value = e.call(0x0068_15c0, &args![node]).u32();
+        let node_value = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let record = e.mem.u32(node_value);
         e.call(0x0040_1030, &args![record]);
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(0x0047_0470, &args![list]);
     let hud = e.mem.u32(0x011d_96c0);
@@ -3937,14 +4058,14 @@ pub fn fn_007721c0(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     if player == 0 {
         return;
     }
-    let process = e.call(0x008d_8520, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     if process == 0 {
         return;
     }
     let alpha_setting = e.call(0x0040_3e20, &args![0x011d_9774_u32]).u32();
     let alpha = (f64::from(e.mem.f32(alpha_setting)) * e.global::<f64>(0x0101_e568)) as f32;
     let player = e.mem.u32(0x011d_ea3c);
-    let process = e.call(0x008d_8520, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     let item_change = e.vcall(process, 0x148, &args![]).u32();
     if e.mem.u32(0x011d_9ae8) & 1 == 0 {
         let flags = e.mem.u32(0x011d_9ae8);
@@ -3974,7 +4095,7 @@ pub fn fn_007721c0(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         }
         return;
     }
-    let weapon = e.call(0x0044_ddc0, &args![item_change]).u32();
+    let weapon = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item_change));
     let mut loaded = 0.0_f32;
     let mut reserve = 0.0_f32;
     let form_type = e.call(0x0044_6390, &args![weapon]).i32();
@@ -3985,13 +4106,15 @@ pub fn fn_007721c0(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         reserve = (f64::from(total) - f64::from(loaded)) as f32;
     } else {
         let player = e.mem.u32(0x011d_ea3c);
-        let process = e.call(0x008d_8520, &args![player]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
         let acquired = e.vcall(process, 0x14c, &args![]).u32();
         let mut converted = 0;
         if acquired != 0 {
-            let acquired_form = e.call(0x0044_ddc0, &args![acquired]).u32();
+            let acquired_form =
+                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, acquired));
             if acquired_form != 0 {
-                let acquired_form = e.call(0x0044_ddc0, &args![acquired]).u32();
+                let acquired_form =
+                    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, acquired));
                 converted = e
                     .call(
                         0x00ec_43fb,
@@ -4039,7 +4162,9 @@ pub fn fn_007721c0(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         let player = e.mem.u32(0x011d_ea3c);
         let ammo = e.call(0x0052_5980, &args![weapon, player]).u32();
         if ammo != 0 && acquired != 0 {
-            loaded = e.call(0x0072_6070, &args![acquired]).i32() as f32;
+            loaded = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, acquired))
+                .into_ret()
+                .i32() as f32;
             if subtract_loaded {
                 let player = e.mem.u32(0x011d_ea3c);
                 let ammo = e.call(0x0052_5980, &args![weapon, player]).u32();
@@ -4262,8 +4387,8 @@ pub fn hud_main_menu_set_info_for_ref(
     }
 
     let actor = e.vcall(reference.addr(), 0x100, &args![]).bool();
-    let terminal_base = e.call(0x007a_f430, &args![reference]).u32();
-    let form = e.call(0x007a_f430, &args![reference]).u32();
+    let terminal_base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let terminal = e.call(0x0040_1170, &args![form]).u32() == 0x17;
     if reference.addr() == e.mem.u32(current_hud(e) + 0x1b8) {
         let player = current_player(e);
@@ -4292,7 +4417,7 @@ pub fn hud_main_menu_set_info_for_ref(
                 }
             }
         } else {
-            let base = e.call(0x007a_f430, &args![reference]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             let form_type = e.call(0x0040_1170, &args![base]).u32();
             if form_type == 0x1b {
                 let owner = e.call(0x0056_7790, &args![reference]).u32();
@@ -4377,7 +4502,7 @@ pub fn hud_main_menu_set_info_for_ref(
         set_info_target_prompt(e, 2, 0x1005);
     }
 
-    let form = e.call(0x007a_f430, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let form_type = e.call(0x0040_1170, &args![form]).u32();
     let mut display_mask = 0_u32;
     let mut _alchemy_form = 0_u32;
@@ -4386,12 +4511,12 @@ pub fn hud_main_menu_set_info_for_ref(
     match form_type {
         0x15 | 0x16 | 0x17 | 0x1b | 0x1c | 0x27 | 0x2a | 0x2b => {}
         0x18 => {
-            _alchemy_form = e.call(0x007a_f430, &args![reference]).u32();
+            _alchemy_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             display_mask |= 0xfc;
         }
         0x1e => {
             set_info_target_prompt(e, 1, 0x1004);
-            let form = e.call(0x007a_f430, &args![reference]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             if !e.call(0x0046_f070, &args![form]).bool() {
                 return true;
             }
@@ -4399,13 +4524,13 @@ pub fn hud_main_menu_set_info_for_ref(
         }
         0x20 | 0x21 | 0x25 => return set_info_unsupported_form(e),
         0x28 => {
-            armor_form = e.call(0x007a_f430, &args![reference]).u32();
+            armor_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             if e.call(0x0047_bcf0, &args![armor_form]).bool() {
                 display_mask |= 0xfc;
             }
         }
         0x29 => {
-            weapon_form = e.call(0x007a_f430, &args![reference]).u32();
+            weapon_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             if e.call(0x004c_94d0, &args![weapon_form]).bool() {
                 display_mask |= 0xfc;
             }
@@ -4415,7 +4540,7 @@ pub fn hud_main_menu_set_info_for_ref(
             let mut inspect_direct_form = nested == 0;
             if nested != 0 {
                 let nested = e.call(0x009d_9f00, &args![reference]).u32();
-                let form = e.call(0x0044_ddc0, &args![nested]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, nested));
                 inspect_direct_form = e.call(0x0040_1170, &args![form]).u32() == 0x1f;
             }
             if inspect_direct_form {
@@ -4434,8 +4559,8 @@ pub fn hud_main_menu_set_info_for_ref(
 
     let teleport = e.call(0x0056_8e50, &args![reference]).u32();
     let lock = e.call(0x0056_9160, &args![reference]).u32();
-    let _lock_base = e.call(0x007a_f430, &args![reference]).u32();
-    let _second_base = e.call(0x007a_f430, &args![reference]).u32();
+    let _lock_base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
+    let _second_base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let can_ignore_lock = if form_type == 0x1c {
         let player = current_player(e);
         e.call(0x0051_8f00, &args![reference, player, 0_u32, 1_u32])
@@ -4601,7 +4726,7 @@ pub fn hud_main_menu_set_info_for_ref(
         let nested = e.call(0x009d_9f00, &args![reference]).u32();
         if nested != 0 {
             let nested = e.call(0x009d_9f00, &args![reference]).u32();
-            let form = e.call(0x0044_ddc0, &args![nested]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, nested));
             let name = e.call(0x0048_2720, &args![form]).u32();
             e.call(0x0040_6d30, &args![0x011d_9c48_u32, 0x104_u32, name]);
         } else {
@@ -4659,10 +4784,12 @@ pub fn hud_main_menu_set_info_for_ref(
                 {
                     displayed = false;
                 } else {
-                    let form = e.call(0x007a_f430, &args![reference]).u32();
+                    let form =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                     let form_type = e.call(0x0040_1170, &args![form]).u32();
                     let stack_count = if form_type == 0x29 {
-                        let form = e.call(0x007a_f430, &args![reference]).u32();
+                        let form =
+                            typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                         e.call(0x0040_1170, &args![form + 0x80]).i32()
                     } else {
                         0
@@ -4727,14 +4854,14 @@ pub fn hud_main_menu_set_info_for_ref(
     if actor {
         let player = current_player(e);
         let mut node = e.call(0x0059_5d10, &args![player]).u32();
-        while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-            let slot = e.call(0x0068_15c0, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let entry = e.mem.u32(slot);
             if e.mem.u32(entry) == reference.addr() && e.mem.u8(entry + 4) != 0 {
                 marked_actor = true;
                 break;
             }
-            node = e.call(0x0072_6070, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     if !highlighted_target {
@@ -5116,7 +5243,11 @@ pub fn hud_main_menu_update_compass(
     let display_width = e.mem.i32(hud + 0x214);
     let inner_width = (f64::from(display_width) * e.global::<f64>(0x0102_17d8) * 2.0) as f32;
     let outer_width = (f64::from(display_width) * 2.0) as f32;
-    let opacity_setting = e.call(0x0044_ddc0, &args![0x011f_2250_u32]).u32();
+    let opacity_setting = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, 0x011f_2250_u32)
+    );
     let opacity = if opacity_setting == 0 {
         let value = e.call(0x0040_3e20, &args![0x011d_9774_u32]).u32();
         e.mem.f32(value)
@@ -5125,7 +5256,11 @@ pub fn hud_main_menu_update_compass(
     };
     let max_alpha = (f64::from(opacity) * e.global::<f64>(0x0101_e568)) as f32;
     let landmarks_list = landmarks.addr() + 4;
-    let mut landmark_tiles = e.call(0x0055_9450, &args![landmarks_list]).u32();
+    let mut landmark_tiles = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, landmarks_list)
+    );
     let player = current_player(e);
     let sneaking = e.vcall(player, 0x22c, &args![0_u32]).bool();
     let landmark_limit = blink_setting(e, 0x011d_12cc);
@@ -5136,15 +5271,19 @@ pub fn hud_main_menu_update_compass(
     let mut location_changed: u8 = 0;
     let mut marker = marker;
     while marker != 0 {
-        let slot = e.call(0x0068_15c0, &args![marker]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, marker));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(0x0068_15c0, &args![marker]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, marker));
         let record = e.mem.u32(slot);
-        marker = e.call(0x0072_6070, &args![marker]).u32();
+        marker = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, marker));
         let first_reference = e.mem.u32(record + 4);
-        if e.call(0x0044_0da0, &args![first_reference]).bool() {
+        if typed_call!(
+            leaf::FAMILY,
+            0x0044_0da0,
+            leaf::form_flag_800(e, first_reference)
+        ) {
             continue;
         }
         let reference = e.mem.u32(record + 4);
@@ -5290,19 +5429,23 @@ pub fn hud_main_menu_update_compass(
     let target_list = e.call(0x0095_2ba0, &args![player]).u32();
     let hud = current_hud(e);
     e.mem.set_u32(hud + 0x20c, target_list);
-    let mut objective_tiles = e.call(0x0072_6070, &args![objectives.addr() + 4]).u32();
+    let mut objective_tiles = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, objectives.addr() + 4)
+    );
     let objective_limit = blink_setting(e, 0x011d_0bd8) as f32;
     let objective_limit_squared = (f64::from(objective_limit) * f64::from(objective_limit)) as f32;
     let hud = current_hud(e);
     let mut target_list = e.mem.u32(hud + 0x20c);
     while target_list != 0 {
-        let slot = e.call(0x0068_15c0, &args![target_list]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, target_list));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(0x0068_15c0, &args![target_list]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, target_list));
         let target_record = e.mem.u32(slot);
-        target_list = e.call(0x0072_6070, &args![target_list]).u32();
+        target_list = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, target_list));
         let target = e.call(0x005c_bb70, &args![target_record]).u32();
         let actor_marker = target != 0 && e.call(0x0040_1170, &args![target]).u32() == 0x1c;
         if target == 0 {
@@ -5437,7 +5580,11 @@ pub fn hud_main_menu_update_compass(
         hud_trait(e, tile, 0xfa3, 0);
     }
     e.mem.set_u8(0x011d_96c4, 0);
-    let mut actor_tiles = e.call(0x0055_9450, &args![actor_ticks.addr() + 4]).u32();
+    let mut actor_tiles = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, actor_ticks.addr() + 4)
+    );
     let player = current_player(e);
     let vats = e.call(0x0059_5d10, &args![player]).u32();
     let player = current_player(e);
@@ -5459,27 +5606,30 @@ pub fn hud_main_menu_update_compass(
         count = blink_setting(e, 0x011d_32d0) as u32;
     }
     let mut vats = vats;
-    while vats != 0 && !e.call(0x0082_56d0, &args![vats]).bool() && count != 0 {
+    while vats != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, vats))
+        && count != 0
+    {
         count -= 1;
-        let slot = e.call(0x0068_15c0, &args![vats]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vats));
         let record = e.mem.u32(slot);
         if record == 0 || e.mem.u8(record + 5) != 0 {
-            vats = e.call(0x0072_6070, &args![vats]).u32();
+            vats = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, vats));
             continue;
         }
         let actor = e.mem.u32(record);
         if e.vcall(actor, 0x1d0, &args![]).u32() == 0 {
-            vats = e.call(0x0072_6070, &args![vats]).u32();
+            vats = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, vats));
             continue;
         }
         let process = e.call(0x008d_6f30, &args![actor]).u32();
         if process == 0 {
-            vats = e.call(0x0072_6070, &args![vats]).u32();
+            vats = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, vats));
             continue;
         }
         let process = e.call(0x008d_6f30, &args![actor]).u32();
         if !e.call(0x0045_0ff0, &args![process]).bool() {
-            vats = e.call(0x0072_6070, &args![vats]).u32();
+            vats = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, vats));
             continue;
         }
         let first_flag = e.vcall(actor + 0xa4, 0x08, &args![0x31_u32]).u32();
@@ -5496,7 +5646,7 @@ pub fn hud_main_menu_update_compass(
                 e.mem.f32(output.addr())
             });
             if entry <= 0.0 {
-                vats = e.call(0x0072_6070, &args![vats]).u32();
+                vats = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, vats));
                 continue;
             }
         }
@@ -5512,7 +5662,7 @@ pub fn hud_main_menu_update_compass(
             || distance.partial_cmp(&(landmark_limit_squared as f32))
                 != Some(std::cmp::Ordering::Less)
         {
-            vats = e.call(0x0072_6070, &args![vats]).u32();
+            vats = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, vats));
             continue;
         }
         if actor_tiles == 0 {
@@ -5566,7 +5716,7 @@ pub fn hud_main_menu_update_compass(
                 hud_set_float(e, tile, 0xfa9, alpha);
             }
         }
-        vats = e.call(0x0072_6070, &args![vats]).u32();
+        vats = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, vats));
     }
     while actor_tiles != 0 {
         let tile = compass_take_tile(e, actor_ticks, &mut actor_tiles);
@@ -5579,7 +5729,7 @@ pub fn hud_main_menu_update_compass(
 /// field at +0x6f4 when that list is empty.
 pub fn fn_0077a400(e: &mut Engine, object: Ptr) -> Ptr {
     let list = object.addr() + 0x708;
-    if e.call(0x0044_ddc0, &args![list]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) != 0 {
         let entry = e.call(0x0055_8dd0, &args![list, 0_u32]).u32();
         Ptr::new(e.mem.u32(entry))
     } else {
@@ -5692,7 +5842,13 @@ pub fn hud_main_menu_update_quest_text(e: &mut Engine, this: Ptr<HUDMainMenu>) {
             let unobstructed = !normal_state
                 || e.call(0x0070_2680, &args![0x3f1_u32, 0_u32]).bool()
                 || e.call(0x0070_3d50, &args![]).bool();
-            if unobstructed && e.call(0x0044_ddc0, &args![0x011f_2250_u32]).u32() == 0 {
+            if unobstructed
+                && typed_call!(
+                    leaf::FAMILY,
+                    0x0044_ddc0,
+                    leaf::word_at_8(e, 0x011f_2250_u32)
+                ) == 0
+            {
                 e.mem.set_u8(this.addr() + 0x260, 1);
                 quest_popup_start(e, this);
             }
@@ -5703,7 +5859,11 @@ pub fn hud_main_menu_update_quest_text(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         e.call(0x0077_c170, &args![this, e.mem.u32(hud + 0x60)]);
     } else if !e.call(0x0070_2450, &args![0x418_u32]).bool()
         && (hud_main_menu_are_objectives_showing(e, this)
-            || !e.call(0x0082_56d0, &args![this.addr() + 0x258]).bool())
+            || !typed_call!(
+                leaf::FAMILY,
+                0x0082_56d0,
+                leaf::both_words_zero(e, this.addr() + 0x258)
+            ))
         && !hud_main_menu_is_quest_name_showing(e, this)
     {
         let hud = current_hud(e);
@@ -5906,7 +6066,7 @@ fn quest_popup_text(
         let mut left = e.call(0x00ec_62c0, &args![target_x]).i32();
         let hud = current_hud(e);
         let pool = e.mem.u32(hud + 0x60);
-        let mut tiles = e.call(0x0055_9450, &args![pool + 4]).u32();
+        let mut tiles = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pool + 4));
         if tiles != 0 {
             compass_take_tile(e, Ptr::new(pool), &mut tiles);
         }
@@ -5972,7 +6132,7 @@ fn quest_popup_text(
                     f64::from(now),
                 );
                 let text = e.call(0x00a0_11f0, &args![glyph_tile, 0xfc4_u32]).u32();
-                e.call(0x0040_fbe0, &args![0x0107_3624_u32, text, reported_end]);
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0107_3624_u32, text, reported_end);
                 hud_main_menu_set_brightness(e, Ptr::new(glyph_tile), 0);
                 let width = e.call(0x00ec_62c0, &args![f64::from(glyph_width)]).i32();
                 left = left.wrapping_add(width);
@@ -5996,14 +6156,22 @@ fn quest_popup_text(
 // Translated from 0077b2a0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns the first pointer stored by the fixed quest queue at 011d970c.
 pub fn fn_0077b2a0(e: &mut Engine, _unused_this: Ptr) -> Ptr {
-    let slot = e.call(0x0068_15c0, &args![0x011d_970c_u32]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, 0x011d_970c_u32)
+    );
     Ptr::new(e.mem.u32(slot))
 }
 
 // Translated from 0077b2c0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Tests whether the fixed quest queue at 011d970c is empty.
 pub fn fn_0077b2c0(e: &mut Engine, _unused_this: Ptr) -> bool {
-    e.call(0x0082_56d0, &args![0x011d_970c_u32]).bool()
+    typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, 0x011d_970c_u32)
+    )
 }
 
 // Translated from 0077b2e0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -6078,7 +6246,7 @@ pub fn hud_main_menu_handle_reminder_fade(e: &mut Engine, this: Ptr<HUDMainMenu>
         let mut queue = this.addr() + 0x258;
         let hud = current_hud(e);
         let pool = e.mem.u32(hud + 0x5c);
-        let mut marker_tiles = e.call(0x0055_9450, &args![pool + 4]).u32();
+        let mut marker_tiles = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pool + 4));
         for _ in 0..31 {
             let hud = current_hud(e);
             let pool = e.mem.u32(hud + 0x5c);
@@ -6086,8 +6254,11 @@ pub fn hud_main_menu_handle_reminder_fade(e: &mut Engine, this: Ptr<HUDMainMenu>
         }
         let hud = current_hud(e);
         let pool = e.mem.u32(hud + 0x5c);
-        let mut icon_tiles = e.call(0x0072_6070, &args![pool + 4]).u32();
-        while queue != 0 && !e.call(0x0082_56d0, &args![queue]).bool() && marker_tiles != 0 {
+        let mut icon_tiles = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, pool + 4));
+        while queue != 0
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, queue))
+            && marker_tiles != 0
+        {
             let objectives_showing = hud_main_menu_are_objectives_showing(e, this);
             let reminder_visible = if objectives_showing {
                 let trait_id = e.call(0x00a0_1860, &args![0x0107_37b4_u32]).u32();
@@ -6099,11 +6270,11 @@ pub fn hud_main_menu_handle_reminder_fade(e: &mut Engine, this: Ptr<HUDMainMenu>
             } else {
                 false
             };
-            let slot = e.call(0x0068_15c0, &args![queue]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, queue));
             let record = e.mem.u32(slot);
             let is_reminder = e.mem.u8(record + 0x105) != 0;
             if objectives_showing && reminder_visible != is_reminder {
-                queue = e.call(0x0072_6070, &args![queue]).u32();
+                queue = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, queue));
                 continue;
             }
             e.mem.set_u8(this.addr() + 0x261, 1);
@@ -6116,10 +6287,10 @@ pub fn hud_main_menu_handle_reminder_fade(e: &mut Engine, this: Ptr<HUDMainMenu>
             let pool = e.mem.u32(hud + 0x5c);
             let icon_slot = reminder_advance(e, pool, &mut icon_tiles, 0x0068_3520);
             let icon_tile = e.mem.u32(icon_slot);
-            let slot = e.call(0x0068_15c0, &args![queue]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, queue));
             let record = e.mem.u32(slot);
             if e.mem.u8(record + 0x104) == 0 {
-                let slot = e.call(0x0068_15c0, &args![queue]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, queue));
                 let text = e.mem.u32(slot);
                 e.call(0x00a0_1350, &args![marker_tile, 0xfc4_u32, text, 1_u32]);
                 hud_trait(e, marker_tile, 0x1007, 0);
@@ -6133,7 +6304,7 @@ pub fn hud_main_menu_handle_reminder_fade(e: &mut Engine, this: Ptr<HUDMainMenu>
                 e.with_stack(0x104, |e, buffer| {
                     let prefix = e.call(0x0040_3df0, &args![0x011d_1d60_u32]).u32();
                     e.call(0x0040_6d30, &args![buffer, 0x104_u32, prefix]);
-                    let slot = e.call(0x0068_15c0, &args![queue]).u32();
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, queue));
                     let text = e.mem.u32(slot);
                     e.call(0x0040_6d50, &args![buffer, 0x104_u32, text]);
                     e.call(0x00a0_1350, &args![marker_tile, 0xfc4_u32, buffer, 1_u32]);
@@ -6170,17 +6341,17 @@ pub fn hud_main_menu_handle_reminder_fade(e: &mut Engine, this: Ptr<HUDMainMenu>
                 e.call(0x00ad_8830, &args![handle, 0_u32]);
                 e.call(0x0048_3710, &args![temporary]);
             });
-            let slot = e.call(0x0068_15c0, &args![queue]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, queue));
             e.call(0x0090_5330, &args![queue, slot]);
         }
     }
     if placed {
         let hud = current_hud(e);
         let pool = e.mem.u32(hud + 0x5c);
-        let mut marker_tiles = e.call(0x0055_9450, &args![pool + 4]).u32();
+        let mut marker_tiles = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pool + 4));
         let hud = current_hud(e);
         let pool = e.mem.u32(hud + 0x5c);
-        let mut icon_tiles = e.call(0x0072_6070, &args![pool + 4]).u32();
+        let mut icon_tiles = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, pool + 4));
         for _ in 0..31 {
             let hud = current_hud(e);
             let pool = e.mem.u32(hud + 0x5c);
@@ -6221,8 +6392,16 @@ pub fn hud_main_menu_handle_reminder_fade(e: &mut Engine, this: Ptr<HUDMainMenu>
         let wait_complete = e.call(0x00a0_0940, &args![0x0107_3724_u32, -1_i32]).u32();
         e.mem.set_u32(0x011d_9e70, wait_complete);
     }
-    let mut marker_tiles = e.call(0x0055_9450, &args![tile.addr() + 4]).u32();
-    let mut icon_tiles = e.call(0x0072_6070, &args![tile.addr() + 4]).u32();
+    let mut marker_tiles = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, tile.addr() + 4)
+    );
+    let mut icon_tiles = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, tile.addr() + 4)
+    );
     for _ in 0..31 {
         let hud = current_hud(e);
         let pool = e.mem.u32(hud + 0x5c);
@@ -6314,7 +6493,11 @@ pub fn hud_main_menu_handle_reminder_fade(e: &mut Engine, this: Ptr<HUDMainMenu>
             let second_x = e.call(0x00a0_11b0, &args![markers[1], 0xfa2_u32]).f64();
             let first_x = e.call(0x00a0_11b0, &args![markers[0], 0xfa2_u32]).f64();
             let shift = x87_to_int(e, second_x - first_x);
-            let mut cursor = e.call(0x0055_9450, &args![tile.addr() + 4]).u32();
+            let mut cursor = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, tile.addr() + 4)
+            );
             if cursor != 0 {
                 reminder_advance(e, tile.addr(), &mut cursor, 0x0057_cbe0);
             }
@@ -6371,7 +6554,7 @@ pub fn hud_main_menu_handle_cinematic_fade(e: &mut Engine, _this: Ptr<HUDMainMen
     }
     let hud = current_hud(e);
     let pool = e.mem.u32(hud + 0x5c);
-    let mut cursor = e.call(0x0055_9450, &args![pool + 4]).u32();
+    let mut cursor = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pool + 4));
     while cursor != 0 {
         let hud = current_hud(e);
         let pool = e.mem.u32(hud + 0x5c);
@@ -6383,7 +6566,11 @@ pub fn hud_main_menu_handle_cinematic_fade(e: &mut Engine, _this: Ptr<HUDMainMen
             hud_trait(e, marker, wait_complete, 0);
         }
     }
-    let mut cursor = e.call(0x0055_9450, &args![tile.addr() + 4]).u32();
+    let mut cursor = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, tile.addr() + 4)
+    );
     while cursor != 0 {
         let slot = reminder_advance(e, tile.addr(), &mut cursor, 0x0057_cbe0);
         let current = e.mem.u32(slot);
@@ -6764,7 +6951,14 @@ pub fn hud_main_menu_update_xp_meter(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         || e.call(0x0070_23c0, &args![]).u32() == 0x421
         || e.call(0x0070_23c0, &args![]).u32() == 0x3f1;
     let visible = menu_allowed
-        && e.call(0x0044_ddc0, &args![0x011f_2250_u32]).i32() != 4
+        && typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, 0x011f_2250_u32)
+        )
+        .into_ret()
+        .i32()
+            != 4
         && !e.call(0x0070_1740, &args![this.addr() + 0x1c8]).bool();
     if !visible {
         for offset in [0xd8, 0xdc, 0xe0, 0xe4, 0xe8, 0xec] {
@@ -6895,22 +7089,38 @@ pub fn hud_main_menu_update_xp_meter(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         }
         return;
     }
-    if !alpha_positive && fade_finished && !e.call(0x0082_56d0, &args![this.addr() + 0x264]).bool()
+    if !alpha_positive
+        && fade_finished
+        && !typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, this.addr() + 0x264)
+        )
     {
         let mut cursor = this.addr() + 0x264;
         let mut total = 0_i32;
-        while cursor != 0 && !e.call(0x0082_56d0, &args![cursor]).bool() {
-            let slot = e.call(0x0068_15c0, &args![cursor]).u32();
+        while cursor != 0
+            && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, cursor))
+        {
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cursor));
             let record = e.mem.u32(slot);
             total = total.wrapping_add(e.mem.i32(record + 8));
-            cursor = e.call(0x0072_6070, &args![cursor]).u32();
+            cursor = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, cursor));
         }
         loop {
-            let slot = e.call(0x0068_15c0, &args![this.addr() + 0x264]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, this.addr() + 0x264)
+            );
             if e.mem.u32(slot) == 0 {
                 break;
             }
-            let slot = e.call(0x0068_15c0, &args![this.addr() + 0x264]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, this.addr() + 0x264)
+            );
             let record = e.mem.u32(slot);
             e.call(0x0040_1030, &args![record]);
             e.call(0x0063_f7b0, &args![this.addr() + 0x264]);
@@ -6989,11 +7199,15 @@ fn hotkey_show_icon(e: &mut Engine, this: Ptr<HUDMainMenu>, icon: u32) {
 }
 
 fn hotkey_item_name(e: &mut Engine, item: u32, buffer: Ptr) {
-    if e.call(0x0072_6070, &args![item]).i32() < 2 {
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+        .into_ret()
+        .i32()
+        < 2
+    {
         let name = e.call(0x004b_e2d0, &args![item]).u32();
         e.call(0x0040_6d30, &args![buffer, 0x104_u32, name]);
     } else {
-        let count = e.call(0x0072_6070, &args![item]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
         let name = e.call(0x004b_e2d0, &args![item]).u32();
         e.call(
             0x0040_6d00,
@@ -7205,12 +7419,12 @@ pub fn fn_0077e4f0(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     let endurance = e.call(0x00ec_62c0, &args![endurance]).u32();
     let breath_time = e.call(0x0064_8a10, &args![endurance]).f32();
     let player = e.mem.u32(0x011d_ea3c);
-    let saved = e.call(0x008d_8520, &args![player]).u32();
+    let saved = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     let phase_scale = if saved == 0 {
         e.global::<f64>(0x0101_7a40) as f32
     } else {
         let player = e.mem.u32(0x011d_ea3c);
-        let saved = e.call(0x008d_8520, &args![player]).u32();
+        let saved = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
         let elapsed = e.vcall(saved, 0x300, &args![]).f64();
         (elapsed / f64::from(breath_time)) as f32
     };
@@ -7260,7 +7474,11 @@ pub fn fn_0077e4f0(e: &mut Engine, this: Ptr<HUDMainMenu>) {
 /// target indicator; unused indicators fade away after the scan.
 pub fn fn_0077e750(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     let indicators = e.mem.u32(this.addr() + 0x14c);
-    let mut cursor = e.call(0x0055_9450, &args![indicators + 4]).u32();
+    let mut cursor = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, indicators + 4)
+    );
     let package = e.call(0x0071_7e50, &args![0x011e_0e80_u32]).u32();
     let mut index = e.call(0x005d_e0f0, &args![package, 0_u32]).u32();
     loop {
@@ -7272,9 +7490,9 @@ pub fn fn_0077e750(e: &mut Engine, this: Ptr<HUDMainMenu>) {
         let package = e.call(0x0071_7e50, &args![0x011e_0e80_u32]).u32();
         let actor = e.call(0x0096_8670, &args![package, index]).u32();
         if actor != 0
-            && !e.call(0x0057_6d30, &args![actor]).bool()
-            && !e.call(0x0044_0d80, &args![actor]).bool()
-            && !e.call(0x0044_0da0, &args![actor]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0057_6d30, leaf::form_flag_200000(e, actor))
+            && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
+            && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
             && e.call(0x0040_1170, &args![actor]).u32() == 0x3e
             && e.vcall(actor, 0x224, &args![]).bool()
             && !e.call(0x0077_eac0, &args![actor]).bool()
@@ -7358,7 +7576,7 @@ pub fn fn_0077e750(e: &mut Engine, this: Ptr<HUDMainMenu>) {
 /// Checks whether the target's owning location fails the global membership
 /// test; the PC uses the negated Boolean result.
 pub fn fn_0077eac0(e: &mut Engine, target: Ptr) -> bool {
-    let location = e.call(0x0084_e3a0, &args![target]).u32();
+    let location = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, target));
     let registry = e.mem.u32(0x011c_3f2c);
     !e.call(0x0046_9860, &args![registry, location]).bool()
 }
@@ -7372,16 +7590,16 @@ pub fn hud_main_menu_show_crippled_guy(e: &mut Engine, this: Ptr<HUDMainMenu>) {
     let player = e.mem.u32(0x011d_ea3c);
     let mut node = e.vcall(player + 0x94, 8, &args![]).u32();
     while node != 0 {
-        let entry = e.call(0x0068_15c0, &args![node]).u32();
+        let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(entry) == 0 {
             break;
         }
-        let entry = e.call(0x0068_15c0, &args![node]).u32();
+        let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let record = e.mem.u32(entry);
         if e.call(0x0055_b980, &args![record]).i32() == 10 {
             face = 10;
         }
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if face == 0 {
         let player = e.mem.u32(0x011d_ea3c);
@@ -7507,13 +7725,17 @@ pub fn hud_main_menu_create_3d_camera(e: &mut Engine, _this: Ptr<HUDMainMenu>) -
         e.call(0x00a6_faf0, &args![camera, frustum]);
     });
     e.with_stack(12, |e, target| {
-        let target = e
-            .call(0x0041_6870, &args![target, 0.0_f32, 0.0_f32, 1.0_f32])
-            .u32();
+        let target = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, target, 0.0_f32, 0.0_f32, 1.0_f32)
+        );
         e.with_stack(12, |e, origin| {
-            let origin = e
-                .call(0x0041_6870, &args![origin, 0.0_f32, 0.0_f32, 1.0_f32])
-                .u32();
+            let origin = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, origin, 0.0_f32, 0.0_f32, 1.0_f32)
+            );
             e.call(0x00a7_01b0, &args![camera, origin, target]);
         });
     });
@@ -7530,7 +7752,11 @@ pub fn hud_main_menu_create_3d_camera(e: &mut Engine, _this: Ptr<HUDMainMenu>) -
 /// to show it, restoring scene and cancellation state afterward.
 // Translation incomplete: 0077f0d0 - compiler SEH unwinding.
 pub fn fn_0077f0d0(e: &mut Engine) {
-    let camera = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_9770_u32)
+    );
     if camera == 0 {
         return;
     }
@@ -7541,7 +7767,11 @@ pub fn fn_0077f0d0(e: &mut Engine) {
     let renderer = e.call(0x0045_0b80, &args![1_u32]).u32();
     if e.call(0x0045_3470, &args![renderer]).u32() == 0 {
         let renderer = e.call(0x0045_0b80, &args![1_u32]).u32();
-        let camera = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+        let camera = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, 0x011d_9770_u32)
+        );
         e.vcall(renderer, 0xdc, &args![camera, 1_u32]);
     }
     // 0077f164: `0043c4b0` takes no word (plain RET, a global); the pushed 0 and 4 are
@@ -7551,14 +7781,18 @@ pub fn fn_0077f0d0(e: &mut Engine) {
     let face = e.call(0x0045_c670, &args![]).u32();
     let dialogue = e.call(0x008d_80e0, &args![face]).u32();
     e.call(0x00c4_f270, &args![dialogue, 1_u32]);
-    let target = e.call(0x0055_9450, &args![0x011d_975c_u32]).u32();
+    let target = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_975c_u32)
+    );
     let exposure = e.global::<f32>(0x011a_0140);
     e.call(0x0070_9d50, &args![target, exposure]);
     let interface = e.call(0x004b_7210, &args![]).u32();
     let token = e.call(0x007f_d640, &args![interface]).u32();
     e.with_stack(4, |e, cancellation| {
         e.call(0x0063_3c90, &args![cancellation, token]);
-        let active = e.call(0x0055_9450, &args![cancellation]).u32();
+        let active = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, cancellation));
         e.call(0x004a_0fd0, &args![dialogue, active]);
         let scene = if target == 0 {
             e.call(0x0066_29f0, &args![face]).u32()
@@ -7567,7 +7801,7 @@ pub fn fn_0077f0d0(e: &mut Engine) {
         };
         let renderer = e.call(0x0045_0b80, &args![1_u32]).u32();
         e.call(0x00b6_bee0, &args![scene, renderer, dialogue]);
-        let token = e.call(0x0055_9450, &args![cancellation]).u32();
+        let token = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, cancellation));
         e.call(0x00b6_c0d0, &args![scene, token, 0_u32]);
         e.call(0x004a_0fd0, &args![dialogue, 0_u32]);
         e.call(0x0066_b0d0, &args![cancellation, 0_u32]);
@@ -7583,16 +7817,32 @@ pub fn fn_0077f270(e: &mut Engine) {
     if current_hud(e) == 0 {
         return;
     }
-    let camera = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_9770_u32)
+    );
     if camera == 0 {
         return;
     }
-    let camera = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_9770_u32)
+    );
     if e.call(0x0045_bc00, &args![camera, 0_u32]).u32() == 0 {
         return;
     }
-    let owner = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
-    let camera = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+    let owner = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_9770_u32)
+    );
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_9770_u32)
+    );
     let sequence = e.call(0x0043_b4a0, &args![camera, 0_u32]).u32();
     e.vcall(owner, 0xe8, &args![sequence]);
     let hud = current_hud(e);
@@ -7606,7 +7856,11 @@ pub fn fn_0077f2f0(e: &mut Engine, resource: Ptr) {
     if current_hud(e) == 0 {
         return;
     }
-    let camera = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_9770_u32)
+    );
     if camera == 0 {
         return;
     }
@@ -7614,7 +7868,11 @@ pub fn fn_0077f2f0(e: &mut Engine, resource: Ptr) {
     if resource.is_null() || e.call(0x0048_cee0, &args![resource]).u32() == 0 {
         return;
     }
-    let owner = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+    let owner = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_9770_u32)
+    );
     let filename = e.vcall(resource.addr(), 0x14, &args![]).u32();
     let loader = e.mem.u32(0x011c_3b3c);
     let model = e
@@ -7624,11 +7882,19 @@ pub fn fn_0077f2f0(e: &mut Engine, resource: Ptr) {
         )
         .u32();
     e.vcall(owner, 0xdc, &args![model, 1_u32]);
-    let camera = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_9770_u32)
+    );
     e.call(0x0045_0f90, &args![camera, 1_u32]);
     e.with_stack(12, |e, vector| {
         e.call(0x0043_d410, &args![vector, 0.0_f32, 0_u32, 0_u32]);
-        let camera = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+        let camera = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, 0x011d_9770_u32)
+        );
         e.call(0x00a5_9c60, &args![camera, vector]);
     });
 }
@@ -7640,17 +7906,29 @@ pub fn hud_main_menu_set_gun_scope_visible(e: &mut Engine, visible: u8) {
     if current_hud(e) == 0 {
         return;
     }
-    let camera = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_9770_u32)
+    );
     if camera == 0 {
         return;
     }
-    let camera = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_9770_u32)
+    );
     if e.call(0x0045_bc00, &args![camera, 0_u32]).u32() == 0 {
         return;
     }
     let hud = current_hud(e);
     e.mem.set_u8(hud + 0x1fc, visible);
-    let camera = e.call(0x0055_9450, &args![0x011d_9770_u32]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, 0x011d_9770_u32)
+    );
     e.call(0x0045_0f90, &args![camera, u32::from(visible == 0)]);
 }
 
@@ -7692,7 +7970,7 @@ pub fn fn_0077f490(e: &mut Engine, alternate: u8) {
 pub fn hud_main_menu_kill_quest_name(e: &mut Engine, _this: Ptr<HUDMainMenu>) {
     let hud = current_hud(e);
     let pool = e.mem.u32(hud + 0x60);
-    let mut cursor = e.call(0x0055_9450, &args![pool + 4]).u32();
+    let mut cursor = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pool + 4));
     while cursor != 0 {
         let hud = current_hud(e);
         let pool = e.mem.u32(hud + 0x60);
@@ -7733,7 +8011,7 @@ pub fn fn_0077f5c0(e: &mut Engine, _unused_this: Ptr) {
 pub fn hud_main_menu_kill_quest_objectives(e: &mut Engine, _unused_this: Ptr<HUDMainMenu>) {
     let hud = current_hud(e);
     let list = e.mem.u32(hud + 0x5c).wrapping_add(4);
-    let mut cursor = e.call(0x0072_6070, &args![list]).u32();
+    let mut cursor = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list));
     while cursor != 0 {
         let slot = e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), cursor);
@@ -7757,11 +8035,12 @@ pub fn hud_main_menu_kill_quest_objectives(e: &mut Engine, _unused_this: Ptr<HUD
     let hud = current_hud(e);
     if e.mem.i32(hud + 0x1c4) != 5 {
         let mut queue = hud + 0x258;
-        while queue != 0 && !e.call(0x0082_56d0, &args![queue]).bool() {
-            let record_slot = e.call(0x0068_15c0, &args![queue]).u32();
+        while queue != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, queue))
+        {
+            let record_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, queue));
             let record = e.mem.u32(record_slot);
             e.call(0x0040_1030, &args![record]);
-            queue = e.call(0x0072_6070, &args![queue]).u32();
+            queue = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, queue));
         }
         let hud = current_hud(e);
         e.call(0x0047_0470, &args![hud + 0x258]);

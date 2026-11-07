@@ -43,6 +43,7 @@ use super::*;
 /// and `ST0`): in `crt.rs`. `__handle_exc` (`00ed5554`), `__raise_exc` (`00ed5531`),
 /// `__set_errno_from_matherr` (`00ed5736`) and the default `_matherr` (`00ee0a3a`): in
 /// `math.rs`.
+#[cfg(test)]
 const CTRLFP: u32 = 0x00ed_5abb;
 const FLOAD_WITH_FB: u32 = 0x00ed_27c5;
 const HANDLE_EXC: u32 = 0x00ed_5554;
@@ -50,6 +51,7 @@ const RAISE_EXC: u32 = 0x00ed_5531;
 const SET_ERRNO_FROM_MATHERR: u32 = 0x00ed_5736;
 const DEFAULT_MATHERR: u32 = 0x00ee_0a3a;
 /// The functions of this file the exe calls (`CALL`); jumps and fall-throughs are direct.
+#[cfg(test)]
 const EXPONENT_BITS: u32 = 0x00ed_2808;
 const NAN_ERROR_TYPE: u32 = 0x00ed_27ac;
 const MATH_EXIT: u32 = 0x00ed_282b;
@@ -150,7 +152,11 @@ fn exponent_all_ones(high: u32) -> bool {
 fn register_entry_x87(e: &mut Engine, body: u32, st0: f64) -> f64 {
     let stored = x87_load64(st0.to_bits()).to_bits();
     let (low, high) = words(stored);
-    let eax = e.call(EXPONENT_BITS, &args![low, high]).u32();
+    let eax = typed_call!(
+        leaf::FAMILY,
+        0x00ed_2808,
+        leaf::double_exponent(e, low, high)
+    );
     let zf = exponent_all_ones(high);
     e.call(body, &args![zf, eax, st0, low, high]).f64()
 }
@@ -577,7 +583,7 @@ pub fn except_87(e: &mut Engine, operation: u32, exception: Ptr, control: Ptr) {
         }
         // 00ee1bfd
         let word = e.mem.u32(word_at);
-        e.call(CTRLFP, &args![word, 0xffffu32]);
+        typed_call!(leaf::FAMILY, 0x00ed_5abb, leaf::ctrlfp(e, word, 0xffffu32));
         let kind = e.mem.u32(at);
         let mut set_errno = true;
         if kind != 8 && e.global::<u32>(MATHERR_SKIP) == 0 {

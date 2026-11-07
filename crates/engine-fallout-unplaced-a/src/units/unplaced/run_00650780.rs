@@ -16,6 +16,7 @@ const UNLOCK: u32 = 0x0065_2190;
 const POINTER_CONSTRUCTOR: u32 = 0x0063_3c90;
 const POINTER_DESTRUCTOR: u32 = 0x0045_cec0;
 const MAP_LOOKUP: u32 = 0x006c_62d0;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const FOUND_OBJECT_CALL: u32 = 0x0065_c400;
 /// The CRT string helpers (`cdecl`): copy (`00406d30`, `(dest, size,
@@ -58,9 +59,13 @@ pub fn fn_00650780(e: &mut Engine, this: Ptr, name: Ptr) -> bool {
             }
         }
         let mut found = false;
-        if e.call(POINTER_GET, &args![local]).u32() != 0 {
-            let entry = e.call(POINTER_GET, &args![local]).u32();
-            let object = e.call(POINTER_GET, &args![entry.wrapping_add(8)]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local)) != 0 {
+            let entry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local));
+            let object = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, entry.wrapping_add(8))
+            );
             e.call(FOUND_OBJECT_CALL, &args![object]);
             found = true;
         }

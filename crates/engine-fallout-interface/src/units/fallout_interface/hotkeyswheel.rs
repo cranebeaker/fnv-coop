@@ -33,13 +33,13 @@ const MODEL_OBJECT: u32 = 0x011c_3b3c;
 
 /// Returns the word at +4 of its argument (a list node's next pointer, an
 /// inventory entry's count).
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 /// Returns its `this` (the address of the first member).
+#[cfg(test)]
 const THIS_ITEM: u32 = 0x0068_15c0;
-/// Returns the first word of its object (the first list of an inventory
-/// entry, and a `BSStringT`'s characters, share this getter).
-const FIRST_WORD: u32 = 0x0055_9450;
 /// The object of an inventory entry: the word at +8 (`0044ddc0`).
+#[cfg(test)]
 const ENTRY_OBJECT: u32 = 0x0044_ddc0;
 /// The form type of an object: the byte at +4 (`00401170`).
 const FORM_TYPE: u32 = 0x0040_1170;
@@ -78,6 +78,7 @@ const PRINT_MESSAGE: u32 = 0x005b_5e40;
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 const STRING_DESTROY: u32 = 0x0040_37d0;
 const STRING_FORMAT: u32 = 0x0040_6f60;
+#[cfg(test)]
 const STRING_C_STR: u32 = 0x0055_9450;
 const STRING_SET: u32 = 0x0043_8390;
 const STRING_APPEND: u32 = 0x0040_4820;
@@ -127,6 +128,7 @@ const QUEUE_UNEQUIP_OBJECT: u32 = 0x0088_c790;
 /// `PlayerCharacter::UpdatePlayer3d` (engine map).
 const UPDATE_PLAYER_3D: u32 = 0x0095_0030;
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map).
+#[cfg(test)]
 const GET_SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// The player call after an assignment (`008aded0`; form, 1, 0).
 const AFTER_ASSIGN: u32 = 0x008a_ded0;
@@ -216,11 +218,11 @@ fn check_menu_button(e: &mut Engine, button: u32) -> i32 {
 /// The first extra data list of an inventory entry: the first item of the
 /// list its first word points at, 0 for none.
 fn first_extra_data(e: &mut Engine, entry: u32) -> u32 {
-    if e.call(FIRST_WORD, &args![entry]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry)) == 0 {
         0
     } else {
-        let list = e.call(FIRST_WORD, &args![entry]).u32();
-        let node = e.call(THIS_ITEM, &args![list]).u32();
+        let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
+        let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         e.mem.u32(node)
     }
 }
@@ -228,13 +230,13 @@ fn first_extra_data(e: &mut Engine, entry: u32) -> u32 {
 /// The biped model of an object: `GetBipedTESModel` of the object and the
 /// player, or the object cast to `TESModelTextureSwap` when that is null.
 fn biped_model(e: &mut Engine, entry: u32) -> u32 {
-    let form = e.call(ENTRY_OBJECT, &args![entry]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
     let player: u32 = e.global(PLAYER);
     let model = e.call(GET_BIPED_MODEL, &args![form, player]).u32();
     if model != 0 {
         return model;
     }
-    let form = e.call(ENTRY_OBJECT, &args![entry]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
     e.call(
         RT_DYNAMIC_CAST,
         &args![form, 0i32, TYPE_BOUND_OBJECT, TYPE_MODEL_TEXTURE_SWAP, 0i32],
@@ -264,7 +266,7 @@ pub fn hotkeys_wheel_initialize(e: &mut Engine, this: Ptr<HotKeysWheel>, parent:
         e.set(this, HotKeysWheel::pWheel, parent);
         for index in 0..HOTKEY_COUNT {
             e.call(STRING_FORMAT, &args![text, ITEM_NAME_FORMAT, index]);
-            let name = e.call(STRING_C_STR, &args![text]).u32();
+            let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let wheel = e.get(this, HotKeysWheel::pWheel);
             let tile = e.call(GET_CHILD_BY_NAME, &args![wheel, name]).u32();
             e.mem.set_u32(this.addr() + TILES + 4 * index, tile);
@@ -338,20 +340,23 @@ pub fn hotkeys_wheel_update_hotkey_list(e: &mut Engine, this: Ptr<HotKeysWheel>)
                 let tile = hotkey_tile(e, this, index);
                 if entry != 0 {
                     e.call(STRING_SET, &args![text, ICON_DIRECTORY]);
-                    let form = e.call(ENTRY_OBJECT, &args![entry]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                     let equip_type = e.call(GET_EQUIP_TYPE, &args![form]).u32();
                     let icon = e
                         .call(GET_EQUIP_TYPE_ICON_FILENAME, &args![equip_type])
                         .u32();
                     e.call(STRING_APPEND, &args![text, icon]);
-                    let path = e.call(STRING_C_STR, &args![text]).u32();
+                    let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                     let icon_trait = e.call(TEXT_TO_TRAIT, &args![HOTKEY_ICON_NAME]).i32();
                     set_string(e, tile, icon_trait, path);
                     let assigned = e.call(TEXT_TO_TRAIT, &args![HOTKEY_ASSIGNED_NAME]).i32();
                     set_trait_from_int(e, tile, assigned, 1);
-                    let count = e.call(WORD_AT_FOUR, &args![entry]).i32();
+                    let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+                        .into_ret()
+                        .i32();
                     if count > 1 {
-                        let count = e.call(WORD_AT_FOUR, &args![entry]).u32();
+                        let count =
+                            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                         let name = e.call(ITEM_FULL_NAME, &args![entry]).u32();
                         e.call(
                             STRING_FORMAT,
@@ -361,7 +366,7 @@ pub fn hotkeys_wheel_update_hotkey_list(e: &mut Engine, this: Ptr<HotKeysWheel>)
                         let name = e.call(ITEM_FULL_NAME, &args![entry]).u32();
                         e.call(STRING_SET, &args![text, name]);
                     }
-                    let shown = e.call(STRING_C_STR, &args![text]).u32();
+                    let shown = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                     set_string(e, tile, TRAIT_STRING, shown);
                 } else {
                     let assigned = e.call(TEXT_TO_TRAIT, &args![HOTKEY_ASSIGNED_NAME]).i32();
@@ -406,7 +411,7 @@ pub fn fn_007019e0(e: &mut Engine, this: Ptr<HotKeysWheel>, entry: u32) {
     if old != 0 {
         let hotkey = e.get(this, HotKeysWheel::iLastHighlightedHotkey);
         e.call(REMOVE_HOTKEY_ITEM, &args![inventory, old, hotkey]);
-        if e.call(ENTRY_OBJECT, &args![old]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, old)) != 0 {
             let model = biped_model(e, old);
             if model != 0 {
                 let path = e.vcall(model, 0x14, &args![]).u32();
@@ -417,7 +422,7 @@ pub fn fn_007019e0(e: &mut Engine, this: Ptr<HotKeysWheel>, entry: u32) {
     }
     let hotkey = e.get(this, HotKeysWheel::iLastHighlightedHotkey);
     e.call(SET_HOTKEY_ITEM, &args![inventory, entry, extra, hotkey]);
-    if e.call(ENTRY_OBJECT, &args![entry]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry)) != 0 {
         let model = biped_model(e, entry);
         if model != 0 {
             let path = e.vcall(model, 0x14, &args![]).u32();
@@ -429,7 +434,7 @@ pub fn fn_007019e0(e: &mut Engine, this: Ptr<HotKeysWheel>, entry: u32) {
         }
     }
     hotkeys_wheel_update_hotkey_list(e, this);
-    let form = e.call(ENTRY_OBJECT, &args![entry]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
     e.call(AFTER_ASSIGN, &args![player, form, 1u32, 0u32]);
     e.set(this, HotKeysWheel::bSelectingHotkey, false);
     if old != 0 {
@@ -567,9 +572,9 @@ pub fn fn_00701e80(e: &mut Engine, this: Ptr<HotKeysWheel>) {
     };
     let mut counted = false;
     if entry != 0 {
-        let form = e.call(ENTRY_OBJECT, &args![entry]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         if e.call(FORM_TYPE, &args![form]).u32() == 0x28 {
-            let form = e.call(ENTRY_OBJECT, &args![entry]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             if e.call(FORM_IS_USABLE, &args![form]).bool() {
                 counted = true;
             }
@@ -580,13 +585,13 @@ pub fn fn_00701e80(e: &mut Engine, this: Ptr<HotKeysWheel>) {
     }
     for form_type in [0x18u32, 0x28] {
         if e.call(ACTOR_GET_ANIM_ACTION, &args![player]).i32() != -1 {
-            let form = e.call(ENTRY_OBJECT, &args![entry]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             if e.call(FORM_TYPE, &args![form]).u32() == form_type {
                 return;
             }
         }
     }
-    let form = e.call(ENTRY_OBJECT, &args![entry]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
     let default_object = e.call(GET_DEFAULT_OBJECT, &args![0u32]).u32();
     if form == default_object {
         let slots = player + 0xa4;
@@ -601,11 +606,11 @@ pub fn fn_00701e80(e: &mut Engine, this: Ptr<HotKeysWheel>) {
     }
     let worn = e.call(ITEM_GET_WORN, &args![entry, 0u32]).bool();
     let count = if counted {
-        e.call(WORD_AT_FOUR, &args![entry]).u32()
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
     } else {
         1
     };
-    let object = e.call(ENTRY_OBJECT, &args![entry]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
     let queue = if worn {
         QUEUE_UNEQUIP_OBJECT
     } else {
@@ -616,7 +621,7 @@ pub fn fn_00701e80(e: &mut Engine, this: Ptr<HotKeysWheel>) {
         &args![player, object, count, extra, 0u32, 0u32, 1u32],
     );
     e.call(UPDATE_PLAYER_3D, &args![player]);
-    let acquire = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![player]).u32();
+    let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     e.vcall(acquire, 0x580, &args![1u32, 0u32, 0u32]);
     let player: u32 = e.global(PLAYER);
     e.vcall(player, 0x3c4, &args![]);

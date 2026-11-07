@@ -70,12 +70,14 @@ const FREE: u32 = 0x0040_1030;
 /// 0x3C`, `m_rankDataList`, Xbox PDB).
 const RANK_LIST: u32 = 0x005a_8080;
 /// `006815c0` (`ECX` = node): the address of the node's item.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `0063f7b0` (`ECX` = node): removes the node's item.
 const NODE_REMOVE: u32 = 0x0063_f7b0;
 /// `00905820` (`ECX` = list, the address of an item): adds the item.
 const LIST_ADD: u32 = 0x0090_5820;
 /// `008256d0` (`ECX` = list): true when the list is empty.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 
 const SIG_EDID: u32 = 0x4449_4445;
@@ -236,11 +238,11 @@ pub fn fn_005fc800(e: &mut Engine, this: Ptr) {
 pub fn fn_005fc860(e: &mut Engine, this: Ptr) {
     loop {
         let list = e.call(RANK_LIST, &args![this]).u32();
-        if e.call(LIST_IS_EMPTY, &args![list]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
             break;
         }
         let list = e.call(RANK_LIST, &args![this]).u32();
-        let at = e.call(NODE_ITEM, &args![list]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let rank = e.mem.u32(at);
         if rank != 0 {
             fn_005fc8d0(e, Ptr::new(rank), 1);
@@ -550,8 +552,8 @@ pub fn fn_005fc9d0(e: &mut Engine, this: Ptr) {
     }
     let mut index = 0u32;
     let mut node = e.call(RANK_LIST, &args![this]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let rank = e.mem.u32(slot);
         e.call(WRITE_WORD_CHUNK, &args![SIG_RNAM, index]);
         for (offset, chunk) in [(0u32, SIG_MNAM), (8, SIG_FNAM)] {
@@ -560,7 +562,8 @@ pub fn fn_005fc9d0(e: &mut Engine, this: Ptr) {
                     .call(0x0040_48e0, &args![rank + offset])
                     .u32()
                     .wrapping_add(1);
-                let text = e.call(0x0055_9450, &args![rank + offset]).u32();
+                let text =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, rank + offset));
                 e.call(WRITE_ARRAY_CHUNK, &args![chunk, text, size]);
             }
         }
@@ -573,11 +576,11 @@ pub fn fn_005fc9d0(e: &mut Engine, this: Ptr) {
             e.call(WRITE_ARRAY_CHUNK, &args![SIG_INAM, text, size]);
         }
         index = index.wrapping_add(1);
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let reputation = e.mem.u32(base + 0x38);
     if reputation != 0 {
-        let id = e.call(0x0084_e3a0, &args![reputation]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reputation));
         e.call(WRITE_WORD_CHUNK, &args![SIG_WMI1, id]);
     }
     e.call(0x0048_5680, &args![this]);

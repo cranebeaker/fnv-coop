@@ -15,6 +15,7 @@ pub fn fn_00519550(e: &mut Engine, this: Ptr) {
 
 /// `008256d0` (`thiscall` on the member at +0x88, a byte answer) and
 /// `005f65d0` (`thiscall` on it, one word: the address of a form pointer).
+#[cfg(test)]
 const MEMBER_008256D0: u32 = 0x0082_56d0;
 const MEMBER_005F65D0: u32 = 0x005f_65d0;
 /// `00401170` (`thiscall`: the form's type), `__RTDynamicCast`
@@ -29,7 +30,11 @@ const CELL_00425FD0: u32 = 0x0042_5fd0;
 // Translated from 005194d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// No map name: whether `008256d0` on the member at +0x88 answers false.
 pub fn fn_005194d0(e: &mut Engine, this: Ptr) -> bool {
-    !e.call(MEMBER_008256D0, &args![this.byte_add(0x88)]).bool()
+    !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.byte_add(0x88))
+    )
 }
 
 // Translated from 00519500 (decompiled, FalloutNV.exe 1.4.0.525)

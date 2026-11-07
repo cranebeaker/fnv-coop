@@ -34,6 +34,7 @@ const CLEAR_ACOUSTIC_SPACE: u32 = 0x0082_eb70;
 const ADD_PATH_CALLEE: u32 = 0x0082_eae0;
 /// Thiscall getter on a reference whose result the audio calls take
 /// (`007af430`; the engine map's `BGSSaveFormBuffer::GetForm` is a folded name).
+#[cfg(test)]
 const REFERENCE_AUDIO_KEY: u32 = 0x007a_f430;
 /// Map `SetAt(key, value)` (`00844700`, a folded `NiTMapBase<..>::SetAt` body).
 const MAP_SET_AT: u32 = 0x0084_4700;
@@ -104,7 +105,11 @@ pub fn bgs_acoustic_space_listener_entity_removed_callback(
 // Translated from 0061f6c0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Reads the pointer held at `this + 0xdec` through `00559450`.
 pub fn fn_0061f6c0(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(0x0055_9450, &args![this.addr() + 0xdec]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xdec)
+    )
 }
 
 /// The reference on the other side of a contact with the global reference,
@@ -148,7 +153,7 @@ pub fn bgs_acoustic_space_listener_contact_point_added_callback(
     let cancelled = e.get(this, BGSAcousticSpaceListener::bBufferRemovalOperations)
         && fn_0061f890(e, this, Ptr::new(partner), false) != 0;
     if !cancelled {
-        let key = e.call(REFERENCE_AUDIO_KEY, &args![partner]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, partner));
         e.call(ADD_PATH_CALLEE, &args![key]);
     }
     true
@@ -169,7 +174,7 @@ pub fn bgs_acoustic_space_listener_contact_point_removed_callback(
         if e.get(this, BGSAcousticSpaceListener::bBufferRemovalOperations) {
             fn_0061f870(e, this, Ptr::new(partner));
         } else {
-            let key = e.call(REFERENCE_AUDIO_KEY, &args![partner]).u32();
+            let key = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, partner));
             e.call(CLEAR_ACOUSTIC_SPACE, &args![key]);
         }
     }
@@ -201,7 +206,7 @@ pub fn fn_0061f890(
         )
         .u8();
     if removed != 0 && clear {
-        let key = e.call(REFERENCE_AUDIO_KEY, &args![reference]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         e.call(CLEAR_ACOUSTIC_SPACE, &args![key]);
     }
     removed
@@ -220,7 +225,11 @@ pub fn fn_0061f8e0(e: &mut Engine, this: Ptr<BGSAcousticSpaceListener>, _unused_
         e.mem.set_u32(position, first);
         while e.mem.u32(position) != 0 {
             e.call(MAP_GET_NEXT, &args![map, position, key, value]);
-            let audio_key = e.call(REFERENCE_AUDIO_KEY, &args![e.mem.u32(key)]).u32();
+            let audio_key = typed_call!(
+                leaf::FAMILY,
+                0x007a_f430,
+                leaf::word_at_20(e, e.mem.u32(key))
+            );
             e.call(CLEAR_ACOUSTIC_SPACE, &args![audio_key]);
         }
     });
@@ -264,7 +273,8 @@ pub fn bgs_acoustic_space_listener_update(
                     let reference = e.mem.u32(scan_key);
                     e.call(MAP_REMOVE_AT, &args![map, reference]);
                     let reference = e.mem.u32(scan_key);
-                    let audio_key = e.call(REFERENCE_AUDIO_KEY, &args![reference]).u32();
+                    let audio_key =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                     e.call(CLEAR_ACOUSTIC_SPACE, &args![audio_key]);
                     again = true;
                     break;

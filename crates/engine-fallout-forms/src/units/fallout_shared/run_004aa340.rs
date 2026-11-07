@@ -65,6 +65,7 @@ const FADE_NODE_REFERENCE: u32 = 0x009a_d610;
 const FORM_TABLE_LOOKUP: u32 = 0x0057_c850;
 /// Returns the dword at `this + 0x20` (the engine map names this body
 /// `BGSSaveFormBuffer::GetForm`; for a reference it is the base form).
+#[cfg(test)]
 const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 /// Returns the byte at `this + 4`: `TESForm::cFormType`.
 const FORM_TYPE: u32 = 0x0040_1170;
@@ -216,7 +217,7 @@ pub fn fn_004aa3d0(e: &mut Engine, this: Ptr<BGSTextureUseMap>, node: Ptr, flag:
                 });
             }
             if form != 0 && !in_filter_table {
-                let base_form = e.call(REFERENCE_BASE_FORM, &args![form]).u32();
+                let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, form));
                 let form_type = e.call(FORM_TYPE, &args![base_form]).u32() & 0xff;
                 let follows_only_with_flag =
                     (FORM_TYPE_FIRST..=FORM_TYPE_LAST).contains(&form_type);

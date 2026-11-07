@@ -32,8 +32,8 @@ pub fn tes_model_texture_swap_initialize_data_component(e: &mut Engine, this: Pt
 pub fn tesmodeltextureswap_init_item(e: &mut Engine, this: Ptr, owner: Ptr) {
     let mut node = e.call(0x0050_0940, &args![this]).u32();
     let mut previous = 0u32;
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let data = e.call(0x0068_15c0, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(data);
         let id_slot = e.mem.alloc(4);
         let entry_id = e.mem.u32(entry);
@@ -50,7 +50,7 @@ pub fn tesmodeltextureswap_init_item(e: &mut Engine, this: Ptr, owner: Ptr) {
             .u32();
         e.mem.set_u32(entry, found);
         if found == 0 {
-            let owner_id = e.call(0x0084_e3a0, &args![owner]).u32();
+            let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             let owner_name = e.vcall(owner.addr(), 0x130, &args![]).u32();
             e.call(
                 0x005b_5e40,
@@ -61,14 +61,14 @@ pub fn tesmodeltextureswap_init_item(e: &mut Engine, this: Ptr, owner: Ptr) {
                 e.mem.set_u32(list_entry, entry);
                 e.call(0x0090_5330, &args![previous, list_entry]);
                 e.mem.free(list_entry);
-                node = e.call(0x0072_6070, &args![previous]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
             } else {
                 e.call(0x0063_f7b0, &args![node]);
             }
             e.call(0x0040_1030, &args![entry]);
         } else {
             previous = node;
-            node = e.call(0x0072_6070, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         e.mem.free(id_slot);
     }
@@ -122,8 +122,11 @@ const FREE: u32 = 0x0040_1030;
 /// The swap list's first node (`00500940`, `__thiscall` on the model), a
 /// node's data address, its next node and whether it ends the walk.
 const SWAP_LIST: u32 = 0x0050_0940;
+#[cfg(test)]
 const NODE_DATA: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const NODE_IS_END: u32 = 0x0082_56d0;
 /// Adds the word at the pointer argument to a list (`__thiscall`, `RET 4`).
 const LIST_ADD: u32 = 0x005a_e3d0;
@@ -132,6 +135,7 @@ const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
 /// The error printer (`005b5e40`, cdecl, format and arguments).
 const PRINT_ERROR: u32 = 0x005b_5e40;
 /// The word at `+0xc` (`0084e3a0`): a form's id, a map's item count.
+#[cfg(test)]
 const WORD_0C: u32 = 0x0084_e3a0;
 /// The vtables of `BSMap<int,TEX_SWAP*>` and of its base
 /// `BSMapBase<int,TEX_SWAP*>` (engine map names of their scalar deleting
@@ -252,8 +256,8 @@ pub fn fn_0048b460(e: &mut Engine, this: Ptr) {
 /// it (`00401030`). `ECX`, no stack words.
 pub fn tes_model_texture_swap_clear_tex_swap_list(e: &mut Engine, this: Ptr) {
     let list = this.addr() + 0x18;
-    while !e.call(NODE_IS_END, &args![list]).bool() {
-        let data = e.call(NODE_DATA, &args![list]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let entry = e.mem.u32(data);
         e.call(LIST_REMOVE_HEAD, &args![list]);
         e.call(FREE, &args![entry]);
@@ -292,14 +296,14 @@ pub fn tes_model_texture_swap_get_tex_swap(e: &mut Engine, this: Ptr, index: i32
         return 0;
     }
     let mut node = e.call(SWAP_LIST, &args![this]).u32();
-    while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
-        let data = e.call(NODE_DATA, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(data);
         if index == e.mem.i32(entry + 4) {
-            let data = e.call(NODE_DATA, &args![node]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             return e.mem.u32(data);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     0
 }
@@ -471,7 +475,7 @@ pub fn tes_model_texture_swap_has_texture_swap(e: &mut Engine, form: u32, which:
         return false;
     }
     let list = e.call(SWAP_LIST, &args![model]).u32();
-    !e.call(NODE_IS_END, &args![list]).bool()
+    !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list))
 }
 
 // Translated from 0048b130 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -538,7 +542,7 @@ pub fn tes_model_texture_swap_swap_textures_recurse(
         }
         let index = e.mem.u32(shape_index);
         e.call(0x0040_5430, &args![swaps, index]);
-        if e.call(WORD_0C, &args![swaps]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, swaps)) == 0 {
             return true;
         }
     }
@@ -569,10 +573,10 @@ pub fn tes_model_texture_swap_swap_textures(e: &mut Engine, this: Ptr, node: u32
     e.with_stack(0x10, |e, map| {
         fn_0048b380(e, map, 0x25);
         let mut list = e.call(SWAP_LIST, &args![this]).u32();
-        while list != 0 && !e.call(NODE_IS_END, &args![list]).bool() {
-            let data = e.call(NODE_DATA, &args![list]).u32();
+        while list != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let entry = e.mem.u32(data);
-            list = e.call(NODE_NEXT, &args![list]).u32();
+            list = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list));
             if e.mem.i32(entry + 4) == -1 {
                 e.call(PRINT_ERROR, &args![0x0101_d234u32]);
             } else {
@@ -580,7 +584,7 @@ pub fn tes_model_texture_swap_swap_textures(e: &mut Engine, this: Ptr, node: u32
                 e.call(0x006f_9a80, &args![map, index, entry]);
             }
         }
-        if e.call(WORD_0C, &args![map]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, map)) != 0 {
             e.with_stack(4, |e, shape_index| {
                 tes_model_texture_swap_swap_textures_recurse(
                     e,
@@ -589,7 +593,7 @@ pub fn tes_model_texture_swap_swap_textures(e: &mut Engine, this: Ptr, node: u32
                     shape_index.addr(),
                 );
             });
-            if e.call(WORD_0C, &args![map]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, map)) != 0 {
                 e.call(PRINT_ERROR, &args![0x0101_d20cu32]);
             }
         }
@@ -697,11 +701,11 @@ pub fn tes_model_texture_swap_build_texture_swap_chunk_data(
     e.mem.set_u32(block, 0);
     e.mem.set_u32(size, 0);
     let mut node = e.call(SWAP_LIST, &args![this]).u32();
-    if !e.call(NODE_IS_END, &args![node]).bool() {
+    if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let mut count = 0u32;
         e.mem.set_u32(size, 4);
-        while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
-            let data = e.call(NODE_DATA, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let entry = e.mem.u32(data);
             let total = e.mem.u32(size).wrapping_add(4);
             e.mem.set_u32(size, total);
@@ -713,7 +717,7 @@ pub fn tes_model_texture_swap_build_texture_swap_chunk_data(
             let total = e.mem.u32(size).wrapping_add(4);
             e.mem.set_u32(size, total);
             count = count.wrapping_add(1);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let bytes = e.mem.u32(size);
         let buffer = e.call(ALLOCATE, &args![bytes]).u32();
@@ -728,8 +732,10 @@ pub fn tes_model_texture_swap_build_texture_swap_chunk_data(
             e.mem.set_u32(out, value);
             out = out.wrapping_add(4);
             node = e.call(SWAP_LIST, &args![this]).u32();
-            while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
-                let data = e.call(NODE_DATA, &args![node]).u32();
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
+                let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(data);
                 let length = e.call(STRLEN, &args![entry + 8]).u32();
                 if e.call(SWAP_BYTES, &[]).u32() as u8 != 0 {
@@ -742,14 +748,14 @@ pub fn tes_model_texture_swap_build_texture_swap_chunk_data(
                 let mut id = 0u32;
                 let texture_set = e.mem.u32(entry);
                 if texture_set != 0 {
-                    id = e.call(WORD_0C, &args![texture_set]).u32();
+                    id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, texture_set));
                 }
                 e.mem.set_u32(out, id);
                 out = out.wrapping_add(4);
                 let index = e.mem.u32(entry + 4);
                 e.mem.set_u32(out, index);
                 out = out.wrapping_add(4);
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         });
     }
@@ -770,13 +776,13 @@ pub fn tes_model_texture_swap_copy_component(e: &mut Engine, this: Ptr, other: u
     }
     tes_model_texture_swap_clear_tex_swap_list(e, this);
     let mut node = e.call(SWAP_LIST, &args![source]).u32();
-    while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
-        let data = e.call(NODE_DATA, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(data);
         let texture_set = e.mem.u32(entry);
         let index = e.mem.i32(entry + 4);
         tes_model_texture_swap_add_tex_swap(e, this, entry + 8, index, texture_set);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -804,8 +810,8 @@ pub fn tes_model_texture_swap_compare_component(e: &mut Engine, this: Ptr, other
         return true;
     }
     let mut node = e.call(SWAP_LIST, &args![source]).u32();
-    while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
-        let data = e.call(NODE_DATA, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(data);
         let index = e.mem.i32(entry + 4);
         let own = tes_model_texture_swap_get_tex_swap(e, this, index);
@@ -821,7 +827,7 @@ pub fn tes_model_texture_swap_compare_component(e: &mut Engine, this: Ptr, other
         {
             return true;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }

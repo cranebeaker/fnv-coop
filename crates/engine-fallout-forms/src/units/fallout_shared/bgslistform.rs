@@ -25,10 +25,13 @@ const LIST_FORM_VTABLE: u32 = 0x0103_34b4;
 /// The list at `this + 0x18` (`00500940`, plain `RET`).
 const LIST_OF_FORMS: u32 = 0x0050_0940;
 /// A `BSSimpleList` node's empty test (`008256d0`, `bool`).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// The address of a node's item (`006815c0`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// A node's next node (`00726070`).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// Appends the item a pointer points at to a list (`00905820`, `RET 4`).
 const LIST_ADD_TAIL: u32 = 0x0090_5820;
@@ -43,6 +46,7 @@ const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const TYPE_TES_FORM: u32 = 0x0118_3028;
 const TYPE_BGS_LIST_FORM: u32 = 0x0118_63d4;
 /// `TESForm`'s form id getter (`0084e3a0`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// Tests form flag 0x8 (`004013e0`: `iFormFlags & 8`).
 const FORM_FLAG_8_SET: u32 = 0x0040_13e0;
@@ -77,17 +81,17 @@ fn list_of_forms(e: &mut Engine, form: u32) -> u32 {
 }
 
 fn node_is_empty(e: &mut Engine, node: u32) -> bool {
-    e.call(NODE_IS_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 /// The item (a `TESForm *`) of a node, read through its address.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let at = e.call(NODE_ITEM, &args![node]).u32();
+    let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(at)
 }
 
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// `__RTDynamicCast(form, 0, TESForm, BGSListForm, 0)`.
@@ -215,7 +219,7 @@ pub fn fn_0058fcc0(e: &mut Engine, this: Ptr<BGSListForm>) {
     let mut node = list_of_forms(e, this.addr());
     while node != 0 && !node_is_empty(e, node) {
         let item = node_item(e, node);
-        let id = e.call(FORM_ID, &args![item]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
         e.call(0x0048_5910, &args![SIG_LNAM, id]);
         node = node_next(e, node);
     }
@@ -307,7 +311,7 @@ pub fn bgs_list_form_init_item(e: &mut Engine, this: Ptr<BGSListForm>) {
                 previous = node;
                 node = node_next(e, node);
             } else {
-                let form_id = e.call(FORM_ID, &args![this]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 let name = e.vcall(this.addr(), 0x130, &args![]).u32();
                 let id = e.mem.u32(id_at.addr());
                 e.call(0x005b_5e40, &args![MISSING_FORM_MESSAGE, id, name, form_id]);

@@ -32,6 +32,7 @@ const TYPE_INGREDIENT_ITEM: u32 = 0x0118_39dc;
 const TYPE_SPELL_ITEM: u32 = 0x0118_3060;
 /// The word getter `0084e3a0` (`ECX` = object): the word at +0xC (a form's
 /// id, an active effect's effect item, an effect item's range).
+#[cfg(test)]
 const WORD_AT_C: u32 = 0x0084_e3a0;
 /// The default listener position (`NiPoint3`, three words) passed by value.
 const DEFAULT_POINT: u32 = 0x011f_426c;
@@ -88,7 +89,9 @@ const DISTANCE_BETWEEN_FACING_ACTORS: u32 = 0x009a_64d0;
 const LOCAL_LIST_CONSTRUCT: u32 = 0x0096_a2d0;
 const LOCAL_LIST_REMOVE_ALL: u32 = 0x0047_0470;
 const LOCAL_LIST_DESTRUCT: u32 = 0x0046_ffb0;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 const COLLECT_TARGETS: u32 = 0x0081_8ce0;
 const SETTING_DURATION: u32 = 0x0063_9b20;
@@ -114,6 +117,7 @@ const CHECK_ADDICTION: u32 = 0x0082_4e70;
 const ANGLES: u32 = 0x0043_0830;
 const ANGLE_FIRST: u32 = 0x005b_9e80;
 const ANGLE_SECOND: u32 = 0x005c_53d0;
+#[cfg(test)]
 const POINT_SET: u32 = 0x0041_6870;
 const START_EFFECT_SHADER: u32 = 0x0068_90b0;
 const SET_IDLE: u32 = 0x0068_9920;
@@ -375,7 +379,7 @@ fn alchemy_adjust(e: &mut Engine, actor: u32, effect: u32, scale: u32, effective
     e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), value);
         if e.vcall(actor, 0x360, &[]).bool() {
-            let item = e.call(WORD_AT_C, &args![effect]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
             if e.call(EFFECT_ITEM_ACTOR_VALUE, &args![item]).u32() == 0x10 {
                 e.call(HANDLE_ENTRY_POINT, &args![0xcu32, actor, slot]);
             }
@@ -537,7 +541,11 @@ pub fn magic_caster_find_targets(
             spell.wrapping_add(0xc)
         };
         while effect_node != 0 {
-            let slot = e.call(NODE_ITEM, &args![effect_node.wrapping_add(4)]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, effect_node.wrapping_add(4))
+            );
             let mut effect_item = e.mem.u32(slot);
             if effect_item != 0 && e.vcall(spell, 0x18, &[]).u32() == 6 && source != 0 {
                 let setting = e.call(EFFECT_ITEM_SETTING, &args![effect_item]).u32();
@@ -555,7 +563,8 @@ pub fn magic_caster_find_targets(
                 let active = e
                     .vcall(this.addr(), 0x4c, &args![spell, effect_item, source])
                     .u32();
-                let active_item = e.call(WORD_AT_C, &args![active]).u32();
+                let active_item =
+                    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, active));
                 let active_setting = e.call(EFFECT_ITEM_SETTING, &args![active_item]).u32();
                 let duration = x87_store32(e.call(SETTING_DURATION, &args![active_setting]).f64());
                 if mark != 0 {
@@ -569,7 +578,8 @@ pub fn magic_caster_find_targets(
                         let apply = if hostile_only == 0 {
                             true
                         } else {
-                            let item = e.call(WORD_AT_C, &args![active]).u32();
+                            let item =
+                                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, active));
                             e.call(EFFECT_ITEM_IS_HOSTILE, &args![item]).bool()
                         };
                         if apply {
@@ -592,7 +602,8 @@ pub fn magic_caster_find_targets(
                             );
                         }
                         if alchemy != 0 && e.call(ALCHEMY_HAS_FLAG, &args![alchemy, 2u32]).bool() {
-                            let item = e.call(WORD_AT_C, &args![active]).u32();
+                            let item =
+                                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, active));
                             if e.call(EFFECT_ITEM_ACTOR_VALUE, &args![item]).u32() != 0x36 {
                                 alchemy_adjust(
                                     e,
@@ -605,7 +616,8 @@ pub fn magic_caster_find_targets(
                             }
                         }
                         if alchemy != 0 && e.call(ALCHEMY_HAS_FLAG, &args![alchemy, 2u32]).bool() {
-                            let item = e.call(WORD_AT_C, &args![active]).u32();
+                            let item =
+                                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, active));
                             if e.call(EFFECT_ITEM_ACTOR_VALUE, &args![item]).u32() == 0x36 {
                                 let factor = e.with_stack(4, |e, slot| {
                                     e.mem.set_u32(slot.addr(), 1.0f32.to_bits());
@@ -692,7 +704,7 @@ pub fn magic_caster_find_targets(
                     }
                     _ => {}
                 }
-                let range = e.call(WORD_AT_C, &args![effect_item]).u32();
+                let range = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect_item));
                 if range == 0 && !poison {
                     if effect_item != self_effect {
                         flag_secondary(e, active);
@@ -700,7 +712,10 @@ pub fn magic_caster_find_targets(
                     if e.vcall(this.addr(), 0x38, &args![active]).bool() {
                         hit = true;
                     }
-                } else if e.call(WORD_AT_C, &args![effect_item]).u32() == 1 || poison {
+                } else if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect_item))
+                    == 1
+                    || poison
+                {
                     let costliest = if poison { self_effect } else { touch_effect };
                     if effect_item != costliest {
                         flag_secondary(e, active);
@@ -736,7 +751,11 @@ pub fn magic_caster_find_targets(
             if e.vcall(spell, 0x18, &[]).u32() == 8 {
                 effect_node = 0;
             } else {
-                let next = e.call(NODE_NEXT, &args![effect_node.wrapping_add(4)]).u32();
+                let next = typed_call!(
+                    leaf::FAMILY,
+                    0x0072_6070,
+                    leaf::word_at_4(e, effect_node.wrapping_add(4))
+                );
                 effect_node = if next != 0 { next.wrapping_sub(4) } else { 0 };
             }
         }
@@ -756,7 +775,7 @@ pub fn magic_caster_find_targets(
         if center != 0 {
             e.with_stack(0xc, |e, point| {
                 // `006815c0` run on the stack point (its result is unused).
-                e.call(NODE_ITEM, &args![point]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
                 let magic_node = if actor != 0 && source == 0 {
                     e.vcall(actor.wrapping_add(0x88), 0x30, &[]).u32()
                 } else {
@@ -868,9 +887,10 @@ fn area_effect_shader(
         let negated = x87_quiet_bits(e.mem.u32(angles)) ^ 0x8000_0000;
         let second = e.call(ANGLE_SECOND, &args![negated]).f64();
         let second = x87_store32(-second);
-        e.call(
-            POINT_SET,
-            &args![direction, second, first, 0.0f32.to_bits()],
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, direction, second, first, 0.0f32.to_bits())
         );
         let model = e.vcall(av_setting.wrapping_add(0x18), 0x14, &[]).u32();
         let location = e.call(LOCATION, &args![center]).u32();
@@ -970,11 +990,11 @@ pub fn magic_caster_get_magic_caster_form_id(e: &mut Engine, this: Ptr) -> u32 {
         TYPE_NON_ACTOR_MAGIC_CASTER,
     );
     if actor != 0 {
-        return e.call(WORD_AT_C, &args![actor]).u32();
+        return typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
     }
     if non_actor != 0 && e.vcall(non_actor.wrapping_add(0xc), 0x2c, &[]).u32() != 0 {
         let reference = e.vcall(non_actor.wrapping_add(0xc), 0x2c, &[]).u32();
-        return e.call(WORD_AT_C, &args![reference]).u32();
+        return typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
     }
     0
 }
@@ -1531,6 +1551,7 @@ const SOUND_HANDLE_DESTRUCT: u32 = 0x0048_3710;
 /// The spell's name into a string (`0040bef0`, `RET 8`), the string's text (`00559450`) and
 /// destructor (`004037d0`).
 const SPELL_NAME: u32 = 0x0040_bef0;
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 const STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// `007052f0` (`cdecl`, six words): shows a message (the text, 0, 0, 0, a `float`, 0) and the
@@ -1550,6 +1571,7 @@ const CHARACTER_PROXY: u32 = 0x004a_e750;
 const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// `0044ddc0` (`thiscall`): an active effect's spell; `007df1d0` its effect setting;
 /// `007df1f0` its duration (`ST0`); `00495460` its magnitude (`ST0`).
+#[cfg(test)]
 const ACTIVE_EFFECT_SPELL: u32 = 0x0044_ddc0;
 const ACTIVE_EFFECT_SETTING: u32 = 0x007d_f1d0;
 const ACTIVE_EFFECT_DURATION: u32 = 0x007d_f1f0;
@@ -1580,8 +1602,8 @@ const ACTOR_REACHES: u32 = 0x009a_6ae0;
 const FLOAT_MAX: u32 = 0x0101_6970;
 const DEFAULT_TOUCH_SETTING: u32 = 0x011c_f84c;
 /// `008d8520` (`thiscall`): the actor's process; `0045cd60` (`thiscall`): a word of it.
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
-const PROCESS_BUSY: u32 = 0x0045_cd60;
 /// `00572380` (`RET 4`, `ST0`): the reference's distance to a point.
 const DISTANCE_TO_POINT: u32 = 0x0057_2380;
 /// `008ace90` (`thiscall`): a `bool` of the actor that excludes it.
@@ -1785,11 +1807,11 @@ pub fn magic_caster_release_cast(e: &mut Engine, this: Ptr, source: u32) -> bool
             && e.vcall(actor, 0x360, &[]).bool()
             && (ingredient == 0 || e.vcall(ingredient.wrapping_add(0x3c), 4, &[]).bool())
         {
-            let text = e.call(STRING_TEXT, &args![name]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
             let time = x87_quiet_bits(e.mem.u32(MESSAGE_TIME));
             e.call(SHOW_MESSAGE, &args![text, 0u32, 0u32, 0u32, time, 0u32]);
         }
-        let text = e.call(STRING_TEXT, &args![name]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
         fn_00818af0(e, this, 7, text);
         let spell = e.vcall(base, 0x34, &[]).u32();
         e.vcall(base, 0x24, &args![spell, 0u32]);
@@ -1829,7 +1851,7 @@ pub fn magic_caster_find_targets_in_area(
     if location == 0 {
         return;
     }
-    let item = e.call(WORD_AT_C, &args![effect]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
     let mut area = e.call(EFFECT_ITEM_GET_AREA, &args![item]).i32();
     if area <= 0 {
         return;
@@ -1843,11 +1865,11 @@ pub fn magic_caster_find_targets_in_area(
         put_point(e, point, [x, y, z]);
         let mut node = list;
         while node != 0 {
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item) == 0 {
                 return;
             }
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let reference = e.mem.u32(item);
             if reference != 0 {
                 let target = e.vcall(reference, 0x19c, &[]).u32();
@@ -1891,7 +1913,7 @@ pub fn magic_caster_find_targets_in_area(
                     }
                 }
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 }
@@ -1958,9 +1980,13 @@ pub fn magic_caster_find_targets_ov2(
         fn_00818ce0(e, this, spell, 2, x, y, z, list);
         e.mem.set_u8(found, 0);
         while entry != 0 {
-            let item_slot = e.call(NODE_ITEM, &args![entry.wrapping_add(4)]).u32();
+            let item_slot = typed_call!(
+                leaf::FAMILY,
+                0x0068_15c0,
+                leaf::same_word(e, entry.wrapping_add(4))
+            );
             let item = e.mem.u32(item_slot);
-            if item != 0 && e.call(WORD_AT_C, &args![item]).u32() == 2 {
+            if item != 0 && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item)) == 2 {
                 let effect = e.vcall(base, 0x4c, &args![spell, item, 0u32]).u32();
                 if item != costliest {
                     flag_secondary(e, effect);
@@ -2028,7 +2054,11 @@ pub fn magic_caster_find_targets_ov2(
                     e.vcall(effect, 0, &args![1u32]);
                 }
             }
-            let next = e.call(NODE_NEXT, &args![entry.wrapping_add(4)]).u32();
+            let next = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, entry.wrapping_add(4))
+            );
             entry = if next != 0 { next.wrapping_sub(4) } else { 0 };
         }
         let form = e.call(BASE_FORM, &args![projectile]).u32();
@@ -2204,30 +2234,30 @@ fn next_live_character(e: &mut Engine, node: &mut u32) -> u32 {
     if *node == 0 {
         return 0;
     }
-    let item = e.call(NODE_ITEM, &args![*node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, *node));
     if e.mem.u32(item) == 0 {
         return 0;
     }
-    let item = e.call(NODE_ITEM, &args![*node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, *node));
     let reference = e.mem.u32(item);
     let mut candidate = dynamic_cast(e, reference, TYPE_ACTOR, TYPE_CHARACTER);
-    *node = e.call(NODE_NEXT, &args![*node]).u32();
+    *node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, *node));
     while candidate != 0 {
-        let process = e.call(ACTOR_PROCESS, &args![candidate]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, candidate));
         if process != 0 {
-            let process = e.call(ACTOR_PROCESS, &args![candidate]).u32();
-            if e.call(PROCESS_BUSY, &args![process]).u32() == 0 {
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, candidate));
+            if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == 0 {
                 return candidate;
             }
         }
         candidate = 0;
         if *node != 0 {
-            let item = e.call(NODE_ITEM, &args![*node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, *node));
             let reference = e.mem.u32(item);
             candidate = dynamic_cast(e, reference, TYPE_ACTOR, TYPE_CHARACTER);
         }
         if *node != 0 {
-            *node = e.call(NODE_NEXT, &args![*node]).u32();
+            *node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, *node));
         }
     }
     0
@@ -2266,15 +2296,18 @@ pub fn magic_caster_check_will_kill(e: &mut Engine, this: Ptr, target: u32, spel
     let health = x87_store32(e.call(ACTOR_HEALTH, &args![actor]).f64());
     let mut node = e.vcall(target, 8, &[]).u32();
     let mut total = 0.0f32.to_bits();
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect = e.mem.u32(item);
-        if effect != 0 && e.call(ACTIVE_EFFECT_SPELL, &args![effect]).u32() == spell {
+        if effect != 0
+            && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, effect)) == spell
+        {
             let setting = e.call(ACTIVE_EFFECT_SETTING, &args![effect]).u32();
             let value = if e.call(SETTING_USES_OWN_VALUE, &args![setting]).bool() {
                 e.call(SETTING_ACTOR_VALUE, &args![setting]).u32()
             } else {
-                let effect_item = e.call(WORD_AT_C, &args![effect]).u32();
+                let effect_item =
+                    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect));
                 e.call(EFFECT_ITEM_ACTOR_VALUE, &args![effect_item]).u32()
             };
             if value == 0x10
@@ -2295,7 +2328,7 @@ pub fn magic_caster_check_will_kill(e: &mut Engine, this: Ptr, target: u32, spel
                 total = x87_store32(x87_add(x87_load32(total), x87_m32(damage)));
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let negated = x87_store32(-x87_load32(total));
     let adjusted = e
@@ -2307,6 +2340,7 @@ pub fn magic_caster_check_will_kill(e: &mut Engine, this: Ptr, target: u32, spel
 }
 
 /// `008256d0` (`thiscall`): a list node is empty.
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 
 /// Explosion helpers: `00404390` (`EffectItem::GetMagnitude`, a word stays pushed for the
@@ -2337,8 +2371,10 @@ const PHANTOM_REMOVE: u32 = 0x00c9_f420;
 const PROXY_ENTRY: u32 = 0x0062_9ab0;
 const ENTRY_REFERENCE: u32 = 0x004b_59f0;
 const CELL_HAVOK_WORLD: u32 = 0x0045_43c0;
+#[cfg(test)]
 const NODE_NEXT_WORD: u32 = 0x0072_6070;
 /// `00559450` (`thiscall`): the first word of an object.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 
 // Translated from 00817b90 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2382,7 +2418,8 @@ pub fn magic_caster_do_explosion(
     if !(x87_load32(radius) > e.mem.f64(ZERO)) {
         return;
     }
-    let is_target = u32::from(e.call(WORD_AT_C, &args![effect]).u32() == 2);
+    let is_target =
+        u32::from(typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, effect)) == 2);
     let magnitude = e.call(EFFECT_ITEM_GET_MAGNITUDE, &args![effect]).i32();
     let magnitude = ftol(
         e,
@@ -2411,22 +2448,26 @@ pub fn magic_caster_do_explosion(
         let info = at(0x80);
         e.call(PHANTOM_INFO_CONSTRUCT, &args![info]);
         let negative = x87_store32(-x87_load32(half));
-        let corner = e
-            .call(POINT_SET, &args![at(0x8c), negative, negative, negative])
-            .u32();
+        let corner = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, at(0x8c), negative, negative, negative)
+        );
         let low = e.call(POINT_SUM, &args![point, at(0x98), corner]).u32();
         e.call(VECTOR_COPY, &args![at(0x60), low]);
         let positive = x87_quiet_bits(half);
-        let corner = e
-            .call(POINT_SET, &args![at(0xa4), positive, positive, positive])
-            .u32();
+        let corner = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, at(0xa4), positive, positive, positive)
+        );
         let high = e.call(POINT_SUM, &args![point, at(0xb0), corner]).u32();
         e.call(VECTOR_COPY, &args![at(0x50), high]);
         let layer = e.call(DEFAULT_LAYER, &[]).u32();
         let filter = e
             .call(FILTER_INFO, &args![at(0xb4), 0x29u32, layer, 0u32])
             .u32();
-        let word = e.call(FIRST_WORD, &args![filter]).u32();
+        let word = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, filter));
         e.mem.set_u32(info, word);
         let phantom = at(0xcc);
         e.call(AABB_PHANTOM_CONSTRUCT, &args![phantom, info]);
@@ -2434,7 +2475,11 @@ pub fn magic_caster_do_explosion(
         e.call(WORLD_OBJECT_ADD, &args![phantom, world]);
         let bodies = fn_00818110(e, Ptr::new(phantom));
         let mut index = 0i32;
-        while index < e.call(NODE_NEXT_WORD, &args![bodies]).i32() {
+        while index
+            < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, bodies))
+                .into_ret()
+                .i32()
+        {
             let entry = e.call(PROXY_ENTRY, &args![bodies, index as u32]).u32();
             let item = e.mem.u32(entry);
             let body = e.call(ENTRY_REFERENCE, &args![item]).u32();
@@ -2447,11 +2492,11 @@ pub fn magic_caster_do_explosion(
         let caster_actor = magic_caster_get_caster_as_actor(e, this).addr();
         let mut node = list;
         while node != 0 {
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item) == 0 {
                 break;
             }
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let reference = e.mem.u32(item);
             let actor = if e.vcall(reference, 0x100, &[]).bool() {
                 reference
@@ -2461,7 +2506,7 @@ pub fn magic_caster_do_explosion(
             if actor != 0 && actor != caster_actor && e.vcall(actor, 0x1d0, &[]).u32() != 0 {
                 explode_if_killed(e, this, actor, point, radius, spell, x, y, z, effect, cost);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let player = e.mem.u32(PLAYER);
         if player != 0 && player != caster_actor && e.vcall(player, 0x1d0, &[]).u32() != 0 {
@@ -2538,6 +2583,7 @@ const FORCE_LIMIT_SETTING: u32 = 0x011d_1884;
 const FORCE_SCALE_SETTING: u32 = 0x011d_1b8c;
 const POINT_DIFFERENCE: u32 = 0x0043_9ef0;
 const POINT_LENGTH: u32 = 0x0045_7990;
+#[cfg(test)]
 const SELF_ITEM: u32 = 0x0068_15c0;
 
 /// The force of an explosion (`00649300` with the cost and the area truncated) on
@@ -2593,7 +2639,7 @@ pub fn fn_00818150(
         put_point(e, point, [x, y, z]);
         let position = at(0x14);
         let direction = at(0x20);
-        e.call(SELF_ITEM, &args![position]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
         let source = e.call(BODY_POSITION, &args![body]).u32();
         e.call(COPY_POINT, &args![position, source]);
         e.call(POINT_DIFFERENCE, &args![position, direction, point]);
@@ -2615,7 +2661,7 @@ pub fn fn_00818150(
             &args![direction, scaled, x87_quiet_bits(force)],
         );
         let impulse = at(0x60);
-        e.call(SELF_ITEM, &args![impulse]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, impulse));
         e.call(VECTOR_COPY, &args![impulse, scaled]);
         let mass = x87_store32(e.call(BODY_MASS, &args![body]).f64());
         let factor = at(0x70);
@@ -2712,7 +2758,7 @@ pub fn magic_caster_explode_actor(
         // FCOMPP (the threshold against the force) / TEST AH,5 / JP: pushed when the
         // threshold is below.
         if threshold < x87_load32(force) {
-            let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             e.vcall(
                 process,
                 0x418,
@@ -2815,7 +2861,7 @@ pub fn magic_caster_fire_projectile(e: &mut Engine, this: Ptr) {
         let position = at(0x40);
         let offset = at(0x34);
         let angles = at(0x28);
-        e.call(SELF_ITEM, &args![position]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
         let words = point_words(e, DEFAULT_POINT);
         put_point(e, offset, words);
         put_point(e, angles, words);
@@ -3020,16 +3066,30 @@ pub fn fn_00818ce0(
     } else {
         0
     };
-    while entry != 0 && !e.call(NODE_IS_EMPTY, &args![entry.wrapping_add(4)]).bool() {
-        let item_slot = e.call(NODE_ITEM, &args![entry.wrapping_add(4)]).u32();
+    while entry != 0
+        && !typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, entry.wrapping_add(4))
+        )
+    {
+        let item_slot = typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, entry.wrapping_add(4))
+        );
         let item = e.mem.u32(item_slot);
         if item != 0
-            && e.call(WORD_AT_C, &args![item]).u32() == range
+            && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item)) == range
             && e.call(EFFECT_ITEM_GET_AREA, &args![item]).i32() > largest
         {
             largest = e.call(EFFECT_ITEM_GET_AREA, &args![item]).i32();
         }
-        let next = e.call(NODE_NEXT, &args![entry.wrapping_add(4)]).u32();
+        let next = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, entry.wrapping_add(4))
+        );
         entry = if next != 0 { next.wrapping_sub(4) } else { 0 };
     }
     if largest == 0 {

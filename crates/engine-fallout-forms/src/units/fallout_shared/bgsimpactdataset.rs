@@ -231,7 +231,7 @@ pub fn fn_0058edd0(e: &mut Engine, this: Ptr) {
             if e.mem.u32(slot) != 0 {
                 continue;
             }
-            let form_id = e.call(FORM_ID_0084E3A0, &args![this]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(this.addr(), 0x130, &args![]).u32();
             let id = e.mem.u32(id_at.addr());
             e.call(LOG, &args![MESSAGE_NO_IMPACT_DATA, id, name, form_id]);
@@ -504,7 +504,7 @@ pub fn fn_0058ed50(e: &mut Engine, this: Ptr) {
             let id = if data == 0 {
                 0
             } else {
-                e.call(FORM_ID_0084E3A0, &args![data]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, data))
             };
             e.mem.set_u32(ids.addr() + material * 4, id);
         }
@@ -559,7 +559,7 @@ pub fn impact_swap_save(e: &mut Engine, this: Ptr) {
                 for at in [record + 4, record + 8] {
                     let data = e.mem.u32(at);
                     if data != 0 {
-                        let id = e.call(FORM_ID_0084E3A0, &args![data]).u32();
+                        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, data));
                         e.mem.set_u32(at, id);
                     }
                 }
@@ -674,7 +674,7 @@ fn resolve_impact_data(e: &mut Engine, form: u32, id_at: u32, message: u32) -> u
             )
             .u32();
         if data == 0 {
-            let form_id = e.call(FORM_ID_0084E3A0, &args![form]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             let name = e.vcall(form, 0x130, &args![]).u32();
             let id = e.mem.u32(local.addr());
             e.call(LOG, &args![message, id, name, form_id]);

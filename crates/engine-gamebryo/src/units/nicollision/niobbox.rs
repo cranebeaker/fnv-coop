@@ -262,6 +262,7 @@ pub fn ni_obb_box_test_intersection_ray(
 /// vector; answers the out vector).
 const POINT_CROSS: u32 = 0x004b_3800;
 /// `NiPoint3::Dot` (`004b6190`, thiscall on one vector: the other; answers on the x87 stack).
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 
 /// A value stored as a float and its absolute value (`FSTP`, `FABS`, `FSTP`, `FLD`).
@@ -472,10 +473,20 @@ pub fn ni_obb_box_test_intersection(e: &mut Engine, this: Ptr, other: Ptr) -> bo
         // The swept axes: N = V x D against each box axis.
         e.call(POINT_CROSS, &args![v_at, n_at, d_at]);
         let dot = |e: &mut Engine, this: u32, other: u32| {
-            round(e.call(POINT_DOT, &args![this, other]).f64())
+            round(
+                typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, this, other))
+                    .into_ret()
+                    .f64(),
+            )
         };
-        let distance =
-            |e: &mut Engine, axis: u32| round(e.call(POINT_DOT, &args![axis, n_at]).f64().abs());
+        let distance = |e: &mut Engine, axis: u32| {
+            round(
+                typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, axis, n_at))
+                    .into_ret()
+                    .f64()
+                    .abs(),
+            )
+        };
         let q1 = dot(e, v_at, axis_a(1));
         let q2 = dot(e, v_at, axis_a(2));
         let (aq1, aq2) = (q1.abs(), q2.abs());
@@ -801,11 +812,23 @@ pub fn fn_00ebc2a0(e: &mut Engine, this: Ptr, other: Ptr, out_time: Ptr, out_poi
                     let first_term = x87_mul(coef_a[hi], c[hi][j]);
                     let sum = x87_add(first_term, x87_mul(coef_a[lo], c[lo][j]));
                     e.mem.set_u64(wide, sum.to_bits());
-                    let on_b = e.call(POINT_DOT, &args![axis_b(j), d_at]).f64();
+                    let on_b = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, axis_b(j), d_at)
+                    )
+                    .into_ret()
+                    .f64();
                     let gap = round(x87_sub(x87_load64(e.mem.u64(wide)), on_b));
                     let scaled = x87_mul(gap, cij);
                     e.mem.set_u64(wide, scaled.to_bits());
-                    let on_a = e.call(POINT_DOT, &args![axis_a(i), d_at]).f64();
+                    let on_a = typed_call!(
+                        leaf::FAMILY,
+                        0x004b_6190,
+                        leaf::point3_dot(e, axis_a(i), d_at)
+                    )
+                    .into_ret()
+                    .f64();
                     let mut total = x87_add(on_a, x87_load64(e.mem.u64(wide)));
                     for k in (0..3).filter(|&k| k != j) {
                         total = x87_add(total, x87_mul(coef_b[k], c[i][k]));

@@ -110,6 +110,7 @@ const VECTOR_CONSTRUCT: u32 = 0x0040_1050;
 const NI_OPERATOR_NEW: u32 = 0x00aa_13e0;
 const NI_ARRAY_NEW: u32 = 0x00aa_1070;
 /// `NiPoint3::NiPoint3(this, x, y, z)`; returns `this`.
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// The empty `NiPoint3` constructor (returns `this`) and the 16-byte
 /// element constructor (`004a7800`) the array constructors are given.
@@ -131,6 +132,7 @@ const ATTACH_PROPERTY: u32 = 0x0043_9410;
 const PREPARE_OBJECT: u32 = 0x00b5_7e30;
 /// `NiAVObject::GetWorldBound` (Xbox PDB): a pointer to the four floats of
 /// the bound (centre, then radius).
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 /// `float` at `this + 0xc` (ST0): the radius of a bound.
 const BOUND_RADIUS: u32 = 0x0084_d030;
@@ -756,7 +758,11 @@ fn copy_words(e: &mut Engine, dst: u32, src: u32, words: u32) {
 /// Builds `NiPoint3(x, y, z)` through the game's constructor in `scratch`
 /// (12 bytes) and copies the three words it returns to `dst`.
 fn store_point(e: &mut Engine, scratch: u32, dst: u32, x: f32, y: f32, z: f32) {
-    let built = e.call(POINT3_CONSTRUCT, &args![scratch, x, y, z]).u32();
+    let built = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, scratch, x, y, z)
+    );
     copy_words(e, dst, built, 3);
 }
 
@@ -865,13 +871,15 @@ fn segment_against_rect(
     let (first_hit, second_hit, rest) = (scratch, scratch + 0xc, scratch + 0x18);
     let slots = [first_hit, second_hit];
     let float_max: f32 = e.global(FLOAT_MAX);
-    e.call(
-        POINT3_CONSTRUCT,
-        &args![first_hit, float_max, float_max, float_max],
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, first_hit, float_max, float_max, float_max)
     );
-    e.call(
-        POINT3_CONSTRUCT,
-        &args![second_hit, float_max, float_max, float_max],
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, second_hit, float_max, float_max, float_max)
     );
     let slope = ((y2 - y1) / (x2 - x1)) as f32;
     let intercept = (y2 - x2 * slope as f64) as f32;
@@ -1002,11 +1010,11 @@ pub fn fn_004b2800(
     // The bound is copied (centre and radius) to a local; the vector from
     // its centre to the ray origin is built next to it. `006815c0` returns
     // its argument, which `00439ef0` then takes as `this`.
-    let bound = e.call(GET_WORLD_BOUND, &args![node]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
     let locals = e.mem.alloc(0x1c);
     let centre_to_origin = locals + 0x10;
     copy_words(e, locals, bound, 4);
-    let centre = e.call(POINT3_EMPTY_CONSTRUCTOR, &args![locals]).u32();
+    let centre = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, locals));
     e.call(POINT3_SUBTRACT, &args![centre, centre_to_origin, origin]);
     let length = e.call(POINT3_LENGTH, &args![centre_to_origin]).f64();
     let radius = e.call(BOUND_RADIUS, &args![locals]).f64();
@@ -1258,7 +1266,7 @@ pub fn fn_004b3800(e: &mut Engine, this: Ptr<NiPoint3>, out: Ptr, other: Ptr<NiP
     let z = (ax * by - ay * bx) as f32;
     let y = (az * bx - ax * bz) as f32;
     let x = (ay * bz - az * by) as f32;
-    e.call(POINT3_CONSTRUCT, &args![out, x, y, z]);
+    typed_call!(leaf::FAMILY, 0x0041_6870, leaf::point3_new(e, out, x, y, z));
     out
 }
 
@@ -1306,7 +1314,7 @@ pub fn fn_004b3ae0(e: &mut Engine, out: Ptr, vector: Ptr, matrix: Ptr) -> Ptr {
     let z = (v0 * m(e, 2) + v1 * m(e, 5) + v2 * m(e, 8)) as f32;
     let y = (v0 * m(e, 1) + v1 * m(e, 4) + v2 * m(e, 7)) as f32;
     let x = (v0 * m(e, 0) + v1 * m(e, 3) + v2 * m(e, 6)) as f32;
-    e.call(POINT3_CONSTRUCT, &args![out, x, y, z]);
+    typed_call!(leaf::FAMILY, 0x0041_6870, leaf::point3_new(e, out, x, y, z));
     out
 }
 
@@ -1378,9 +1386,17 @@ pub fn fn_004b3e60(
     // (constructors that only return `this`, or leave the memory as is),
     // then the scratch for the products and vectors below.
     let scratch = e.mem.alloc(0x100);
-    e.call(POINT3_EMPTY_CONSTRUCTOR, &args![scratch + 0x7c]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, scratch + 0x7c)
+    );
     e.call(TRANSFORM_CONSTRUCT, &args![scratch]);
-    e.call(POINT3_EMPTY_CONSTRUCTOR, &args![scratch + 0xf0]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, scratch + 0xf0)
+    );
     let changed = snap_geometry(e, map, scratch, first, second, threshold, debug);
     e.mem.free(scratch);
     e.call(POINT_MAP_DESTRUCT, &args![map]);
@@ -1588,7 +1604,7 @@ pub fn fn_004b4500(e: &mut Engine, this: Ptr, out: Ptr, vector: Ptr) -> Ptr {
     let z = (m(e, 6) * v0 + m(e, 7) * v1 + m(e, 8) * v2) as f32;
     let y = (m(e, 3) * v0 + m(e, 4) * v1 + m(e, 5) * v2) as f32;
     let x = (m(e, 0) * v0 + m(e, 1) * v1 + m(e, 2) * v2) as f32;
-    e.call(POINT3_CONSTRUCT, &args![out, x, y, z]);
+    typed_call!(leaf::FAMILY, 0x0041_6870, leaf::point3_new(e, out, x, y, z));
     out
 }
 
@@ -1598,7 +1614,7 @@ pub fn fn_004b4500(e: &mut Engine, this: Ptr, out: Ptr, vector: Ptr) -> Ptr {
 /// finds `this` singular.
 pub fn ni_matrix3_inverse(e: &mut Engine, this: Ptr, out: Ptr) -> Ptr {
     let result = e.mem.alloc(0x24);
-    e.call(POINT3_EMPTY_CONSTRUCTOR, &args![result]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, result));
     if !ni_matrix3_inverse_ov2(e, this, Ptr::new(result)) {
         fn_004b4600(e, Ptr::new(result));
     }
@@ -1832,6 +1848,7 @@ const ASIN_LIMIT: u32 = 0x011c_627c;
 const TINT_ALPHA: u32 = 0x0101_6248;
 /// `0044ddc0(this)` reads the word at `this + 8`; `0043b540(this)` is
 /// `0044ddc0(this + 0x14)`.
+#[cfg(test)]
 const WORD_AT_EIGHT: u32 = 0x0044_ddc0;
 const COLLIDABLE_WORD: u32 = 0x0043_b540;
 /// `008c71b0(this, value)` stores a word in a one word value (the engine
@@ -1859,8 +1876,10 @@ const CAST_CLASS_01268168: u32 = 0x0126_8168;
 /// its key (`01267b70`); `00559450(this)` reads a smart pointer.
 const WORLD_OBJECT_GET_PROPERTY: u32 = 0x00c8_5ef0;
 const WORLD_OBJECT_PROPERTY_KEY: u32 = 0x0126_7b70;
+#[cfg(test)]
 const SMART_POINTER_GET: u32 = 0x0055_9450;
 /// `0084e3a0(this)`.
+#[cfg(test)]
 const FN_0084E3A0: u32 = 0x0084_e3a0;
 /// Names: `00413f40(object)` gives the object's name holder and
 /// `0043b1b0(holder)` the text (0 when there is none). `00404dc0(a, b)`
@@ -1920,6 +1939,7 @@ const CAMERA_STAMP: u32 = 0x0082_5c00;
 const FRUSTUM_STAMP: u32 = 0x0118_90e0;
 const FRUSTUM_PLANE: u32 = 0x004b_4cf0;
 /// `NiPoint3::Dot(this, other)` (Xbox PDB), result in ST0.
+#[cfg(test)]
 const POINT3_DOT: u32 = 0x004b_6190;
 /// Tinting: the smart pointer on the stack (`00633c90(this, pointer)` sets
 /// it, `0066b0d0(this, pointer)` assigns, `0045cec0(this)` releases), the
@@ -2142,7 +2162,7 @@ pub fn get_av_object_for_collidable(e: &mut Engine, collidable: Ptr) -> u32 {
     if body != 0 {
         let from_body = fn_004b5a20(e, Ptr::new(body));
         if from_body != 0 {
-            return e.call(WORD_AT_EIGHT, &args![from_body]).u32();
+            return typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, from_body));
         }
         let word = e.call(COLLIDABLE_WORD, &args![collidable]).u32();
         let half = e.with_stack(4, |e, value| {
@@ -2151,7 +2171,7 @@ pub fn get_av_object_for_collidable(e: &mut Engine, collidable: Ptr) -> u32 {
         });
         if half == 1 {
             e.with_stack(12, |e, position| {
-                e.call(POINT3_EMPTY_CONSTRUCTOR, &args![position]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
                 let source = e.call(BODY_POSITION_SOURCE, &args![body]).u32();
                 e.call(POSITION_FROM_VALUE, &args![position, source]);
                 let finder: u32 = e.global(CELL_FINDER);
@@ -2165,7 +2185,7 @@ pub fn get_av_object_for_collidable(e: &mut Engine, collidable: Ptr) -> u32 {
     }
     let candidate = fn_004b5ad0(e, Ptr::new(phantom));
     if candidate != 0 {
-        result = e.call(WORD_AT_EIGHT, &args![candidate]).u32();
+        result = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, candidate));
     }
     if result == 0 {
         let world_object = fn_004b5a80(e, Ptr::new(phantom));
@@ -2244,7 +2264,7 @@ pub fn fn_004b5a50(e: &mut Engine, object: Ptr) -> u32 {
                 &args![out, object, WORLD_OBJECT_PROPERTY_KEY],
             )
             .u32();
-        e.call(SMART_POINTER_GET, &args![property]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, property))
     })
 }
 
@@ -2260,7 +2280,7 @@ pub fn fn_004b5aa0(e: &mut Engine, object: Ptr) -> u32 {
     if object.is_null() {
         0
     } else {
-        e.call(FN_0084E3A0, &args![object]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object))
     }
 }
 
@@ -2494,7 +2514,7 @@ pub fn fn_004b5fc0(e: &mut Engine, object: Ptr, camera: Ptr) -> bool {
     if object.is_null() {
         return false;
     }
-    let bound = e.call(GET_WORLD_BOUND, &args![object]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, object));
     fn_004b5ff0(e, Ptr::new(bound), camera)
 }
 
@@ -2563,7 +2583,9 @@ pub fn ni_bound_which_side(e: &mut Engine, this: Ptr, plane: Ptr) -> i32 {
 /// plane's normal (`this`) with the point (`004b6190`) minus the plane's
 /// constant (`+0xc`), stored as a `float`.
 pub fn fn_004b6160(e: &mut Engine, this: Ptr, point: Ptr) -> f32 {
-    let dot = e.call(POINT3_DOT, &args![this, point]).f64();
+    let dot = typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, this, point))
+        .into_ret()
+        .f64();
     let constant = e.mem.f32(this.addr().wrapping_add(0xc));
     (dot - constant as f64) as f32
 }
@@ -2591,7 +2613,11 @@ pub fn tint_scenegraph(e: &mut Engine, node: Ptr, colour: Ptr, effect_data: Ptr)
                 0
             };
             e.call(SMART_POINTER_ASSIGN, &args![holder, object]);
-            effect_data = Ptr::new(e.call(SMART_POINTER_GET, &args![holder]).u32());
+            effect_data = Ptr::new(typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, holder)
+            ));
             for offset in [0x2cu32, 0x3c, 0x0c, 0x1c] {
                 let x = e.mem.f32(colour.addr());
                 let y = e.mem.f32(colour.addr().wrapping_add(4));
@@ -2601,7 +2627,7 @@ pub fn tint_scenegraph(e: &mut Engine, node: Ptr, colour: Ptr, effect_data: Ptr)
                     let made = e
                         .call(COLOUR_CONSTRUCT, &args![temporary, x, y, z, alpha])
                         .u32();
-                    let target = e.call(SMART_POINTER_GET, &args![holder]).u32();
+                    let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                     for word in 0..4 {
                         let value = e.mem.u32(made + 4 * word);
                         e.mem.set_u32(target + offset + 4 * word, value);
@@ -2609,7 +2635,7 @@ pub fn tint_scenegraph(e: &mut Engine, node: Ptr, colour: Ptr, effect_data: Ptr)
                 });
             }
             for (offset, value) in [(0x5cu32, 9u32), (0x60, 10), (0x64, 1), (0x68, 4)] {
-                let target = e.call(SMART_POINTER_GET, &args![holder]).u32();
+                let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                 e.mem.set_u32(target + offset, value);
             }
         }
@@ -2618,7 +2644,7 @@ pub fn tint_scenegraph(e: &mut Engine, node: Ptr, colour: Ptr, effect_data: Ptr)
             .call(DYNAMIC_CAST, &args![CAST_CLASS_011FA010, property])
             .u32();
         if lighting != 0 {
-            let data = e.call(SMART_POINTER_GET, &args![holder]).u32();
+            let data = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
             e.call(SET_TEXTURE_EFFECT_DATA, &args![lighting, data]);
         }
         let children = children_of(e, node);
@@ -2709,18 +2735,19 @@ pub fn fn_004b6740(e: &mut Engine, object: Ptr, context: Ptr) {
         return;
     }
     if e.mem.u32(context.addr() + 0x18) & 2 != 0 {
-        let inner = e.call(WORD_AT_EIGHT, &args![object]).u32();
+        let inner = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object));
         if e.call(IS_OF_CLASS, &args![IS_OF_CLASS_KEY_011F9140, inner])
             .bool()
         {
             return;
         }
     }
-    if e.mem.u32(context.addr() + 0x18) & 2 != 0 && e.call(WORD_AT_EIGHT, &args![object]).u32() != 0
+    if e.mem.u32(context.addr() + 0x18) & 2 != 0
+        && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object)) != 0
     {
-        let inner = e.call(WORD_AT_EIGHT, &args![object]).u32();
+        let inner = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object));
         if name_of(e, Ptr::new(inner)) != 0 {
-            let inner = e.call(WORD_AT_EIGHT, &args![object]).u32();
+            let inner = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object));
             let name = name_of(e, Ptr::new(inner));
             if e.call(STRING_COMPARE_SECOND, &args![name, ARROW_NAME])
                 .u32()
@@ -2781,17 +2808,17 @@ fn walker_skips(e: &mut Engine, object: Ptr, context: Ptr) -> bool {
         return true;
     }
     if flags & 2 != 0 {
-        let inner = e.call(WORD_AT_EIGHT, &args![object]).u32();
+        let inner = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object));
         if e.call(IS_OF_CLASS, &args![IS_OF_CLASS_KEY_011F9140, inner])
             .bool()
         {
             return true;
         }
     }
-    if flags & 2 != 0 && e.call(WORD_AT_EIGHT, &args![object]).u32() != 0 {
-        let inner = e.call(WORD_AT_EIGHT, &args![object]).u32();
+    if flags & 2 != 0 && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object)) != 0 {
+        let inner = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object));
         if name_of(e, Ptr::new(inner)) != 0 {
-            let inner = e.call(WORD_AT_EIGHT, &args![object]).u32();
+            let inner = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object));
             let name = name_of(e, Ptr::new(inner));
             if e.call(STRING_COMPARE_SECOND, &args![name, ARROW_NAME])
                 .u32()
@@ -3056,8 +3083,11 @@ pub fn set_reference_id_on_scenegraph(e: &mut Engine, object: Ptr, reference: u3
 // Translated from 004b6e70 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Reads the smart pointer at `this + 0x13c` (`00559450`).
 pub fn fn_004b6e70(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(SMART_POINTER_GET, &args![this.addr().wrapping_add(0x13c)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(0x13c))
+    )
 }
 
 /// A new `BSShaderNoLightingProperty` (0x80 bytes), or 0 when the
@@ -3133,8 +3163,11 @@ pub fn prepare_object_with_no_lighting_recurse(e: &mut Engine, object: Ptr) {
 // Translated from 004b70d0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Reads the smart pointer at `this + 0x3c` (`00559450`).
 pub fn fn_004b70d0(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(SMART_POINTER_GET, &args![this.addr().wrapping_add(0x3c)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(0x3c))
+    )
 }
 
 // Translated from 004b70f0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -3421,8 +3454,8 @@ fn swap_one_texture(e: &mut Engine, lighting: u32, texture: u32, slot: u32, set:
             e.call(SMART_POINTER_CONSTRUCT, &args![smart, 0u32]);
             let tes: u32 = e.global(TES_SINGLETON);
             e.call(CREATE_TEXTURE_IMAGE, &args![tes, buffer, smart, 0u32, 0u32]);
-            if e.call(SMART_POINTER_GET, &args![smart]).u32() != 0 {
-                let image = e.call(SMART_POINTER_GET, &args![smart]).u32();
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, smart)) != 0 {
+                let image = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, smart));
                 e.vcall(lighting, 0xf0, &args![slot, set, image]);
                 replaced = true;
             }

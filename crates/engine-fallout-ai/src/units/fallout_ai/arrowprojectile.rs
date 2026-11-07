@@ -22,14 +22,19 @@ const LIST_ITEM: u32 = 0x0096_8670;
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map; `008d8520`,
 /// `thiscall`), which the code calls on the target and then uses as an
 /// object with a vtable.
+#[cfg(test)]
 const SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// `0045cd60` (`thiscall`) on that object: compared with 0 and 1.
+#[cfg(test)]
 const OBJECT_KIND: u32 = 0x0045_cd60;
 /// The node walk of the list that slot 0x6B0 returns: done test (`008256d0`),
 /// the node's item address (`006815c0`), the next node (`00726070`), and the
 /// list's remove-all (`00470470`).
+#[cfg(test)]
 const NODE_DONE: u32 = 0x0082_56d0;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 const LIST_REMOVE_ALL: u32 = 0x0047_0470;
 /// On an arrow: the reference it is attached to (`0085f810`), the call made
@@ -37,6 +42,7 @@ const LIST_REMOVE_ALL: u32 = 0x0047_0470;
 /// (`008cc6d0`, `thiscall(word)`).
 const ARROW_ATTACHED_TO: u32 = 0x0085_f810;
 const ARROW_DETACH: u32 = 0x008d_0240;
+#[cfg(test)]
 const REFERENCE_TEST: u32 = 0x0044_0d80;
 const ARROW_REMOVE: u32 = 0x008c_c6d0;
 /// `__RTDynamicCast` (`00ec43fb`, `cdecl(object, vfdelta, source type,
@@ -55,7 +61,7 @@ const ARROW_PROJECTILE_TYPE: u32 = 0x011a_28e0;
 fn handle_arrow(e: &mut Engine, target: Ptr, arrow: u32, tested: u32, by_slot: bool) {
     if e.call(ARROW_ATTACHED_TO, &args![arrow]).u32() == target.addr() {
         e.call(ARROW_DETACH, &args![arrow]);
-        if !e.call(REFERENCE_TEST, &args![tested]).bool() {
+        if !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, tested)) {
             if by_slot {
                 e.vcall(arrow, 0xc4, &args![1u32]);
             } else {
@@ -63,7 +69,7 @@ fn handle_arrow(e: &mut Engine, target: Ptr, arrow: u32, tested: u32, by_slot: b
             }
         }
     }
-    if e.call(REFERENCE_TEST, &args![arrow]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, arrow)) {
         e.vcall(arrow, 0x1cc, &args![0u32, 1u32]);
     }
 }
@@ -117,25 +123,27 @@ pub fn arrow_projectile_delete_attached_arrows(e: &mut Engine, target: Ptr, by_s
     let mut scan_first = true;
     let mut scan_second = true;
     if e.vcall(target.addr(), 0x100, &[]).bool() {
-        let object = e.call(SAVED_ACQUIRE_OBJECT, &args![target]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
         if object != 0 {
             if e.vcall(object, 0x6b0, &[]).u32() != 0 {
                 let mut node = e.vcall(object, 0x6b0, &[]).u32();
-                while node != 0 && !e.call(NODE_DONE, &args![node]).bool() {
-                    let slot = e.call(NODE_ITEM, &args![node]).u32();
+                while node != 0
+                    && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+                {
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let arrow = e.mem.u32(slot);
                     if arrow != 0 {
                         handle_arrow(e, target, arrow, arrow, by_slot);
                     }
-                    node = e.call(NODE_NEXT, &args![node]).u32();
+                    node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 }
                 let list = e.vcall(object, 0x6b0, &[]).u32();
                 e.call(LIST_REMOVE_ALL, &args![list]);
             }
-            if e.call(OBJECT_KIND, &args![object]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, object)) == 0 {
                 scan_first = true;
                 scan_second = false;
-            } else if e.call(OBJECT_KIND, &args![object]).u32() == 1 {
+            } else if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, object)) == 1 {
                 scan_first = false;
                 scan_second = true;
             }

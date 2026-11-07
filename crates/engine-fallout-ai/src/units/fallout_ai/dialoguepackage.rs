@@ -248,6 +248,7 @@ const LOAD_NUMERIC_ID: u32 = 0x0048_4d40;
 /// The engine's message and error prints (`005b5e40`, `0040fbe0`; cdecl
 /// with a format).
 const PRINT: u32 = 0x005b_5e40;
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 /// `"D:\_Fallout3\...\DialoguePackage.cpp"`.
 const SOURCE_FILE: u32 = 0x0109_3108;
@@ -373,23 +374,9 @@ pub fn fn_009ef560(e: &mut Engine, this: Ptr) -> u16 {
         let record = e.call(SAVED_FORM, &args![manager]).u32();
         if record != 0 {
             let (id, name, _, flags) = logged_form(e, record);
-            e.call(
-                ERROR,
-                &args![
-                    0x0101_2cb0u32,
-                    difference,
-                    id,
-                    name,
-                    flags,
-                    0x1f4u32,
-                    SOURCE_FILE
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_2cb0u32, difference, id, name, flags, 0x1f4u32, SOURCE_FILE);
         } else {
-            e.call(
-                ERROR,
-                &args![0x0101_2c78u32, difference, 0x1f4u32, SOURCE_FILE],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_2c78u32, difference, 0x1f4u32, SOURCE_FILE);
         }
     }
     size
@@ -446,7 +433,7 @@ pub fn fn_009ef6e0(e: &mut Engine, this: Ptr) {
             e.mem.set_u32(slot, 0);
             let form = e.mem.u32(field(this, offset));
             if form != 0 {
-                let id = e.call(0x0084_e3a0, &args![form]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 e.mem.set_u32(slot, id);
             }
             e.call(SAVE_NUMERIC_ID, &args![this, slot, 4u32]);
@@ -492,23 +479,9 @@ pub fn fn_009ef6e0(e: &mut Engine, this: Ptr) {
             let difference = now.wrapping_sub(start);
             if record != 0 {
                 let (id, name, _, flags) = logged_form(e, record);
-                e.call(
-                    ERROR,
-                    &args![
-                        0x0101_53a0u32,
-                        difference,
-                        id,
-                        name,
-                        flags,
-                        0x231u32,
-                        SOURCE_FILE
-                    ],
-                );
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_53a0u32, difference, id, name, flags, 0x231u32, SOURCE_FILE);
             } else {
-                e.call(
-                    ERROR,
-                    &args![0x0101_536cu32, difference, 0x231u32, SOURCE_FILE],
-                );
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0101_536cu32, difference, 0x231u32, SOURCE_FILE);
             }
         }
         let manager = save_load_game(e);
@@ -901,6 +874,7 @@ const GET_CURRENT: u32 = 0x0083_c820;
 const ITEM_RUN_RESULT: u32 = 0x0083_c850;
 /// `MiddleHighProcess::GetSavedAcquireObject` per the engine map
 /// (`008d8520`): the word at +0x68 of an actor (its process).
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 /// `MobileObject::StopCurrentDialogue` (`00934250`, engine map).
 const STOP_CURRENT_DIALOGUE: u32 = 0x0093_4250;
@@ -924,9 +898,11 @@ const STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// `00460140` (thiscall): the response's text (a string object; its
 /// pointer through `00559450`).
 const RESPONSE_TEXT: u32 = 0x0046_0140;
+#[cfg(test)]
 const WORD_AT: u32 = 0x0055_9450;
 /// `BGSSaveFormBuffer::GetForm` per the engine map (`007af430`): the
 /// response's sound form; on the talking activator its reference.
+#[cfg(test)]
 const FORM_OF: u32 = 0x007a_f430;
 /// The sound handle's assignment (`00418900`, thiscall(source)) and
 /// release (`00483710`).
@@ -957,13 +933,13 @@ fn say(e: &mut Engine, this: Ptr, speaker: u32, string: u32, who: u32, tail: [u3
     let response = e.mem.u32(field(this, CURRENT_RESPONSE));
     let b = e.call(ITEM_SPEAKER, &args![response]).u32();
     let response = e.mem.u32(field(this, CURRENT_RESPONSE));
-    let own = e.call(0x0068_15c0, &args![response]).u32();
+    let own = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, response));
     let c = e.call(0x0040_48e0, &args![own]).u32();
     let response = e.mem.u32(field(this, CURRENT_RESPONSE));
-    let id = e.call(0x0084_e3a0, &args![response]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, response));
     let response = e.mem.u32(field(this, CURRENT_RESPONSE));
-    let kind = e.call(0x0044_ddc0, &args![response]).u32();
-    let text = e.call(WORD_AT, &args![string]).u32();
+    let kind = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, response));
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
     e.vcall(
         speaker,
         0x284,
@@ -997,8 +973,12 @@ fn set_speaking(e: &mut Engine, this: Ptr, speaker: u32) {
 /// sound handle, with `form`'s id.
 fn completion_callback(e: &mut Engine, this: Ptr, callback: u32, form: u32) {
     let manager = e.call(AUDIO_MANAGER, &[]).u32();
-    let id = e.call(0x0084_e3a0, &args![form]).u32();
-    let handle = e.call(WORD_AT, &args![field(this, HANDLE)]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
+    let handle = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, field(this, HANDLE))
+    );
     e.call(
         SET_COMPLETION_CALLBACK,
         &args![manager, handle, callback, id],
@@ -1010,7 +990,7 @@ fn completion_callback(e: &mut Engine, this: Ptr, callback: u32, form: u32) {
 /// target (or to the starter when it is the target).
 fn activator_says(e: &mut Engine, this: Ptr, speaker: u32, string: u32) -> Option<f64> {
     let activator = e.mem.u32(field(this, TALKING_ACTIVATOR));
-    let reference = e.call(FORM_OF, &args![activator]).u32();
+    let reference = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, activator));
     if e.call(0x0051_6bf0, &args![reference]).u32() != speaker {
         return None;
     }
@@ -1026,7 +1006,7 @@ fn activator_says(e: &mut Engine, this: Ptr, speaker: u32, string: u32) -> Optio
 
 /// The process's virtual `slot` (no words) answers true.
 fn process_says(e: &mut Engine, actor: u32, slot: u32) -> bool {
-    let process = e.call(GET_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(process, slot, &args![]).bool()
 }
 
@@ -1094,8 +1074,8 @@ pub fn dialogue_package_speak(e: &mut Engine, this: Ptr, speak: u32) {
         e.mem.set_u32(field(this, CURRENT_RESPONSE), response);
         if e.mem.u32(field(this, CURRENT_RESPONSE)) == 0 {
             let item = e.mem.u32(field(this, CURRENT_ITEM));
-            let info = e.call(0x0084_e3a0, &args![item]).u32();
-            let id = e.call(0x0084_e3a0, &args![info]).u32();
+            let info = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, info));
             e.call(0x005b_5e40, &args![NO_RESPONSES_MESSAGE, id]);
         }
     }
@@ -1139,10 +1119,10 @@ fn advance(e: &mut Engine, this: Ptr) -> bool {
         }
         if fn_009ef510(e, this) != 0 && e.mem.u8(field(this, DO_NOT_CONTROL_TARGET_MOVEMENT)) == 0 {
             let target = e.mem.u32(field(this, TARGET_ACTOR));
-            let process = e.call(GET_PROCESS, &args![target]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
             e.vcall(process, 0x644, &args![1u32]);
             let target = e.mem.u32(field(this, TARGET_ACTOR));
-            let process = e.call(GET_PROCESS, &args![target]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
             let actor = e.mem.u32(field(this, ACTOR));
             e.vcall(process, 0x634, &args![actor]);
         }
@@ -1206,10 +1186,12 @@ fn actor_speaks(e: &mut Engine, this: Ptr, speaker: u32, ebp: u32) -> bool {
     }
     let mut speak_now = true;
     let response = e.mem.u32(field(this, CURRENT_RESPONSE));
-    if e.call(FORM_OF, &args![response]).u32() != 0 && e.mem.u8(field(this, SOUND_FILE)) != 0 {
+    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response)) != 0
+        && e.mem.u8(field(this, SOUND_FILE)) != 0
+    {
         let response = e.mem.u32(field(this, CURRENT_RESPONSE));
-        let sound = e.call(FORM_OF, &args![response]).u32();
-        let id = e.call(0x0084_e3a0, &args![sound]).u32();
+        let sound = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response));
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         let handle = ebp - 0x38;
         e.call(
             0x0093_3150,
@@ -1217,8 +1199,8 @@ fn actor_speaks(e: &mut Engine, this: Ptr, speaker: u32, ebp: u32) -> bool {
         );
         let manager = e.call(AUDIO_MANAGER, &[]).u32();
         let actor = e.mem.u32(field(this, ACTOR));
-        let actor_id = e.call(0x0084_e3a0, &args![actor]).u32();
-        let handle_id = e.call(WORD_AT, &args![handle]).u32();
+        let actor_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
+        let handle_id = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, handle));
         e.call(
             SET_COMPLETION_CALLBACK,
             &args![manager, handle_id, LIP_FILE_CALLBACK, actor_id],
@@ -1233,7 +1215,7 @@ fn actor_speaks(e: &mut Engine, this: Ptr, speaker: u32, ebp: u32) -> bool {
         let text = e.call(RESPONSE_TEXT, &args![response]).u32();
         e.call(STRING_SET, &args![string, text]);
         let lip_synced = {
-            let process = e.call(GET_PROCESS, &args![speaker]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
             e.vcall(process, 0x37c, &args![]).u32() == 0
         } && !process_says(e, speaker, 0x36c)
             && {
@@ -1273,10 +1255,10 @@ fn actor_speaks(e: &mut Engine, this: Ptr, speaker: u32, ebp: u32) -> bool {
         e.mem.set_u8(speaker.wrapping_add(0x80), 0);
         unanswered = false;
         e.mem.set_u32(field(this, TALKING_ACTOR), speaker);
-        let process = e.call(GET_PROCESS, &args![speaker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
         e.vcall(process, 0x380, &args![0u32]);
         e.mem.set_u8(field(this, WAITING_FOR_LIP_FILE), 0);
-        let process = e.call(GET_PROCESS, &args![speaker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
         e.vcall(process, 0x374, &args![0u32]);
         if e.mem.u32(field(this, ACTOR)) != e.mem.u32(field(this, TARGET_ACTOR)) {
             let timer = x87_quiet_bits(e.global::<u32>(LISTEN_SHORT));
@@ -1294,10 +1276,10 @@ fn actor_speaks(e: &mut Engine, this: Ptr, speaker: u32, ebp: u32) -> bool {
 /// The lip-synced line of [`actor_speaks`].
 fn speak_with_lip_sync(e: &mut Engine, this: Ptr, speaker: u32, string: u32) {
     let response = e.mem.u32(field(this, CURRENT_RESPONSE));
-    let emotion = e.call(0x0044_ddc0, &args![response]).u32();
+    let emotion = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, response));
     e.mem.set_u32(field(this, EMOTION), emotion);
     let response = e.mem.u32(field(this, CURRENT_RESPONSE));
-    let value = e.call(0x0084_e3a0, &args![response]).u32();
+    let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, response));
     e.mem.set_u32(field(this, EMOTION_VALUE), value);
     let emotion = e.mem.u32(field(this, EMOTION));
     e.call(0x0070_5b10, &args![this, emotion]);
@@ -1332,19 +1314,19 @@ fn speak_with_lip_sync(e: &mut Engine, this: Ptr, speaker: u32, string: u32) {
 /// actor is someone else with a process.
 fn look_at_each_other(e: &mut Engine, this: Ptr) {
     let actor = e.mem.u32(field(this, ACTOR));
-    if e.call(GET_PROCESS, &args![actor]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
         let actor = e.mem.u32(field(this, ACTOR));
-        let process = e.call(GET_PROCESS, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         let actor = e.mem.u32(field(this, ACTOR));
         e.vcall(process, 0x44, &args![actor, 0u32, 2u32, 0u32, 1u32, 1u32]);
     }
     let talking = e.mem.u32(field(this, TALKING_ACTOR));
     if e.mem.u32(field(this, ACTOR)) != talking
         && talking != 0
-        && e.call(GET_PROCESS, &args![talking]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, talking)) != 0
     {
         let target = e.mem.u32(field(this, TARGET_ACTOR));
-        let process = e.call(GET_PROCESS, &args![target]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
         let target = e.mem.u32(field(this, TARGET_ACTOR));
         e.vcall(process, 0x44, &args![target, 0u32, 2u32, 0u32, 1u32, 1u32]);
     }
@@ -1361,10 +1343,10 @@ fn other_speaks(e: &mut Engine, this: Ptr, speaker: u32, ebp: u32) {
     e.call(STRING_FROM, &args![text_string, text]);
     let response = e.mem.u32(field(this, CURRENT_RESPONSE));
     let text = e.call(RESPONSE_TEXT, &args![response]).u32();
-    if e.call(WORD_AT, &args![text]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text)) != 0 {
         let response = e.mem.u32(field(this, CURRENT_RESPONSE));
         let text = e.call(RESPONSE_TEXT, &args![response]).u32();
-        let chars = e.call(WORD_AT, &args![text]).u32();
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         e.call(0x0040_6d30, &args![file, 0x200u32, chars]);
         let talking = e.mem.u32(field(this, TALKING_ACTOR));
         if talking != 0 {
@@ -1377,7 +1359,7 @@ fn other_speaks(e: &mut Engine, this: Ptr, speaker: u32, ebp: u32) {
         if e.mem.u32(field(this, TALKING_ACTIVATOR)) != 0 {
             let activator = e.mem.u32(field(this, TALKING_ACTIVATOR));
             // The activator's reference is fetched into a local nothing reads.
-            e.call(FORM_OF, &args![activator]);
+            typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, activator));
             set_speaking(e, this, activator);
             let activator = e.mem.u32(field(this, TALKING_ACTIVATOR));
             e.mem.set_u32(field(this, TALKING_ACTOR), activator);
@@ -1457,8 +1439,8 @@ fn subtitle(e: &mut Engine, this: Ptr, speaker: u32) {
         return;
     }
     let response = text(e, this, 2);
-    let own = e.call(0x0068_15c0, &args![response]).u32();
-    if e.call(WORD_AT, &args![own]).u32() == 0 {
+    let own = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, response));
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, own)) == 0 {
         return;
     }
     let value = e.call(0x0040_8d60, &args![ALL_SUBTITLES_SETTING]).u32();
@@ -1483,8 +1465,8 @@ fn subtitle(e: &mut Engine, this: Ptr, speaker: u32) {
             e.mem.u32(copy.addr() + 8),
         ];
         let response = text(e, this, 2);
-        let own = e.call(0x0068_15c0, &args![response]).u32();
-        let chars = e.call(WORD_AT, &args![own]).u32();
+        let own = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, response));
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, own));
         e.call(
             0x0070_5210,
             &args![

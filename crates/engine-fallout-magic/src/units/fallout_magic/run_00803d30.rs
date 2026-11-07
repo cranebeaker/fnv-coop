@@ -28,10 +28,13 @@ const EFFECT_ITEM_DURATION: u32 = 0x0040_44d0;
 /// effect item), its node's item address (`006815c0`) and the empty test
 /// (`008256d0`).
 const EFFECT_ITEM_LIST: u32 = 0x0040_9140;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// The next node (`00726070`), the list's remove-all (`00470470`) and the
 /// list's deleting destructor (`004702f0` with 1).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 const LIST_REMOVE_ALL: u32 = 0x0047_0470;
 const LIST_DELETE: u32 = 0x0047_02f0;
@@ -84,8 +87,11 @@ pub fn fn_00803d30(
     e.set(this, ActiveEffect::iFlags, 0);
     e.set(this, ActiveEffect::pDisplacementSpell, 0);
     let list = e.call(EFFECT_ITEM_LIST, &args![effect]).u32();
-    let node = e.call(NODE_ITEM, &args![list]).u32();
-    if effect != 0 && node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
+    if effect != 0
+        && node != 0
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+    {
         fn_00803e80(e, this, 0x80);
     }
     this
@@ -109,14 +115,14 @@ pub fn fn_00803ed0(e: &mut Engine, this: Ptr<ActiveEffect>) {
     e.mem.set_u32(this.addr(), ACTIVE_EFFECT_VTABLE);
     let mut node = e.get(this, ActiveEffect::pHitEffects);
     while node != 0 {
-        if e.call(LIST_IS_EMPTY, &args![node]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let hit = e.mem.u32(slot);
         e.call(HIT_EFFECT_FIRST, &args![hit, 1u32]);
         e.call(HIT_EFFECT_SECOND, &args![hit, 0u32]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if e.get(this, ActiveEffect::pHitEffects) != 0 {
         let list = e.get(this, ActiveEffect::pHitEffects);

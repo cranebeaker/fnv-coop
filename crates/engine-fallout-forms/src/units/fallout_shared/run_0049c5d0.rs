@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// The first node of the list (`00559450`: the word at `+0` of the list).
+#[cfg(test)]
 const FIRST_NODE: u32 = 0x0055_9450;
 /// Steps through the list (`0057cbe0`, `RET 4`): takes the address of a
 /// node-pointer variable, advances it to the node's next pointer (the word
@@ -57,7 +58,7 @@ pub fn fn_0049c5d0(e: &mut Engine, this: Ptr, cursor: Ptr) -> u32 {
 pub fn fn_0049c680(e: &mut Engine, this: Ptr, wanted: Ptr, start: Ptr) -> Ptr {
     let mut node = start.addr();
     if node == 0 {
-        node = e.call(FIRST_NODE, &args![this]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     }
     while node != 0 {
         let current = node;

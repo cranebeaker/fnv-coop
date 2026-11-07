@@ -60,7 +60,7 @@ pub fn tes_image_space_modifiable_form_init_item(e: &mut Engine, this: Ptr, owne
         let name = e.vcall(owner.addr(), 0x130, &args![]).u32();
         e.call(WARNING, &args![MISSING_ON_OWNER_NAME, id, name]);
     } else {
-        let owner_id = e.call(0x0084_e3a0, &args![owner]).u32();
+        let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
         e.call(WARNING, &args![MISSING_ON_OWNER_ID, id, owner_id]);
     }
 }
@@ -72,6 +72,7 @@ const TYPE_MODIFIABLE_FORM: u32 = 0x0118_6ae8;
 /// The getter of the word at +4 (`00726070`, `thiscall`) and its setter
 /// (`006ecd40`, `thiscall`, one word; the engine map's name for it is folded
 /// code).
+#[cfg(test)]
 const GET_MODIFIER: u32 = 0x0072_6070;
 const SET_MODIFIER: u32 = 0x006e_cd40;
 
@@ -99,7 +100,7 @@ pub fn tes_image_space_modifiable_form_copy_component(e: &mut Engine, this: Ptr,
     if source == 0 {
         return;
     }
-    let modifier = e.call(GET_MODIFIER, &args![source]).u32();
+    let modifier = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source));
     e.call(SET_MODIFIER, &args![this, modifier]);
 }
 
@@ -116,8 +117,8 @@ pub fn tes_image_space_modifiable_form_compare_component(
     if source == 0 {
         return true;
     }
-    let own = e.call(GET_MODIFIER, &args![this]).u32();
-    own != e.call(GET_MODIFIER, &args![source]).u32()
+    let own = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
+    own != typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source))
 }
 
 /// This unit's translated functions, by exe address.

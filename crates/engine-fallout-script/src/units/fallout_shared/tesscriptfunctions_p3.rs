@@ -77,12 +77,15 @@ const RTTI_ACTOR: u32 = 0x0118_46d4;
 // Small accessors of forms and references.
 /// `*(this + 0x20)`: the base form of a reference (the map calls it
 /// `BGSSaveFormBuffer::GetForm`).
+#[cfg(test)]
 const GET_BASE_FORM: u32 = 0x007a_f430;
 /// Form type byte (`this + 4`).
 const FORM_TYPE: u32 = 0x0040_1170;
 /// `*(this + 0xc)`: the form id.
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// Tests form flag `0x800` (`this + 8`).
+#[cfg(test)]
 const HAS_FORM_FLAG_0X800: u32 = 0x0044_0da0;
 /// Tests form flag `0x4000` (`this + 8`).
 const HAS_FORM_FLAG_0X4000: u32 = 0x0040_77c0;
@@ -128,6 +131,7 @@ const FADE_IN: u32 = 0x008b_cd20;
 /// `*(this + 0x24)`: the rotation (three floats) of a reference.
 const GET_ROTATION: u32 = 0x0043_0830;
 /// `NiPoint3::NiPoint3(x, y, z)`, `thiscall`, returns `this`.
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// `*(this + 0x34)`: the world rotation (nine floats) of a scene node.
 const GET_WORLD_ROTATE: u32 = 0x006a_9540;
@@ -186,10 +190,13 @@ const TES_CONTAINER_DESTRUCT: u32 = 0x0048_1680;
 const ROLL_LEVELED_LIST: u32 = 0x0048_7f70;
 /// `thiscall` on a list node: `true` when it has neither an item nor a next
 /// node.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `thiscall` on a list node: the address of the node's item.
+#[cfg(test)]
 const LIST_ITEM_PTR: u32 = 0x0068_15c0;
 /// `thiscall` on a list node: the next node.
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// `thiscall` on the `TES` object (`position*`): whether the position is in
 /// the loaded area.
@@ -261,6 +268,7 @@ const BS_STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// `BSStringT` format (`string, format, ...`).
 const BS_STRING_FORMAT: u32 = 0x0040_6f60;
 /// `NiPointer::operator T*` and `BSStringT::c_str`: `*this`.
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `cdecl` (`value`): returns it (compiled identity).
 const IDENTITY: u32 = 0x0046_4f30;
@@ -343,6 +351,7 @@ const GET_D3D_TEXTURE: u32 = 0x0059_bb30;
 /// `this + 0x24` of the `TES` object.
 const TES_GRID_X: u32 = 0x0059_bb30;
 /// `this + 0x28` of the `TES` object.
+#[cfg(test)]
 const TES_GRID_Y: u32 = 0x0045_cd60;
 /// `NiPointer::operator=` (`to`, `from`).
 const NI_POINTER_ASSIGN: u32 = 0x006e_5cc0;
@@ -387,6 +396,7 @@ const ARRAY_DESTRUCT: u32 = 0x005e_0590;
 /// `thiscall` (`race, sex, array`): collects the NPCs of the race and sex.
 const FIND_NPCS_OF_RACE_AND_SEX: u32 = 0x0060_3280;
 /// `BSSimpleArray::operator[]`-like (`index`): the address of the element.
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// `thiscall` on an NPC base (`template NPC`): copies the look of the
 /// template.
@@ -826,7 +836,7 @@ fn copy_point3(e: &mut Engine, to: u32, from: u32) {
 }
 
 fn ni_pointer_get(e: &mut Engine, slot: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 fn echo_enabled(e: &mut Engine) -> bool {
@@ -839,16 +849,16 @@ fn echo_enabled(e: &mut Engine) -> bool {
 /// id, otherwise "in a results script". Arguments of the log call: the
 /// message, the reference's id and name, the script's id and name.
 fn log_enable_state_parent(e: &mut Engine, a: ScriptArgs, in_script: u32, in_results: u32) {
-    let named_script =
-        !a.script_obj.is_null() && e.call(GET_FORM_ID, &args![a.script_obj]).u32() != 0;
+    let named_script = !a.script_obj.is_null()
+        && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, a.script_obj)) != 0;
     let this_name = if e.call(GET_NAME_GUARDED, &args![a.this_obj]).u32() != 0 {
         e.vcall(a.this_obj.addr(), 0x130, &args![]).u32()
     } else {
         e.call(GET_NAME_TEXT, &args![a.this_obj]).u32()
     };
     let script_name = e.vcall(a.script_obj.addr(), 0x130, &args![]).u32();
-    let script_id = e.call(GET_FORM_ID, &args![a.script_obj]).u32();
-    let this_id = e.call(GET_FORM_ID, &args![a.this_obj]).u32();
+    let script_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, a.script_obj));
+    let this_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, a.this_obj));
     let message = if named_script { in_script } else { in_results };
     e.call(
         LOG_STUB,
@@ -970,7 +980,11 @@ pub fn script_enable_function(e: &mut Engine, a: ScriptArgs) -> bool {
             return true;
         }
         e.call(REMOVE_DELAYED_SCRIPT_ACTION_REFERENCE, &args![a.this_obj]);
-        if e.call(HAS_FORM_FLAG_0X800, &args![a.this_obj]).bool() {
+        if typed_call!(
+            leaf::FAMILY,
+            0x0044_0da0,
+            leaf::form_flag_800(e, a.this_obj)
+        ) {
             e.call(ADD_PENDING_ENABLED_REFERENCE, &args![a.this_obj]);
         }
         let process = e.vcall(a.this_obj.addr(), 0x1d0, &args![]).u32();
@@ -980,7 +994,7 @@ pub fn script_enable_function(e: &mut Engine, a: ScriptArgs) -> bool {
             0
         };
         if process_object != 0 && e.call(GET_PROCESS_MODE, &args![process_object]).u32() == 9 {
-            let base = e.call(GET_BASE_FORM, &args![a.this_obj]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, a.this_obj));
             let mode = e.call(GET_MODE_FOR_FORM, &args![base]).u32();
             e.call(SET_PROCESS_MODE, &args![process_object, mode]);
         }
@@ -1007,7 +1021,11 @@ pub fn script_disable_function(e: &mut Engine, a: ScriptArgs) -> bool {
         return false;
     };
     if !a.this_obj.is_null()
-        && !e.call(HAS_FORM_FLAG_0X800, &args![a.this_obj]).bool()
+        && !typed_call!(
+            leaf::FAMILY,
+            0x0044_0da0,
+            leaf::form_flag_800(e, a.this_obj)
+        )
         && !e.call(HAS_FORM_FLAG_0X4000, &args![a.this_obj]).bool()
     {
         if e.call(GET_ENABLE_STATE_PARENT, &args![a.this_obj]).u32() != 0 {
@@ -1065,7 +1083,7 @@ pub fn fn_005c47e0(e: &mut Engine, a: ScriptArgs) -> bool {
         if actor != 0
             && e.vcall(actor, 0x100, &args![]).bool()
             && actor != this_actor
-            && !e.call(HAS_FORM_FLAG_0X800, &args![actor]).bool()
+            && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
         {
             e.call(ADD_PENDING_DISABLED_REFERENCE, &args![actor, 1u32]);
             let flags = e.mem.u8(a.event_list + 4);
@@ -1134,7 +1152,7 @@ pub fn script_get_is_form_type_function(e: &mut Engine, a: ScriptArgs) -> bool {
         e.mem.free(buffer);
         return false;
     }
-    let base = e.call(GET_BASE_FORM, &args![a.this_obj]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, a.this_obj));
     let form_type = e.call(FORM_TYPE, &args![base]).u32();
     let name = e.mem.u32(FORM_TYPE_NAMES + form_type * 12);
     if e.call(STRING_COMPARE, &args![name, buffer]).u32() == 0 {
@@ -1183,7 +1201,7 @@ pub fn fn_005c4a70(e: &mut Engine, a: ScriptArgs) -> bool {
         1.0,
     );
     if !reference.is_null() {
-        let id = e.call(GET_FORM_ID, &args![reference]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         e.with_stack(4, |e, cell| {
             e.mem.set_u32(cell.addr(), id);
             e.call(PUT_NUMERIC_ID_IN_DOUBLE, &args![cell, a.result]);
@@ -1281,7 +1299,11 @@ pub fn fn_005c4b30(
         if distance != 0 {
             let node = e.vcall(this_addr, 0x1d0, &args![]).u32();
             if node != 0 {
-                e.call(POINT3_CONSTRUCT, &args![offset, 0f32, 0f32, 0f32]);
+                typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, offset, 0f32, 0f32, 0f32)
+                );
                 let world_rotate = e.call(GET_WORLD_ROTATE, &args![node]).u32();
                 for i in 0..9 {
                     let word = e.mem.u32(world_rotate + 4 * i);
@@ -1324,7 +1346,11 @@ pub fn fn_005c4b30(
             let x = e.call(RING_X, &args![angle]).f32();
             let direction_vector = frame + PLACE_RING_DIRECTION;
             let scaled = frame + PLACE_RING_SCALED;
-            e.call(POINT3_CONSTRUCT, &args![direction_vector, x, y, 0f32]);
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, direction_vector, x, y, 0f32)
+            );
             let scaled = e
                 .call(POINT3_SCALED, &args![direction_vector, scaled, radius])
                 .u32();
@@ -1353,8 +1379,10 @@ pub fn fn_005c4b30(
                 ],
             );
             let mut node = e.call(PLUS_4, &args![container]).u32();
-            while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-                let item_slot = e.call(LIST_ITEM_PTR, &args![node]).u32();
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
+                let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(item_slot);
                 if entry != 0 && e.mem.u32(entry + 4) != 0 {
                     while e.mem.i32(entry) > 0 {
@@ -1386,7 +1414,7 @@ pub fn fn_005c4b30(
                         e.mem.set_i32(entry, remaining);
                     }
                 }
-                node = e.call(LIST_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             e.call(TES_CONTAINER_DESTRUCT, &args![container]);
             return placed;
@@ -1796,7 +1824,7 @@ pub fn script_dump_texture_palette(e: &mut Engine, a: ScriptArgs) -> bool {
         } else {
             let world_space = e.call(TES_GET_WORLD_SPACE, &args![tes]).u32();
             if world_space != 0 {
-                let grid_y = e.call(TES_GRID_Y, &args![tes]).u32();
+                let grid_y = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tes));
                 let grid_x = e.call(TES_GRID_X, &args![tes]).u32();
                 let world_name = e.vcall(world_space, 0x130, &args![]).u32();
                 e.call(
@@ -1983,7 +2011,8 @@ pub fn script_dump_texture_palette(e: &mut Engine, a: ScriptArgs) -> bool {
         let for_height = ni_pointer_get(e, slot);
         let for_width = ni_pointer_get(e, slot);
         let texture = ni_pointer_get(e, slot);
-        let references = e.call(LIST_NEXT, &args![texture]).u32().wrapping_sub(1);
+        let references =
+            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, texture)).wrapping_sub(1);
         let height = e.vcall(for_height, 0x98, &args![]).u32();
         let width = e.vcall(for_width, 0x94, &args![]).u32();
         e.call(
@@ -2096,7 +2125,7 @@ pub fn fn_005c65a0(e: &mut Engine, a: ScriptArgs) -> bool {
     if e.call(ACTOR_GET_SEX, &args![actor]).u32() == wanted {
         return true;
     }
-    let base = e.call(GET_BASE_FORM, &args![actor]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
     let process = e.vcall(actor, 0x1d0, &args![]).u32();
     if process != 0 {
         // The result is stored in a local the game never reads.
@@ -2118,7 +2147,11 @@ pub fn fn_005c65a0(e: &mut Engine, a: ScriptArgs) -> bool {
             let sex = e.call(GET_SEX, &args![base]).u32();
             let race = e.call(GET_RACE, &args![base]).u32();
             e.call(FIND_NPCS_OF_RACE_AND_SEX, &args![race, sex, found]);
-            let first_slot = e.call(ARRAY_ELEMENT, &args![found, 0u32]).u32();
+            let first_slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, found, 0u32)
+            );
             let first = e.mem.u32(first_slot);
             e.call(COPY_LOOK_FROM, &args![base, first]);
             e.call(ARRAY_DESTRUCT, &args![found]);
@@ -2129,7 +2162,7 @@ pub fn fn_005c65a0(e: &mut Engine, a: ScriptArgs) -> bool {
         e.with_stack(8, |e, text| {
             e.call(BS_STRING_CONSTRUCT, &args![text]);
             let sex_name = e.global::<u32>(SEX_NAMES + 4 * female);
-            let id = e.call(GET_FORM_ID, &args![actor]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
             let name = e.call(GET_NAME_TEXT, &args![actor]).u32();
             e.call(
                 BS_STRING_FORMAT,
@@ -2326,14 +2359,14 @@ pub fn fn_005c6c80(e: &mut Engine, a: ScriptArgs) -> bool {
     {
         return true;
     }
-    let this_base = e.call(GET_BASE_FORM, &args![a.this_obj]).u32();
+    let this_base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, a.this_obj));
     let this_npc = e
         .call(
             DYNAMIC_CAST,
             &args![this_base, 0u32, RTTI_TES_BOUND_OBJECT, RTTI_TES_NPC, 0u32],
         )
         .u32();
-    let argument_base = e.call(GET_BASE_FORM, &args![argument]).u32();
+    let argument_base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, argument));
     let argument_npc = e
         .call(
             DYNAMIC_CAST,

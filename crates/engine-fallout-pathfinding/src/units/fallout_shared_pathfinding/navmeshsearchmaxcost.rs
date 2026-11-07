@@ -96,6 +96,7 @@ const COPY_00401460: u32 = 0x0040_1460;
 /// `ScrapHeap::Deallocate` (`00aa5610`, engine map; `RET 4`).
 const SCRAP_HEAP_DEALLOCATE: u32 = 0x00aa_5610;
 /// `0044ddc0` (unnamed in the engine map): a `BSSimpleArray`'s size.
+#[cfg(test)]
 const ARRAY_SIZE_0044DDC0: u32 = 0x0044_ddc0;
 /// `NavMesh::GetCenter` (`00558220`, engine map; `RET 8`: out, triangle).
 const GET_CENTER_00558220: u32 = 0x0055_8220;
@@ -138,6 +139,7 @@ const GET_NAVMESH_AND_TRIANGLE_006DD640: u32 = 0x006d_d640;
 const HOLDER_CTOR_0042FB00: u32 = 0x0042_fb00;
 const HOLDER_DTOR_0042FA40: u32 = 0x0042_fa40;
 /// `00559450` (unnamed in the engine map): the word at +0 of its `this`.
+#[cfg(test)]
 const FIRST_OF_00559450: u32 = 0x0055_9450;
 /// `NavMesh::GetMatchingEdge_ov3` (`0068f460`, engine map; `RET 0x14`).
 const GET_MATCHING_EDGE_0068F460: u32 = 0x0068_f460;
@@ -162,8 +164,6 @@ const DOOR_LOCK_DTOR_00501E50: u32 = 0x0050_1e50;
 const CAN_UNLOCK_00502450: u32 = 0x0050_2450;
 /// `006c9900` (unnamed in the engine map): the request's actor.
 const REQUEST_ACTOR_006C9900: u32 = 0x006c_9900;
-/// `007af430` (unnamed in the engine map): the lock's door form.
-const LOCK_FORM_007AF430: u32 = 0x007a_f430;
 /// `TESObjectDOOR::IsMinimalUse` (`00518000`, engine map).
 const IS_MINIMAL_USE_00518000: u32 = 0x0051_8000;
 /// `BSSimpleArray<BGSBodyPart*,1024>::AddUninitialized` (`007cb2e0`, engine
@@ -306,7 +306,7 @@ pub fn bs_scrap_array_navmesh_search_node_reallocate(
             &args![heap, count.wrapping_mul(SEARCH_NODE_SIZE), alignment],
         )
         .u32();
-    let size = e.call(ARRAY_SIZE_0044DDC0, &args![this]).u32();
+    let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     e.call(
         COPY_00401460,
         &args![buffer, old, size.wrapping_mul(SEARCH_NODE_SIZE)],
@@ -406,7 +406,7 @@ pub fn navmesh_search_max_cost_build_node_path(
             .u8()
                 != 0
             {
-                let navmesh = e.call(FIRST_OF_00559450, &args![holder]).u32();
+                let navmesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                 e.mem.set_u32(base + GOAL_NODE, navmesh);
                 let triangle = e.mem.u16(ebp - 0x14);
                 e.mem.set_u16(base + GOAL_NODE + 4, triangle);
@@ -614,7 +614,7 @@ fn max_cost_connection(
                 e.call(DOOR_LOCK_DTOR_00501E50, &args![temp_lock]);
                 return;
             }
-            let form = e.call(LOCK_FORM_007AF430, &args![lock]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, lock));
             if e.call(IS_MINIMAL_USE_00518000, &args![form]).u8() != 0 {
                 e.call(DOOR_LOCK_DTOR_00501E50, &args![temp_lock]);
                 return;

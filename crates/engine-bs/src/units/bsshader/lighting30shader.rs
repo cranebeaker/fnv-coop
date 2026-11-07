@@ -1749,6 +1749,7 @@ const PARALLAX_01201BA0: u32 = 0x0120_1ba0;
 const PARALLAX_ENABLE_012010DC: u32 = 0x0120_10dc;
 const GET_ACCUMULATOR: u32 = 0x00b4_f5c0;
 const CAMERA_POSITION_00B71B40: u32 = 0x00b7_1b40;
+#[cfg(test)]
 const DOT: u32 = 0x004b_6190;
 const MATRIX_INVERSE: u32 = 0x00ee_6dda;
 const PLANE_CALL_00EE6DCE: u32 = 0x00ee_6dce;
@@ -1801,7 +1802,13 @@ fn shadow_clip_planes(e: &mut Engine, this: u32, light: u32) {
             } else {
                 (column, point)
             };
-            let dot = e.call(DOT, &args![target, argument]).f64();
+            let dot = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, target, argument)
+            )
+            .into_ret()
+            .f64();
             e.mem
                 .set_u32(light_matrix + 0x30 + 4 * index, x87_store32(-dot));
         }

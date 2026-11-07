@@ -19,6 +19,7 @@ const CURRENT_ENTRY: u32 = 0x0044_dec0;
 /// constructor of the two 4-byte stack locals, (0, pointer).
 const HANDLE_CONSTRUCT: u32 = 0x006e_cba0;
 /// `00559450` (`thiscall`, no stack words): answers the word a local holds.
+#[cfg(test)]
 const HANDLE_GET: u32 = 0x0055_9450;
 /// `004491c0` (`cdecl`, three words; unit `fallout shared/modelloader.cpp`): the
 /// compare-and-swap of the new entry into the bucket (by its use here), answering success.
@@ -128,8 +129,9 @@ fn insert(
             e.call(HANDLE_CONSTRUCT, &args![node_handle, 0u32, node]);
             let held = e.mem.u32(entry_handle);
             e.mem.set_u32(node + 8, held);
-            let expected = e.call(HANDLE_GET, &args![entry_handle]).u32();
-            let replacement = e.call(HANDLE_GET, &args![node_handle]).u32();
+            let expected = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry_handle));
+            let replacement =
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, node_handle));
             let slot = e.mem.u32(this + 0x10);
             if e.call(SWAP_IN, &args![slot, replacement, expected]).bool() {
                 let owner = e.mem.u32(this);

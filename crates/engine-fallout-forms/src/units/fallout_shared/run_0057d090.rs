@@ -393,9 +393,17 @@ fn place_cell_points(e: &mut Engine, ebp: u32) {
     let mut lower_byte = 0u8;
     let mut kind = 8u32;
     let point = at(ebp, -0x148);
-    e.call(0x0068_15c0, &args![at(ebp, -0x40)]);
-    e.call(0x0068_15c0, &args![at(ebp, -0x15c)]);
-    e.call(0x0068_15c0, &args![point]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, at(ebp, -0x40))
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, at(ebp, -0x15c))
+    );
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
     let start = e.call(0x0057_ce60, &args![]).i32();
     let step = start << 1;
     if cell == 0
@@ -461,10 +469,10 @@ fn place_cell_points(e: &mut Engine, ebp: u32) {
                 &args![land, at(ebp, -0x198), 0u32, 0u32, 0u32, 0u32],
             );
             let bound_copy = at(ebp, -0x18c);
-            let bound = e.call(0x0043_d450, &args![object]).u32();
+            let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, object));
             copy_words(e, bound_copy, bound, 4);
             copy_words(e, at(ebp, -0x1a4), 0x011f_426c, 3);
-            let center = e.call(0x0068_15c0, &args![bound_copy]).u32();
+            let center = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound_copy));
             let difference = e
                 .call(0x0043_9ef0, &args![ebp + 0x10, at(ebp, -0x1d8), center])
                 .u32();
@@ -475,7 +483,8 @@ fn place_cell_points(e: &mut Engine, ebp: u32) {
             let child = e.call(0x0043_b4a0, &args![children, quad]).u32();
             let data = e.call(0x0066_29f0, &args![child]).u32();
             let geometry = e.call(0x0043_b230, &args![data]).u32();
-            let geometry_kind = e.call(0x0044_ddc0, &args![geometry]).u32();
+            let geometry_kind =
+                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, geometry));
             let data = e.call(0x0066_29f0, &args![child]).u32();
             let geometry = e.call(0x0043_b230, &args![data]).u32();
             let visible = e.vcall(geometry, 0x9c, &args![planes]).bool();
@@ -717,7 +726,11 @@ pub fn fn_0057de00(
 /// The body of `0057de00` on its frame, between the holder's construction
 /// and destruction.
 fn scatter_points(e: &mut Engine, ebp: u32) {
-    e.call(0x0068_15c0, &args![at(ebp, -0x20)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, at(ebp, -0x20))
+    );
     let degrees = e.global::<f64>(DEGREES_TO_RADIANS);
     let upper_angle = (e.mem.u8(ebp + 0x4c) as f64 * degrees) as f32;
     let upper = fn_0057e960(e, quiet(upper_angle));
@@ -754,12 +767,11 @@ fn scatter_points(e: &mut Engine, ebp: u32) {
             let n = f64::from(steps);
             let along_y = (c as f64 * (span as f64 / n)) as f32;
             let along_x = (r as f64 * (span as f64 / n)) as f32;
-            let offset = e
-                .call(
-                    0x0041_6870,
-                    &args![at(ebp, -0x11c), quiet(along_x), quiet(along_y), 0.0f32],
-                )
-                .u32();
+            let offset = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, at(ebp, -0x11c), quiet(along_x), quiet(along_y), 0.0f32)
+            );
             let base_point = e.mem.u32(ebp + 0x1c);
             e.call(0x0043_9e90, &args![base_point, position, offset]);
             let three = e.global::<f64>(THREE);
@@ -807,8 +819,8 @@ fn scatter_points(e: &mut Engine, ebp: u32) {
             let h = quiet(e.mem.f32(height));
             let pz = e.call(0x0040_4040, &args![h]).f64() as f32;
             e.mem.set_f32(position + 8, pz);
-            e.call(0x0068_15c0, &args![normal]);
-            e.call(0x0068_15c0, &args![surface]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, normal));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, surface));
             if on_land {
                 e.call(0x0053_caf0, &args![land, land_data, normal, surface]);
             } else {

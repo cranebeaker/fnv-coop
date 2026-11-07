@@ -35,6 +35,7 @@ const ALLOCATE: u32 = 0x0040_1000;
 const FAST_MODIFIERS_COPY: u32 = 0x0093_7e10;
 /// `006815c0` (`thiscall`, plain `RET`): returns its `this` (the address of the list node's
 /// item word).
+#[cfg(test)]
 const NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
 /// `00936fd0` (`thiscall`, `RET 4`, unit `fallout/ai` run, translated in `run_00936ef0.rs`):
 /// constructs, in the block it is given, a copy of the modifier at its argument.
@@ -44,6 +45,7 @@ const MODIFIER_COPY: u32 = 0x0093_6fd0;
 const ADD_MODIFIER: u32 = 0x0093_7380;
 /// `00726070` (`thiscall`, plain `RET`): returns the word at `+4` of its `this` (the next
 /// node of a `BSSimpleList`).
+#[cfg(test)]
 const NEXT_NODE: u32 = 0x0072_6070;
 
 // Translated from 00937160 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -79,11 +81,11 @@ pub fn fn_00937160(e: &mut Engine, this: Ptr<ModifierList>, source: Ptr<Modifier
     }
     let mut node = source.addr();
     while node != 0 {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             break;
         }
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         let block = e.call(ALLOCATE, &args![8u32]).u32();
         let modifier = if block != 0 {
@@ -92,7 +94,7 @@ pub fn fn_00937160(e: &mut Engine, this: Ptr<ModifierList>, source: Ptr<Modifier
             0
         };
         e.call(ADD_MODIFIER, &args![this, modifier]);
-        node = e.call(NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -167,7 +169,7 @@ fn array_bytes(count: u32) -> u32 {
 /// collection ([`fn_00937130`] with flag 1) and clears the pointer.
 pub fn modifier_list_delete_all_modifiers(e: &mut Engine, this: Ptr<ModifierList>) {
     loop {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![this]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
         let item = e.mem.u32(item_address);
         if item == 0 {
             break;
@@ -420,16 +422,16 @@ pub fn fn_00937760(e: &mut Engine, this: Ptr<ModifierList>, kind: i8) -> u32 {
     }
     let mut node = this.addr();
     while node != 0 {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 || found != 0 {
             break;
         }
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         if item != 0 && fn_009373f0(e, Ptr::new(item)) as i8 == kind {
             found = item;
         }
-        node = e.call(NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     found
 }
@@ -472,14 +474,14 @@ pub fn modifier_list_save_game_ov2(e: &mut Engine, this: Ptr<ModifierList>, buff
     let token = e.call(SAVE_START_VARIABLE_SIZED, &args![buffer]).u32();
     let mut node = this.addr();
     while node != 0 {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         if item != 0 {
             e.call(SAVE_WRITE, &args![buffer, item, 1u32, 0u32]);
             e.call(SAVE_WRITE, &args![buffer, item + 4, 4u32, 0u32]);
             count = count.wrapping_add(1);
         }
-        node = e.call(NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if e.get(this, ModifierList::pFastModifiers) != 0 {
         let mut i = 0u32;
@@ -656,16 +658,16 @@ pub fn modifier_list_save_game(e: &mut Engine, this: Ptr<ModifierList>) {
         e.call(SAVE_LOAD_WRITE, &args![save, count_local, 2u32]);
         let mut node = this.addr();
         while node != 0 {
-            let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item_address) == 0 {
                 break;
             }
-            let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_address);
             if fn_00937870(e, this, item) {
                 count = count.wrapping_add(1);
             }
-            node = e.call(NEXT_NODE, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let slots = if e.get(this, ModifierList::pFastModifiers) != 0 {
             e.mem.u32(FAST_SLOT_COUNT)

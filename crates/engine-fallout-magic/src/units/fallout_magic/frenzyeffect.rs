@@ -41,6 +41,7 @@ const MAGIC_TARGET_GET_TARGET_AS_ACTOR: u32 = 0x0082_2b40;
 /// `0059bb30` (thiscall): the effect's target (+0x24).
 const EFFECT_TARGET_0059BB30: u32 = 0x0059_bb30;
 /// `0045cd60` (thiscall): the effect's caster (+0x28).
+#[cfg(test)]
 const EFFECT_CASTER_0045CD60: u32 = 0x0045_cd60;
 /// `MagicCaster::GetCasterAsActor` (`00815410`).
 const MAGIC_CASTER_GET_CASTER_AS_ACTOR: u32 = 0x0081_5410;
@@ -135,10 +136,10 @@ fn target_actor(e: &mut Engine, this: u32) -> u32 {
 pub fn frenzy_effect_start(e: &mut Engine, this: Ptr) {
     e.call(VALUE_MODIFIER_EFFECT_START, &args![this]);
     let actor = target_actor(e, this.addr());
-    let caster = if e.call(EFFECT_CASTER_0045CD60, &args![this]).u32() == 0 {
+    let caster = if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this)) == 0 {
         0
     } else {
-        let caster = e.call(EFFECT_CASTER_0045CD60, &args![this]).u32();
+        let caster = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
         e.call(MAGIC_CASTER_GET_CASTER_AS_ACTOR, &args![caster])
             .u32()
     };

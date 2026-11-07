@@ -65,6 +65,7 @@ const SOUND_HANDLE_DESTRUCTOR: u32 = 0x0048_3710;
 /// `"FXCrippleHead"`.
 const CRIPPLE_HEAD_SOUND: u32 = 0x0107_9c38;
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map name, `008d8520`, `thiscall`).
+#[cfg(test)]
 const ACTOR_OBJECT_008D8520: u32 = 0x008d_8520;
 
 // Translated from 0080bcb0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -204,7 +205,7 @@ pub fn concussion_effect_check_apply_concussion(
             });
         }
     }
-    let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(object, 0x44, &args![actor, 0u32, 2u32, 1u32, 0u32, 1u32]);
     e.mem.set_u8(APPLYING_011DBE50, 0);
 }

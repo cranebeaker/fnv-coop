@@ -48,6 +48,7 @@ const ZERO: u32 = 0x0101_2060;
 const THOUSAND: u32 = 0x0101_7b70;
 /// `Error` (`0040fbe0`, `cdecl`) and `"Bink playback: Skipped frame #%i.
 /// Total skipped: %i"` (`010f1be4`).
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 const SKIPPED_FRAME_MESSAGE: u32 = 0x010f_1be4;
 /// The movie's open (`00ec0cd0`, `thiscall`, four words), close
@@ -361,7 +362,7 @@ pub fn movie_update(e: &mut Engine, this: Ptr, go_on: u8, keep_going: u8, no_vie
                 let count = e.mem.u32(at + 0x10).wrapping_add(1);
                 e.mem.set_u32(at + 0x10, count);
                 let frame = e.mem.u32(at + 0xc);
-                e.call(ERROR, &args![SKIPPED_FRAME_MESSAGE, frame, count]);
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words SKIPPED_FRAME_MESSAGE, frame, count);
             }
             let bink = e.mem.u32(at);
             e.call(BINK_NEXT_FRAME, &args![bink]);

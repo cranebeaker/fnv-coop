@@ -44,8 +44,10 @@ const LIST_OWNER: u32 = 0x011c_3f2c;
 /// Returns the first node of the owner's list (`004612e0`, `thiscall`).
 const FIRST_NODE: u32 = 0x0046_12e0;
 /// Returns the address of a node's item (`006815c0`, `thiscall`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// Returns a node's next node (`00726070`, `thiscall`).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// Stores `*item` into a node (`00726c60`, `thiscall(item pointer)`).
 const NODE_SET_ITEM: u32 = 0x0072_6c60;
@@ -80,7 +82,7 @@ const SET_TEXT: u32 = 0x0061_9010;
 const EMPTY_STRING: u32 = 0x0101_1584;
 
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -108,7 +110,7 @@ pub fn fn_0061ba10(e: &mut Engine, filter: u32) -> bool {
             let item = node_item(e, node);
             ok = fn_0061ba90(e, Ptr::new(item));
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     ok
 }
@@ -136,9 +138,9 @@ pub fn fn_0061ba90(e: &mut Engine, this: Ptr) -> bool {
     while pass < count.wrapping_sub(1) {
         let mut node = e.call(ITEM_LIST, &args![this]).u32();
         while node != 0 && node_item(e, node) != 0 {
-            if e.call(NODE_NEXT, &args![node]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node)) != 0 {
                 let first = node_item(e, node);
-                let next = e.call(NODE_NEXT, &args![node]).u32();
+                let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 let second = node_item(e, next);
                 if first != 0 && second != 0 {
                     let first_key = element_key(e, first);
@@ -150,13 +152,14 @@ pub fn fn_0061ba90(e: &mut Engine, this: Ptr) -> bool {
                             e.mem.set_u32(locals.addr(), second);
                             e.mem.set_u32(locals.addr() + 4, first);
                             e.call(NODE_SET_ITEM, &args![node, locals]);
-                            let next = e.call(NODE_NEXT, &args![node]).u32();
+                            let next =
+                                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                             e.call(NODE_SET_ITEM, &args![next, locals.addr() + 4]);
                         });
                     }
                 }
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         pass += 1;
     }

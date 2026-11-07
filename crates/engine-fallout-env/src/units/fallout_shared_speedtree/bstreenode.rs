@@ -53,6 +53,7 @@ pub fn fn_0066d720(_e: &mut Engine, _this: Ptr) -> u32 {
 /// The callees of this unit's code (all `thiscall` unless said; named by
 /// the engine map where it names them).
 /// `00559450` (unnamed, no words): the object a `NiPointer` slot holds.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `0066b0d0` (unnamed, one word): a `NiPointer` assignment.
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
@@ -235,7 +236,7 @@ pub fn bs_tree_node_bs_tree_node(
     );
     e.call(NI_NODE_SET_AT, &args![this, 2u32, billboard]);
     for (counter, field) in [(BRANCH_LEVEL_COUNT, 0xe8u32), (LEAF_LEVEL_COUNT, 0xec)] {
-        let model = e.call(POINTER_GET, &args![t + 0xe4]).u32();
+        let model = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0xe4));
         let count = e.call(counter, &args![model]).u16();
         if count == 0 {
             e.mem.set_u32(t + field, 0);
@@ -276,7 +277,7 @@ pub fn bs_tree_node_bs_tree_node(
         if havok_object != 0 {
             havok_object
         } else {
-            let model = e.call(POINTER_GET, &args![t + 0xe4]).u32();
+            let model = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0xe4));
             e.call(MODEL_HAVOK_OBJECT, &args![model]).u32()
         }
     };
@@ -318,8 +319,11 @@ pub fn bs_tree_node_get_billboard_node(e: &mut Engine, this: Ptr) -> u32 {
 /// manager (`00664840(1)`) holds in its `NiPointer` at `+0x10`.
 pub fn fn_0066b660(e: &mut Engine) -> u32 {
     let manager = e.call(TREE_MANAGER, &args![1u32]).u32();
-    e.call(POINTER_GET, &args![manager.wrapping_add(0x10)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, manager.wrapping_add(0x10))
+    )
 }
 
 // Translated from 0066b680 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -364,16 +368,18 @@ pub fn fn_0066b6c0(e: &mut Engine, this: Ptr<BSTreeNode>) {
 /// model's level count (from `counter`).
 fn level_node(e: &mut Engine, this: Ptr<BSTreeNode>, level: u16, field: u32, counter: u32) -> u32 {
     let t = this.addr();
-    if e.call(POINTER_GET, &args![t + 0xe4]).u32() == 0 || e.mem.u32(t + field) == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0xe4)) == 0
+        || e.mem.u32(t + field) == 0
+    {
         return 0;
     }
-    let model = e.call(POINTER_GET, &args![t + 0xe4]).u32();
+    let model = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0xe4));
     let count = e.call(counter, &args![model]).u16();
     if level >= count {
         return 0;
     }
     let slot = e.mem.u32(t + field).wrapping_add(u32::from(level) * 4);
-    e.call(POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 // Translated from 0066b7d0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -406,13 +412,13 @@ fn add_level(
     e.with_stack(8, |e, text| {
         e.call(0x0040_37b0, &args![text]);
         let result = 'body: {
-            if e.call(POINTER_GET, &args![t + 0xe4]).u32() == 0
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0xe4)) == 0
                 || e.mem.u32(t + field) == 0
                 || node == 0
             {
                 break 'body false;
             }
-            let model = e.call(POINTER_GET, &args![t + 0xe4]).u32();
+            let model = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0xe4));
             let count = e.call(counter, &args![model]).u16();
             if level >= count {
                 break 'body false;
@@ -422,8 +428,8 @@ fn add_level(
                 break 'body false;
             }
             let element = e.mem.u32(t + field).wrapping_add(u32::from(level) * 4);
-            if e.call(POINTER_GET, &args![element]).u32() != 0 {
-                let old = e.call(POINTER_GET, &args![element]).u32();
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element)) != 0 {
+                let old = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element));
                 e.vcall(parent, 0xe8, &args![old]);
             }
             e.vcall(parent, 0xdc, &args![node, 1u32]);
@@ -559,10 +565,12 @@ pub fn bs_tree_node_set_visibility_on_billboard(
     value: u8,
 ) -> bool {
     let slot = this.addr() + 0xf0;
-    if e.call(POINTER_GET, &args![slot]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) == 0 {
         return false;
     }
-    set_visibility_value(e, value, &|e| e.call(POINTER_GET, &args![slot]).u32());
+    set_visibility_value(e, value, &|e| {
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
+    });
     true
 }
 
@@ -735,8 +743,8 @@ pub fn fn_0066d7c0(e: &mut Engine, this: Ptr) -> u32 {
     e.with_stack(4, |e, local| {
         e.call(POINTER_CONSTRUCT, &args![local, object]);
         let mut result = 0;
-        if e.call(POINTER_GET, &args![local]).u32() != 0 {
-            let held = e.call(POINTER_GET, &args![local]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local)) != 0 {
+            let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local));
             let inner = e.call(OBJECT_006FA820, &args![held]).u32();
             result = e.call(CAST_00653270, &args![RTTI_01268230, inner]).u32();
         }
@@ -749,6 +757,7 @@ pub fn fn_0066d7c0(e: &mut Engine, this: Ptr) -> u32 {
 /// map where it names them).
 mod update_callees {
     /// `0084e3a0` and `00b0d5d0` (no words): the model's file and its name.
+    #[cfg(test)]
     pub const MODEL_FILE: u32 = 0x0084_e3a0;
     pub const FILE_NAME: u32 = 0x00b0_d5d0;
     /// `strstr` (`00ec7750`, `cdecl`, two words) and the `"~CF"` it looks for.
@@ -769,6 +778,7 @@ mod update_callees {
     pub const COLLECTOR_DESTRUCT: u32 = 0x0062_d4b0;
     pub const COLLECT: u32 = 0x0062_3150;
     pub const COLLECTOR_LIST: u32 = 0x0041_3f40;
+    #[cfg(test)]
     pub const LIST_COUNT: u32 = 0x0072_6070;
     pub const LIST_ENTRY: u32 = 0x0062_e150;
     /// `004b5950` and `004b59f0` (`cdecl`, one word: the entry's body): the
@@ -789,6 +799,7 @@ mod update_callees {
     /// `0066c930` (this unit, no words) on that vector.
     pub const VECTOR4_FIX: u32 = 0x0066_c930;
     /// `0044ddc0`, `00436aa0` (no words): the entry body's object, its position.
+    #[cfg(test)]
     pub const BODY_OBJECT: u32 = 0x0044_ddc0;
     pub const OBJECT_POSITION: u32 = 0x0043_6aa0;
     /// `004a3c90` (one word: a point): a vector from a point.
@@ -799,6 +810,7 @@ mod update_callees {
     pub const LEAF_BODY: u32 = 0x0043_b560;
     /// `006240d0` and `006815c0` (no words): two local constructors.
     pub const SOUND_DATA_CONSTRUCT: u32 = 0x0062_40d0;
+    #[cfg(test)]
     pub const POINT_CONSTRUCT: u32 = 0x0068_15c0;
     /// `00457990` (no words; ST0): a vector's length.
     pub const POINT_LENGTH: u32 = 0x0045_7990;
@@ -856,8 +868,8 @@ mod update_callees {
 pub fn bs_tree_node_update_bs_tree_node(e: &mut Engine, this: Ptr<BSTreeNode>, time: f32) {
     use update_callees::*;
     let t = this.addr();
-    if e.call(POINTER_GET, &args![t + 0xe4]).u32() != 0 {
-        let model = e.call(POINTER_GET, &args![t + 0xe4]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0xe4)) != 0 {
+        let model = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0xe4));
         e.vcall(model, 8, &args![this]);
     }
     let time = f32::from_bits(x87_quiet_bits(time.to_bits()));
@@ -868,8 +880,8 @@ pub fn bs_tree_node_update_bs_tree_node(e: &mut Engine, this: Ptr<BSTreeNode>, t
     if leaf == 0 || e.vcall(leaf, 0x94, &[]).u32() == 0 {
         return;
     }
-    let model = e.call(POINTER_GET, &args![t + 0xe4]).u32();
-    let file = e.call(MODEL_FILE, &args![model]).u32();
+    let model = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, t + 0xe4));
+    let file = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, model));
     let name = e.call(FILE_NAME, &args![file]).u32();
     let tag = e.call(STRSTR, &args![name, FALL_CHANCE_TAG]).u32();
     let chance = if tag != 0 {
@@ -893,7 +905,11 @@ pub fn bs_tree_node_update_bs_tree_node(e: &mut Engine, this: Ptr<BSTreeNode>, t
         e.call(COLLECT, &args![leaf, collector]);
         let list = e.call(COLLECTOR_LIST, &args![collector]).u32();
         let mut index: i32 = 0;
-        while index < e.call(LIST_COUNT, &args![list]).i32() {
+        while index
+            < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list))
+                .into_ret()
+                .i32()
+        {
             let entry = e.call(LIST_ENTRY, &args![list, index]).u32();
             let body = e.mem.u32(entry + 8);
             let actor = e.call(BODY_ACTOR, &args![body]).u32();
@@ -946,7 +962,11 @@ fn update_actor_contact(e: &mut Engine, ebp: u32, leaf: u32, list: u32, index: i
     e.call(VECTOR4_SET, &args![direction, third, second, first, 0.0f32]);
     e.call(VECTOR4_FIX, &args![direction]);
     let entry = e.call(LIST_ENTRY, &args![list, index]).u32();
-    let object = e.call(BODY_OBJECT, &args![e.mem.u32(entry + 8)]).u32();
+    let object = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, e.mem.u32(entry + 8))
+    );
     let position = e.call(OBJECT_POSITION, &args![object]).u32();
     let point = local(0x200);
     e.call(VECTOR_FROM_POINT, &args![point, position]);
@@ -962,7 +982,7 @@ fn update_actor_contact(e: &mut Engine, ebp: u32, leaf: u32, list: u32, index: i
     let sound = local(0x224);
     e.call(SOUND_DATA_CONSTRUCT, &args![sound]);
     let velocity = local(0x230);
-    e.call(POINT_CONSTRUCT, &args![velocity]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, velocity));
     e.mem.set_u8(local(0x210), 4);
     e.mem.set_u8(local(0x20f), 7);
     e.mem.set_u32(local(0x214), 1.0f32.to_bits());
@@ -1075,9 +1095,13 @@ fn update_falling_reference(
     let sound = local(0x344);
     e.call(SOUND_DATA_CONSTRUCT, &args![sound]);
     let velocity = local(0x350);
-    e.call(POINT_CONSTRUCT, &args![velocity]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, velocity));
     let entry = e.call(LIST_ENTRY, &args![list, index]).u32();
-    let held = e.call(POINTER_GET, &args![e.mem.u32(entry + 8)]).u32();
+    let held = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, e.mem.u32(entry + 8))
+    );
     let source = e.call(OBJECT_MATERIAL_SOURCE, &args![held]).u32();
     e.mem.set_u8(local(0x330), 4);
     let material = if source != 0 {
@@ -1338,7 +1362,7 @@ pub fn bs_tree_node_make_havok_leaves(e: &mut Engine, this: Ptr, tree: u32, scal
         }
         let filter = local(0x274);
         e.call(FILTER_CONSTRUCT, &args![filter, 9u32, 4u32, 0u32]);
-        let value = e.call(POINTER_GET, &args![filter]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, filter));
         e.mem.set_u32(phantom_data, value);
         let phantom = allocate_and_construct(e, 0x18, PHANTOM_CONSTRUCT, &[phantom_data]);
         let collision = allocate_and_construct(e, 0x14, LEAF_COLLISION_CONSTRUCT, &[leaf]);
@@ -2360,6 +2384,7 @@ const AFTER_00483710: u32 = 0x0048_3710;
 /// The steps of `0066c930`: `0062b0a0` (two words), `006815c0` (no words),
 /// `004a3c90` and `00561240` (one word each).
 const STEP_0062B0A0: u32 = 0x0062_b0a0;
+#[cfg(test)]
 const STEP_006815C0: u32 = 0x0068_15c0;
 const STEP_004A3C90: u32 = 0x004a_3c90;
 const STEP_00561240: u32 = 0x0056_1240;
@@ -2411,7 +2436,11 @@ pub fn bhk_transform_shape_q_cinfo_size(_e: &mut Engine, _this: Ptr) -> u32 {
 /// `BSTreeNode::GetBillboard` (engine map; `thiscall`, plain `RET`): the
 /// billboard pointer at `+0xf0` (`00559450`).
 pub fn bs_tree_node_get_billboard(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(POINTER_GET, &args![this.addr() + 0xf0]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xf0)
+    )
 }
 
 // Translated from 0066b640 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2438,8 +2467,8 @@ pub fn bs_tree_node_set_billboard(e: &mut Engine, this: Ptr, billboard: u32) {
         return;
     }
     let slot = this.addr() + 0xf0;
-    if e.call(POINTER_GET, &args![slot]).u32() != 0 {
-        let old = e.call(POINTER_GET, &args![slot]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) != 0 {
+        let old = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         e.vcall(node, 0xe8, &args![old]);
     }
     e.vcall(node, 0xdc, &args![billboard, 1u32]);
@@ -2458,19 +2487,19 @@ pub fn bs_tree_node_set_texture_prop_on_billboard(
     property: u32,
 ) -> bool {
     let slot = this.addr() + 0xf0;
-    if e.call(POINTER_GET, &args![slot]).u32() == 0 || property == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) == 0 || property == 0 {
         return false;
     }
-    let billboard = e.call(POINTER_GET, &args![slot]).u32();
+    let billboard = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     let current = e.call(GET_PROPERTY, &args![billboard, 5u32]).u32();
     if current != 0 {
         if current == property {
             return false;
         }
-        let billboard = e.call(POINTER_GET, &args![slot]).u32();
+        let billboard = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         e.call(REMOVE_PROPERTY_00A5B230, &args![billboard, 5u32]);
     }
-    let billboard = e.call(POINTER_GET, &args![slot]).u32();
+    let billboard = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     e.call(ATTACH_PROPERTY, &args![billboard, property]);
     true
 }
@@ -2489,7 +2518,7 @@ pub fn fn_0066c930(e: &mut Engine, this: Ptr) {
         let first = e
             .call(STEP_0062B0A0, &args![this, frame + 0x50, this])
             .u32();
-        let source = e.call(STEP_006815C0, &args![first]).u32();
+        let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first));
         let mut vector = read_xmm(e, source);
         vector[0] = crate::x87::rsqrt_estimate(vector[0]);
         write_xmm(e, frame + 0x30, vector);
@@ -2700,10 +2729,10 @@ pub fn bs_tree_node_get_viewer_strings(e: &mut Engine, this: Ptr, strings: u32) 
         e.mem.set_u32(title, line);
         e.call(STRINGS_ADD_0096A610, &args![strings, title]);
         let model_slot = this.addr() + 0xe4;
-        if e.call(POINTER_GET, &args![model_slot]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model_slot)) != 0 {
             let buffer = e.call(OPERATOR_NEW_ARRAY, &args![0x20u32]).u32();
             e.mem.set_u32(text, buffer);
-            let model = e.call(POINTER_GET, &args![model_slot]).u32();
+            let model = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model_slot));
             let kind = if e.call(MODEL_TEST_00666F00, &args![model]).u32() & 0xff != 0 {
                 TEXT_TYPE_INSTANCE
             } else {
@@ -2714,7 +2743,7 @@ pub fn bs_tree_node_get_viewer_strings(e: &mut Engine, this: Ptr, strings: u32) 
             e.call(STRINGS_ADD_0096A610, &args![strings, text]);
             let buffer = e.call(OPERATOR_NEW_ARRAY, &args![0x20u32]).u32();
             e.mem.set_u32(text, buffer);
-            let model = e.call(POINTER_GET, &args![model_slot]).u32();
+            let model = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model_slot));
             let seed = e.call(MODEL_SEED_008D6F30, &args![model]).u32();
             let buffer = e.mem.u32(text);
             e.call(FORMAT_00406D00, &args![buffer, 0x20u32, TEXT_SEED, seed]);

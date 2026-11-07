@@ -277,8 +277,8 @@ pub fn fn_005099c0(e: &mut Engine, _this: Ptr, index: u32) -> f32 {
 /// constant at `01011584` when it gives null (called twice when it does not).
 pub fn fn_0050a550(e: &mut Engine, this: Ptr) -> u32 {
     let member = this.addr() + 0x34;
-    if e.call(0x0055_9450, &args![member]).u32() != 0 {
-        e.call(0x0055_9450, &args![member]).u32()
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member)) != 0 {
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member))
     } else {
         0x0101_1584
     }

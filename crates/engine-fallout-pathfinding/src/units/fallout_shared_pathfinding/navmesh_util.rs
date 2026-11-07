@@ -96,8 +96,10 @@ const RANDOM_POINT_BASE: u32 = 0x011f_426c;
 
 // Functions of other units this one calls.
 /// `BSSimpleArray::iSize` (`this`).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// Address of element `index` of a `BSSimpleArray` of 4-byte elements.
+#[cfg(test)]
 const ARRAY_ELEMENT_4: u32 = 0x0087_7a30;
 /// Address of element `index` of a `BSSimpleArray<unsigned short>`.
 const ARRAY_ELEMENT_2: u32 = 0x0069_dec0;
@@ -134,6 +136,7 @@ const POINTER_CONSTRUCT_FROM_CDECL: u32 = 0x0046_4fc0;
 const POINTER_ASSIGN: u32 = 0x0042_f4c0;
 const POINTER_DESTRUCT: u32 = 0x0042_fa40;
 const POINTER_DEREFERENCE: u32 = 0x0045_8b50;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// Looks a form up by its id (cdecl) and `__RTDynamicCast` (cdecl).
 const LOOKUP_FORM: u32 = 0x0048_39c0;
@@ -207,6 +210,7 @@ const FLOAT_ABS: u32 = 0x0040_8840;
 const POINT2_CONSTRUCT: u32 = 0x0045_2dc0;
 const SEGMENTS_INTERSECT_2D: u32 = 0x006b_a010;
 /// `NiPoint3(x, y, z)` constructor (`this`, x, y, z).
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// `NiPoint3` arithmetic: `this + other`, `this - other` (both: `this`,
 /// out, other), `this * scalar` (`this`, out, scalar), `this += other`,
@@ -267,7 +271,7 @@ const NO_TRIANGLE: u16 = 0xffff;
 
 /// `BSSimpleArray::iSize` (`0044ddc0`).
 fn array_size<T>(e: &mut Engine, array: Ptr<T>) -> u32 {
-    e.call(ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 /// `NavMesh::GetTriangle(index)` (`005582f0`); the index is a `u16`.
@@ -415,7 +419,11 @@ pub fn nav_mesh_fix_portals_from_nav_mesh_deletion(e: &mut Engine, deleted_info:
         e.call(INFO_MAP_COLLECT, &args![map, list]);
         let mut index = 0u32;
         while index < array_size(e, list) {
-            let slot = e.call(ARRAY_ELEMENT_4, &args![list, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, list, index)
+            );
             let info = e.mem.u32(slot);
             let adjacent = Ptr::<()>::new(info + INFO_ADJACENT_NAV_MESHES);
             let preferred = Ptr::<()>::new(info + INFO_PREFERRED_ADJACENT_NAV_MESHES);
@@ -424,13 +432,17 @@ pub fn nav_mesh_fix_portals_from_nav_mesh_deletion(e: &mut Engine, deleted_info:
             let mut entry = 0i32;
             while entry < adjacent_count.wrapping_add(preferred_count) {
                 let slot = if entry < adjacent_count {
-                    e.call(ARRAY_ELEMENT_4, &args![adjacent, entry]).u32()
-                } else {
-                    e.call(
-                        ARRAY_ELEMENT_4,
-                        &args![preferred, entry.wrapping_sub(adjacent_count)],
+                    typed_call!(
+                        leaf::FAMILY,
+                        0x0087_7a30,
+                        leaf::array_element(e, adjacent, entry)
                     )
-                    .u32()
+                } else {
+                    typed_call!(
+                        leaf::FAMILY,
+                        0x0087_7a30,
+                        leaf::array_element(e, preferred, entry.wrapping_sub(adjacent_count))
+                    )
                 };
                 if e.mem.u32(slot) == deleted_info.addr() {
                     e.with_stack(4, |e, mesh_pointer| {
@@ -442,7 +454,11 @@ pub fn nav_mesh_fix_portals_from_nav_mesh_deletion(e: &mut Engine, deleted_info:
                             )
                             .bool();
                         if !loaded {
-                            let form_id = e.call(POINTER_GET, &args![Ptr::<()>::new(info)]).u32();
+                            let form_id = typed_call!(
+                                leaf::FAMILY,
+                                0x0055_9450,
+                                leaf::word_at_0(e, Ptr::<()>::new(info))
+                            );
                             let form = e.call(LOOKUP_FORM, &args![form_id]).u32();
                             let cast = e
                                 .call(
@@ -459,11 +475,19 @@ pub fn nav_mesh_fix_portals_from_nav_mesh_deletion(e: &mut Engine, deleted_info:
                             });
                         }
                         if e.call(POINTER_DEREFERENCE, &args![mesh_pointer]).u32() != 0 {
-                            let mesh = e.call(POINTER_GET, &args![mesh_pointer]).u32();
+                            let mesh = typed_call!(
+                                leaf::FAMILY,
+                                0x0055_9450,
+                                leaf::word_at_0(e, mesh_pointer)
+                            );
                             e.vcall(mesh, NAV_MESH_SLOT_0XC8, &args![1u32]);
                             let mut extra = 0u32;
                             loop {
-                                let mesh = e.call(POINTER_GET, &args![mesh_pointer]).u32();
+                                let mesh = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0055_9450,
+                                    leaf::word_at_0(e, mesh_pointer)
+                                );
                                 let count = array_size(
                                     e,
                                     Ptr::<()>::new(mesh + MESH_EXTRA_EDGE_INFO_OFFSET),
@@ -471,14 +495,22 @@ pub fn nav_mesh_fix_portals_from_nav_mesh_deletion(e: &mut Engine, deleted_info:
                                 if extra >= count {
                                     break;
                                 }
-                                let mesh = e.call(POINTER_GET, &args![mesh_pointer]).u32();
+                                let mesh = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0055_9450,
+                                    leaf::word_at_0(e, mesh_pointer)
+                                );
                                 let edge_info = e
                                     .call(GET_EXTRA_EDGE_INFO, &args![mesh, extra & 0xffff])
                                     .u32();
                                 if e.mem.u32(edge_info + EDGE_INFO_OTHER_MESH)
                                     == deleted_info.addr()
                                 {
-                                    let mesh = e.call(POINTER_GET, &args![mesh_pointer]).u32();
+                                    let mesh = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0055_9450,
+                                        leaf::word_at_0(e, mesh_pointer)
+                                    );
                                     e.call(DELETE_EXTRA_EDGE_INFO, &args![mesh, extra & 0xffff]);
                                     extra = extra.wrapping_sub(1);
                                 }
@@ -642,7 +674,7 @@ pub fn fn_006959b0(e: &mut Engine, this: Ptr<NavMesh>) {
             GRID_SETUP,
             &args![grid, bounds_min, bounds_max, triangle_count],
         );
-        let size = e.call(POINTER_GET, &args![grid]).u32();
+        let size = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, grid));
         let column_length = e.get(grid, NavMeshGrid::fColumnSectionLen);
         let row_length = e.get(grid, NavMeshGrid::fRowSectionLen);
         let min_x = e.mem.f32(bounds_min.addr());
@@ -886,10 +918,15 @@ fn triangle_xy_bounds(
     let negative_flt_max: f32 = e.global(NEGATIVE_FLOAT_MAX);
     let (low, high) = e.with_stack(24, |e, scratch| {
         let high_slot = scratch.byte_add(12);
-        e.call(POINT3_CONSTRUCT, &args![scratch, flt_max, flt_max, 0.0f32]);
-        e.call(
-            POINT3_CONSTRUCT,
-            &args![high_slot, negative_flt_max, negative_flt_max, 0.0f32],
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, scratch, flt_max, flt_max, 0.0f32)
+        );
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, high_slot, negative_flt_max, negative_flt_max, 0.0f32)
         );
         for corner in 0..3 {
             let vertex = corner_pointer(e, mesh, tri, corner);
@@ -1414,7 +1451,11 @@ pub fn fn_00697290(e: &mut Engine, this: Ptr<NavMesh>, result: Ptr, triangle: u1
         - ((ay as f64 * b_squared as f64 - by as f64 * a_squared as f64) * reciprocal_half as f64))
         as f32;
     e.with_stack(12, |e, center| {
-        e.call(POINT3_CONSTRUCT, &args![center, x, y, z]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, center, x, y, z)
+        );
         let value = read_point(e, center.addr());
         write_point(e, result.addr(), value);
     });
@@ -1953,7 +1994,11 @@ pub fn nav_mesh_find_interecting_edge2(
 /// Constructor of the 20-byte intersection result: default-constructs the
 /// `NiPoint3` at +8 (`006815c0`). Returns `this`.
 pub fn fn_00698300(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(POINT3_DEFAULT_CONSTRUCTOR, &args![this.byte_add(8)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(8))
+    );
     this
 }
 
@@ -2089,7 +2134,7 @@ pub fn fn_00698680(e: &mut Engine, this: Ptr) -> u32 {
 /// Ensures a navmesh info entry exists for `this`. It asks the navmesh map
 /// to add one only when the mesh has no info yet, then pauses the map.
 pub fn fn_006986d0(e: &mut Engine, this: Ptr) -> bool {
-    let allocator_state = e.call(0x0084_e3a0, &args![this]).u32();
+    let allocator_state = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let tes = e.global::<Ptr>(TES_INSTANCE);
     let map = e.call(0x0045_af00, &args![tes]).ptr::<Ptr>();
     let info = e
@@ -2138,12 +2183,18 @@ pub fn nav_mesh_add_obstacle(e: &mut Engine, this: Ptr<NavMesh>, obstacle: Ptr, 
 pub fn fn_00699000(e: &mut Engine, this: Ptr<NavMesh>, index: u32, context: Ptr) -> u32 {
     let array = this.byte_add(0xd0);
     let record_at = |e: &mut Engine, index| {
-        let entry = e.call(ARRAY_ELEMENT_4, &args![array, index]).u32();
-        e.call(POINTER_GET, &args![entry]).ptr::<Ptr>()
+        let entry = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry))
+            .into_ret()
+            .ptr::<Ptr>()
     };
     // 0069903e..00699059: the record is fetched first, then the size.
     let record = record_at(e, index);
-    let size = e.call(ARRAY_SIZE, &args![array]).u32();
+    let size = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array));
     if index == size.wrapping_sub(1) {
         e.with_stack(0x4c, |e, cutter| {
             e.call(0x006b_bb80, &args![cutter]);
@@ -2172,7 +2223,8 @@ pub fn fn_00699000(e: &mut Engine, this: Ptr<NavMesh>, index: u32, context: Ptr)
             e.with_stack(0x4c, |e, cutter| {
                 e.call(0x006b_bb80, &args![cutter]);
                 // 00699170: the size is read again here.
-                let mut cursor = e.call(ARRAY_SIZE, &args![array]).u32().wrapping_sub(1);
+                let mut cursor = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
+                    .wrapping_sub(1);
                 while cursor != index.wrapping_sub(1) {
                     // 006991b4..006991e8, 0069921e, 00699262: the record is fetched
                     // anew (`00877a30`, `00559450`) for each use.
@@ -2232,7 +2284,7 @@ pub fn fn_00699690(e: &mut Engine, this: Ptr<NavMesh>, obstacle: Ptr) -> u32 {
         let array = obstacle.byte_add(offset);
         let mut index = 0u32;
         // 006996b8/00699711: the count (`0044ddc0`) before each element.
-        while index < e.call(ARRAY_SIZE, &args![array]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
             let element = e.call(element_at, &args![array, index]).u32();
             let triangle_index = e.mem.u16(element) as u32;
             let triangle = e
@@ -2298,7 +2350,7 @@ pub fn fn_006997e0(e: &mut Engine, this: Ptr<NavMesh>, door: Ptr, bounds: Ptr) -
         e.call(0x0069_87d0, &args![this, reference, adjustment, triangles]);
         e.call(0x0045_cec0, &args![reference]);
         let mut index = 0u32;
-        while index < e.call(ARRAY_SIZE, &args![triangles]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, triangles)) {
             let element = e.call(0x005e_eda0, &args![triangles, index]).u32();
             let triangle_index = e.mem.u16(element);
             let existing = nav_mesh_get_closed_door_info_for_triangle(e, this, triangle_index);
@@ -2332,7 +2384,7 @@ pub fn nav_mesh_get_closed_door_info_for_triangle(
     let records = this.byte_add(0x68);
     let mut index = 0u32;
     // 00699b11: the size is read for every test of the loop.
-    while index < e.call(ARRAY_SIZE, &args![records]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, records)) {
         let record = e.call(0x0069_50d0, &args![records, index]).ptr::<()>();
         if e.mem.u16(record.addr() + 4) == triangle {
             // 00699b40: the match is fetched again; that call's result is returned.
@@ -2350,7 +2402,7 @@ pub fn nav_mesh_get_closed_door_info_for_triangle(
 pub fn fn_00699a30(e: &mut Engine, this: Ptr<NavMesh>, form_id: u32) -> bool {
     let records = this.byte_add(0x68);
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![records]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, records)) {
         let record = e.call(0x0069_50d0, &args![records, index]).ptr::<()>();
         if e.mem.u32(record.addr()) == form_id {
             let triangle = e.mem.u16(record.addr() + 4) as u32;
@@ -2396,7 +2448,7 @@ pub fn fn_0069a830(e: &mut Engine, this: Ptr<NavMesh>, triangle: u16, edge_list:
         }
     }
     let extras = this.byte_add(0x98);
-    if (triangle as u32) < e.call(ARRAY_SIZE, &args![extras]).u32() {
+    if (triangle as u32) < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, extras)) {
         let extra = e.call(0x005e_eda0, &args![extras, triangle]).ptr::<()>();
         if e.mem.u16(extra.addr()) != u16::MAX {
             e.call(0x0069_1820, &args![edge_list, extra]);
@@ -2503,7 +2555,10 @@ pub fn fn_0069aa20(e: &mut Engine, this: Ptr<NavMesh>) -> bool {
                     let holder = Ptr::new(e.mem.u32(extra + 4));
                     if fn_0069ad00(e, holder, reference) {
                         let other_index = e.mem.u16(extra + 8);
-                        let other_mesh = e.call(POINTER_GET, &args![reference]).ptr::<NavMesh>();
+                        let other_mesh =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, reference))
+                                .into_ret()
+                                .ptr::<NavMesh>();
                         let other_triangle =
                             e.call(0x0055_82f0, &args![other_mesh, other_index]).u32();
                         if other_triangle != 0 {
@@ -2524,7 +2579,11 @@ pub fn fn_0069aa20(e: &mut Engine, this: Ptr<NavMesh>) -> bool {
                                 );
                                 for candidate in 0..3i32 {
                                     let other_index = e.mem.u16(extra + 8);
-                                    let other_mesh = e.call(POINTER_GET, &args![reference]).u32();
+                                    let other_mesh = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0055_9450,
+                                        leaf::word_at_0(e, reference)
+                                    );
                                     e.call(
                                         0x0068_f0c0,
                                         &args![
@@ -2557,8 +2616,13 @@ pub fn fn_0069aa20(e: &mut Engine, this: Ptr<NavMesh>) -> bool {
                             }
                             if candidates == 1 {
                                 let other_index = e.mem.u16(extra + 8);
-                                let other_mesh =
-                                    e.call(POINTER_GET, &args![reference]).ptr::<NavMesh>();
+                                let other_mesh = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0055_9450,
+                                    leaf::word_at_0(e, reference)
+                                )
+                                .into_ret()
+                                .ptr::<NavMesh>();
                                 let target = fn_006976a0(e, other_mesh, other_index, chosen);
                                 let mesh_info = e.call(0x0068_efb0, &args![this]).u32();
                                 e.mem.set_u32(target.addr() + 4, mesh_info);
@@ -2587,7 +2651,7 @@ pub fn fn_0069ad00(e: &mut Engine, this: Ptr, reference: Ptr) -> bool {
         0x0069_0890,
         &args![reference, Ptr::<()>::new(e.mem.u32(this.addr() + 0x54))],
     );
-    let held = e.call(POINTER_GET, &args![reference]).u32();
+    let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, reference));
     held != 0
 }
 
@@ -2677,7 +2741,7 @@ pub fn fn_006993c0(e: &mut Engine, this: Ptr<NavMesh>) {
     e.with_stack(0x20, |e, context| {
         fn_00699450(e, context);
         let array = this.byte_add(0xd0);
-        let count = e.call(ARRAY_SIZE, &args![array]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array));
         for index in (0..count).rev() {
             fn_00699000(e, this, index, context);
         }
@@ -2742,9 +2806,13 @@ pub fn fn_006995c0(e: &mut Engine, this: Ptr<NavMesh>, form: Ptr) -> u32 {
     let array = this.byte_add(0xd0);
     let mut index = 0u32;
     // 006995e4: the count (`0044ddc0`) is read before each element.
-    while index < e.call(ARRAY_SIZE, &args![array]).u32() {
-        let element = e.call(ARRAY_ELEMENT_4, &args![array, index]).u32();
-        let pointer = e.call(POINTER_GET, &args![element]).u32();
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, array, index)
+        );
+        let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element));
         if e.call(0x004b_0460, &args![Ptr::<()>::new(pointer + 0x0c), form])
             .bool()
         {
@@ -2764,10 +2832,12 @@ pub fn fn_00699630(e: &mut Engine, this: Ptr<NavMesh>, key: Ptr, out_record: Ptr
         e.mem.set_u32(out_record.addr(), 0);
         u32::MAX
     } else {
-        let element = e
-            .call(ARRAY_ELEMENT_4, &args![this.byte_add(0xd0), index])
-            .u32();
-        let record = e.call(0x0055_9450, &args![element]).u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, this.byte_add(0xd0), index)
+        );
+        let record = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element));
         e.mem.set_u32(out_record.addr(), record);
         index
     }
@@ -3361,22 +3431,44 @@ pub fn fn_006bd040(e: &mut Engine, this: Ptr) {
         .into_iter()
         .enumerate()
         {
-            let obstacle = e.call(POINTER_GET, &args![obstacle_pointer]).u32();
+            let obstacle = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, obstacle_pointer)
+            );
             let z = x87_quiet_bits(e.mem.u32(obstacle + 0x48));
-            let obstacle = e.call(POINTER_GET, &args![obstacle_pointer]).u32();
+            let obstacle = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, obstacle_pointer)
+            );
             let y = x87_quiet_bits(e.mem.u32(obstacle + y_offset));
-            let obstacle = e.call(POINTER_GET, &args![obstacle_pointer]).u32();
+            let obstacle = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, obstacle_pointer)
+            );
             let x = x87_quiet_bits(e.mem.u32(obstacle + x_offset));
-            let built = e
-                .call(POINT3_CONSTRUCT, &args![local(temporary), x, y, z])
-                .u32();
+            let built = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, local(temporary), x, y, z)
+            );
             copy_point(e, built, corners + index as u32 * 12);
         }
 
         // 006bd1ce..006bd1f2: `FLD [ESI+0x6c]; FSUB [EAX+0x60]; FSTP` (ESI the first getter's
         // object, EAX the second's).
-        let first_obstacle = e.call(POINTER_GET, &args![obstacle_pointer]).u32();
-        let second_obstacle = e.call(POINTER_GET, &args![obstacle_pointer]).u32();
+        let first_obstacle = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, obstacle_pointer)
+        );
+        let second_obstacle = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, obstacle_pointer)
+        );
         let height_delta = x87_store32(x87_sub(
             x87_load32(e.mem.u32(first_obstacle + 0x6c)),
             x87_m32(e.mem.u32(second_obstacle + 0x60)),
@@ -3399,8 +3491,16 @@ pub fn fn_006bd040(e: &mut Engine, this: Ptr) {
             // 006bd246..006bd2ad: the first getter's +0x10 (the translation) is pushed before
             // the second getter's +0x1c (the matrix); `004b4500` into EBP-0xec, `00439e90` into
             // EBP-0xf8, copied into the projected corner.
-            let translation = e.call(POINTER_GET, &args![obstacle_pointer]).u32() + 0x10;
-            let matrix = e.call(POINTER_GET, &args![obstacle_pointer]).u32() + 0x1c;
+            let translation = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, obstacle_pointer)
+            ) + 0x10;
+            let matrix = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, obstacle_pointer)
+            ) + 0x1c;
             let turned = e.call(0x004b_4500, &args![matrix, rotated, corner]).u32();
             let sum = e.call(POINT3_ADD, &args![turned, moved, translation]).u32();
             copy_point(e, sum, point);
@@ -3496,12 +3596,18 @@ pub fn fn_006987d0(
         let min_column = scratch.byte_add(0x04);
         let max_row = scratch.byte_add(0x08);
         let max_column = scratch.byte_add(0x0c);
-        let reference_object = e.call(POINTER_GET, &args![reference]).ptr::<()>();
+        let reference_object =
+            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, reference))
+                .into_ret()
+                .ptr::<()>();
         e.call(
             GRID_CELL_OF_POINT,
             &args![grid, reference_object.byte_add(0x58), min_row, min_column],
         );
-        let reference_object = e.call(POINTER_GET, &args![reference]).ptr::<()>();
+        let reference_object =
+            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, reference))
+                .into_ret()
+                .ptr::<()>();
         e.call(
             GRID_CELL_OF_POINT,
             &args![grid, reference_object.byte_add(0x64), max_row, max_column],
@@ -3517,19 +3623,30 @@ pub fn fn_006987d0(
         .into_iter()
         .enumerate()
         {
-            let object = e.call(POINTER_GET, &args![reference]).ptr::<()>();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, reference))
+                .into_ret()
+                .ptr::<()>();
             let z = e.mem.f32(object.addr() + 0x48);
-            let object = e.call(POINTER_GET, &args![reference]).ptr::<()>();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, reference))
+                .into_ret()
+                .ptr::<()>();
             let y = e.mem.f32(object.addr() + y_offset) + e.mem.f32(adjustment.addr() + 4) * y_sign;
-            let object = e.call(POINTER_GET, &args![reference]).ptr::<()>();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, reference))
+                .into_ret()
+                .ptr::<()>();
             let x = e.mem.f32(object.addr() + x_offset) + e.mem.f32(adjustment.addr()) * x_sign;
-            e.call(
-                POINT3_CONSTRUCT,
-                &args![corners.byte_add(index as u32 * 12), x, y, z],
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, corners.byte_add(index as u32 * 12), x, y, z)
             );
         }
-        let first = e.call(POINTER_GET, &args![reference]).ptr::<()>();
-        let second = e.call(POINTER_GET, &args![reference]).ptr::<()>();
+        let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, reference))
+            .into_ret()
+            .ptr::<()>();
+        let second = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, reference))
+            .into_ret()
+            .ptr::<()>();
         let height_delta = e.mem.f32(first.addr() + 0x6c) - e.mem.f32(second.addr() + 0x60);
 
         let mut row = e.mem.u32(min_row.addr());
@@ -3580,13 +3697,25 @@ pub fn fn_006987d0(
                                 let z_pad: f64 = e.global(0x0102_e430);
                                 let max_z = (e.mem.f32(high.addr() + 8) as f64 + z_pad) as f32;
                                 e.mem.set_f32(high.addr() + 8, max_z);
-                                let object = e.call(POINTER_GET, &args![reference]).ptr::<()>();
+                                let object = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0055_9450,
+                                    leaf::word_at_0(e, reference)
+                                )
+                                .into_ret()
+                                .ptr::<()>();
                                 let transformed_center = scratch.byte_add(0x88);
                                 e.call(
                                     POINT3_ADD,
                                     &args![object.byte_add(0x64), transformed_center, adjustment],
                                 );
-                                let object = e.call(POINTER_GET, &args![reference]).ptr::<()>();
+                                let object = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0055_9450,
+                                    leaf::word_at_0(e, reference)
+                                )
+                                .into_ret()
+                                .ptr::<()>();
                                 let transformed_origin = scratch.byte_add(0x94);
                                 e.call(
                                     POINT3_SUBTRACT,
@@ -3614,8 +3743,13 @@ pub fn fn_006987d0(
                                         .bool();
                                     let mut intersects = center_inside;
                                     if !intersects {
-                                        let object =
-                                            e.call(POINTER_GET, &args![reference]).ptr::<()>();
+                                        let object = typed_call!(
+                                            leaf::FAMILY,
+                                            0x0055_9450,
+                                            leaf::word_at_0(e, reference)
+                                        )
+                                        .into_ret()
+                                        .ptr::<()>();
                                         let probe_point = object.byte_add(0x10);
                                         let height_out = scratch.byte_add(0x64);
                                         intersects = e
@@ -3637,13 +3771,23 @@ pub fn fn_006987d0(
                                             let next = if edge == 2 { 0 } else { edge + 1 };
                                             let first_diff = scratch.byte_add(0xb8);
                                             let first_local = scratch.byte_add(0xd0);
-                                            let matrix_object =
-                                                e.call(POINTER_GET, &args![reference]).ptr::<()>();
+                                            let matrix_object = typed_call!(
+                                                leaf::FAMILY,
+                                                0x0055_9450,
+                                                leaf::word_at_0(e, reference)
+                                            )
+                                            .into_ret()
+                                            .ptr::<()>();
                                             // 00698d81: ADD EAX,0x1c; the rotation matrix
                                             // 004b3ae0 reads is the object's +0x1c.
                                             let transform = matrix_object.byte_add(0x1c);
-                                            let translation_object =
-                                                e.call(POINTER_GET, &args![reference]).ptr::<()>();
+                                            let translation_object = typed_call!(
+                                                leaf::FAMILY,
+                                                0x0055_9450,
+                                                leaf::word_at_0(e, reference)
+                                            )
+                                            .into_ret()
+                                            .ptr::<()>();
                                             let translation = translation_object.byte_add(0x10);
                                             let first_vertex =
                                                 corner_pointer(e, this, triangle, edge);
@@ -3659,12 +3803,22 @@ pub fn fn_006987d0(
                                                 .ptr();
                                             let second_diff = scratch.byte_add(0xc4);
                                             let second_local = scratch.byte_add(0xdc);
-                                            let matrix_object =
-                                                e.call(POINTER_GET, &args![reference]).ptr::<()>();
+                                            let matrix_object = typed_call!(
+                                                leaf::FAMILY,
+                                                0x0055_9450,
+                                                leaf::word_at_0(e, reference)
+                                            )
+                                            .into_ret()
+                                            .ptr::<()>();
                                             // 00698dd5: ADD EAX,0x1c, as for the first vertex.
                                             let transform = matrix_object.byte_add(0x1c);
-                                            let translation_object =
-                                                e.call(POINTER_GET, &args![reference]).ptr::<()>();
+                                            let translation_object = typed_call!(
+                                                leaf::FAMILY,
+                                                0x0055_9450,
+                                                leaf::word_at_0(e, reference)
+                                            )
+                                            .into_ret()
+                                            .ptr::<()>();
                                             let translation = translation_object.byte_add(0x10);
                                             let second_vertex =
                                                 corner_pointer(e, this, triangle, next);
@@ -3835,9 +3989,11 @@ pub fn fn_00699b60(e: &mut Engine, this: Ptr<NavMesh>) {
                 e.call(POINT3_NORMALIZE, &args![first_vector]);
                 e.call(POINT3_NORMALIZE, &args![second_vector]);
                 e.call(POINT3_CROSS, &args![first_vector, cross, second_vector]);
-                let dot = e
-                    .call(0x004b_6190, &args![first_vector, second_vector])
-                    .f32();
+                let dot = typed_call!(
+                    leaf::FAMILY,
+                    0x004b_6190,
+                    leaf::point3_dot(e, first_vector, second_vector)
+                );
                 let cross_z = e.mem.f32(cross.addr() + 8);
                 let mut accept = false;
                 if compare_flags(dot as f64, e.global::<f64>(ZERO)) & 0x41 == 0 {

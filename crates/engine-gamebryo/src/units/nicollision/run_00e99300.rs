@@ -306,6 +306,7 @@ const POINT_MINUS_POINT: u32 = 0x0043_9ef0;
 /// `00439e90` (thiscall on a point: the out point, the other point): the sum; answers it.
 const POINT_PLUS_POINT: u32 = 0x0043_9e90;
 /// `NiPoint3::Dot` (`004b6190`, thiscall on one point, the other point), in ST0.
+#[cfg(test)]
 const NI_POINT3_DOT: u32 = 0x004b_6190;
 /// `00457990` (thiscall on a point): its length, in ST0.
 const POINT_LENGTH: u32 = 0x0045_7990;
@@ -379,7 +380,13 @@ pub fn fn_00e9c490(e: &mut Engine, origin: Ptr, direction: Ptr, pick: Ptr, objec
             POINT_MINUS_POINT,
             &args![o.wrapping_add(0x8c), offset, origin],
         );
-        let along = e.call(NI_POINT3_DOT, &args![direction, offset]).f64();
+        let along = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, direction, offset)
+        )
+        .into_ret()
+        .f64();
         if along < float_operand(e, ZERO_01011D78) {
             return false;
         }

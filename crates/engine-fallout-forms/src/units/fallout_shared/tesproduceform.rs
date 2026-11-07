@@ -25,6 +25,7 @@ const FILL_BYTES: u32 = 0x0040_3d30;
 const MEMCPY: u32 = 0x0040_1460;
 const MEMCMP: u32 = 0x00ec_4835;
 /// The form-id getter (`0084e3a0`, thiscall: the word at +0xc).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `TESForm` chunk writers: a word (`00485910`, cdecl(chunk, word)) and an
 /// array (`TESForm::AddChunkArray`, `004856f0`, cdecl(chunk, data, size)).
@@ -35,6 +36,7 @@ const CHUNK_PFIG: u32 = u32::from_le_bytes(*b"PFIG");
 const CHUNK_PFPC: u32 = u32::from_le_bytes(*b"PFPC");
 /// The word at `+4` (`00726070`, thiscall) and its setter (`006ecd40`,
 /// thiscall, `RET 4`).
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 const SET_WORD_AT_4: u32 = 0x006e_cd40;
 /// `__RTDynamicCast` (`00ec43fb`, cdecl, five words) and the type
@@ -93,7 +95,7 @@ pub fn tes_produce_form_initialize_data_component(e: &mut Engine, this: Ptr<TESP
 pub fn fn_0048b5c0(e: &mut Engine, this: Ptr<TESProduceForm>) {
     let ingredient = e.get(this, TESProduceForm::pFormIngredient);
     if ingredient != 0 {
-        let id = e.call(FORM_ID, &args![ingredient]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, ingredient));
         e.call(ADD_CHUNK_WORD, &args![CHUNK_PFIG, id]);
     }
     e.call(
@@ -111,7 +113,7 @@ pub fn tes_produce_form_copy_component(e: &mut Engine, this: Ptr<TESProduceForm>
     if source == 0 {
         return;
     }
-    let ingredient = e.call(WORD_AT_4, &args![source]).u32();
+    let ingredient = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source));
     e.call(SET_WORD_AT_4, &args![this, ingredient]);
     fn_0048b670(e, this, source + PRODUCE_CHANCE);
 }
@@ -139,8 +141,8 @@ pub fn tes_produce_form_compare_component(
     if source == 0 {
         return true;
     }
-    let mine = e.call(WORD_AT_4, &args![this]).u32();
-    let theirs = e.call(WORD_AT_4, &args![source]).u32();
+    let mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
+    let theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source));
     if mine != theirs {
         return true;
     }
@@ -189,7 +191,7 @@ pub fn tes_produce_form_init_item(e: &mut Engine, this: Ptr<TESProduceForm>, own
                 let name = e.vcall(owner, 0x130, &[]).u32();
                 e.call(LOG, &args![MISSING_WITH_NAME, missing, name]);
             } else {
-                let owner_id = e.call(FORM_ID, &args![owner]).u32();
+                let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
                 e.call(LOG, &args![MISSING_WITH_ID, missing, owner_id]);
             }
         } else {

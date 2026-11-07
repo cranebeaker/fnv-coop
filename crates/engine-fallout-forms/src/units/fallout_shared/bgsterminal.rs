@@ -92,10 +92,13 @@ const STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// Sets a string from a C string and a length (`004037f0`, `RET 8`).
 const STRING_SET: u32 = 0x0040_37f0;
 /// A `BSSimpleList` node's empty test (`008256d0`, `bool`).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// The address of a node's item (`006815c0`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// A node's next node (`00726070`).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// Removes a list's first item (`0063f7b0`).
 const LIST_REMOVE_FIRST: u32 = 0x0063_f7b0;
@@ -121,6 +124,7 @@ const TYPE_TES_FORM: u32 = 0x0118_3028;
 const TYPE_NOTE: u32 = 0x0118_640c;
 const TYPE_TERMINAL: u32 = 0x0118_9ebc;
 /// `TESForm`'s form id getter (`0084e3a0`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The warning printer (`005b5e40`, cdecl, variable arguments).
 const WARNING: u32 = 0x005b_5e40;
@@ -229,7 +233,7 @@ fn resolve(e: &mut Engine, form: Ptr, id_at: Ptr, target: u32) -> u32 {
 /// `TESForm`'s form id and vtable slot 0x130's answer (its name), in the
 /// order the code computes them.
 fn id_and_name(e: &mut Engine, form: Ptr) -> (u32, u32) {
-    let form_id = e.call(FORM_ID, &args![form]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     let name = e.vcall(form.addr(), 0x130, &args![]).u32();
     (form_id, name)
 }
@@ -269,10 +273,10 @@ pub fn bgs_terminal_init_item(e: &mut Engine, this: Ptr<BGSTerminal>) {
         }
         let mut index = 0u32;
         let mut node = e.call(0x0046_1150, &args![this]).u32();
-        while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-            let item_at = e.call(NODE_ITEM, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item: Ptr<TerminalMenuItem> = Ptr::new(e.mem.u32(item_at));
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             for (field, target, message) in [
                 (
                     TerminalMenuItem::pDisplayNote,
@@ -592,8 +596,8 @@ pub fn fn_00500a20(e: &mut Engine, this: Ptr<BGSTerminal>, value: u32) {
 /// (`0063f7b0`) and deletes the item (`005010c0` with 1) when not null.
 pub fn fn_00501050(e: &mut Engine, this: Ptr<BGSTerminal>) {
     let list = this.addr() + 0x98;
-    while !e.call(NODE_IS_EMPTY, &args![list]).bool() {
-        let item_at = e.call(NODE_ITEM, &args![list]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let item = e.mem.u32(item_at);
         e.call(LIST_REMOVE_FIRST, &args![list]);
         if item != 0 {
@@ -831,6 +835,7 @@ const GET_PASSWORD: u32 = 0x004f_d400;
 /// The menu item list's first node (`00461150`, `this` = terminal).
 const MENU_ITEMS: u32 = 0x0046_1150;
 /// A string's characters (`00559450`, `this` = `BSStringT`).
+#[cfg(test)]
 const STRING_CHARS: u32 = 0x0055_9450;
 /// `strlen` (`0044a670`, cdecl).
 const STRLEN: u32 = 0x0044_a670;
@@ -945,12 +950,12 @@ fn cast_terminal(e: &mut Engine, other: Ptr) -> u32 {
 /// Writes one of a menu item's strings: the bytes and the terminating zero
 /// (`AddChunkArray`) when it has characters, a zero word otherwise.
 fn save_item_string(e: &mut Engine, string: u32, chunk: u32) {
-    if e.call(STRING_CHARS, &args![string]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string)) == 0 {
         e.call(ADD_CHUNK_WORD, &args![chunk, 0u32]);
     } else {
-        let chars = e.call(STRING_CHARS, &args![string]).u32();
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
         let length = e.call(STRLEN, &args![chars]).u32();
-        let chars = e.call(STRING_CHARS, &args![string]).u32();
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
         e.call(
             ADD_CHUNK_ARRAY,
             &args![chunk, chars, length.wrapping_add(1)],
@@ -982,7 +987,7 @@ fn show_skill_message(
         let name = e.call(ACTOR_VALUE_NAME, &args![0x28u32]).u32();
         let format = e.call(SETTING_TEXT, &args![SKILL_MESSAGE_SETTING]).u32();
         e.call(STRING_FORMAT, &args![text, format, name, skill]);
-        let chars = e.call(STRING_CHARS, &args![text]).u32();
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         let value = x87_quiet_bits(e.mem.u32(MESSAGE_VALUE_010162C0));
         e.call(
             SHOW_MESSAGE_7052F0,
@@ -1034,12 +1039,12 @@ pub fn bgs_terminal_save(e: &mut Engine, this: Ptr<BGSTerminal>) {
     e.call(DESCRIPTION_SAVE, &args![base + 0x90]);
     let sound = e.mem.u32(base + 0x74);
     if sound != 0 {
-        let id = e.call(FORM_ID, &args![sound]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         e.call(ADD_CHUNK_WORD, &args![SIG_SNAM, id]);
     }
     if e.call(GET_PASSWORD, &args![this]).u32() != 0 {
         let password = e.call(GET_PASSWORD, &args![this]).u32();
-        let id = e.call(FORM_ID, &args![password]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, password));
         e.call(ADD_CHUNK_WORD, &args![SIG_PNAM_WORD, id]);
     }
     if e.call(SAVE_SWAPS, &args![]).bool() {
@@ -1050,10 +1055,10 @@ pub fn bgs_terminal_save(e: &mut Engine, this: Ptr<BGSTerminal>) {
         e.call(SWAP_DNAM, &args![base + 0xa4]);
     }
     let mut node = e.call(MENU_ITEMS, &args![this]).u32();
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item_at = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_at);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         save_item_string(e, item, SIG_ITXT);
         save_item_string(e, item + 8, SIG_RNAM_WORD);
         let flags = e.mem.u8(item + 0x74);
@@ -1061,7 +1066,7 @@ pub fn bgs_terminal_save(e: &mut Engine, this: Ptr<BGSTerminal>) {
         for (field, chunk) in [(0x6c, SIG_INAM), (0x70, SIG_TNAM)] {
             let form = e.mem.u32(item + field);
             if form != 0 {
-                let id = e.call(FORM_ID, &args![form]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 e.call(ADD_CHUNK_WORD, &args![chunk, id]);
             }
         }
@@ -1093,10 +1098,10 @@ pub fn fn_00500cb0(e: &mut Engine, this: Ptr<BGSTerminal>, other: Ptr) {
     e.call(COPY_BYTES, &args![base + 0xa4, source + 0xa4, 4u32]);
     fn_00501050(e, this);
     let mut node = e.call(MENU_ITEMS, &args![source]).u32();
-    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-        let item_at = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let theirs = e.mem.u32(item_at);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         let memory = e.call(ALLOCATE, &args![0x78u32]).u32();
         let mine = if memory == 0 {
             0
@@ -1154,13 +1159,17 @@ pub fn fn_00500e60(e: &mut Engine, this: Ptr<BGSTerminal>, other: Ptr) -> bool {
         return true;
     }
     while their_node != 0
-        && !e.call(NODE_IS_EMPTY, &args![their_node]).bool()
+        && !typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, their_node)
+        )
         && my_node != 0
-        && !e.call(NODE_IS_EMPTY, &args![my_node]).bool()
+        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, my_node))
     {
-        let theirs_at = e.call(NODE_ITEM, &args![their_node]).u32();
+        let theirs_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, their_node));
         let theirs = e.mem.u32(theirs_at);
-        let mine_at = e.call(NODE_ITEM, &args![my_node]).u32();
+        let mine_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, my_node));
         let mine = e.mem.u32(mine_at);
         if e.call(STRING_DIFFERS, &args![mine, theirs]).bool()
             || e.call(STRING_DIFFERS, &args![mine + 8, theirs + 8]).bool()
@@ -1174,8 +1183,8 @@ pub fn fn_00500e60(e: &mut Engine, this: Ptr<BGSTerminal>, other: Ptr) -> bool {
         {
             return true;
         }
-        their_node = e.call(NODE_NEXT, &args![their_node]).u32();
-        my_node = e.call(NODE_NEXT, &args![my_node]).u32();
+        their_node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, their_node));
+        my_node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, my_node));
     }
     e.call(ACTIVATOR_DIFFERS, &args![this, source]).bool()
 }
@@ -1191,7 +1200,7 @@ pub fn bgs_terminal_get_hack_mini_game_value(
 ) -> i32 {
     let level = bgs_terminal_get_hack_difficulty_lock_level(e, this, reference);
     let doubled = level << 1;
-    let id = e.call(FORM_ID, &args![this]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let value = ((id & 1).wrapping_add(doubled)).wrapping_add(4) as i32;
     if value > 0xc {
         0xc

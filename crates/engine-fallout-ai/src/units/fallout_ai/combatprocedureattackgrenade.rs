@@ -239,7 +239,7 @@ pub fn combat_procedure_attack_grenade_calculate_targeted_point(
     e.with_stack(0x24, |e, frame| {
         let f = frame.addr();
         let point = f + 0x18;
-        e.call(0x0068_15c0, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         let high_arc = u32::from(e.mem.u8(me.wrapping_add(0x30)));
         let result = if e.mem.u8(me.wrapping_add(0x14)) == 0 {
             let target = e.call(GET_TARGET, &args![this]).u32();
@@ -348,7 +348,7 @@ pub fn combat_procedure_attack_grenade_get_targeted_point(
     if ok && explosion != 0 {
         ok = e.with_stack(0xc, |e, landing| {
             let l = landing.addr();
-            e.call(0x0068_15c0, &args![l]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l));
             if e.mem.u8(me.wrapping_add(0x14)) != 0 {
                 copy_point(e, l, me.wrapping_add(0x18));
             } else {
@@ -479,7 +479,7 @@ pub fn combat_procedure_attack_grenade_update(e: &mut Engine, this: Ptr) {
                 return;
             }
         }
-        let process = e.call(0x008d_8520, &args![attacker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
         if !e.vcall(process, 0x3f8, &[]).bool() {
             return;
         }
@@ -531,7 +531,7 @@ pub fn combat_procedure_attack_grenade_update(e: &mut Engine, this: Ptr) {
             e.call(0x0044_2a80, &args![state, 0u32]);
             e.call(TIMER_RESET, &args![me.wrapping_add(0x34)]);
         }
-        let process = e.call(0x008d_8520, &args![attacker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
         e.vcall(process, 0x43c, &args![1u32]);
         e.call(0x0089_35f0, &args![attacker, 0x72u32]);
         e.mem.set_u32(attacking, 1);

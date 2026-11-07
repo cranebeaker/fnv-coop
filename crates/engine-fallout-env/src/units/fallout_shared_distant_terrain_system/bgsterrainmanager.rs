@@ -11,10 +11,13 @@ use crate::prelude::*;
 
 /// `NiPointer` dereference (`*this`): the pointer stored in the smart
 /// pointer at `this`.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `BSSimpleArray<T,1024>` element count (`iSize`).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 /// `BSSimpleArray<T,1024>` element address: `pBuffer + 4 * index`.
+#[cfg(test)]
 const ARRAY_ELEMENT_ADDRESS: u32 = 0x0087_7a30;
 /// The reference's form key (its body calls `00485bc0` and `00484e60`; the
 /// high byte carries a flag).
@@ -170,8 +173,17 @@ pub fn bgs_terrain_manager_update(
         if active != 0 && active != this.addr() {
             e.set_global(ACTIVE_MANAGER, this.addr());
             fn_006fce00(e, Ptr::new(active));
-            if e.call(POINTER_GET, &args![SMART_POINTER_011D86BC]).u32() != 0 {
-                let pointer = e.call(POINTER_GET, &args![SMART_POINTER_011D86BC]).u32();
+            if typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, SMART_POINTER_011D86BC)
+            ) != 0
+            {
+                let pointer = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, SMART_POINTER_011D86BC)
+                );
                 e.call(OBJECT_CALL_00572160, &args![pointer]);
             }
         }
@@ -206,7 +218,13 @@ fn update_root_node(e: &mut Engine, this: Ptr<BGSTerrainManager>, local: Ptr, fl
     if flags & 8 != 0 && value_byte(e, VALUE_OBJECT_011D8680) != 0 {
         let root = e.get(this, BGSTerrainManager::pRootNode);
         e.call(NODE_UPDATE_TREES, &args![root, local]);
-        if fn_006fcda0(e) != 0 && e.call(ARRAY_COUNT, &args![this.addr() + 0x2c]).u32() != 0 {
+        if fn_006fcda0(e) != 0
+            && typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, this.addr() + 0x2c)
+            ) != 0
+        {
             hand_over_queued_trees(e, this);
         }
     }
@@ -219,25 +237,37 @@ fn hand_over_queued_trees(e: &mut Engine, this: Ptr<BGSTerrainManager>) {
     let queue = this.addr() + 0x2c;
     e.with_stack(0x10, |e, kept| {
         e.call(ARRAY_CONSTRUCT, &args![kept]);
-        let count = e.call(ARRAY_COUNT, &args![queue]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, queue));
         for index in 0..count {
-            let slot = e.call(ARRAY_ELEMENT_ADDRESS, &args![queue, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, queue, index)
+            );
             let tree = e.mem.u32(slot);
             let tree_key = e.call(REFERENCE_FORM_KEY, &args![tree]).u32();
-            let slot = e.call(ARRAY_ELEMENT_ADDRESS, &args![queue, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, queue, index)
+            );
             let tree = e.mem.u32(slot);
             let block_key = e.vcall(tree, 0x1f4, &[]).u32();
             let block = fn_006fcef0(e, this, block_key);
             if block != 0 {
                 e.call(TREE_BLOCK_CALL_006F9230, &args![block, tree_key, 1u32]);
             } else {
-                let slot = e.call(ARRAY_ELEMENT_ADDRESS, &args![queue, index]).u32();
+                let slot = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, queue, index)
+                );
                 e.call(ARRAY_APPEND, &args![kept, slot]);
             }
         }
         e.call(ARRAY_CLEAR, &args![queue, 1u32]);
-        if e.call(ARRAY_COUNT, &args![kept]).u32() != 0 {
-            let kept_count = e.call(ARRAY_COUNT, &args![kept]).u32();
+        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, kept)) != 0 {
+            let kept_count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, kept));
             e.call(ARRAY_SET_SIZE, &args![queue, kept_count, 1u32]);
             for index in 0..kept_count {
                 let element = e.call(ARRAY_AT, &args![kept, index]).u32();
@@ -334,10 +364,14 @@ pub fn fn_006fcef0(e: &mut Engine, this: Ptr<BGSTerrainManager>, key: u32) -> u3
 /// `tree` from the queued-to-hide array.
 pub fn bgs_terrain_manager_release_tree(e: &mut Engine, this: Ptr<BGSTerrainManager>, tree: u32) {
     let queue = this.addr() + 0x2c;
-    let mut count = e.call(ARRAY_COUNT, &args![queue]).u32();
+    let mut count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, queue));
     let mut index = 0u32;
     while index < count {
-        let slot = e.call(ARRAY_ELEMENT_ADDRESS, &args![queue, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, queue, index)
+        );
         if e.mem.u32(slot) == tree {
             e.call(ARRAY_REMOVE, &args![queue, index, 1u32]);
             count -= 1;

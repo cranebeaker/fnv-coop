@@ -215,9 +215,11 @@ const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// Called on each id array before it is deleted (`00863db0`, `thiscall`).
 const ID_ARRAY_RELEASE: u32 = 0x0086_3db0;
 /// The +0x70 list's "is empty" test (`008256d0`, `thiscall`, `bool`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// Returns the address of the +0x70 list's first element (`006815c0`,
 /// `thiscall`).
+#[cfg(test)]
 const LIST_FIRST: u32 = 0x0068_15c0;
 /// Removes an element from the +0x70 list (`00905330`, `thiscall(element
 /// pointer)`).
@@ -287,11 +289,15 @@ pub fn fn_00856870(e: &mut Engine, this: Ptr<TESSaveLoadGame>) {
     if e.mem.u32(base + OWNED_LIST) != 0 {
         loop {
             let list = e.mem.u32(base + OWNED_LIST);
-            if e.call(LIST_IS_EMPTY, &args![list]).u8() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list))
+                .into_ret()
+                .u8()
+                != 0
+            {
                 break;
             }
             let list = e.mem.u32(base + OWNED_LIST);
-            let first = e.call(LIST_FIRST, &args![list]).u32();
+            let first = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let element = e.mem.u32(first);
             let element = e.with_stack(4, |e, slot| {
                 e.mem.set_u32(slot.addr(), element);

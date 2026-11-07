@@ -23,6 +23,7 @@ const BUFFER_WRITE: u32 = 0x0086_5e50;
 /// `00559450` (`thiscall`, no stack words): together give the level-up state object
 /// `fn_008d53f0` reads (a `fn_008d55b0` object, by its byte +8 and `fn_008d55e0`).
 const OWNER_OBJECT: u32 = 0x0046_4e10;
+#[cfg(test)]
 const GET_MEMBER: u32 = 0x0055_9450;
 /// `_ftol2` (`00ec62c0`, the float in `ST0`) and `0077c440` (`cdecl`, one word; unit
 /// `fallout/interface/menus/hudmainmenu.cpp`).
@@ -111,7 +112,7 @@ pub fn fn_008d53f0(
     }
     let player = e.mem.u32(OBJECT_011DEA3C);
     let holder = e.call(OWNER_OBJECT, &args![player]).u32();
-    let state = e.call(GET_MEMBER, &args![holder]).u32();
+    let state = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
     if e.mem.u8(state + 8) != 0 || index != EXPERIENCE_INDEX {
         return;
     }
@@ -131,7 +132,7 @@ pub fn fn_008d53f0(
     }
     let player = e.mem.u32(OBJECT_011DEA3C);
     let next = u32::from(e.call(GET_LEVEL, &args![player]).u16()) + 1;
-    let state = e.call(GET_MEMBER, &args![holder]).u32();
+    let state = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
     fn_008d55e0(e, state, next);
 }
 
@@ -155,9 +156,9 @@ pub fn fn_008d54e0(_e: &mut Engine, _this: u32, _unused_1: u32) -> u16 {
 /// (`RET 4`) is not read.
 pub fn fn_008d5510(e: &mut Engine, this: u32, _unused_1: u32) {
     let player = e.mem.u32(OBJECT_011DEA3C);
-    let state = e.call(GET_MEMBER, &args![this]).u32();
+    let state = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     e.call(SAVE_DATA, &args![player, state, 1u32]);
-    let state = e.call(GET_MEMBER, &args![this]).u32();
+    let state = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     let player = e.mem.u32(OBJECT_011DEA3C);
     e.call(SAVE_DATA, &args![player, state + 4, 4u32]);
 }
@@ -167,9 +168,9 @@ pub fn fn_008d5510(e: &mut Engine, this: u32, _unused_1: u32) {
 /// words (`RET 8`) are not read.
 pub fn fn_008d5550(e: &mut Engine, this: u32, _unused_1: u32, _unused_2: u32) {
     let player = e.mem.u32(OBJECT_011DEA3C);
-    let state = e.call(GET_MEMBER, &args![this]).u32();
+    let state = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     e.call(LOAD_DATA, &args![player, state, 1u32]);
-    let state = e.call(GET_MEMBER, &args![this]).u32();
+    let state = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     let player = e.mem.u32(OBJECT_011DEA3C);
     e.call(LOAD_DATA, &args![player, state + 4, 4u32]);
 }

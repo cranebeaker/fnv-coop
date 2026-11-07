@@ -188,6 +188,7 @@ const CLOSE_FORM: u32 = 0x0048_5680;
 const MODEL_SAVE: u32 = 0x0048_a520;
 const COPY_ALL_COMPONENTS: u32 = 0x0048_51b0;
 const COMPARE_ALL_COMPONENTS: u32 = 0x0048_5270;
+#[cfg(test)]
 const MEMBER_0084E3A0: u32 = 0x0084_e3a0;
 const WRITE_CHUNK_WORD: u32 = 0x0048_5910;
 
@@ -213,7 +214,7 @@ pub fn fn_00511d10(e: &mut Engine, this: Ptr) {
     );
     let member = e.mem.u32(this.addr() + 0x38);
     if member != 0 {
-        let value = e.call(MEMBER_0084E3A0, &args![member]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, member));
         e.call(WRITE_CHUNK_WORD, &args![CHUNK_DATA, value]);
     }
     e.call(CLOSE_FORM, &args![this]);

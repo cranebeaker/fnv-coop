@@ -25,6 +25,7 @@ const CAMERA_PATH_CONSTRUCT: u32 = 0x0058_a380;
 /// `"DefaultCameraPath"`.
 const DEFAULT_PATH_NAME: u32 = 0x0103_2730;
 /// `0084e3a0` (`thiscall`): the number of entries of a form array.
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0084_e3a0;
 /// `0061bc10` (`thiscall`, `RET 8`): inserts a form into a form array at an
 /// index.
@@ -35,6 +36,7 @@ const ARRAY_FORM_AT: u32 = 0x004d_6170;
 const PATHS_COUNT: u32 = 0x0065_8930;
 /// `00877a30` (`thiscall`, `RET 4`): the address of entry `i` (data +
 /// 4 i).
+#[cfg(test)]
 const PATHS_ENTRY: u32 = 0x0087_7a30;
 /// `0096ae90` (`thiscall`, `RET 8`): stores the word at an address into
 /// entry `i`.
@@ -81,7 +83,7 @@ pub fn bgs_camera_path_manager_create_default_path(e: &mut Engine, this: Ptr) {
     let path = e.mem.u32(DEFAULT_PATH);
     e.vcall(path, 0x134, &args![DEFAULT_PATH_NAME]);
     let path = e.mem.u32(DEFAULT_PATH);
-    let count = e.call(ARRAY_COUNT, &args![this]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     e.call(ARRAY_INSERT, &args![this, count, path]);
 }
 
@@ -102,7 +104,7 @@ pub fn fn_0058b970(e: &mut Engine, this: Ptr) {
     let count = e.call(PATHS_COUNT, &args![paths]).u32();
     let mut i = 0u32;
     while i < count {
-        let entry = e.call(PATHS_ENTRY, &args![paths, i]).u32();
+        let entry = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, paths, i));
         let path = e.mem.u32(entry);
         let clear = if path == 0 || e.call(0x0040_13e0, &args![path]).bool() {
             true
@@ -128,7 +130,7 @@ pub fn fn_0058b970(e: &mut Engine, this: Ptr) {
 /// then `005e03d0` on that array, clears the default path and runs
 /// `00863db0` on the root array.
 pub fn bgs_camera_path_manager_destroy_root_path_array_forms(e: &mut Engine, this: Ptr) {
-    let count = e.call(ARRAY_COUNT, &args![this]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let mut i = 0u32;
     while i < count {
         let form = e.call(ARRAY_FORM_AT, &args![this, i]).u32();
@@ -142,7 +144,7 @@ pub fn bgs_camera_path_manager_destroy_root_path_array_forms(e: &mut Engine, thi
     let count = e.call(PATHS_COUNT, &args![paths]).u32();
     let mut i = 0u32;
     while i < count {
-        let entry = e.call(PATHS_ENTRY, &args![paths, i]).u32();
+        let entry = typed_call!(leaf::FAMILY, 0x0087_7a30, leaf::array_element(e, paths, i));
         let path = e.mem.u32(entry);
         if path != 0 {
             e.vcall(path, 0x10, &args![1u32]);

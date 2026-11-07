@@ -14,7 +14,9 @@ const DESTRUCT_MEMBER_AT_4: u32 = 0x0046_ffb0;
 /// of the item pointer) and the next node (`00726070`). The engine map's
 /// names for these addresses belong to folded code.
 const LIST_FIRST_NODE: u32 = 0x0071_7e50;
+#[cfg(test)]
 const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The byte an item answers (`005dc980`, `this` = the item), compared
 /// with the wanted value.
@@ -45,12 +47,12 @@ pub fn fn_0060f260(e: &mut Engine, this: Ptr) {
 pub fn fn_0060f2c0(e: &mut Engine, this: Ptr, value: u8) -> u32 {
     let mut node = e.call(LIST_FIRST_NODE, &args![this]).u32();
     while node != 0 {
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         if item != 0 && e.call(ITEM_BYTE, &args![item]).u32() as u8 == value {
             return item;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     0
 }

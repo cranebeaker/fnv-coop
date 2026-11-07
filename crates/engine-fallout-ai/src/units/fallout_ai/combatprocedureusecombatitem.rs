@@ -26,6 +26,7 @@ const PROCEDURE_DONE: u32 = 0x009c_aae0;
 /// `CombatProcedure::GetAttacker` (Xbox PDB, `00996de0`).
 const GET_ATTACKER: u32 = 0x0099_6de0;
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map name, `008d8520`) on the actor.
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// `CombatProcedure::SaveGame` / `LoadGame` (Xbox PDB, `00996ed0` / `00996ef0`).
 const PROCEDURE_SAVE_GAME: u32 = 0x0099_6ed0;
@@ -100,8 +101,8 @@ pub fn combat_procedure_use_combat_item_update(e: &mut Engine, this: Ptr) {
     let attacker = e.call(GET_ATTACKER, &args![this]).u32();
     let controller = e.mem.u32(me + 4);
     let state = e.call(0x0058_6150, &args![controller]).u32();
-    let process = e.call(ACTOR_PROCESS, &args![attacker]).u32();
-    if e.call(0x0045_cd60, &args![process]).u32() == 0 {
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
+    if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == 0 {
         let animation = e.vcall(attacker, 0x1e4, &args![]).u32();
         if animation != 0 {
             if !e.call(0x0049_85f0, &args![animation]).bool() {
@@ -112,7 +113,7 @@ pub fn combat_procedure_use_combat_item_update(e: &mut Engine, this: Ptr) {
             }
         }
         if e.mem.u8(me + USE_ANIMATING) == 0 {
-            let process = e.call(ACTOR_PROCESS, &args![attacker]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
             let item = e.mem.u32(me + USE_ITEM);
             e.call(0x008f_f0b0, &args![process, attacker, item, 0u32]);
             e.mem.set_u8(me + USE_ANIMATING, 1);
@@ -164,7 +165,7 @@ pub fn combat_procedure_use_combat_item_display_debug_text(
         e.call(0x0048_2720, &args![item]).u32()
     };
     let item = e.mem.u32(me + USE_ITEM);
-    let id = e.call(0x0084_e3a0, &args![item]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
     e.vcall(p, 0x14, &args![first, second, ITEM_FORMAT, name, id]);
 }
 

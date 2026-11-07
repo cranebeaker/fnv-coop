@@ -298,6 +298,7 @@ const LOCK_RELEASE: u32 = 0x0082_f1f0;
 /// (`006e5cc0`, one word: its address).
 const POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 const POINTER_DESTRUCT: u32 = 0x0045_cec0;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const POINTER_COPY: u32 = 0x0055_9a40;
@@ -398,7 +399,7 @@ fn with_pointer<R>(e: &mut Engine, body: impl FnOnce(&mut Engine, u32) -> R) -> 
 
 /// The object an `NiPointer` at `slot` holds (`00559450`).
 fn pointer_get(e: &mut Engine, slot: u32) -> u32 {
-    e.call(POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 // Translated from 0064ffd0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1627,7 +1628,7 @@ pub fn fn_006532c0(e: &mut Engine, this: Ptr, wanted: u32) -> bool {
         if link == wanted {
             return true;
         }
-        link = e.call(0x0072_6070, &args![link]).u32();
+        link = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, link));
     }
     false
 }
@@ -1664,7 +1665,7 @@ pub fn fn_00653340(e: &mut Engine, geometry: u32, cursor: u32) {
             e.mem.set_u32(copy + word * 4, value);
         }
         let mut index = 0u32;
-        let mut offset = e.call(0x0084_e3a0, &args![extra]).u32();
+        let mut offset = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, extra));
         loop {
             let count = u32::from(e.call(0x0045_6650, &args![geometry]).u16());
             if index >= count {
@@ -1866,8 +1867,8 @@ pub fn bs_face_gen_manager_get_as_nearest_detail_dds_file(
         e.with_stack(0x14, |e, parts| {
             let directory = parts.addr();
             let file = directory + 0xc;
-            e.call(0x0068_15c0, &args![directory]);
-            e.call(0x0068_15c0, &args![file]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, directory));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, file));
             let text = pointer_get(e, result);
             e.call(0x00af_d270, &args![text, directory, file]);
             let text = pointer_get(e, result);
@@ -2139,7 +2140,11 @@ fn queue_face(e: &mut Engine, npc: u32, data: u32, a2: u32, a3: u32) {
         let models = data + 0x94;
         let textures = data + 0xa4;
         let slot = |e: &mut Engine, array: u32, index: u32| {
-            let at = e.call(0x0087_7a30, &args![array, index]).u32();
+            let at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
             e.mem.u32(at)
         };
         let mut index = 0u32;
@@ -2191,7 +2196,7 @@ fn queue_face(e: &mut Engine, npc: u32, data: u32, a2: u32, a3: u32) {
         // The extra parts' list from +0xe4, `index` staying at 8.
         let mut link = data + 0xe4;
         while link != 0 {
-            let at = e.call(0x0068_15c0, &args![link]).u32();
+            let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, link));
             let part = e.mem.u32(at);
             if part != 0 && e.call(0x0048_cee0, &args![part.wrapping_add(0x24)]).u32() != 0 {
                 let loader = e.mem.u32(MODEL_LOADER);
@@ -2210,7 +2215,7 @@ fn queue_face(e: &mut Engine, npc: u32, data: u32, a2: u32, a3: u32) {
                     &args![loader, model_of(part), a2, a3, index],
                 );
             }
-            link = e.call(0x0072_6070, &args![link]).u32();
+            link = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, link));
         }
     });
 }
@@ -2273,7 +2278,7 @@ pub fn fn_006578e0(e: &mut Engine, this: Ptr, value: Ptr) {
 /// `006815c0` on a stack word, handed to `0065d3a0`, then `reserve(0)` (`reserve`).
 fn construct_vector(e: &mut Engine, this: Ptr, reserve: fn(&mut Engine, Ptr, u32) -> u8) -> Ptr {
     let allocator = e.with_stack(4, |e, slot| {
-        e.call(0x0068_15c0, &args![slot]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, slot));
         e.mem.u32(slot.addr())
     });
     e.call(0x0065_d3a0, &args![this, allocator]);
@@ -2935,6 +2940,7 @@ const MESHES_FORMAT: u32 = 0x0101_9710;
 /// position, key and `NiPointer` out); `00726070` (the word at +4).
 const MAP_FIRST_POSITION: u32 = 0x004b_9ba0;
 const MAP_GET_NEXT: u32 = 0x0055_9120;
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// The coordinate block's statistics index (`011d59f0`) and the direction
 /// byte the debug sweep flips (`011d59e1`).
@@ -2973,13 +2979,17 @@ pub fn bs_face_gen_model_map_output_model_map_contents(e: &mut Engine, this: Ptr
         e.call(POINTER_CONSTRUCT, &args![pointer, 0u32]);
         while e.mem.u32(position) != 0 {
             e.call(MAP_GET_NEXT, &args![map, position, key, pointer]);
-            if e.call(POINTER_GET, &args![pointer]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) == 0 {
                 continue;
             }
             e.call(STRING_CONSTRUCT, &args![string]);
             let model = |e: &mut Engine| {
-                let entry = e.call(POINTER_GET, &args![pointer]).u32();
-                e.call(POINTER_GET, &args![entry.wrapping_add(8)]).u32()
+                let entry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
+                typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, entry.wrapping_add(8))
+                )
             };
             let first = model(e);
             let first = e.call(0x0065_c490, &args![first]).u32() >> 10;
@@ -2987,12 +2997,13 @@ pub fn bs_face_gen_model_map_output_model_map_contents(e: &mut Engine, this: Ptr
             let second = e.call(0x0065_c110, &args![second]).u32() >> 10;
             let name = e.mem.u32(key);
             let third = model(e);
-            let count = e.call(WORD_AT_4, &args![third]).u32().wrapping_sub(1);
+            let count =
+                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, third)).wrapping_sub(1);
             e.call(
                 STRING_FORMAT,
                 &args![string, MODEL_LINE_FORMAT, count, name, second, first],
             );
-            let text = e.call(POINTER_GET, &args![string]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
             e.call(PRINT_005B5E40, &args![text]);
             if output != 0 {
                 e.vcall(output, 0x38, &args![string, 1u32]);
@@ -3095,7 +3106,7 @@ pub fn fn_006524e0(e: &mut Engine, first: u32, second: u32, third: u32) -> u32 {
 /// `00601800`'s answer, with the 0 the exe pushed earlier as its fourth
 /// word; the blocks are destroyed.
 pub fn fn_00652510(e: &mut Engine, actor: u32) {
-    let form = e.call(0x007a_f430, &args![actor]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
     let object = e.vcall(actor, 0x1d0, &args![]).u32();
     if object != 0 {
         e.vcall(object, 0xc, &args![]);
@@ -3173,7 +3184,11 @@ pub fn fn_00652510(e: &mut Engine, actor: u32) {
         }
         let face = e.call(0x0060_1800, &args![form]).u32();
         let sex = e.call(0x005f_0cc0, &args![form]).u32();
-        let holder = e.call(WORD_AT_4, &args![form.wrapping_add(0x10c)]).u32();
+        let holder = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, form.wrapping_add(0x10c))
+        );
         let source = e.call(0x005d_9fb0, &args![holder, sex]).u32();
         fn_00652e00(e, source, second, face, 0);
         for block in [third, second, first] {
@@ -3332,7 +3347,11 @@ fn cut_model_name(e: &mut Engine, out: u32, name: u32, cut: u32) -> Option<u32> 
         e.mem.set_u8(at, 0);
         e.call(SPRINTF_S, &args![formatted, 0x104u32, NIF_FORMAT, copy]);
         e.call(STRING_SET, &args![out, formatted, 0u32]);
-        Some(e.call(POINTER_GET, &args![out]).u32())
+        Some(typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, out)
+        ))
     })
 }
 
@@ -3386,20 +3405,20 @@ pub fn bs_face_gen_manager_get_as_nif_file_low_lod(e: &mut Engine, out: u32, nam
                         &args![formatted, 0x104u32, LOW_LOD_NIF_FORMAT, copy],
                     );
                     e.call(STRING_SET, &args![out, formatted, 0u32]);
-                    let text = e.call(POINTER_GET, &args![out]).u32();
+                    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, out));
                     e.call(STRING_FORMAT, &args![string, MESHES_FORMAT, text]);
-                    e.call(0x0068_15c0, &args![first_word]);
-                    e.call(0x0068_15c0, &args![second_word]);
-                    let path = e.call(POINTER_GET, &args![string]).u32();
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first_word));
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second_word));
+                    let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
                     e.call(0x00af_d270, &args![path, first_word, second_word]);
-                    let path = e.call(POINTER_GET, &args![string]).u32();
+                    let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
                     let found = e
                         .call(0x00af_6540, &args![0u32, first_word, second_word, path])
                         .u32();
                     if found == 0 {
                         0
                     } else {
-                        e.call(POINTER_GET, &args![out]).u32()
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, out))
                     }
                 }
             }

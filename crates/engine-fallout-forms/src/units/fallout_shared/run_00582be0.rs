@@ -29,8 +29,8 @@ pub fn fn_00582c20(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(0x0058_8fa0, &args![base + 0x50, 0x25u32]);
     e.call(0x0096_a2d0, &args![base + 0x60]);
     e.call(0x0063_3c90, &args![base + 0x6c, 0u32]);
-    e.call(0x0068_15c0, &args![base + 0xa0]);
-    e.call(0x0068_15c0, &args![base + 0xa8]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0xa0));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0xa8));
     e.call(0x0058_8fd0, &args![base + 0xb0, 0x25u32]);
     e.call(0x0040_37b0, &args![base + 0xc0]);
     e.call(0x0048_e270, &args![base + 0xd4]);
@@ -108,6 +108,7 @@ const STATIC_WORLD_SPACE: u32 = 0x011c_3f44;
 const DEFAULT_LAND_HEIGHT: u32 = 0x0103_1920;
 /// `00559450` (`thiscall`): the word at the object (an `NiPointer`'s
 /// pointer, a `BSStringT`'s text).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `0066b0d0` (`thiscall`, `RET 4`): assigns an `NiPointer` from a raw
 /// pointer.
@@ -117,6 +118,7 @@ const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const NI_ALLOCATE: u32 = 0x00aa_13e0;
 const NODE_CONSTRUCT: u32 = 0x00c5_a9d0;
 /// `00726070`: the word at +4 (the object's reference count).
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// `00450b80` (`cdecl`, one word) answers an object, `00454b30` on it
 /// answers what `00583270` compares with the object at +0x6c, and
@@ -192,7 +194,7 @@ pub fn fn_00583180(e: &mut Engine, this: Ptr) {
 // Translation incomplete: 005831d0 - the SEH frame (FS:[0], unwind of the allocation) is not translated.
 pub fn fn_005831d0(e: &mut Engine, this: Ptr) -> u32 {
     let holder = this.addr().wrapping_add(0x6c);
-    if e.call(FIRST_WORD, &args![holder]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) == 0 {
         let block = e.call(NI_ALLOCATE, &args![0x78u32]).u32();
         let object = if block != 0 {
             e.call(NODE_CONSTRUCT, &args![block]).u32()
@@ -201,7 +203,7 @@ pub fn fn_005831d0(e: &mut Engine, this: Ptr) -> u32 {
         };
         e.call(NI_POINTER_ASSIGN, &args![holder, object]);
     }
-    e.call(FIRST_WORD, &args![holder]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder))
 }
 
 // Translated from 00583270 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -211,16 +213,16 @@ pub fn fn_005831d0(e: &mut Engine, this: Ptr) -> u32 {
 /// `NiPointer` is cleared (`0066b0d0` with null).
 pub fn fn_00583270(e: &mut Engine, this: Ptr) {
     let holder = this.addr().wrapping_add(0x6c);
-    if e.call(FIRST_WORD, &args![holder]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) == 0 {
         return;
     }
-    let object = e.call(FIRST_WORD, &args![holder]).u32();
-    if e.call(WORD_AT_4, &args![object]).u32() != 1 {
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, object)) != 1 {
         return;
     }
     let scene = e.call(SCENE_GRAPH, &args![0u32]).u32();
     let node = e.call(SCENE_GRAPH_NODE, &args![scene]).u32();
-    if node == e.call(FIRST_WORD, &args![holder]).u32() {
+    if node == typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) {
         let scene = e.call(SCENE_GRAPH, &args![0u32]).u32();
         e.call(SCENE_SET_NODE, &args![scene, 0u32]);
     }
@@ -232,8 +234,8 @@ pub fn fn_00583270(e: &mut Engine, this: Ptr) {
 /// through `00559450`), or the empty string `01011584` without one.
 pub fn fn_005832f0(e: &mut Engine, this: Ptr) -> u32 {
     let name = this.addr().wrapping_add(0xc0);
-    if e.call(FIRST_WORD, &args![name]).u32() != 0 {
-        e.call(FIRST_WORD, &args![name]).u32()
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name)) != 0 {
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name))
     } else {
         EMPTY_STRING
     }

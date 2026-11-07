@@ -89,6 +89,7 @@ pub(crate) const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// `memset(destination, value, size)` (cdecl).
 pub(crate) const MEMORY_SET: u32 = 0x0040_3d30;
 /// Returns its `this`; the game uses it as a cast.
+#[cfg(test)]
 pub(crate) const THIS_IDENTITY: u32 = 0x0068_15c0;
 /// String comparison ignoring case `(a, b)`, 0 when equal.
 pub(crate) const STRING_COMPARE_IGNORE_CASE: u32 = 0x0040_4dc0;
@@ -99,6 +100,7 @@ pub(crate) const FORM_GET_TYPE: u32 = 0x0040_1170;
 /// Looks a form up by id (cdecl `(id)`), 0 when there is none.
 pub(crate) const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// Reads the `u32` at its `this` (a `BGSChangeFlags` or pointer getter).
+#[cfg(test)]
 pub(crate) const READ_WORD: u32 = 0x0055_9450;
 /// The number of compiled files the data handler holds (the byte at +0x218;
 /// the engine map names the body `MiddleHighProcess::GetHeadNode` because the
@@ -195,6 +197,7 @@ pub(crate) const SAVE_FORM_BUFFER_DESTRUCT: u32 = 0x0084_7dd0;
 /// +0x17) into `*out` and returns `out`. `BGSSaveFormBuffer::GetForm` (Xbox
 /// PDB) is `007af430`.
 pub(crate) const FORM_BUFFER_HEADER_FLAGS: u32 = 0x0042_8110;
+#[cfg(test)]
 pub(crate) const BUFFER_GET_FORM: u32 = 0x007a_f430;
 /// `BGSLoadFormBuffer`: constructor `(this)`, `LoadHeader(this, file)`, header
 /// form type `(this)` (`00853640` on the header's `FormInfo`),
@@ -219,6 +222,7 @@ pub(crate) const LOAD_FORM_BUFFER_DESTRUCT: u32 = 0x0081_db90;
 /// The form id word of a form buffer (`this + 0x10`) and the form id word of
 /// a form (`this + 0x0c`).
 pub(crate) const BUFFER_FORM_ID: u32 = 0x0044_edb0;
+#[cfg(test)]
 pub(crate) const FORM_ID_WORD: u32 = 0x0084_e3a0;
 /// `BGSUnloadedFormBuffer`: construct `(this)`, `Save(this, file, id,
 /// flags)`, `Load(this, file)`, `CreateLoadFormBuffer(this)`, `(this, buffer)`
@@ -306,6 +310,7 @@ pub(crate) const CHANGED_FORM_ID_MAP_FLUSH: u32 = 0x0043_8af0;
 /// `TES::IsCellLoaded(this, cell, 0)` (Xbox PDB).
 pub(crate) const WORLD_IS_CELL_LOADED: u32 = 0x0045_11e0;
 /// `MiddleHighProcess::GetSavedAcquireObject` (Xbox PDB).
+#[cfg(test)]
 pub(crate) const GET_SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// `TESObjectCELL::RemoveReference(cell, reference)` (Xbox PDB) and
 /// `GarbageCollector::Add(form)` (Xbox PDB, cdecl).
@@ -338,6 +343,7 @@ pub(crate) const REFERENCES_MAP_SETUP: u32 = 0x0085_2950;
 /// The form buffer array: size `(array)`, address of element `(array,
 /// index)`, `SetAt(array, index, &value)`, `SetReservedSize(array, n)`,
 /// `Clear(array, flag)` and `AddUninitialized(array, &value)`.
+#[cfg(test)]
 pub(crate) const ARRAY_SIZE: u32 = 0x0044_ddc0;
 pub(crate) const ARRAY_ELEMENT_ADDRESS: u32 = 0x006a_7ad0;
 pub(crate) const ARRAY_SET_AT: u32 = 0x0047_a110;
@@ -406,6 +412,7 @@ pub(crate) const HASH_MAP_BASE_VTABLE: u32 = 0x0107_f4c8;
 /// `(this = form)`: bit 0x4000 of the word at +8 (`iFormFlags`, Xbox PDB).
 pub(crate) const FORM_FLAG_4000_TEST: u32 = 0x0040_77c0;
 /// `(this = form)`: bit 0x20 of the word at +8 (`iFormFlags`, Xbox PDB).
+#[cfg(test)]
 pub(crate) const FORM_FLAG_20_TEST: u32 = 0x0044_0d80;
 /// `(this = game)`: the test `00570f40` ends in; the callers use it as "changes
 /// are being recorded".
@@ -727,7 +734,7 @@ fn delete_virtual(e: &mut Engine, object: Ptr) {
 
 /// Reads the `u32` at `address` through the game's getter `00559450`.
 fn read_word(e: &mut Engine, address: u32) -> u32 {
-    e.call(READ_WORD, &args![address]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, address))
 }
 
 /// Sets or clears `mask` in the word at `address` (`on` set, otherwise clear).
@@ -999,7 +1006,7 @@ pub fn bgssaveloadgame_save_game(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, fil
     let manager = e.global::<u32>(MANAGER_INSTANCE);
     // `006815c0` hands back the file as its name (the destination buffer the
     // game pushed before it stays on the stack for the next call).
-    let file_name = e.call(THIS_IDENTITY, &args![file]).u32();
+    let file_name = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, file));
     e.call(MANAGER_COPY_FILE_NAME, &args![manager, file_name, name]);
     e.call(MANAGER_GET_VERSION_INFO, &args![manager, version, 0x104u32]);
     let history = e.get(this, BGSSaveLoadGame::pHistory);
@@ -1268,7 +1275,7 @@ fn load_game_body(
     e.set(this, BGSSaveLoadGame::pHistory, history);
     // `006815c0` hands back the file as its name (the destination buffer the
     // game pushed before it stays on the stack for the next call).
-    let file_name = e.call(THIS_IDENTITY, &args![file]).u32();
+    let file_name = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, file));
     e.call(MANAGER_COPY_FILE_NAME, &args![manager, file_name, name]);
     e.call(MANAGER_GET_VERSION_INFO, &args![manager, version, 0x104u32]);
     let history = e.get(this, BGSSaveLoadGame::pHistory);
@@ -1405,7 +1412,7 @@ fn load_game_body(
             let form_type = e.call(FORM_GET_TYPE, &args![form]).u32();
             let mismatch = form_type != saved_type
                 || (e.vcall(form, FORM_SLOT_IS_REFERENCE, &args![]).bool()
-                    && e.call(BUFFER_GET_FORM, &args![form]).u32() == 0);
+                    && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, form)) == 0);
             if mismatch {
                 if e.call(IS_DYNAMIC_FORM_ID, &args![data_handler, form_id])
                     .bool()
@@ -1518,7 +1525,7 @@ fn load_game_body(
                 warn_type_mismatch(e, FORM_TYPE_MISMATCH_WARNING, form, form_id, saved_type);
                 skip = true;
             } else if e.vcall(form, FORM_SLOT_IS_REFERENCE, &args![]).bool()
-                && e.call(BUFFER_GET_FORM, &args![form]).u32() == 0
+                && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, form)) == 0
             {
                 skip = true;
             }
@@ -1848,8 +1855,16 @@ pub fn fn_00849240(e: &mut Engine, this: Ptr<BGSLoadFormBuffer>, on: bool) {
 /// 0x30 byte initial data structure and returns `this` (the constructor of
 /// that structure, which has nothing else to set up).
 pub fn fn_00849280(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(THIS_IDENTITY, &args![this.byte_add(0x14)]);
-    e.call(THIS_IDENTITY, &args![this.byte_add(0x20)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(0x14))
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(0x20))
+    );
     this
 }
 
@@ -1875,7 +1890,7 @@ pub fn fn_008492b0(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, full: bool) {
         fn_008495b0(e, Ptr::new(io_manager));
     }
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![array]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
         let element = e.call(ARRAY_ELEMENT_ADDRESS, &args![array, index]).u32();
         let buffer = e.mem.u32(element);
         if buffer != 0 {
@@ -1912,7 +1927,7 @@ pub fn fn_008492b0(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, full: bool) {
     let sub_buffers = e.get(this, BGSSaveLoadGame::pQueuedSubBuffersMap);
     e.call(QUEUED_SUB_BUFFERS_FLUSH, &args![sub_buffers]);
     let mut index = 0u32;
-    while index < e.call(ARRAY_SIZE, &args![array]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
         let element = e.call(ARRAY_ELEMENT_ADDRESS, &args![array, index]).u32();
         let buffer = e.mem.u32(element);
         if buffer != 0 {
@@ -1924,7 +1939,8 @@ pub fn fn_008492b0(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, full: bool) {
                     let flags = change_flags(e, 8);
                     e.call(GAME_ADD_CHANGE, &args![this, reference, flags, 1u32]);
                     if e.vcall(reference, FORM_SLOT_IS_ACTOR, &args![]).bool()
-                        && e.call(GET_SAVED_ACQUIRE_OBJECT, &args![reference]).u32() != 0
+                        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference))
+                            != 0
                     {
                         e.vcall(reference, REFERENCE_SLOT_RELEASE, &args![]);
                     }
@@ -1981,7 +1997,7 @@ pub fn bgssaveloadgame_load_form(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, for
     if e.call(GAME_LOADING_FLAG_TEST, &args![this]).bool() {
         return;
     }
-    let form_id = e.call(FORM_ID_WORD, &args![form]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     let map = e.get(this, BGSSaveLoadGame::pChangesMap);
     let entry = e.call(CHANGES_MAP_ENTRY_FOR, &args![map, form_id]).u32();
     if entry == 0 || read_word(e, entry + 4) == 0 {
@@ -2071,7 +2087,7 @@ fn unload_form_body(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, form: Ptr, force
     if !e.call(GAME_CAN_UNLOAD_FORM, &args![this, form]).bool() {
         return;
     }
-    let form_id = e.call(FORM_ID_WORD, &args![form]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     let map = e.get(this, BGSSaveLoadGame::pChangesMap);
     let entry = e.call(CHANGES_MAP_ENTRY_FOR, &args![map, form_id]).u32();
     if entry == 0 {
@@ -2128,14 +2144,15 @@ fn unload_form_body(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, form: Ptr, force
         let cell = e.call(REFERENCE_PARENT_CELL, &args![form]).u32();
         let world_space = e.call(REFERENCE_WORLD_SPACE, &args![form]).u32();
         if cell != 0 && e.call(CELL_FLAG_ZERO_TEST, &args![cell]).bool() {
-            let cell_word = e.call(FORM_ID_WORD, &args![cell]).u32();
+            let cell_word = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell));
             fn_00849a70(e, references_map, cell_word, form_id);
             if kind == 6 {
                 fn_00849a50(e, references_map, form_id);
             }
         } else if world_space != 0 {
             let place = e.vcall(form.addr(), REFERENCE_SLOT_PLACE, &args![]).u32();
-            let world_word = e.call(FORM_ID_WORD, &args![world_space]).u32();
+            let world_word =
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world_space));
             e.call(
                 REFERENCES_MAP_ADD_UNLOADED,
                 &args![references_map, world_word, form_id, place],
@@ -2352,8 +2369,8 @@ fn check_initial_data_body(
             } else {
                 owner = form;
                 if kind == 5 {
-                    let base = e.call(BUFFER_GET_FORM, &args![owner]).u32();
-                    let base_id = e.call(FORM_ID_WORD, &args![base]).u32();
+                    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, owner));
+                    let base_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, base));
                     if base_id != e.mem.u32(init + 4) {
                         mismatch = true;
                     }
@@ -2589,7 +2606,7 @@ pub fn bgssaveloadgame_handle_unrevertible_changes(
         if e.vcall(form, FORM_SLOT_IS_REFERENCE, &args![]).bool()
             && e.call(FLAGS_TEST, &args![flag_slot, 0xeu32]).bool()
         {
-            let id = e.call(FORM_ID_WORD, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             let data_handler = e.global::<u32>(DATA_HANDLER);
             if e.call(IS_DYNAMIC_FORM_ID, &args![data_handler, id]).bool()
                 || e.call(REFERENCE_MOVE_TO_LOCATION, &args![form, 0u32])
@@ -2608,9 +2625,9 @@ pub fn bgssaveloadgame_handle_unrevertible_changes(
                     e.call(REFERENCE_FULL_NAME, &args![form]).u32()
                 };
                 let flags_now = read_word(e, flag_slot.addr());
-                let base = e.call(BUFFER_GET_FORM, &args![form]).u32();
+                let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, form));
                 let type_name = e.call(FORM_TYPE_NAME, &args![base]).u32();
-                let id = e.call(FORM_ID_WORD, &args![form]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 e.call(
                     SAVE_GAME_WARNING,
                     &args![REVERT_LOCATION_WARNING, name, id, type_name, flags_now],
@@ -2639,7 +2656,7 @@ pub fn bgssaveloadgame_queue_init_package_locations(
         .vcall(process + 0x100, PROCESS_SLOT_VALUE, &args![0x10u32])
         .f64();
     if value > e.global::<f64>(ZERO_DOUBLE) {
-        let id = e.call(FORM_ID_WORD, &args![actor]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
         e.call(MAP_SET_AT, &args![this.byte_add(0x34), id, actor]);
     }
 }
@@ -2652,7 +2669,7 @@ pub fn bgssaveloadgame_cancel_init_package_locations(
     this: Ptr<BGSSaveLoadGame>,
     actor: Ptr,
 ) {
-    let id = e.call(FORM_ID_WORD, &args![actor]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
     e.call(MAP_REMOVE_AT, &args![this.byte_add(0x34), id]);
 }
 
@@ -2673,7 +2690,7 @@ pub fn fn_0084a5b0(e: &mut Engine, this: Ptr<BGSSaveLoadGame>) {
             e.mem.set_u32(value, 0);
             e.call(MAP_NEXT, &args![map, position, key, value]);
             let actor = e.mem.u32(value);
-            if e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
                 e.call(ACTOR_INIT_PACKAGE_LOCATIONS, &args![actor, 1u32]);
             }
         }
@@ -2692,8 +2709,8 @@ pub fn fn_0084a620(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, form: Ptr, force:
     if e.call(FORM_FLAG_4000_TEST, &args![form]).bool() {
         return false;
     }
-    let id = e.call(FORM_ID_WORD, &args![form]).u32();
-    if e.call(FORM_FLAG_20_TEST, &args![form]).bool() {
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, form)) {
         let data_handler = e.global::<u32>(DATA_HANDLER);
         if e.call(IS_DYNAMIC_FORM_ID, &args![data_handler, id]).bool() {
             return false;
@@ -2713,7 +2730,7 @@ pub fn bgssaveloadgame_add_change(
     force: bool,
 ) {
     if fn_0084a620(e, this, form, force) {
-        let id = e.call(FORM_ID_WORD, &args![form]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         let changes = e.get(this, BGSSaveLoadGame::pChangesMap);
         e.call(CHANGES_MAP_ADD_FLAGS, &args![changes, id, flags]);
     }
@@ -2728,7 +2745,7 @@ pub fn bgssaveloadgame_get_change(
     form: Ptr,
     mask: u32,
 ) -> bool {
-    let id = e.call(FORM_ID_WORD, &args![form]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     let changes = e.get(this, BGSSaveLoadGame::pChangesMap);
     e.call(CHANGES_MAP_HAS_FLAGS, &args![changes, id, mask])
         .bool()
@@ -2741,7 +2758,7 @@ pub fn fn_0084a700(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, form: Ptr, mask: 
     if old.is_null() {
         return false;
     }
-    let id = e.call(FORM_ID_WORD, &args![form]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     e.call(CHANGES_MAP_HAS_FLAGS, &args![old, id, mask]).bool()
 }
 
@@ -2758,7 +2775,7 @@ pub fn fn_0084a740(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, form: Ptr) -> boo
 /// entry in the changes map (`00845a80`).
 pub fn fn_0084a780(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, form: Ptr, flags: u32) {
     if fn_0084a740(e, this, form) {
-        let id = e.call(FORM_ID_WORD, &args![form]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         let changes = e.get(this, BGSSaveLoadGame::pChangesMap);
         e.call(CHANGES_MAP_CLEAR_FLAGS, &args![changes, id, flags]);
     }
@@ -2769,7 +2786,7 @@ pub fn fn_0084a780(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, form: Ptr, flags:
 /// the changes map unless it has a stored unloaded buffer (the word at +4 of
 /// the entry).
 pub fn bgssaveloadgame_remove_changes(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, form: Ptr) {
-    let id = e.call(FORM_ID_WORD, &args![form]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     let changes = e.get(this, BGSSaveLoadGame::pChangesMap);
     let entry = e.call(CHANGES_MAP_ENTRY_FOR, &args![changes, id]).u32();
     if entry != 0 && read_word(e, entry + 4) == 0 {
@@ -2819,7 +2836,7 @@ pub fn bgssaveloadgame_clear_form(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, fo
         0x04 | 0x11 | 0x12 | 0x2a | 0x2b | 0x39 | 0x42 | 0x43 => renumber_form(e, form),
         _ => {
             let type_name = e.call(TYPE_NAME_FOR, &args![form_type & 0xff]).u32();
-            let id = e.call(FORM_ID_WORD, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(
                 SAVE_GAME_WARNING,
                 &args![RENUMBERED_WARNING, id, form_type, type_name],
@@ -3023,7 +3040,7 @@ fn cleanup_expired_data_body(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, queue: 
                 detach_time = e.call(CELL_DETACH_TIME, &args![cell]).u32();
                 if !e.call(CELL_FLAG_ZERO_TEST, &args![cell]).bool() {
                     let world_space = e.call(CELL_WORLD_SPACE, &args![cell]).u32();
-                    area = e.call(FORM_ID_WORD, &args![world_space]).u32();
+                    area = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world_space));
                     x = e.call(CELL_DATA_X, &args![cell]).u32();
                     y = e.call(CELL_DATA_Y, &args![cell]).u32();
                 }
@@ -3102,9 +3119,9 @@ fn cleanup_expired_data_body(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, queue: 
                 let parent = e.call(REFERENCE_PARENT_CELL, &args![reference]).u32();
                 let world_space = e.call(REFERENCE_WORLD_SPACE, &args![reference]).u32();
                 if parent != 0 && e.call(CELL_FLAG_ZERO_TEST, &args![parent]).bool() {
-                    area = e.call(FORM_ID_WORD, &args![parent]).u32();
+                    area = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, parent));
                 } else if world_space != 0 {
-                    area = e.call(FORM_ID_WORD, &args![world_space]).u32();
+                    area = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world_space));
                     let place = e.vcall(reference, REFERENCE_SLOT_PLACE, &args![]).u32();
                     // The third word of the place is copied by the game but not
                     // used.

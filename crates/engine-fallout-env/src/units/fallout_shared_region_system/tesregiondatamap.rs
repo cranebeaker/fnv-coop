@@ -37,6 +37,7 @@ const STRING_DTOR: u32 = 0x0040_37d0;
 const STRING_SET: u32 = 0x0040_37f0;
 /// `00559450` (unnamed in the engine map; no stack words): the string's
 /// characters.
+#[cfg(test)]
 const STRING_CHARS: u32 = 0x0055_9450;
 /// `BSStringT<char>::StrCmp` (`00408a80`, engine map; `thiscall`, `RET 8`).
 const STRING_COMPARE: u32 = 0x0040_8a80;
@@ -124,7 +125,11 @@ pub fn tes_region_data_map_load_region_data_map(e: &mut Engine, this: Ptr, file:
 /// string `out` to the characters of the name at +8 (`00559450`), length 0.
 /// The pushed 0 belongs to the setter: `00559450` takes no stack words.
 pub fn tes_region_data_map_get_map_name(e: &mut Engine, this: Ptr, out: Ptr) {
-    let chars = e.call(STRING_CHARS, &args![this.addr() + 8]).u32();
+    let chars = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 8)
+    );
     e.call(STRING_SET, &args![out, chars, 0u32]);
 }
 
@@ -198,7 +203,11 @@ pub fn tes_region_data_map_save(e: &mut Engine, this: Ptr) {
         return;
     }
     let size = e.call(STRING_SIZE_004F4280, &args![this.addr() + 8]).u32();
-    let chars = e.call(STRING_CHARS, &args![this.addr() + 8]).u32();
+    let chars = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 8)
+    );
     e.call(ADD_CHUNK_ARRAY, &args![CHUNK_RDMP, chars, size]);
 }
 

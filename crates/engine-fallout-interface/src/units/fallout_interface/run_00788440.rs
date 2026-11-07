@@ -35,6 +35,7 @@ const SET_MENU_FLAG: u32 = 0x0045_8080;
 /// The byte at `011a0294` whose clear state sets flag 0.
 const FLAG_ZERO_SOURCE: u32 = 0x011a_0294;
 /// Answers its `this` (`006815c0`).
+#[cfg(test)]
 const IDENTITY: u32 = 0x0068_15c0;
 /// The function the engine map names `ActorMover::GetPreferredMoveMode`
 /// (`005f36f0`; ENGINE_CRATE.md notes it answers `TES::pInteriorCell` for
@@ -106,7 +107,7 @@ pub fn fn_00788440(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(SET_MENU_FLAG, &args![this, 0u32, clear]);
     e.call(SET_MENU_FLAG, &args![this, 4u32, 1u32]);
     let source = e.mem.u32(t + 0x1d8);
-    let source = e.call(IDENTITY, &args![source]).u32();
+    let source = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, source));
     let word = e.mem.u32(source);
     e.mem.set_u32(t + 0x1dc, word);
     if e.mem.u32(t + 0x1dc) != 0 {

@@ -48,6 +48,7 @@ pub(crate) const BS_EXTRA_DATA_DESTRUCT: u32 = 0x0040_ecb0;
 pub(crate) const BS_EXTRA_DATA_COMPARE: u32 = 0x0040_f700;
 /// `BSSimpleArray<T,1024>::size` (the folded accessor: `this` is the array,
 /// the count is returned in EAX).
+#[cfg(test)]
 pub(crate) const SIMPLE_ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `BSSimpleArray<T,1024>::operator[]` (`this` is the array, the index is
 /// the argument): the address of the element slot.
@@ -373,11 +374,14 @@ pub(crate) const SIMPLE_LIST_DESTRUCT: u32 = 0x0046_ffb0;
 pub(crate) const SIMPLE_LIST_DELETE: u32 = 0x0047_02f0;
 /// The address of the item slot of a list node (`this` is the node; returns
 /// `this`, the item is the first word).
+#[cfg(test)]
 pub(crate) const SIMPLE_LIST_ITEM_SLOT: u32 = 0x0068_15c0;
 /// The next node of a list node (`this` is the node; null at the end).
+#[cfg(test)]
 pub(crate) const SIMPLE_LIST_NEXT: u32 = 0x0072_6070;
 /// Whether a list node holds no item and has no successor (`this` is the
 /// node).
+#[cfg(test)]
 pub(crate) const SIMPLE_LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// Removes the head of a list (`this` is the head node): the next node's
 /// item and successor move into the head and the next node is deleted; the
@@ -393,6 +397,7 @@ pub(crate) const SIMPLE_LIST_COUNT: u32 = 0x005a_e380;
 
 /// `NiPoint3::NiPoint3(x, y, z)` (Xbox PDB name of the folded body; `this`
 /// is the point, then three floats on the stack).
+#[cfg(test)]
 pub(crate) const NI_POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// The `float` constant `ExtraDistantData`'s constructor uses for the
 /// z component of its land normal.
@@ -411,6 +416,7 @@ pub(crate) const BS_STRING_COPY: u32 = 0x0043_8470;
 /// C string's length when that is 0xffff; `this` is the string).
 pub(crate) const BS_STRING_LENGTH: u32 = 0x0040_48e0;
 /// `BSStringT<char>::c_str` (`this` is the string: its character pointer).
+#[cfg(test)]
 pub(crate) const BS_STRING_DATA: u32 = 0x0055_9450;
 /// `strcmp(a, b)` (the wrapper; `00ec6da0` is the CRT function).
 pub(crate) const STRCMP: u32 = 0x0040_8b20;
@@ -466,12 +472,14 @@ pub(crate) const ACTOR_LIST_CLEAR: u32 = 0x0047_0470;
 pub(crate) const ACTOR_LIST_DELETE: u32 = 0x0047_02f0;
 /// Returns the value `ExtraGuardedRefData::AddGuard` stores for a reference
 /// (`this` is the reference).
+#[cfg(test)]
 pub(crate) const REFR_GUARD_VALUE: u32 = 0x0084_e3a0;
 /// `LookupFormByID(id)` (cdecl, one stack argument).
 pub(crate) const LOOKUP_FORM_BY_ID: u32 = 0x0048_39c0;
 /// Returns the process object a form's guard notification goes to (the
 /// engine map's `MiddleHighProcess::GetSavedAcquireObject`; `this` is the
 /// form).
+#[cfg(test)]
 pub(crate) const FORM_PROCESS: u32 = 0x008d_8520;
 
 /// `RTTI Type Descriptor`s used by the fourth batch: the source and target of
@@ -1085,7 +1093,7 @@ layout! {
 
 /// The count of a `BSSimpleArray`.
 pub(crate) fn array_size(e: &mut Engine, array: Ptr<BSSimpleArray>) -> u32 {
-    e.call(SIMPLE_ARRAY_SIZE, &args![array]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
 }
 
 /// The address of slot `index` of a `BSSimpleArray`.
@@ -1859,7 +1867,7 @@ pub fn extra_guarded_ref_data_add_guard(
     this: Ptr<ExtraGuardedRefData>,
     reference: Ptr,
 ) {
-    let guard = e.call(REFR_GUARD_VALUE, &args![reference]).u32();
+    let guard = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
     let guards = this.at(ExtraGuardedRefData::Guards);
     e.with_stack(4, |e, local| {
         e.mem.set_u32(local.addr(), guard);
@@ -1888,7 +1896,7 @@ pub fn fn_00431120(e: &mut Engine, this: Ptr<ExtraGuardedRefData>, first: u32, s
         let id = array_pointer_at::<()>(e, guards, index).addr();
         let form = e.call(LOOKUP_FORM_BY_ID, &args![id]).u32();
         if form != 0 && e.vcall(form, 0xf0, &[]).bool() && e.vcall(form, 0x100, &[]).bool() {
-            let process = e.call(FORM_PROCESS, &args![form]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, form));
             if process != 0 {
                 e.vcall(process, 0x60c, &args![form, second, first]);
             }
@@ -3071,18 +3079,20 @@ pub(crate) fn dynamic_cast_extra<U>(e: &mut Engine, other: Ptr, target_type: u32
 
 /// Whether the list node holds no item and has no successor.
 pub(crate) fn list_node_is_empty(e: &mut Engine, node: Ptr<BSSimpleList>) -> bool {
-    e.call(SIMPLE_LIST_IS_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 /// The item of a list node (the word its item slot holds).
 pub(crate) fn list_node_item(e: &mut Engine, node: Ptr<BSSimpleList>) -> u32 {
-    let slot = e.call(SIMPLE_LIST_ITEM_SLOT, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 /// The node after `node` (null at the end).
 pub(crate) fn list_node_next(e: &mut Engine, node: Ptr<BSSimpleList>) -> Ptr<BSSimpleList> {
-    e.call(SIMPLE_LIST_NEXT, &args![node]).ptr()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
+        .into_ret()
+        .ptr()
 }
 
 /// The constructor of a class that holds a list of its own at +0xc and
@@ -3340,12 +3350,14 @@ pub fn fn_00433260(e: &mut Engine, this: Ptr<ExtraDistantData>) -> Ptr<ExtraDist
     construct_base(e, this.cast(), TYPE_DISTANT_DATA, EXTRA_DISTANT_DATA_VTABLE);
     let normal = this.at(ExtraDistantData::LandNormal);
     // The call on the member's address does nothing (it returns its argument).
-    e.call(SIMPLE_LIST_ITEM_SLOT, &args![normal]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, normal));
     let z: f32 = e.global(DISTANT_DATA_NORMAL_Z);
     let temporary = e.with_stack(0xc, |e, point| {
-        let made = e
-            .call(NI_POINT3_CONSTRUCT, &args![point, 0.0f32, 0.0f32, z])
-            .u32();
+        let made = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, 0.0f32, 0.0f32, z)
+        );
         [e.mem.u32(made), e.mem.u32(made + 4), e.mem.u32(made + 8)]
     });
     for (i, word) in temporary.iter().enumerate() {
@@ -3714,8 +3726,8 @@ pub fn extra_activate_ref_compare(e: &mut Engine, this: Ptr<ExtraActivateRef>, o
     {
         return true;
     }
-    let their_chars = e.call(BS_STRING_DATA, &args![their_text]).u32();
-    let my_chars = e.call(BS_STRING_DATA, &args![my_text]).u32();
+    let their_chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, their_text));
+    let my_chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, my_text));
     e.call(STRCMP, &args![my_chars, their_chars]).u32() != 0
 }
 
@@ -3975,11 +3987,11 @@ pub fn extra_lit_water_refs_init_item(e: &mut Engine, this: Ptr<ExtraLitWaterRef
         e.call(SIMPLE_LIST_CLEAR, &args![list]);
         let mut walk = temporary;
         while !walk.is_null() {
-            let slot = e.call(SIMPLE_LIST_ITEM_SLOT, &args![walk]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, walk));
             if e.mem.u32(slot) == 0 {
                 break;
             }
-            let slot = e.call(SIMPLE_LIST_ITEM_SLOT, &args![walk]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, walk));
             e.call(SIMPLE_LIST_ADD_HEAD, &args![list, slot]);
             walk = list_node_next(e, walk);
         }
@@ -4314,7 +4326,7 @@ pub(crate) fn reference_lists_differ(
     }
     let mut node = other_list;
     while !node.is_null() && !list_node_is_empty(e, node) {
-        let slot = e.call(SIMPLE_LIST_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if !e.call(SIMPLE_LIST_CONTAINS, &args![this_list, slot]).bool() {
             return true;
         }

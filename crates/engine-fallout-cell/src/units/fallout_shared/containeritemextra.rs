@@ -30,6 +30,7 @@ const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 const TYPE_TES_FORM: u32 = 0x0118_3028;
 const TYPE_TES_GLOBAL: u32 = 0x0118_3ad4;
 /// `TESForm`'s form id getter (`0084e3a0`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The form type byte (`00401170`).
 const FORM_TYPE: u32 = 0x0040_1170;
@@ -96,7 +97,7 @@ pub fn container_item_extra_init_item(e: &mut Engine, this: Ptr<ContainerItemExt
         e.call(LOOKUP_FORM, &args![id]).u32()
     };
     let report = |e: &mut Engine, message: u32, id: u32| {
-        let form_id = e.call(FORM_ID, &args![form]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         let name = e.vcall(form.addr(), 0x130, &args![]).u32();
         e.call(WARNING, &args![message, id, name, form_id]);
     };
@@ -170,12 +171,12 @@ pub fn fn_0040e6c0(e: &mut Engine, this: Ptr<ContainerItemExtra>) {
         let (owner_id, union) = if owner == 0 {
             (0, 0)
         } else {
-            let owner_id = e.call(FORM_ID, &args![owner]).u32();
+            let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             let global = fn_0040e9f0(e, this);
             let union = if global == 0 {
                 e.get(this, ContainerItemExtra::iUnion)
             } else {
-                e.call(FORM_ID, &args![global]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, global))
             };
             (owner_id, union)
         };
@@ -217,7 +218,7 @@ pub fn fn_00481310(e: &mut Engine, this: Ptr) {
     let form = e.mem.u32(this.addr() + 4);
     e.with_stack(8, |e, record| {
         e.mem.set_u32(record.addr() + 4, count);
-        let form_id = e.call(FORM_ID, &args![form]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.mem.set_u32(record.addr(), form_id);
         if e.call(SAVE_SWAPS, &args![]).bool() {
             e.call(SWAP_CNTO, &args![record]);

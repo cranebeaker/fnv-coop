@@ -39,6 +39,7 @@ const PRINT_FAILURE: u32 = 0x005b_5e40;
 const CREATION_FAILED_TEXT: u32 = 0x0107_1d58;
 const MENU_PREP_FOR_VISIBILITY: u32 = 0x00a1_dc20;
 const MENU_START_FADE_OUT: u32 = 0x00a1_d910;
+#[cfg(test)]
 const SECOND_WORD: u32 = 0x0072_6070;
 /// The tile's float trait (`00a011b0`, `RET 4`, `ST0`) and setter (`00a012d0`, `RET
 /// 0xc`), the integer setter (`00700320`, `RET 8`), `Tile::Poke` (`00a01290`, `RET 8`),
@@ -228,7 +229,10 @@ pub fn trait_select_menu_create(e: &mut Engine) -> u32 {
             return tile;
         }
     }
-    if me(e) != 0 && e.call(SECOND_WORD, &args![me(e)]).u32() != 0 && me(e) != 0 {
+    if me(e) != 0
+        && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e))) != 0
+        && me(e) != 0
+    {
         e.vcall(me(e), 0, &args![1u32]);
     }
     0
@@ -260,7 +264,7 @@ pub fn trait_select_menu_close(e: &mut Engine) {
         e.call(UPDATE_3D_AFTER_RESTING, &args![PROCESS_LISTS]);
     }
     let me = e.global::<u32>(TRAIT_SELECT_MENU_ME);
-    let tile = e.call(SECOND_WORD, &args![me]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me));
     e.call(TILE_SET_INT, &args![tile, 0x1772u32, 1u32]);
     let me = e.global::<u32>(TRAIT_SELECT_MENU_ME);
     e.call(MENU_START_FADE_OUT, &args![me]);

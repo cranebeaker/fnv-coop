@@ -4,11 +4,6 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-/// `006815c0` (thiscall on a list node): the address of the node's item word
-/// (on the package list itself: the address of its first node).
-const NODE_ITEM: u32 = 0x0068_15c0;
-/// `00726070` (thiscall): the word at +4 (on a list node: the next node).
-const NODE_NEXT: u32 = 0x0072_6070;
 /// `0063f7b0` (thiscall on a list node): removes the node's item.
 const NODE_REMOVE: u32 = 0x0063_f7b0;
 /// `00905330` (thiscall on a list node, `RET 4`: item pointer): the call made
@@ -16,8 +11,6 @@ const NODE_REMOVE: u32 = 0x0063_f7b0;
 const NODE_REMOVE_AFTER: u32 = 0x0090_5330;
 /// `00726c60` (thiscall on a list node, `RET 4`: item pointer): stores the item.
 const NODE_SET_ITEM: u32 = 0x0072_6c60;
-/// `008256d0` (thiscall on a list node): whether the list is empty.
-const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `__RTDynamicCast` (`00ec43fb`, cdecl, five words).
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// RTTI type descriptors: `TESForm` (`01183028`), `TESPackage` (`011846a0`),
@@ -34,8 +27,6 @@ const CALENDAR_GET_MONTH: u32 = 0x0086_7d20;
 const CALENDAR_GET_HOUR: u32 = 0x0086_7da0;
 /// `005d43c0` (thiscall on a reference): its extra data list.
 const REF_EXTRA_LIST: u32 = 0x005d_43c0;
-/// `008d8520` (thiscall on a reference): its process.
-const REF_PROCESS: u32 = 0x008d_8520;
 /// `0041ca90` (thiscall on a package): its type.
 const PACKAGE_TYPE: u32 = 0x0041_ca90;
 /// `00678d40` (thiscall on a package, `RET 4`).
@@ -50,7 +41,7 @@ const FTOL2: u32 = 0x00ec_62c0;
 /// `PackageList::FreePackageList` (Xbox PDB): empties the list
 /// (`00470470` on its first node).
 pub fn package_list_free_package_list(e: &mut Engine, this: Ptr) {
-    let list = e.call(NODE_ITEM, &args![this]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     e.call(0x0047_0470, &args![list]);
 }
 
@@ -67,15 +58,15 @@ pub fn package_list_free_package_list(e: &mut Engine, this: Ptr) {
 /// previous node's `00905330` and its next node when there is a previous
 /// node, else in place (`0063f7b0`).
 pub fn package_list_init_item(e: &mut Engine, this: Ptr, owner: u32) {
-    let mut node = e.call(NODE_ITEM, &args![this]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     let mut previous = 0u32;
     let file = if owner != 0 {
         e.call(0x0048_4e60, &args![owner, 0xffff_ffffu32]).u32()
     } else {
         0
     };
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let id = e.with_stack(4, |e, slot| {
             let id = e.mem.u32(item);
             e.mem.set_u32(slot.addr(), id);
@@ -101,14 +92,14 @@ pub fn package_list_init_item(e: &mut Engine, this: Ptr, owner: u32) {
                 } else {
                     e.call(0x0040_37f0, &args![name, 0x0106_8cc8u32, 0u32]);
                 }
-                let text = e.call(0x0055_9450, &args![name]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
                 e.call(0x005b_5e40, &args![0x0106_8c94u32, id, text]);
                 if previous != 0 {
                     e.with_stack(4, |e, slot| {
                         e.mem.set_u32(slot.addr(), id);
                         e.call(NODE_REMOVE_AFTER, &args![previous, slot]);
                     });
-                    node = e.call(NODE_NEXT, &args![previous]).u32();
+                    node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
                 } else {
                     e.call(NODE_REMOVE, &args![node]);
                 }
@@ -120,7 +111,7 @@ pub fn package_list_init_item(e: &mut Engine, this: Ptr, owner: u32) {
                 e.call(NODE_SET_ITEM, &args![node, slot]);
             });
             previous = node;
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
 }
@@ -176,7 +167,7 @@ fn schedule_allows(e: &mut Engine, package: u32, schedule: u32) -> bool {
     let mut day_matches = false;
     let mut month_matches = false;
     let start = e.call(0x0086_a460, &args![schedule]).u8() as i8 as i32;
-    let duration = e.call(NODE_NEXT, &args![schedule]).u32() as i32;
+    let duration = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, schedule)) as i32;
     if start.wrapping_add(duration) > 0x18 {
         any_flag = e.call(PACKAGE_FLAG_TEST, &args![package, 1u32]).bool();
         let mut day =
@@ -220,7 +211,7 @@ fn schedule_allows(e: &mut Engine, package: u32, schedule: u32) -> bool {
         // `FSTP float ptr [ESP]`: the hour is passed as a float.
         let hour = e.call(CALENDAR_GET_HOUR, &args![CALENDAR]).f64();
         let hour = f32::from_bits(x87_store32(hour));
-        let duration = e.call(NODE_NEXT, &args![schedule]).u32() as i32;
+        let duration = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, schedule)) as i32;
         let start = e.call(0x0086_a460, &args![schedule]).u8() as i8 as i32;
         if !fn_0067e700(e, start, duration, hour) {
             return false;
@@ -250,20 +241,20 @@ fn schedule_allows(e: &mut Engine, package: u32, schedule: u32) -> bool {
 /// and 0x5A8 (0) run; the new package gets action flag 0x200 when it differs
 /// from the current one.
 pub fn package_list_find_current_package(e: &mut Engine, this: Ptr, reference: u32) -> u32 {
-    let mut node = e.call(NODE_ITEM, &args![this]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
     let current = if reference != 0 {
         e.call(0x0093_44a0, &args![reference]).u32()
     } else {
         0
     };
-    if e.call(LIST_IS_EMPTY, &args![node]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         return current;
     }
     loop {
         if node == 0 {
             return current;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let package = e.mem.u32(item);
         if package == 0 {
             return current;
@@ -278,7 +269,7 @@ pub fn package_list_find_current_package(e: &mut Engine, this: Ptr, reference: u
                 return package;
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -286,7 +277,7 @@ pub fn package_list_find_current_package(e: &mut Engine, this: Ptr, reference: u
 /// reference of the package's target (`00671d10`, `PackageTarget::GetTargReference`
 /// `00680020`; 0 without a target).
 fn conditions_hold(e: &mut Engine, package: u32, reference: u32) -> bool {
-    let target = e.call(0x0067_1d10, &args![package]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     let target_reference = if target != 0 {
         e.call(0x0068_0020, &args![target]).u32()
     } else {
@@ -326,7 +317,7 @@ fn picked(e: &mut Engine, package: u32, reference: u32, current: u32) {
         e.call(0x0067_77b0, &args![package, value]);
     }
     if current != 0 && current != package && e.call(PACKAGE_TYPE, &args![current]).u32() == 1 {
-        let process = e.call(REF_PROCESS, &args![reference]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference));
         let object = e.vcall(process, 0x128, &[]).u32();
         let actor = e
             .call(
@@ -342,9 +333,9 @@ fn picked(e: &mut Engine, package: u32, reference: u32, current: u32) {
     if current != 0 && current != package {
         let list = e.call(REF_EXTRA_LIST, &args![reference]).u32();
         e.call(SET_ACTION_FLAG, &args![current, list, 0x800u32]);
-        let process = e.call(REF_PROCESS, &args![reference]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference));
         e.vcall(process, 0x59c, &args![reference, current]);
-        let process = e.call(REF_PROCESS, &args![reference]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, reference));
         e.vcall(process, 0x5a8, &args![0u32]);
     }
     if package != 0 && package != current {

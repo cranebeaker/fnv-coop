@@ -7,12 +7,15 @@ use crate::x87::rsqrt_estimate;
 
 /// `008256d0` (unnamed in the engine map): `thiscall` on a list node, plain `RET`; answers a byte
 /// that ends the walk.
+#[cfg(test)]
 const NODE_IS_END: u32 = 0x0082_56d0;
 /// `006815c0` (unnamed in the engine map): `thiscall`, plain `RET`; answers the address of the
 /// held item.
+#[cfg(test)]
 const HELD_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`fallout/interface/menumanager.cpp` in the engine map): `thiscall` on a list
 /// node, plain `RET`; the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// The list of records `0062a7e0` (`tesarrowtargetlistener.rs`) keeps.
 const RECORD_LIST: u32 = 0x011c_c408;
@@ -81,6 +84,7 @@ const THREE: u32 = 0x0101_7718;
 /// The `float` 0.0 of the normalizer (`01011d78`).
 const ZERO: u32 = 0x0101_1d78;
 /// `00559450` (unnamed in the engine map): `thiscall`, plain `RET`.
+#[cfg(test)]
 const OBJECT_OF: u32 = 0x0055_9450;
 /// `004a3a40` (`fallout shared/bgsdecalmanager.cpp` in the engine map): `cdecl`, one word.
 const REFERENCE_OF: u32 = 0x004a_3a40;
@@ -170,7 +174,7 @@ pub fn fn_0062af00(e: &mut Engine, this: Ptr, out: u32) -> u32 {
         let dot = frame.addr();
         let result = frame.addr().wrapping_add(0x10);
         let answer = fn_0062b0a0(e, this, dot, this.addr());
-        let held = e.call(HELD_ITEM, &args![answer]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, answer));
         let square = e.mem.f32(held);
         let estimate = rsqrt_estimate(square);
         let scaled = square * estimate;
@@ -222,18 +226,29 @@ pub fn fn_0062ab60(e: &mut Engine, source: u32, object: u32) {
         let at = |x: u32| frame.addr().wrapping_add(0x1d0).wrapping_sub(x);
         let record_word = at(0x8);
         e.mem.set_u32(record_word, 0);
-        if e.call(NODE_IS_END, &args![RECORD_LIST]).u8() == 0 {
+        if typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, RECORD_LIST)
+        )
+        .into_ret()
+        .u8()
+            == 0
+        {
             let mut node = RECORD_LIST;
             while node != 0
-                && e.call(NODE_IS_END, &args![node]).u8() == 0
+                && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+                    .into_ret()
+                    .u8()
+                    == 0
                 && e.mem.u32(record_word) == 0
             {
-                let item = e.call(HELD_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let record = e.mem.u32(item);
                 if record != 0 && e.mem.u32(record.wrapping_add(4)) == object {
                     e.mem.set_u32(record_word, record);
                 }
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
         if e.mem.u32(record_word) == 0 {
@@ -283,11 +298,11 @@ pub fn fn_0062ab60(e: &mut Engine, source: u32, object: u32) {
         let weight_bits = x87_quiet_bits(e.mem.u32(weight));
         e.call(VECTOR_SPLAT, &args![weight_vector, weight_bits]);
         e.call(VECTOR_MUL, &args![translation, weight_vector]);
-        e.call(HELD_ITEM, &args![center]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, center));
         e.vcall(body, BODY_CENTER_SLOT, &args![center]);
         e.call(VECTOR_SPLAT, &args![mass_vector, mass]);
         e.call(VECTOR_MUL, &args![center, mass_vector]);
-        e.call(HELD_ITEM, &args![difference]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, difference));
         e.call(VECTOR_SUB, &args![difference, center, translation]);
         let weight = e.call(SETTING_VALUE, &args![ARROW_WEIGHT]).u32();
         let remaining = x87_sub(x87_load32(mass), x87_m32(e.mem.u32(weight)));
@@ -299,7 +314,7 @@ pub fn fn_0062ab60(e: &mut Engine, source: u32, object: u32) {
         e.call(VECTOR_MUL, &args![difference, scale_vector]);
         let havok_body = e.call(HELD_OBJECT, &args![body]).u32();
         e.call(SET_CENTER_OF_MASS_LOCAL, &args![havok_body, difference]);
-        e.call(HELD_ITEM, &args![offset]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, offset));
         e.call(VECTOR_SUB, &args![offset, center, translation]);
         fn_0062aea0(e, Ptr::new(offset));
         let scale = x87_quiet_bits(e.mem.u32(OFFSET_SCALE));
@@ -329,7 +344,7 @@ pub fn fn_0062ab60(e: &mut Engine, source: u32, object: u32) {
 /// (`0043b4d0`), answers `00457880(other)` on the object at `011dea10`, otherwise
 /// `00c80020(object)`.
 pub fn fn_0062b150(e: &mut Engine, object: u32, other: u32) -> u32 {
-    let inner = e.call(OBJECT_OF, &args![object]).u32();
+    let inner = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
     let reference = e.call(REFERENCE_OF, &args![inner]).u32();
     if reference != 0 {
         let bits = e.call(LOW_BITS, &args![reference]).u32();

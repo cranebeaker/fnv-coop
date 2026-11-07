@@ -478,7 +478,7 @@ pub fn fn_0087b270(e: &mut Engine, this: Ptr<TaskQueueInterface>, argument_1: u3
 /// Packs tag 0x2A and dispatches the task.
 pub fn fn_0087b2b0(e: &mut Engine, this: Ptr<TaskQueueInterface>, argument_1: Ptr) {
     with_task(e, this, 0x2a, |e, task| {
-        let value = e.call(0x0084_e3a0, &args![argument_1]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, argument_1));
         e.mem.set_u32(task.addr() + 4, value);
     });
 }
@@ -792,7 +792,7 @@ pub fn fn_0087b950(e: &mut Engine) {
 // Translated from 0087ce50 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Returns the world-bound value through the original ST0 result.
 pub fn fn_0087ce50(e: &mut Engine, object: Ptr) -> f64 {
-    let bound = e.call(0x0043d450, &args![object]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, object));
     e.call(0x0084d030, &args![bound]).f64()
 }
 
@@ -845,7 +845,7 @@ pub fn fn_0087cf10(e: &mut Engine, this: Ptr, callback: u32, context: u32, count
 /// Updates a nonnull indexed node with the zero-initialized update context.
 pub fn fn_0087cf50(e: &mut Engine, array: Ptr, index: u32) {
     let entry = e.call(0x006a7ad0, &args![array, index]).u32();
-    let node = e.call(0x00559450, &args![entry]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
     if node != 0 {
         e.with_stack(12, |e, update| {
             e.call(0x0043d410, &args![update, 0.0f32, 0u32, 0u32]);
@@ -878,11 +878,11 @@ pub fn actor_havok_sync_parallel_array_task_func(e: &mut Engine, array: Ptr, ind
 // Translated from 0087d030 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Expands large node groups into retained nonnull children, then clears the source array.
 pub fn fn_0087d030(e: &mut Engine, output: Ptr) {
-    let count = e.call(0x0044ddc0, &args![0x011df1c4u32]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, 0x011df1c4u32));
     e.with_stack(8, |e, temporaries| {
         for index in 0..count {
             let entry = e.call(0x006a7ad0, &args![0x011df1c4u32, index]).u32();
-            let node = e.call(0x00559450, &args![entry]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
             let children = e.call(0x0043b480, &args![node]).u32();
             if children <= 10 {
                 let temporary = temporaries.addr();
@@ -915,7 +915,9 @@ pub fn task_queue_interface_queue_if_active(
     if e.global::<u8>(0x011a31f4) == 0 {
         task_queue_interface_task_unpack_func(e, task);
     } else {
-        let queue = e.call(0x0044ddc0, &args![this]).ptr();
+        let queue = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this))
+            .into_ret()
+            .ptr();
         if fn_0087a890(e, queue, task.addr()) == 0 {
             e.call(0x00fdf0c8, &[]);
         }
@@ -1033,7 +1035,11 @@ fn unpack_vector(e: &mut Engine, task: Ptr, output: Ptr) {
     let x = x87_quiet(e.mem.f32(task.addr() + 8));
     let y = x87_quiet(e.mem.f32(task.addr() + 12));
     let z = x87_quiet(e.mem.f32(task.addr() + 16));
-    e.call(0x00416870, &args![output, x, y, z]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, output, x, y, z)
+    );
 }
 
 fn unpack_script_task(e: &mut Engine, task: Ptr) {
@@ -1071,12 +1077,12 @@ fn unpack_script_task(e: &mut Engine, task: Ptr) {
             let fade = u32::from(e.mem.u32(task.addr() + 4) == 0x124f);
             let use_fade = e.vcall(object, 0x100, &[]).u8() != 0
                 && object != e.global::<u32>(0x011dea3c)
-                && e.call(0x008d8520, &args![object]).u32() != 0
+                && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, object)) != 0
                 && e.call(0x00931850, &args![object]).u32() == 0
                 && e.vcall(object, 0x420, &[]).f64() > e.global::<f64>(0x01012060)
                 && (fade as f64) > e.global::<f64>(0x01012060);
             if use_fade {
-                let process = e.call(0x008d8520, &args![object]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, object));
                 e.call(0x008fe9e0, &args![process, object, target, x, y, z]);
             } else {
                 e.call(0x005ccb20, &args![object, target, x, y, z]);
@@ -1125,19 +1131,20 @@ pub fn task_queue_interface_task_unpack_func(e: &mut Engine, task: Ptr) {
             e.call(0x00552390, &args![e.mem.u32(task.addr() + 4)]);
         }
         4 => {
-            if e.call(0x0044ddc0, &args![0x011df244u32]).u32() != 0 {
-                let count = e.call(0x0044ddc0, &args![0x011df244u32]).u32();
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, 0x011df244u32)) != 0 {
+                let count =
+                    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, 0x011df244u32));
                 e.with_stack(16, |e, descriptor| {
                     fn_0087cf10(e, descriptor, 0x0087cfb0, 0x011df244, count);
                     e.call(0x00c44c90, &args![e.global::<u32>(0x01202df4), descriptor]);
                 });
                 e.call(0x008454f0, &args![0x011df244u32, 0u32]);
             }
-            if e.call(0x0044ddc0, &args![0x011df1c4u32]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, 0x011df1c4u32)) != 0 {
                 e.with_stack(36, |e, array| {
                     scrap_array_construct(e, array);
                     fn_0087d030(e, array);
-                    let count = e.call(0x0044ddc0, &args![array]).u32();
+                    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array));
                     let descriptor = Ptr::new(array.addr() + 20);
                     fn_0087cf10(e, descriptor, 0x0087cf50, array.addr(), count);
                     e.call(0x00c44c90, &args![e.global::<u32>(0x01202df4), descriptor]);
@@ -1286,8 +1293,11 @@ pub fn task_queue_interface_task_unpack_func(e: &mut Engine, task: Ptr) {
             e.with_stack(12, |e, vector| {
                 unpack_vector(e, task, vector);
                 let force = x87_quiet(e.mem.f32(task.addr() + 20));
-                if actor != 0 && e.call(0x008d8520, &args![actor]).u32() != 0 {
-                    let process = e.call(0x008d8520, &args![actor]).u32();
+                if actor != 0
+                    && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0
+                {
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     e.vcall(
                         process,
                         0x418,
@@ -1354,15 +1364,17 @@ pub fn task_queue_interface_task_unpack_func(e: &mut Engine, task: Ptr) {
         22 => {
             let actor = e.mem.u32(task.addr() + 4);
             let weapon = e.mem.u32(task.addr() + 8);
-            if e.call(0x008d8520, &args![actor]).u32() != 0 {
-                let process = e.call(0x008d8520, &args![actor]).u32();
+            if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 if e.vcall(process, 0x148, &[]).u32() != 0 {
-                    let process = e.call(0x008d8520, &args![actor]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     let entry = e.vcall(process, 0x148, &[]).u32();
-                    if e.call(0x0044ddc0, &args![entry]).u32() == weapon {
+                    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry)) == weapon {
                         e.call(0x00571b50, &args![actor]);
-                        if e.call(0x008d8520, &args![actor]).u32() != 0 {
-                            let process = e.call(0x008d8520, &args![actor]).u32();
+                        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+                            let process =
+                                typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                             e.vcall(process, 0x160, &args![0u32, 0u32, 0u32]);
                         }
                     }

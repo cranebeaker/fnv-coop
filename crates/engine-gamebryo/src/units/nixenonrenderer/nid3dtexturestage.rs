@@ -81,6 +81,7 @@ pub fn fn_00e7eb50(e: &mut Engine, this: Ptr, growth: u32) {
 /// The sampler-state setter `00e890c0` (unit `run_00e88fc0`; `thiscall` on the stage's state
 /// block, four words: state, value and two bytes) and the filter table it reads (`0126f050`,
 /// 12 bytes per filter mode: the words for sampler states 6, 5 and 7).
+#[cfg(test)]
 const SET_SAMPLER_STATE_00E890C0: u32 = 0x00e8_90c0;
 const FILTER_TABLE_0126F050: u32 = 0x0126_f050;
 
@@ -96,9 +97,10 @@ pub fn ni_d3d_texture_stage_set_filter_mode(e: &mut Engine, this: Ptr, mode: u32
     for (state, offset) in [(5u32, 4u32), (6, 0), (7, 8)] {
         let value = e.mem.u32(row.wrapping_add(offset));
         let block = e.mem.u32(base.wrapping_add(0x10));
-        e.call(
-            SET_SAMPLER_STATE_00E890C0,
-            &args![block, state, value, 0u32, 0u32],
+        typed_call!(
+            leaf::FAMILY,
+            0x00e8_90c0,
+            leaf::set_state_slot(e, block, state, value, 0u32, 0u32)
         );
     }
     e.mem.set_u32(base, mode);

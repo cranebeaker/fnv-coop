@@ -6,13 +6,18 @@ use crate::prelude::*;
 
 /// The `thiscall` test `008256d0` applied to `this + 0x104` (answers a
 /// `bool` in `AL`; the engine map has no name).
+#[cfg(test)]
 const MEMBER_TEST: u32 = 0x0082_56d0;
 
 // Translated from 00493830 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The negation of `008256d0` on the member at +0x104 (the engine map has
 /// no name): 1 when its `AL` is zero, else 0.
 pub fn fn_00493830(e: &mut Engine, this: Ptr) -> bool {
-    !e.call(MEMBER_TEST, &args![this.addr() + 0x104]).bool()
+    !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.addr() + 0x104)
+    )
 }
 
 /// This unit's translated functions, by exe address.

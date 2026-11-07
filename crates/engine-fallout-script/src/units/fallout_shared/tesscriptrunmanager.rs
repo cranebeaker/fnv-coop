@@ -118,7 +118,7 @@ pub fn runner_run(
                 let form = if reference.is_null() {
                     0
                 } else {
-                    e.call(0x007a_f430, &args![reference]).u32()
+                    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
                 };
                 e.mem.set_u32(this.addr() + 4, form);
                 if locals.is_null() {
@@ -409,7 +409,7 @@ pub fn runner_init_action_list(
         let object = if reference.is_null() {
             0
         } else {
-            e.call(0x007a_f430, &args![reference]).u32()
+            typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
         };
         e.mem.set_u32(this.addr() + 4, object);
         e.mem.set_u32(this.addr() + 8, locals.addr());
@@ -481,7 +481,7 @@ pub fn runner_init_action_list(
 }
 
 fn script_word(e: &mut Engine, script: Ptr, cursor: Ptr) -> i32 {
-    let data = e.call(0x0067_1d10, &args![script]).u32();
+    let data = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, script));
     e.mem.i16(data.wrapping_add(e.mem.u32(cursor.addr()))) as i32
 }
 
@@ -588,7 +588,7 @@ pub fn runner_evaluate_line(
     parse_only: bool,
     action_list: bool,
 ) -> bool {
-    let data = e.call(0x0067_1d10, &args![script]).u32();
+    let data = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, script));
     if command != 0x10 {
         if action_list {
             return true;
@@ -648,7 +648,7 @@ pub fn runner_evaluate_line(
         let kind = e.mem.i16(data.wrapping_add(position)) as i32;
         e.mem.set_u32(cursor.addr(), position.wrapping_add(2));
         if !(0..0x26).contains(&kind) {
-            let form_id = e.call(0x0084_e3a0, &args![script]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, script));
             let name = e.vcall(script.addr(), 0x130, &args![]).u32();
             e.call(0x005b_5e40, &args![0x0103_d8d0u32, line, name, form_id]);
             return false;
@@ -728,7 +728,7 @@ const CONDITION_FALSE: u32 = 0x0101_2060;
 /// Logs `format` with the line, the script's name (`+0x130`) and its form
 /// id (`0084e3a0`, asked first), the order of the `SET` and command errors.
 fn log_line_error(e: &mut Engine, at: &Line, format: u32) {
-    let form_id = e.call(0x0084_e3a0, &args![at.script]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, at.script));
     let name = e.vcall(at.script.addr(), 0x130, &args![]).u32();
     e.call(0x005b_5e40, &args![format, at.line, name, form_id]);
 }
@@ -842,8 +842,8 @@ fn evaluate_set(e: &mut Engine, at: &Line) -> bool {
         size,
         at.parse_only,
         |e, expression, value| {
-            if e.call(0x0055_9450, &args![expression]).u32() != 0 {
-                let code = e.call(0x0055_9450, &args![expression]).u32();
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, expression)) != 0 {
+                let code = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, expression));
                 let error_name = e
                     .mem
                     .u32(EXPRESSION_ERROR_NAMES.wrapping_add(code.wrapping_mul(4)));
@@ -986,18 +986,19 @@ fn evaluate_condition(e: &mut Engine, at: &Line) -> bool {
         } else {
             add_skip(e);
         }
-        let succeeded = if e.call(0x0055_9450, &args![expression]).u32() != 0 {
-            e.call(0x005e_24b0, &args![this, at.script, 6u32]);
-            let name = e.vcall(at.script.addr(), 0x130, &args![]).u32();
-            e.call(0x005b_5e40, &args![0x0103_d664u32, name, at.line]);
-            let header = e.call(0x0050_0940, &args![at.script]).u32();
-            e.mem.set_u32(header + 8, 0);
-            let code = e.call(0x0055_9450, &args![expression]).u32();
-            e.mem.set_u32(this.addr() + 0x1c, code);
-            false
-        } else {
-            true
-        };
+        let succeeded =
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, expression)) != 0 {
+                e.call(0x005e_24b0, &args![this, at.script, 6u32]);
+                let name = e.vcall(at.script.addr(), 0x130, &args![]).u32();
+                e.call(0x005b_5e40, &args![0x0103_d664u32, name, at.line]);
+                let header = e.call(0x0050_0940, &args![at.script]).u32();
+                e.mem.set_u32(header + 8, 0);
+                let code = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, expression));
+                e.mem.set_u32(this.addr() + 0x1c, code);
+                false
+            } else {
+                true
+            };
         e.call(0x0048_3710, &args![expression]);
         succeeded
     })
@@ -1017,7 +1018,7 @@ fn report_through_string(e: &mut Engine, words: &[u32]) {
         } else {
             0x005b_5e40
         };
-        let characters = e.call(0x0055_9450, &args![string]).u32();
+        let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
         let text = e.call(0x0046_4f30, &args![characters, 0u32]).u32();
         e.call(printer, &args![text]);
         e.call(0x0040_37d0, &args![string]);
@@ -1116,7 +1117,7 @@ fn evaluate_command(e: &mut Engine, at: &Line, command: i32) -> bool {
             )
             .bool();
         if !succeeded {
-            let form_id = e.call(0x0084_e3a0, &args![at.script]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, at.script));
             let name = e.vcall(at.script.addr(), 0x130, &args![]).u32();
             let command_name = e.mem.u32(definition);
             e.call(

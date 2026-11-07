@@ -15,6 +15,7 @@ pub fn fn_006234d0(e: &mut Engine, this: Ptr) {
 /// `006232f0` (unnamed in the engine map): `thiscall`, `RET 4`.
 const ENTRY_FOR: u32 = 0x0062_32f0;
 /// `006815c0` (unnamed in the engine map): `thiscall`, plain `RET`.
+#[cfg(test)]
 const FIRST_VECTOR: u32 = 0x0068_15c0;
 /// `00460140` (unnamed in the engine map): `thiscall`, plain `RET`.
 const SECOND_VECTOR: u32 = 0x0046_0140;
@@ -43,7 +44,7 @@ const BASE_VTABLE: u32 = 0x0104_dd7c;
 /// (`00458620`, `cdecl`).
 pub fn fn_00623370(e: &mut Engine, this: Ptr, key: u32, first: u32, second: u32) {
     let entry = e.call(ENTRY_FOR, &args![this, key]).u32();
-    let vector = e.call(FIRST_VECTOR, &args![entry]).u32();
+    let vector = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, entry));
     e.call(COPY_VECTOR, &args![first, vector]);
     let vector = e.call(SECOND_VECTOR, &args![entry]).u32();
     e.call(COPY_VECTOR, &args![second, vector]);

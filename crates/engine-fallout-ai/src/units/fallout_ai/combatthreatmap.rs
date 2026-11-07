@@ -77,8 +77,10 @@ const SMART_POINTER_INIT: u32 = 0x0063_3c90;
 /// `0045cec0`: destroys the `NiPointer` at +0x14.
 const SMART_POINTER_DESTROY: u32 = 0x0045_cec0;
 /// `006815c0`: constructs a `NiPoint3`.
+#[cfg(test)]
 const VECTOR_INIT: u32 = 0x0068_15c0;
 /// `00559450`: returns the word at `*this`.
+#[cfg(test)]
 const POINTER_VALUE: u32 = 0x0055_9450;
 /// `009611e0`: returns the word at `this + 0x18`.
 const WORD_AT_18: u32 = 0x0096_11e0;
@@ -101,6 +103,7 @@ const VECTOR_LENGTH_SQUARED: u32 = 0x004a_7290;
 /// `004a3760` (cdecl): `scalar * vector` into `out`.
 const VECTOR_SCALE_CDECL: u32 = 0x004a_3760;
 /// `004b6190`: dot product of `this` and `other`.
+#[cfg(test)]
 const VECTOR_DOT: u32 = 0x004b_6190;
 /// `0063c8a0`: adds `other` into `this`.
 const VECTOR_ADD_IN_PLACE: u32 = 0x0063_c8a0;
@@ -136,6 +139,7 @@ const MAP_REMOVE_ALL: u32 = 0x0043_8af0;
 /// `00853130`: `(this, key, &value) -> bool` hash-map lookup.
 const MAP_LOOKUP: u32 = 0x0085_3130;
 /// `0084e3a0`: the word at `this + 0xC` (the map key of a reference).
+#[cfg(test)]
 const REFERENCE_KEY: u32 = 0x0084_e3a0;
 /// `00aa6060` (`BSReadWriteLock::LockForWrite`, engine map) and its unlock.
 const LOCK_FOR_WRITE: u32 = 0x00aa_6060;
@@ -337,7 +341,11 @@ pub fn fn_009a44e0(
     e.call(TIME_STAMP_INIT, &args![this.byte_add(8)]);
     e.call(TIME_STAMP_INIT, &args![this.byte_add(0xc)]);
     e.call(SMART_POINTER_INIT, &args![this.byte_add(0x14), 0u32]);
-    e.call(VECTOR_INIT, &args![this.byte_add(0x20)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(0x20))
+    );
     e.call(TIME_STAMP_INIT, &args![this.byte_add(0x2c)]);
     e.call(
         THREAT_SET_UP,
@@ -370,12 +378,12 @@ pub fn fn_009a44e0(
 // Translation incomplete: 009a45e0 - the FS:[0] C++ exception unwinding frame is not translated.
 pub fn fn_009a45e0(e: &mut Engine, this: Ptr<CombatThreat>) {
     let geometry = this.byte_add(0x14);
-    if e.call(POINTER_VALUE, &args![geometry]).u32() != 0 {
-        let object = e.call(POINTER_VALUE, &args![geometry]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, geometry)) != 0 {
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, geometry));
         if e.call(WORD_AT_18, &args![object]).u32() != 0 {
-            let object = e.call(POINTER_VALUE, &args![geometry]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, geometry));
             let parent = e.call(WORD_AT_18, &args![object]).u32();
-            let object = e.call(POINTER_VALUE, &args![geometry]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, geometry));
             e.vcall(parent, 0xe8, &args![object]);
         }
     }
@@ -440,7 +448,11 @@ pub fn fn_009a4710(
         let x_squared = (x as f64 * x as f64) as f32;
         e.call(VECTOR_SCALE_CDECL, &args![at(0x54), x, velocity]);
         e.call(VECTOR_SUBTRACT, &args![point, at(0x60), at(0x3c)]);
-        let dot = e.call(VECTOR_DOT, &args![at(0x60), at(0x54)]).f32();
+        let dot = typed_call!(
+            leaf::FAMILY,
+            0x004b_6190,
+            leaf::point3_dot(e, at(0x60), at(0x54))
+        );
         if (dot as f64) < e.global::<f64>(ZERO_DOUBLE) || (x_squared as f64) < (dot as f64) {
             return quiet(e.global::<f32>(FLOAT_MAX));
         }
@@ -740,13 +752,13 @@ pub fn fn_009a51e0(e: &mut Engine, this: Ptr<CombatThreatMap>, reference: Ptr) {
     e.call(LOCK_FOR_WRITE, &args![this.byte_add(0x10)]);
     e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), 0);
-        let key = e.call(REFERENCE_KEY, &args![reference]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         if e.call(MAP_LOOKUP, &args![this, key, slot]).bool() {
             let threat = e.mem.u32(slot.addr());
             if threat != 0 {
                 fn_009a51b0(e, Ptr::new(threat), 1);
             }
-            let key = e.call(REFERENCE_KEY, &args![reference]).u32();
+            let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             remove_at(e, this.cast(), key);
         }
     });
@@ -882,7 +894,7 @@ pub fn combat_threat_map_add_threat(
     e.call(SET_TARGETED, &args![reference, 1u32]);
     e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), 0);
-        let key = e.call(REFERENCE_KEY, &args![reference]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
         if e.call(MAP_LOOKUP, &args![this, key, slot]).bool() {
             let threat = e.mem.u32(slot.addr());
             e.call(
@@ -914,7 +926,7 @@ pub fn combat_threat_map_add_threat(
                 0
             };
             e.mem.set_u32(slot.addr(), threat);
-            let key = e.call(REFERENCE_KEY, &args![reference]).u32();
+            let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             set_at(e, this.cast(), key, threat);
         }
         let flag = e
@@ -1141,7 +1153,11 @@ pub fn fn_009a5b90(e: &mut Engine, this: Ptr<CombatThreat>) -> Ptr<CombatThreat>
     e.call(TIME_STAMP_SET, &args![this.byte_add(0xc), 0.0f32]);
     e.set(this, CombatThreat::fDamage, 0.0);
     e.call(SMART_POINTER_INIT, &args![this.byte_add(0x14), 0u32]);
-    e.call(VECTOR_INIT, &args![this.byte_add(0x20)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(0x20))
+    );
     e.call(TIME_STAMP_INIT, &args![this.byte_add(0x2c)]);
     this
 }
@@ -1165,7 +1181,7 @@ pub fn combat_threat_map_init_load_game(e: &mut Engine, this: Ptr<CombatThreatMa
             let threat = e.mem.u32(value);
             if threat != 0 {
                 fn_009a4f40(e, Ptr::new(threat), argument);
-                if e.call(POINTER_VALUE, &args![threat]).u32() == 0 {
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, threat)) == 0 {
                     fn_009a51b0(e, Ptr::new(threat), 1);
                     let key = e.mem.u32(key);
                     remove_at(e, this.cast(), key);

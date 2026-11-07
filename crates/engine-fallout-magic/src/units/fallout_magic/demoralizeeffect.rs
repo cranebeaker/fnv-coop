@@ -14,6 +14,7 @@ const MAGIC_TARGET_GET_TARGET_AS_ACTOR: u32 = 0x0082_2b40;
 /// `0059bb30` (thiscall): the effect's target (+0x24).
 const EFFECT_TARGET_0059BB30: u32 = 0x0059_bb30;
 /// `0045cd60` (thiscall): the effect's caster (+0x28).
+#[cfg(test)]
 const EFFECT_CASTER_0045CD60: u32 = 0x0045_cd60;
 /// `MagicCaster::GetCasterAsActor` (`00815410`).
 const MAGIC_CASTER_GET_CASTER_AS_ACTOR: u32 = 0x0081_5410;
@@ -44,6 +45,7 @@ const ACTOR_REMOVE_FLEE_TARGET: u32 = 0x008a_6730;
 const ACTOR_TEST_00493BB0: u32 = 0x0049_3bb0;
 /// `008d8520` (thiscall on an actor; the map's name `MiddleHighProcess::GetSavedAcquireObject`
 /// may come from folded code): the object whose slot +0x33c runs here.
+#[cfg(test)]
 const ACTOR_OBJECT_008D8520: u32 = 0x008d_8520;
 /// `-1.0` (`float`, `01012054`).
 const MINUS_ONE: u32 = 0x0101_2054;
@@ -57,10 +59,10 @@ fn actor_and_caster(e: &mut Engine, this: u32) -> (u32, u32) {
         e.call(MAGIC_TARGET_GET_TARGET_AS_ACTOR, &args![target])
             .u32()
     };
-    let caster = if e.call(EFFECT_CASTER_0045CD60, &args![this]).u32() == 0 {
+    let caster = if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this)) == 0 {
         0
     } else {
-        let caster = e.call(EFFECT_CASTER_0045CD60, &args![this]).u32();
+        let caster = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
         e.call(MAGIC_CASTER_GET_CASTER_AS_ACTOR, &args![caster])
             .u32()
     };
@@ -170,8 +172,8 @@ pub fn demoralize_effect_finish(e: &mut Engine, this: Ptr) {
     }
     if e.call(ACTOR_TEST_00493BB0, &args![actor]).bool() {
         e.vcall(actor, 0x434, &args![caster]);
-        if caster != 0 && e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32() != 0 {
-            let object = e.call(ACTOR_OBJECT_008D8520, &args![actor]).u32();
+        if caster != 0 && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             e.vcall(
                 object,
                 0x33c,

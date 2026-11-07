@@ -110,6 +110,7 @@ const ACTOR_CELL_8D6F30: u32 = 0x008d_6f30;
 const ACTOR_TEST_4997B0: u32 = 0x0049_97b0;
 const GET_WORLD_SPACE: u32 = 0x0057_5d70;
 const GET_WORLD_LOCATION: u32 = 0x0057_5650;
+#[cfg(test)]
 const GET_SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// Actor vtable slot `+0x1f4` (the position) and the acquire object's slot
 /// `+0x408` (one word, `AL`: whether a move animation exists).
@@ -130,7 +131,9 @@ const WORLD_LOCATION_LOAD: u32 = 0x0052_7ba0;
 const WORLD_LOCATION_CONSTRUCT: u32 = 0x0097_ede0;
 const DODGE_LOCATION_CONSTRUCT: u32 = 0x0097_ee20;
 const DODGE_LOCATION_POINT: u32 = 0x0097_b940;
+#[cfg(test)]
 const WORLD_LOCATION_WORD_C: u32 = 0x0084_e3a0;
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
 const WORLD_LOCATION_SET_POINT: u32 = 0x0098_ddd0;
 const WORLD_LOCATION_SET_WORD: u32 = 0x0041_fd00;
@@ -292,8 +295,8 @@ fn build_request_to_location(
     radius: u32,
 ) {
     e.call(PATHING_REQUEST_CONSTRUCT, &args![request]);
-    let space = e.call(WORLD_LOCATION_WORD_C, &args![location]).u32();
-    let point = e.call(POINT_CONSTRUCT, &args![location]).u32();
+    let space = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, location));
+    let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
     e.call(
         BUILD_REQUEST_OV2,
         &args![attacker, request, point, space, radius, 0u32],
@@ -419,7 +422,7 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureEngageTarget>) {
             return;
         }
         let last_seen = ebp - 0x58;
-        e.call(POINT_CONSTRUCT, &args![last_seen]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, last_seen));
         if e.call(
             GET_LAST_SEEN_TARGET_FIRING_LOCATION,
             &args![combat_state, last_seen],
@@ -641,8 +644,12 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureEngageTarget>) {
                                 WORLD_LOCATION_CELL_OR_WORLD,
                                 &args![target_location, cell, world],
                             );
-                            e.call(POINT_CONSTRUCT, &args![point]);
-                            let from = e.call(POINT_CONSTRUCT, &args![target_location]).u32();
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
+                            let from = typed_call!(
+                                leaf::FAMILY,
+                                0x0068_15c0,
+                                leaf::same_word(e, target_location)
+                            );
                             let world_word = e.mem.u32(world);
                             let cell_word = e.mem.u32(cell);
                             let found = e
@@ -652,9 +659,11 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureEngageTarget>) {
                                 )
                                 .bool()
                                 && {
-                                    let space = e
-                                        .call(WORLD_LOCATION_WORD_C, &args![target_location])
-                                        .u32();
+                                    let space = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0084_e3a0,
+                                        leaf::word_at_c(e, target_location)
+                                    );
                                     e.call(
                                         STATE_CHECK_LOCATION,
                                         &args![combat_state, point, space, 1u32, 0u32],
@@ -686,8 +695,11 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureEngageTarget>) {
                                     return;
                                 }
                                 e.call(WORLD_LOCATION_SET_POINT, &args![t + DESTINATION, point]);
-                                let space =
-                                    e.call(WORLD_LOCATION_WORD_C, &args![target_location]).u32();
+                                let space = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0084_e3a0,
+                                    leaf::word_at_c(e, target_location)
+                                );
                                 e.call(WORLD_LOCATION_SET_WORD, &args![t + DESTINATION, space]);
                                 e.call(SET_MOVE_MODE, &args![t, 3u32]);
                                 e.set(this, CombatProcedureEngageTarget::eState, 8);
@@ -702,9 +714,10 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureEngageTarget>) {
                     return;
                 }
                 let mut sideways = true;
-                let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
                 if !e.vcall(object, SLOT_HAS_MOVE_ANIM, &args![5u32]).bool() || {
-                    let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![attacker]).u32();
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
                     !e.vcall(object, SLOT_HAS_MOVE_ANIM, &args![6u32]).bool()
                 } {
                     sideways = false;
@@ -894,13 +907,15 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureEngageTarget>) {
                     {
                         e.set(this, CombatProcedureEngageTarget::cCheckedOptimalPath, 1);
                         let goal = ebp - 0x514;
-                        e.call(POINT_CONSTRUCT, &args![goal]);
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, goal));
                         if e.call(GET_CURRENT_PATHFINDING_GOAL, &args![attacker, goal])
                             .bool()
                         {
-                            let space = e
-                                .call(WORLD_LOCATION_WORD_C, &args![attacker_location])
-                                .u32();
+                            let space = typed_call!(
+                                leaf::FAMILY,
+                                0x0084_e3a0,
+                                leaf::word_at_c(e, attacker_location)
+                            );
                             if !e
                                 .call(
                                     STATE_CHECK_LOCATION,
@@ -1151,7 +1166,7 @@ pub fn create_optimal_location_path(
         {
             return false;
         }
-        let point = e.call(POINT_CONSTRUCT, &args![location]).u32();
+        let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
         if !e
             .call(CHECK_MOVEMENT, &args![combat_state, point, 1u32, 0u32])
             .bool()
@@ -1175,7 +1190,7 @@ pub fn create_optimal_location_path(
             e.call(PATHING_REQUEST_DESTRUCT, &args![request]);
             return false;
         }
-        let point = e.call(POINT_CONSTRUCT, &args![location]).u32();
+        let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
         copy_words(e, point, t + DESTINATION, 4);
         let target_location = e
             .call(GET_WORLD_LOCATION, &args![target, ebp - 0x1dc])

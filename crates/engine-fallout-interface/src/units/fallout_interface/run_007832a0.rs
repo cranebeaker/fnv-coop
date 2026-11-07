@@ -8,6 +8,7 @@ use crate::prelude::*;
 /// inventory menu (`011d9ea4`) whose list at +0x11c the form is added to (`005ae3d0`,
 /// `RET 4`, the address of the word).
 const ITEM_GET_WORN: u32 = 0x004b_ddd0;
+#[cfg(test)]
 const ITEM_FORM_0044DDC0: u32 = 0x0044_ddc0;
 const INVENTORY_MENU: u32 = 0x011d_9ea4;
 const LIST_ADD_005AE3D0: u32 = 0x005a_e3d0;
@@ -20,7 +21,7 @@ pub fn fn_007832a0(e: &mut Engine, _unused_1: u32, item: u32) {
     if item == 0 || !e.call(ITEM_GET_WORN, &args![item, 0u32]).bool() {
         return;
     }
-    let form = e.call(ITEM_FORM_0044DDC0, &args![item]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     // The local at `EBP - 4`.
     e.with_stack(4, |e, local| {
         e.mem.set_u32(local.addr(), form);

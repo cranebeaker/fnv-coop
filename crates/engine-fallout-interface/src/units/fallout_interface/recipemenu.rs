@@ -73,7 +73,9 @@ const FREE: u32 = 0x0040_1030;
 /// The list node helpers: `006815c0` (the node's item slot), `00726070` (the word at +4:
 /// the next node), `006ecd40` (sets the next node, `RET 4`), `004702f0` (deletes the
 /// node, `RET 4`).
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 const NODE_SET_NEXT: u32 = 0x006e_cd40;
 const NODE_DELETE: u32 = 0x0047_02f0;
@@ -300,13 +302,13 @@ const RECIPE_FILTER_TRAIT: StaticTrait = StaticTrait {
 
 /// The item word of a list node, reached through `006815c0` as the code does.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let node = e.call(NODE_SELF, &args![node]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(node)
 }
 
 /// The next node (`00726070`, the word at +4).
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(WORD_AT_FOUR, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// The first node of the embedded list (`this + 4`; the code guards a null `this`).
@@ -1460,11 +1462,13 @@ const QUANTITY_MENU_CREATE: u32 = 0x007a_ba00;
 /// The player (`011dea3c`), `MiddleHighProcess::GetSavedAcquireObject`-named `008d8520`
 /// (the reference's process), `PlayerCharacter::UpdatePlayer3d` (`00950030`).
 const PLAYER: u32 = 0x011d_ea3c;
+#[cfg(test)]
 const GET_PROCESS: u32 = 0x008d_8520;
 const PLAYER_UPDATE_3D: u32 = 0x0095_0030;
 /// The category array's methods: the count (`0044ddc0`), the element address (`006a7ad0`,
 /// `RET 4`), the index of a value (`00719b20`, `RET 0xc`), the append (`007cb2e0`,
 /// `RET 4`).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 const ARRAY_AT: u32 = 0x006a_7ad0;
 const ARRAY_FIND_00719B20: u32 = 0x0071_9b20;
@@ -1473,6 +1477,7 @@ const ARRAY_APPEND_007CB2E0: u32 = 0x007c_b2e0;
 const COMPARE_009A3830: u32 = 0x009a_3830;
 /// A string object's text (`00408da0`, `thiscall`), the word at +0 (`00559450`).
 const STRING_TEXT: u32 = 0x0040_8da0;
+#[cfg(test)]
 const WORD_AT_ZERO: u32 = 0x0055_9450;
 /// The string functions (`cdecl`): `00406d00` (format: buffer, size, format, words),
 /// `00406d30` (copy: buffer, size, source), `00469880` (compare two strings),
@@ -1494,7 +1499,6 @@ const STRING_OBJECT_DESTRUCT: u32 = 0x0040_37d0;
 /// `0045cd60` (the level that actor value needs),
 /// `VATS::GetCount`-named `005ae380` (a list's count).
 const RECIPE_LIST_HEAD_004077E0: u32 = 0x0040_77e0;
-const NODE_AT_END_008256D0: u32 = 0x0082_56d0;
 const RECIPE_CATEGORY_006A1B60: u32 = 0x006a_1b60;
 const RECIPE_CATEGORY_KEY_006286D0: u32 = 0x0062_86d0;
 const RECIPE_CONDITIONS_006A9540: u32 = 0x006a_9540;
@@ -1502,7 +1506,6 @@ const CONDITION_IS_TRUE: u32 = 0x0068_0c30;
 const RECIPE_OUTPUTS_005D43C0: u32 = 0x005d_43c0;
 const RECIPE_INPUTS_005A8080: u32 = 0x005a_8080;
 const RECIPE_SKILL_0059BB30: u32 = 0x0059_bb30;
-const RECIPE_SKILL_LEVEL_0045CD60: u32 = 0x0045_cd60;
 const LIST_COUNT_005AE380: u32 = 0x005a_e380;
 /// `ActorValueOwner::GetClampedActorValue` (`RET 4`, on +0xa4 of an actor),
 /// `ActorValue::GetActorValueName` (`cdecl`).
@@ -1704,7 +1707,10 @@ pub fn recipe_menu_create(e: &mut Engine, crafter: u32, category: u32) -> u32 {
             return finish_create(e, root, crafter, category);
         }
     }
-    if me(e) != 0 && e.call(WORD_AT_FOUR, &args![me(e)]).u32() != 0 && me(e) != 0 {
+    if me(e) != 0
+        && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e))) != 0
+        && me(e) != 0
+    {
         let menu = me(e);
         e.vcall(menu, 0, &args![1u32]);
     }
@@ -1807,7 +1813,7 @@ pub fn recipe_menu_close(e: &mut Engine) {
         return;
     }
     let player = e.global::<u32>(PLAYER);
-    let process = e.call(GET_PROCESS, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     if e.vcall(process, 0x474, &args![1u32]).bool() {
         let player = e.global::<u32>(PLAYER);
         e.call(PLAYER_UPDATE_3D, &args![player]);
@@ -1848,11 +1854,11 @@ pub fn recipe_menu_do_click(e: &mut Engine, this: Ptr, id: i32, tile: u32) {
             e.set_global(FILTER_INDEX_0119FBF4, index);
             if (e.global::<u32>(FILTER_INDEX_0119FBF4) as i32) < -1 {
                 let array = fn_00726f10(e);
-                let count = e.call(ARRAY_COUNT, &args![array]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array));
                 e.set_global(FILTER_INDEX_0119FBF4, count.wrapping_sub(1));
             } else {
                 let array = fn_00726f10(e);
-                let count = e.call(ARRAY_COUNT, &args![array]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array));
                 if e.global::<u32>(FILTER_INDEX_0119FBF4) >= count {
                     e.set_global(FILTER_INDEX_0119FBF4, 0xffff_ffffu32);
                 }
@@ -1915,7 +1921,7 @@ const COMPARE_00728CD0: u32 = 0x0072_8cd0;
 pub fn fn_00727680(e: &mut Engine, this: Ptr, _unused_1: u32, category: u32) {
     let owner = e.global::<u32>(OWNER_011C3F2C);
     let mut node = e.call(RECIPE_LIST_HEAD_004077E0, &args![owner]).u32();
-    while node != 0 && !e.call(NODE_AT_END_008256D0, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let recipe = node_item(e, node);
         node = node_next(e, node);
         let recipe_category = e.call(RECIPE_CATEGORY_006A1B60, &args![recipe]).u32();
@@ -1942,7 +1948,7 @@ pub fn fn_00727680(e: &mut Engine, this: Ptr, _unused_1: u32, category: u32) {
                     )
                     .u32();
                 let array = fn_00726f10(e);
-                let count = e.call(ARRAY_COUNT, &args![array]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array));
                 if index >= count {
                     let array = fn_00726f10(e);
                     e.call(ARRAY_APPEND_007CB2E0, &args![array, slot]);
@@ -1954,7 +1960,7 @@ pub fn fn_00727680(e: &mut Engine, this: Ptr, _unused_1: u32, category: u32) {
             let output_count = |e: &mut Engine| {
                 let outputs = e.call(RECIPE_OUTPUTS_005D43C0, &args![recipe]).u32();
                 let first = node_item(e, outputs);
-                e.call(WORD_AT_ZERO, &args![first]).u32()
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first))
             };
             if node_item(e, outputs) != 0 && output_count(e) > 1 {
                 let count = output_count(e);
@@ -2017,7 +2023,9 @@ pub fn fn_00727920(e: &mut Engine, recipe: u32) -> u32 {
         let value = e
             .call(GET_CLAMPED_ACTOR_VALUE, &args![crafter + 0xa4, skill])
             .i32();
-        let level = e.call(RECIPE_SKILL_LEVEL_0045CD60, &args![recipe]).i32();
+        let level = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, recipe))
+            .into_ret()
+            .i32();
         if value < level {
             return 0;
         }
@@ -2027,28 +2035,28 @@ pub fn fn_00727920(e: &mut Engine, recipe: u32) -> u32 {
         return 0;
     }
     let mut node = e.call(RECIPE_INPUTS_005A8080, &args![recipe]).u32();
-    while node != 0 && !e.call(NODE_AT_END_008256D0, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let input = node_item(e, node);
         let item = node_item(e, node);
-        let form = e.call(WORD_AT_FOUR, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
         let object = dynamic_cast(e, form, RTTI_01183108);
         if object != 0 {
             let entry = e
                 .call(GET_INVENTORY_ITEM, &args![crafter, object, 0u32])
                 .u32();
             let have = if entry != 0 {
-                e.call(WORD_AT_FOUR, &args![entry]).u32()
+                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
             } else {
                 0
             };
             if entry != 0 {
                 e.call(ITEM_DATA_DELETE, &args![entry, 1u32]);
             }
-            let need = e.call(WORD_AT_ZERO, &args![input]).u32();
+            let need = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, input));
             if have < need {
                 return 0;
             }
-            let need = e.call(WORD_AT_ZERO, &args![input]).u32();
+            let need = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, input));
             let times = have / need;
             if (times as i32) < e.global::<i32>(CAN_MAKE_011D8EA8) {
                 e.set_global(CAN_MAKE_011D8EA8, times);
@@ -2148,11 +2156,11 @@ fn show_selected(e: &mut Engine, this: Ptr) {
         return;
     }
     let holder = e.mem.u32(base + 0x50);
-    let form = e.call(WORD_AT_FOUR, &args![selected]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, selected));
     fn_00728da0(e, this, form, holder);
     let tile = e.mem.u32(base + 0x50);
     e.call(TILE_SET_INT, &args![tile, 0xfa3u32, 1u32]);
-    let form = e.call(WORD_AT_FOUR, &args![selected]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, selected));
     let first = dynamic_cast(e, form, RTTI_01183200);
     if first != 0 && e.call(FORM_0048CEE0, &args![first]).u32() != 0 {
         let name = e.call(STRING_TEXT, &args![first]).u32();
@@ -2162,7 +2170,7 @@ fn show_selected(e: &mut Engine, this: Ptr) {
         e.call(TILE_SET_INT, &args![tile, 0xfa3u32, 1u32]);
         return;
     }
-    let form = e.call(WORD_AT_FOUR, &args![selected]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, selected));
     let second = dynamic_cast(e, form, RTTI_01183A34);
     let player = e.global::<u32>(PLAYER);
     if second != 0 && e.call(FORM_00480F80, &args![second, player]).u32() != 0 {
@@ -2226,20 +2234,20 @@ fn show_recipe(e: &mut Engine, this: Ptr, crafter: u32, selected: &mut u32) {
         set_setting_text(e, me_tile(e, 0x54), SETTING_011D3090);
     }
     e.with_stack(0x100, |e, buffer| {
-        while node != 0 && !e.call(NODE_AT_END_008256D0, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let item = node_item(e, node);
-            let form = e.call(WORD_AT_FOUR, &args![item]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
             let object = dynamic_cast(e, form, RTTI_01183158);
             if object != 0 && crafter != 0 {
                 let item = node_item(e, node);
-                let form = e.call(WORD_AT_FOUR, &args![item]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
                 let bound = dynamic_cast(e, form, RTTI_01183108);
                 if bound != 0 {
                     let entry = e
                         .call(GET_INVENTORY_ITEM, &args![crafter, bound, 0u32])
                         .u32();
                     let have = if entry != 0 {
-                        e.call(WORD_AT_FOUR, &args![entry]).u32()
+                        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
                     } else {
                         0
                     };
@@ -2248,7 +2256,8 @@ fn show_recipe(e: &mut Engine, this: Ptr, crafter: u32, selected: &mut u32) {
                     }
                     if single_output {
                         let item = node_item(e, node);
-                        let count = e.call(WORD_AT_ZERO, &args![item]).u32();
+                        let count =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                         let name = e.call(STRING_TEXT, &args![object]).u32();
                         e.call(
                             FORMAT,
@@ -2256,7 +2265,8 @@ fn show_recipe(e: &mut Engine, this: Ptr, crafter: u32, selected: &mut u32) {
                         );
                     } else {
                         let item = node_item(e, node);
-                        let count = e.call(WORD_AT_ZERO, &args![item]).u32();
+                        let count =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                         let name = e.call(STRING_TEXT, &args![object]).u32();
                         e.call(
                             FORMAT,
@@ -2273,7 +2283,7 @@ fn show_recipe(e: &mut Engine, this: Ptr, crafter: u32, selected: &mut u32) {
                         0,
                     );
                     let item = node_item(e, node);
-                    let count = e.call(WORD_AT_ZERO, &args![item]).u32();
+                    let count = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                     if have < count && !single_output {
                         set_item_alpha(e, tile, 0x7f);
                     } else {
@@ -2304,7 +2314,7 @@ fn show_recipe(e: &mut Engine, this: Ptr, crafter: u32, selected: &mut u32) {
             let recipe = e.global::<u32>(SELECTED_RECIPE_011D8E94);
             if e.call(RECIPE_SKILL_0059BB30, &args![recipe]).i32() > -1 {
                 let recipe = e.global::<u32>(SELECTED_RECIPE_011D8E94);
-                let level = e.call(RECIPE_SKILL_LEVEL_0045CD60, &args![recipe]).u32();
+                let level = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, recipe));
                 let recipe = e.global::<u32>(SELECTED_RECIPE_011D8E94);
                 let skill = e.call(RECIPE_SKILL_0059BB30, &args![recipe]).u32();
                 let value = e
@@ -2329,7 +2339,9 @@ fn show_recipe(e: &mut Engine, this: Ptr, crafter: u32, selected: &mut u32) {
                 .call(GET_CLAMPED_ACTOR_VALUE, &args![crafter + 0xa4, skill])
                 .i32();
             let recipe = e.global::<u32>(SELECTED_RECIPE_011D8E94);
-            let level = e.call(RECIPE_SKILL_LEVEL_0045CD60, &args![recipe]).i32();
+            let level = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, recipe))
+                .into_ret()
+                .i32();
             value < level
         };
         let alpha = if short { 0x7fu32 } else { 0xff };
@@ -2438,9 +2450,9 @@ pub fn fn_007284f0(e: &mut Engine, count: i32) {
     }
     let mut seen_first = false;
     let mut skip_stat = false;
-    while node != 0 && !e.call(NODE_AT_END_008256D0, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let item = node_item(e, node);
-        let form = e.call(WORD_AT_FOUR, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
         if !seen_first {
             e.call(
                 RECIPE_EVENT_005F5950,
@@ -2452,7 +2464,9 @@ pub fn fn_007284f0(e: &mut Engine, count: i32) {
         }
         seen_first = true;
         let item = node_item(e, node);
-        let needed = e.call(WORD_AT_ZERO, &args![item]).i32();
+        let needed = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item))
+            .into_ret()
+            .i32();
         if form != 0 && e.vcall(form, 0xe4, &args![]).bool() {
             chosen = form;
         }
@@ -2464,7 +2478,7 @@ pub fn fn_007284f0(e: &mut Engine, count: i32) {
                 let weapon = e.call(GET_CURRENT_WEAPON, &args![crafter]).u32();
                 let ammo = e.call(GET_CURRENT_AMMO, &args![weapon, player]).u32();
                 let item = node_item(e, node);
-                let form = e.call(WORD_AT_FOUR, &args![item]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
                 was_ammo = ammo == form;
             }
             if e.call(FORM_TYPE, &args![chosen]).u32() == 0x28
@@ -2496,7 +2510,7 @@ pub fn fn_007284f0(e: &mut Engine, count: i32) {
                 ],
             );
             if was_ammo {
-                let process = e.call(GET_PROCESS, &args![crafter]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, crafter));
                 let target = e.vcall(process, 0x14c, &args![]).u32();
                 e.call(NODE_SET_NEXT, &args![target, 0u32]);
             }
@@ -2509,11 +2523,13 @@ pub fn fn_007284f0(e: &mut Engine, count: i32) {
     let recipe = e.global::<u32>(SELECTED_RECIPE_011D8E94);
     let mut node = e.call(RECIPE_OUTPUTS_005D43C0, &args![recipe]).u32();
     let mut chosen = 0u32;
-    while node != 0 && !e.call(NODE_AT_END_008256D0, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let item = node_item(e, node);
-        let form = e.call(WORD_AT_FOUR, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
         let item = node_item(e, node);
-        let made = e.call(WORD_AT_ZERO, &args![item]).i32();
+        let made = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item))
+            .into_ret()
+            .i32();
         if form != 0 && e.vcall(form, 0xe4, &args![]).bool() {
             chosen = form;
         }
@@ -2568,7 +2584,7 @@ pub fn fn_007284f0(e: &mut Engine, count: i32) {
                 let sound = e
                     .call(GET_PICK_UP_SOUND_NAME, &args![player, chosen, 1u32, 0u32])
                     .u32();
-                let message = e.call(WORD_AT_ZERO, &args![text]).u32();
+                let message = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                 e.call(
                     SHOW_MESSAGE_007052F0,
                     &args![message, 0u32, GIFT_ICON_TEXT, sound, time, 0u32],
@@ -2712,10 +2728,10 @@ pub fn fn_00728c10(e: &mut Engine, first: u32, second: u32) -> i32 {
 /// `00469880`.
 pub fn fn_00728cd0(e: &mut Engine, first: u32, second: u32) -> i32 {
     let a = e.mem.u32(first + 4);
-    let a = e.call(WORD_AT_FOUR, &args![a]).u32();
+    let a = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, a));
     let a = dynamic_cast(e, a, RTTI_01183158);
     let b = e.mem.u32(second + 4);
-    let b = e.call(WORD_AT_FOUR, &args![b]).u32();
+    let b = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, b));
     let b = dynamic_cast(e, b, RTTI_01183158);
     let a_name = e.call(STRING_TEXT, &args![a]).u32();
     let b_name = e.call(STRING_TEXT, &args![b]).u32();
@@ -2878,7 +2894,7 @@ pub fn fn_00728da0(e: &mut Engine, _this: Ptr, form: u32, holder: u32) {
     let mut tiles = [0u32; 12];
     let mut index = 0usize;
     e.with_stack(4, |e, cursor| {
-        let first = e.call(WORD_AT_FOUR, &args![holder + 4]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, holder + 4));
         e.mem.set_u32(cursor.addr(), first);
         while e.mem.u32(cursor.addr()) != 0 && index < 0xc {
             let slot = e
@@ -3100,10 +3116,10 @@ fn show_weapon(e: &mut Engine, weapon: u32, tiles: &[u32; 12], traits: [u32; 3])
         e.set_global(TILE_011D8EB4, tiles[10]);
         if e.call(GET_CURRENT_AMMO, &args![weapon, 0u32]).u32() != 0 {
             let player = e.global::<u32>(PLAYER);
-            let process = e.call(GET_PROCESS, &args![player]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
             e.vcall(process, 0x148, &args![]);
             let player = e.global::<u32>(PLAYER);
-            let process = e.call(GET_PROCESS, &args![player]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
             e.vcall(process, 0x14c, &args![]);
             let ammo = e.call(GET_CURRENT_AMMO, &args![weapon, 0u32]).u32();
             let mut name = e.call(AMMO_NAME_00663B40, &args![ammo]).u32();

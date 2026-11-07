@@ -99,6 +99,7 @@ const FIXED_STRING_CONSTRUCT: u32 = 0x0043_8170;
 const FIXED_STRING_DESTROY: u32 = 0x0043_81b0;
 /// `NiPoint3` constructor (x, y, z) and `NiPoint2` constructor (x, y); both
 /// return `this`.
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 const POINT2_CONSTRUCT: u32 = 0x0045_2dc0;
 /// Copies a `NiPoint3` to its `this + 0xc8` and counts a change (`004bc280`,
@@ -119,6 +120,7 @@ const FORCES_UNIT_SCALE: u32 = 0x004d_e070;
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 const STRING_DESTROY: u32 = 0x0040_37d0;
 const STRING_FORMAT: u32 = 0x0040_6f60;
+#[cfg(test)]
 const STRING_C_STR: u32 = 0x0055_9450;
 /// `NiSourceTexture::Create` (engine map; four arguments) and the smart
 /// pointer constructor (`633c90`, from a raw pointer) / destructor
@@ -145,8 +147,6 @@ const COMPUTE_BOUND: u32 = 0x00a7_ee30;
 const NODE_PARENT: u32 = 0x0096_11e0;
 /// Called on the object in `011dea10` after a fader is removed.
 const AFTER_REMOVE: u32 = 0x0045_7d70;
-/// Returns the pointer a smart pointer (at its `this`) holds.
-const POINTER_GET: u32 = 0x0055_9450;
 
 layout! {
     /// `FaderManager` (Xbox PDB), 8 bytes.
@@ -205,7 +205,11 @@ fn set_name(e: &mut Engine, name: u32, object: u32, text: u32) {
 /// Builds a `NiPoint3` in the caller's local `temp` and copies its three words to
 /// `destination`.
 fn store_point3(e: &mut Engine, temp: u32, destination: u32, x: f32, y: f32, z: f32) {
-    let point = e.call(POINT3_CONSTRUCT, &args![temp, x, y, z]).u32();
+    let point = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, temp, x, y, z)
+    );
     for word in 0..3 {
         let value = e.mem.u32(point + 4 * word);
         e.mem.set_u32(destination + 4 * word, value);
@@ -285,12 +289,11 @@ pub fn fader_manager_add_root(
             0
         };
         set_name(e, local(0x48), light, NAME_LIGHT);
-        let color = e
-            .call(
-                POINT3_CONSTRUCT,
-                &args![local(0x3c), 1.0f32, 1.0f32, 1.0f32],
-            )
-            .u32();
+        let color = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, local(0x3c), 1.0f32, 1.0f32, 1.0f32)
+        );
         e.call(LIGHT_SET_COLOR, &args![light, color]);
         e.call(EMPTY_ONE_ARGUMENT, &args![light, root]);
         e.vcall(root, 0xdc, &args![light, 1u32]);
@@ -310,12 +313,11 @@ pub fn fader_manager_add_root(
             scale = 1.0;
         }
         e.call(NODE_SET_SCALE, &args![root, through_x87(scale)]);
-        let position = e
-            .call(
-                POINT3_CONSTRUCT,
-                &args![local(0x30), 0.0f32, through_x87(distance), 0.0f32],
-            )
-            .u32();
+        let position = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, local(0x30), 0.0f32, through_x87(distance), 0.0f32)
+        );
         e.call(NODE_SET_TRANSLATION, &args![root, position]);
         e.vcall(graph.addr(), 0xdc, &args![root, 1u32]);
         e.call(SCOPE_DESTROY, &args![guard]);
@@ -456,10 +458,10 @@ pub fn fader_manager_create_fader(
         e.call(STRING_CONSTRUCT, &args![path]);
         let name = e.get(slot, FaderData::pName);
         e.call(STRING_FORMAT, &args![path, TEXTURE_PATH_FORMAT, name]);
-        let characters = e.call(STRING_C_STR, &args![path]).u32();
+        let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, path));
         set_name(e, local(0x4c), shape, characters);
         let texture_pointer = local(0xd4);
-        let characters = e.call(STRING_C_STR, &args![path]).u32();
+        let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, path));
         let texture_name = local(0x48);
         e.call(FIXED_STRING_CONSTRUCT, &args![texture_name, characters]);
         let texture = e
@@ -485,7 +487,11 @@ pub fn fader_manager_create_fader(
         } else {
             0
         };
-        let texture = e.call(POINTER_GET, &args![texture_pointer]).u32();
+        let texture = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, texture_pointer)
+        );
         e.call(SET_TILE_TEXTURE, &args![shader_property, texture]);
         e.call(SHADER_PROPERTY_SET_BYTE, &args![shader_property, 3u32]);
         e.call(SET_ALPHA, &args![shader_property, through_x87(start_alpha)]);
@@ -633,9 +639,9 @@ pub fn fader_manager_update_faders(e: &mut Engine, _this: Ptr<FaderManager>, _un
 /// Hands the fader's alpha to its shader property, when it has one.
 fn set_shader_alpha(e: &mut Engine, slot: Ptr<FaderData>) {
     let pointer = slot.addr() + FaderData::spShaderProperty.off;
-    if e.call(POINTER_GET, &args![pointer]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
         let alpha = through_x87(e.get(slot, FaderData::fAlpha));
-        let property = e.call(POINTER_GET, &args![pointer]).u32();
+        let property = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(SET_ALPHA, &args![property, alpha]);
     }
 }

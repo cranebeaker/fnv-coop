@@ -268,6 +268,7 @@ const TYPE_BGS_LIST_FORM: u32 = 0x0118_63d4;
 /// `005b5e40` (cdecl, variadic): prints a formatted warning.
 const PRINT_WARNING: u32 = 0x005b_5e40;
 /// `0084e3a0` (thiscall on a form): its form id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The vtable slot giving a form's name (byte offset 0x130).
 const SLOT_NAME: u32 = 0x130;
@@ -435,10 +436,12 @@ pub fn fn_005f8f10(e: &mut Engine, this: Ptr) -> u16 {
 pub fn fn_005f8e90(e: &mut Engine, this: Ptr) -> u32 {
     let data = this.addr().wrapping_sub(0x80);
     let health = if let Some(level) = level_multiplier(e, data) {
-        let base = e.call(0x0072_6070, &args![this]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
         (i32::from(level).wrapping_mul(base as i32)) as u16
     } else {
-        e.call(0x0072_6070, &args![this]).u16()
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this))
+            .into_ret()
+            .u16()
     };
     u32::from(health)
 }
@@ -481,7 +484,7 @@ pub fn tes_creature_get_attack_damage(e: &mut Engine, this: Ptr) -> u16 {
             let map = e.global::<u32>(0x011c_b6a0);
             let list = e.call(0x0060_0700, &args![map, model, 1u32]).u32();
             let empty = list == 0 || {
-                let item = e.call(0x0068_15c0, &args![list]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                 e.mem.u32(item) == 0
             };
             e.mem.set_u8(base + 0x50, u8::from(!empty));
@@ -596,10 +599,10 @@ pub fn tes_creature_init_worn(e: &mut Engine, _this: Ptr, reference: u32) {
             ],
         )
         .u32();
-    if mobile == 0 || e.call(0x008d_8520, &args![mobile]).u32() == 0 {
+    if mobile == 0 || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, mobile)) == 0 {
         return;
     }
-    let process = e.call(0x008d_8520, &args![mobile]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, mobile));
     let high = e
         .call(
             RT_DYNAMIC_CAST,
@@ -726,7 +729,7 @@ pub fn fn_005fbdd0(e: &mut Engine, this: Ptr, biped: u32) {
     }
     let mut node = e.call(0x0071_7e50, &args![base + 0x64]).u32();
     while node != 0 {
-        let item = e.call(0x0068_15c0, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(item);
         let mut removed = false;
         if entry != 0 {
@@ -744,7 +747,7 @@ pub fn fn_005fbdd0(e: &mut Engine, this: Ptr, biped: u32) {
             }
         }
         if !removed {
-            node = e.call(0x0072_6070, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     e.mem.set_u8(base + 0x150, 1);
@@ -825,14 +828,14 @@ pub fn tes_creature_init_default_worn(
             &args![reference, 0u32, TYPE_TES_OBJECT_REFR, TYPE_ACTOR, 0u32],
         )
         .u32();
-    if actor != 0 && e.call(0x008d_8520, &args![actor]).u32() != 0 {
-        let process = e.call(0x008d_8520, &args![actor]).u32();
+    if actor != 0 && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, 0x168, &args![0u32]);
-        let process = e.call(0x008d_8520, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, 0x16c, &args![0u32]);
-        let process = e.call(0x008d_8520, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, 0x164, &args![0u32]);
-        let process = e.call(0x008d_8520, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, 0x160, &args![0u32, 0u32, 0u32]);
     }
     let mut item = 0u32;
@@ -847,23 +850,27 @@ pub fn tes_creature_init_default_worn(
         }
     });
     if item != 0 {
-        let form = e.call(0x0044_ddc0, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         if fn_005fa120(e, this, form) {
-            let form = e.call(0x0044_ddc0, &args![item]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
             if !e.call(0x0057_5400, &args![reference, form]).bool() {
-                let form = e.call(0x0044_ddc0, &args![item]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                 e.vcall(reference, 0x184, &args![form, 1u32, 0u32, 0u32]);
                 if other != 0 {
-                    let form = e.call(0x0044_ddc0, &args![other]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other));
                     if !e.call(0x0057_5400, &args![reference, form]).bool() {
                         let mut extra = 0u32;
-                        if e.call(0x0055_9450, &args![other]).u32() != 0 {
-                            let list = e.call(0x0055_9450, &args![other]).u32();
-                            let first = e.call(0x0068_15c0, &args![list]).u32();
+                        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other)) != 0 {
+                            let list =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
+                            let first =
+                                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                             extra = e.mem.u32(first);
                         }
-                        let count = e.call(0x0072_6070, &args![other]).u32();
-                        let form = e.call(0x0044_ddc0, &args![other]).u32();
+                        let count =
+                            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other));
+                        let form =
+                            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other));
                         e.vcall(reference, 0x184, &args![form, count, extra, 0u32]);
                     }
                 }
@@ -880,7 +887,7 @@ pub fn tes_creature_init_default_worn(
         let game = e.global::<u32>(SAVE_LOAD_GAME);
         e.call(0x0046_23f0, &args![game, u32::from(saved)]);
     }
-    if actor != 0 && e.call(0x008d_8520, &args![actor]).u32() != 0 {
+    if actor != 0 && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
         e.call(0x008c_26e0, &args![actor, 1u32]);
     }
 }
@@ -957,13 +964,13 @@ pub fn tes_creature_init_item(e: &mut Engine, this: Ptr) {
             let (id, sound) = resolve_field(e, this, 0x128, id, TYPE_TES_CREATURE);
             if sound == 0 {
                 let name = e.vcall(base, SLOT_NAME, &[]).u32();
-                let own_id = e.call(FORM_ID, &args![this]).u32();
+                let own_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 e.call(PRINT_WARNING, &args![0x0104_95e0u32, id, own_id, name]);
             } else if sound == base || e.call(0x0059_bb30, &args![sound + 0x30]).u32() != 0 {
-                let own_id = e.call(FORM_ID, &args![this]).u32();
+                let own_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 let name = e.vcall(base, SLOT_NAME, &[]).u32();
                 let sound = e.mem.u32(base + 0x128);
-                let sound_id = e.call(FORM_ID, &args![sound]).u32();
+                let sound_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
                 let sound = e.mem.u32(base + 0x128);
                 let sound_name = e.vcall(sound, SLOT_NAME, &[]).u32();
                 e.call(
@@ -980,7 +987,7 @@ pub fn tes_creature_init_item(e: &mut Engine, this: Ptr) {
             let (id, style) = resolve_field(e, this, 0x140, id, TYPE_TES_COMBAT_STYLE);
             if style == 0 {
                 let name = e.vcall(base, SLOT_NAME, &[]).u32();
-                let own_id = e.call(FORM_ID, &args![this]).u32();
+                let own_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 e.call(PRINT_WARNING, &args![0x0104_9548u32, id, own_id, name]);
             }
         }
@@ -995,7 +1002,7 @@ pub fn tes_creature_init_item(e: &mut Engine, this: Ptr) {
             let (id, parts) = resolve_field(e, this, 0x144, id, TYPE_BGS_BODY_PART_DATA);
             if parts == 0 {
                 let name = e.vcall(base, SLOT_NAME, &[]).u32();
-                let own_id = e.call(FORM_ID, &args![this]).u32();
+                let own_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 e.call(PRINT_WARNING, &args![0x0104_94f8u32, id, own_id, name]);
             }
         }
@@ -1004,7 +1011,7 @@ pub fn tes_creature_init_item(e: &mut Engine, this: Ptr) {
     if id != 0 {
         let (id, impacts) = resolve_field(e, this, 0x14c, id, TYPE_BGS_IMPACT_DATA_SET);
         if impacts == 0 {
-            let own_id = e.call(FORM_ID, &args![this]).u32();
+            let own_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(base, SLOT_NAME, &[]).u32();
             e.call(PRINT_WARNING, &args![0x0102_c740u32, id, name, own_id]);
         }
@@ -1013,7 +1020,7 @@ pub fn tes_creature_init_item(e: &mut Engine, this: Ptr) {
     if id != 0 {
         let (id, list) = resolve_field(e, this, 0x158, id, TYPE_BGS_LIST_FORM);
         if list == 0 {
-            let own_id = e.call(FORM_ID, &args![this]).u32();
+            let own_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(base, SLOT_NAME, &[]).u32();
             e.call(PRINT_WARNING, &args![0x0104_94bcu32, id, name, own_id]);
         }
@@ -1361,7 +1368,7 @@ pub fn tes_creature_load(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
         }
     }
     if e.call(0x008f_21d0, &args![base + 0x30]).u16() == 0 {
-        let own_id = e.call(FORM_ID, &args![this]).u32();
+        let own_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let name = e.vcall(base, SLOT_NAME, &[]).u32();
         e.call(PRINT_WARNING, &args![0x0104_947cu32, name, own_id]);
     }
@@ -1540,8 +1547,6 @@ pub fn fn_005fb450(e: &mut Engine, this: Ptr, given: u32) {
 
 /// `Interface::QueueMenuCreate` (Xbox PDB, `00709470`, cdecl, six words).
 const QUEUE_MENU_CREATE: u32 = 0x0070_9470;
-/// `008d8520` (thiscall on a reference): its process.
-const REF_PROCESS: u32 = 0x008d_8520;
 /// `MiddleHighProcess::GetForceNextUpdate` (Xbox PDB name of `00566950`).
 const ACTOR_00566950: u32 = 0x0056_6950;
 /// `00493bb0` (thiscall on the actor, `animation.cpp`).
@@ -1550,7 +1555,6 @@ const ACTOR_00493BB0: u32 = 0x0049_3bb0;
 const REF_EXTRA_LIST: u32 = 0x005d_43c0;
 /// `0041d8a0` (thiscall on a package): its schedule; `00726070` the word at +4.
 const PACKAGE_SCHEDULE: u32 = 0x0041_d8a0;
-const WORD_4: u32 = 0x0072_6070;
 /// `0041ca90` (thiscall on a package): its type.
 const PACKAGE_TYPE: u32 = 0x0041_ca90;
 /// The VATS object (`011f2250`) and `VATS::QuitVATSPlayback` (Xbox PDB,
@@ -1586,13 +1590,15 @@ fn set_talk_state(e: &mut Engine, process: TalkProcess, package: u32, actor: u32
     let mut state = (other, 1u32);
     if e.call(PACKAGE_SCHEDULE, &args![package]).u32() != 0 {
         let schedule = e.call(PACKAGE_SCHEDULE, &args![package]).u32();
-        if e.call(WORD_4, &args![schedule]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, schedule)) == 0 {
             state = (actor, 2);
         }
     }
     let process = match process {
         TalkProcess::Known(process) => process,
-        TalkProcess::Of(owner) => e.call(REF_PROCESS, &args![owner]).u32(),
+        TalkProcess::Of(owner) => {
+            typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner))
+        }
     };
     e.vcall(process, 0x288, &args![state.0, state.1]);
 }
@@ -1652,7 +1658,7 @@ pub fn fn_005fa330(
     if me == 0 || who == 0 || e.vcall(me, 0x2e8, &[]).bool() {
         return false;
     }
-    let process = e.call(REF_PROCESS, &args![me]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, me));
     if process == 0 {
         return false;
     }
@@ -1665,7 +1671,7 @@ pub fn fn_005fa330(
     if process != 0 && e.vcall(process, 0x610, &[]).u32() != 0 {
         return false;
     }
-    let who_process = e.call(REF_PROCESS, &args![who]).u32();
+    let who_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, who));
     let who_package = e.vcall(who_process, 0x27c, &[]).u32();
     let my_package = e.vcall(process, 0x27c, &[]).u32();
     if who != 0 && who != player(e) {
@@ -1679,7 +1685,7 @@ pub fn fn_005fa330(
                 0x0041_c930,
                 &args![list, extra, 4u32, target_data, 0u32, 0u32, 0u32],
             );
-            let my_process = e.call(REF_PROCESS, &args![me]).u32();
+            let my_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, me));
             e.vcall(my_process, 0x5a0, &args![who, extra]);
             if e.call(0x0067_0f90, &args![extra]).bool() {
                 let day = u32::from(e.call(0x0086_7d60, &args![0x011d_e7b8u32]).u8());
@@ -1742,7 +1748,7 @@ pub fn fn_005fa330(
                 .bool()
         });
         if attacks {
-            let who_process = e.call(REF_PROCESS, &args![who]).u32();
+            let who_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, who));
             e.vcall(
                 who_process,
                 0x33c,
@@ -1769,7 +1775,7 @@ pub fn fn_005fa330(
         };
         if other && !e.call(0x008a_ce90, &args![me]).bool() {
             if !e.vcall(me, 0x230, &[]).bool() {
-                let my_process = e.call(REF_PROCESS, &args![me]).u32();
+                let my_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, me));
                 if e.vcall(my_process, 0x110, &[]).bool() {
                     activate_message(e, me, 0x011d_2394, 0x0102_08a0);
                     return false;
@@ -1814,7 +1820,7 @@ pub fn fn_005fa330(
     };
     'talk: {
         if dialogue != 0 {
-            let id = e.call(FORM_ID, &args![dialogue]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, dialogue));
             if e.call(0x0061_9df0, &args![id]).bool()
                 && e.call(0x0083_c7b0, &args![dialogue]).bool()
                 && !e.call(0x0083_c7e0, &args![dialogue]).bool()
@@ -1845,11 +1851,11 @@ pub fn fn_005fa330(
             && e.vcall(me, 0x214, &[]).u32() != 9
             && e.vcall(me, 0x214, &[]).u32() != 4
         {
-            let my_process = e.call(REF_PROCESS, &args![me]).u32();
+            let my_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, me));
             if e.vcall(my_process, 0x4d4, &[]).u32() == 0 {
                 break 'talk;
             }
-            let my_process = e.call(REF_PROCESS, &args![me]).u32();
+            let my_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, me));
             let data = e.vcall(my_process, 0x4d4, &[]).u32();
             if (e.mem.u8(data + 0xe) as i32) <= 0x13 {
                 break 'talk;
@@ -1858,7 +1864,7 @@ pub fn fn_005fa330(
         let mut menu_argument = 0u32;
         if who == player(e) {
             if !e.call(0x008b_3bb0, &args![me]).bool() {
-                let my_process = e.call(REF_PROCESS, &args![me]).u32();
+                let my_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, me));
                 e.vcall(my_process, 0x294, &args![me]);
             }
             e.call(0x008a_8e50, &args![who]);
@@ -1895,7 +1901,7 @@ pub fn fn_005fa330(
             break 'talk;
         }
         if e.call(0x0070_2640, &[]).u32() != 0x3f1 && me == player(e) {
-            let my_process = e.call(REF_PROCESS, &args![me]).u32();
+            let my_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, me));
             if !e.vcall(my_process, 0x3fc, &args![who]).bool() {
                 return false;
             }
@@ -1955,12 +1961,12 @@ pub fn fn_005fa330(
             )
             .bool()
             {
-                let who_process = e.call(REF_PROCESS, &args![who]).u32();
+                let who_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, who));
                 e.vcall(who_process, 0x288, &args![who, 2u32]);
                 e.vcall(process, 0x288, &args![me, 2u32]);
             }
         } else {
-            let who_process = e.call(REF_PROCESS, &args![who]).u32();
+            let who_process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, who));
             e.vcall(who_process, 0x288, &args![who, 1u32]);
         }
     }
@@ -2088,7 +2094,7 @@ pub fn tes_creature_save(e: &mut Engine, this: Ptr) {
     for (slot, chunk) in [(0x188u32, 0x4d41_4e5au32), (0x180, 0x4d41_4e50)] {
         if e.vcall(at, slot, &args![]).u32() != 0 {
             let form = e.vcall(at, slot, &args![]).u32();
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(SAVE_CHUNK_WORD, &args![chunk, id]);
         }
     }
@@ -2112,14 +2118,14 @@ pub fn tes_creature_save(e: &mut Engine, this: Ptr) {
     } else {
         let style = e.call(CREATURE_COMBAT_STYLE_005F9100, &args![this]).u32();
         if style != 0 {
-            let id = e.call(FORM_ID, &args![style]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, style));
             e.call(SAVE_CHUNK_WORD, &args![0x5243_5343u32, id]);
         }
     }
     for (offset, chunk) in [(0x14cu32, 0x4d41_4e43u32), (0x158, 0x4d41_4e4c)] {
         let form = e.mem.u32(at + offset);
         if form != 0 {
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(SAVE_CHUNK_WORD, &args![chunk, id]);
         }
     }

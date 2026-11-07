@@ -255,7 +255,19 @@ pub struct Threads {
     /// [`SwitchAt::Blocking`]: the running turn used up its slice and goes on until its next
     /// blocking call ([`blocking_call`]) or the hard cap ([`preempt`]).
     pub overrun: bool,
+    /// Calls by address counted against the time slice up to the last time it was set
+    /// ([`set_slice`]): what a batch of direct calls takes away, and how far apart hand-offs are.
+    pub calls: u64,
+    /// What the slice was last set to.
+    slice_set: u64,
+    /// `NV_MOVE_THREADS`: who took the engine since the last [`take_order`] and at what count of
+    /// [`Threads::calls`], with a [`FRAME_ENDED`] at the end of each of main's frames. Off (`None`)
+    /// outside that diagnostic.
+    pub order: Option<Vec<(u32, u64)>>,
 }
+
+/// What [`Threads::order`] holds for the end of a frame of main's.
+const FRAME_ENDED: u32 = u32::MAX;
 
 impl Default for Threads {
     fn default() -> Self {
@@ -268,6 +280,9 @@ impl Default for Threads {
             wake_delay: WAKE_DELAY_CALLS,
             wake_pending: false,
             overrun: false,
+            calls: 0,
+            slice_set: 0,
+            order: None,
         }
     }
 }
@@ -446,6 +461,46 @@ pub fn describe(e: &mut Engine) -> String {
         .join("; ")
 }
 
+/// Starts a new count of the time slice, adding what went by to [`Threads::calls`].
+fn set_slice(e: &mut Engine, left: u64) {
+    let threads = &mut e.kernel.threads;
+    let used = threads.slice_set.wrapping_sub(e.slice_left);
+    threads.calls = threads.calls.wrapping_add(used);
+    threads.slice_set = left;
+    e.slice_left = left;
+}
+
+/// [`Threads::order`], when it is on: the end of a frame of main's.
+pub fn note_frame(e: &mut Engine) {
+    let calls = e.kernel.threads.calls;
+    if let Some(order) = &mut e.kernel.threads.order {
+        order.push((FRAME_ENDED, calls));
+    }
+}
+
+/// [`Threads::order`] since the last call, as text: `id:calls`, the calls by address since the entry
+/// before, and `f` at the end of a frame. So a run can be read against another for what order the
+/// game's threads ran in, and how many calls apart (`NV_MOVE_THREADS`).
+pub fn take_order(e: &mut Engine) -> String {
+    let Some(order) = &mut e.kernel.threads.order else {
+        return String::new();
+    };
+    let mut out = String::new();
+    let mut before = order.first().map_or(0, |(_, calls)| *calls);
+    for (who, calls) in order.drain(..) {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        if who == FRAME_ENDED {
+            out.push('f');
+        } else {
+            out.push_str(&format!("{who}:{}", calls.wrapping_sub(before)));
+            before = calls;
+        }
+    }
+    out
+}
+
 /// The running thread's id.
 pub fn current_id(e: &Engine) -> u32 {
     e.kernel
@@ -579,9 +634,9 @@ fn mark_wake(e: &mut Engine) {
     if e.slice_hook.is_none() {
         // No time slice (`NV_SLICE=0`, the tests): the hook only for the wake.
         e.slice_hook = Some(preempt);
-        e.slice_left = u64::MAX;
+        set_slice(e, u64::MAX);
     }
-    e.slice_left = e.slice_left.min(e.kernel.threads.wake_delay);
+    set_slice(e, e.slice_left.min(e.kernel.threads.wake_delay));
 }
 
 /// Whether a thread other than main could run now ([`runnable`]): started, waiting on objects
@@ -727,7 +782,7 @@ pub fn run_threads(e: &mut Engine, signalled: Signalled) {
 /// Swaps the running thread's TLS block and call stack for thread `to`'s.
 fn swap_context(e: &mut Engine, from: usize, to: usize) {
     // A thread switched to starts a whole time slice.
-    e.slice_left = turn_len(e);
+    set_slice(e, turn_len(e));
     e.kernel.threads.overrun = false;
     let mut to_tls = e.kernel.threads.list[to].tls;
     if to_tls == 0 {
@@ -776,6 +831,10 @@ fn switch_to(e: &mut Engine, i: usize) {
     trace_switch(e, MAIN_THREAD_ID, id);
     e.kernel.threads.current = i;
     e.kernel.threads.list[i].turns += 1;
+    let calls = e.kernel.threads.calls;
+    if let Some(order) = &mut e.kernel.threads.order {
+        order.push((id, calls));
+    }
     // A wait's handle list is kept for the thread's next wait.
     let t = &mut e.kernel.threads.list[i];
     if let RunState::Waiting { handles, .. } = std::mem::replace(&mut t.state, RunState::Running) {
@@ -793,6 +852,10 @@ fn switch_to(e: &mut Engine, i: usize) {
     e.kernel.threads.current = 0;
     trace_switch(e, id, MAIN_THREAD_ID);
     swap_context_back(e, i);
+    let calls = e.kernel.threads.calls;
+    if let Some(order) = &mut e.kernel.threads.order {
+        order.push((MAIN_THREAD_ID, calls));
+    }
     crate::profile::resync(&e.call_stack);
     crate::profile::holding(MAIN_THREAD_ID);
     load_fpu(e);
@@ -1240,20 +1303,22 @@ pub fn end_main_frame(e: &mut Engine) -> bool {
 /// pending ([`request_wake`]) the end of the delay runs the woken threads instead, at a
 /// platform call.
 pub fn preempt(e: &mut Engine, addr: u32) {
+    // This call isn't counted down: the slice is at 0 until something sets it.
+    e.kernel.threads.calls = e.kernel.threads.calls.wrapping_add(1);
     if e.kernel.threads.wake_pending && on_main(e) {
         if !e.platform_calls.contains(&addr) {
             return;
         }
         // The main thread's wake delay is over ([`request_wake`]): the woken threads run, and
         // main starts a new turn.
-        e.slice_left = turn_len(e);
+        set_slice(e, turn_len(e));
         e.kernel.threads.overrun = false;
         wake_waiters(e, crate::units::platform::signalled);
         return;
     }
     if e.slice_len == 0 {
         // No time slice: the hook was there only for a wake.
-        e.slice_left = u64::MAX;
+        set_slice(e, u64::MAX);
         return;
     }
     match e.kernel.threads.scheme.switch_at {
@@ -1267,7 +1332,7 @@ pub fn preempt(e: &mut Engine, addr: u32) {
             if !e.kernel.threads.overrun {
                 // The slice is used up: on to the next blocking call, or to the hard cap.
                 e.kernel.threads.overrun = true;
-                e.slice_left = e.slice_len.saturating_mul(HARD_CAP_SLICES - 1);
+                set_slice(e, e.slice_len.saturating_mul(HARD_CAP_SLICES - 1));
                 // A sleeper whose time came while main ran gets its turn soon.
                 wake_parked(e);
                 return;
@@ -1292,7 +1357,7 @@ pub fn blocking_call(e: &mut Engine) {
 /// other than main gives its turn back, runnable at the next pass as after `Sleep(0)`; the
 /// main thread gives the others one pass.
 fn end_turn(e: &mut Engine) {
-    e.slice_left = turn_len(e);
+    set_slice(e, turn_len(e));
     e.kernel.threads.overrun = false;
     if e.kernel.threads.list.is_empty() {
         return;
@@ -1311,7 +1376,7 @@ fn end_turn(e: &mut Engine) {
 
 /// The main thread starts a new turn: a whole slice, or a pending wake's delay at most.
 fn start_main_turn(e: &mut Engine) {
-    e.slice_left = turn_len(e);
+    set_slice(e, turn_len(e));
     e.kernel.threads.overrun = false;
     // A wake still pending is decided again: only while another thread can run now (the
     // switch may have run the ones it was for).
@@ -1331,7 +1396,7 @@ fn turn_len(e: &Engine) -> u64 {
 /// Turns the time slice on: [`preempt`] after every `calls` calls of a turn.
 pub fn start_slicing(e: &mut Engine, calls: u64) {
     e.slice_len = calls;
-    e.slice_left = calls;
+    set_slice(e, calls);
     e.slice_hook = Some(preempt);
 }
 

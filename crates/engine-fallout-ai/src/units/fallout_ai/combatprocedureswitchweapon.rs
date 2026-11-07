@@ -35,6 +35,7 @@ const PROCEDURE_DONE: u32 = 0x009c_aae0;
 const GET_ATTACKER: u32 = 0x0099_6de0;
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map name, `008d8520`) on the actor:
 /// the object whose slots `+0x148` and `+0x454` the procedures call.
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// `008a6840(actor, value)` (unit `actor.cpp`).
 const ACTOR_SET_008A6840: u32 = 0x008a_6840;
@@ -94,15 +95,15 @@ pub fn combat_procedure_switch_weapon_update(e: &mut Engine, this: Ptr) {
     if e.call(0x008a_7570, &args![attacker]).i32() != -1 {
         return;
     }
-    let process = e.call(ACTOR_PROCESS, &args![attacker]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
     let entry = e.vcall(process, 0x148, &args![]).u32();
     let current = if entry != 0 {
-        e.call(0x0044_ddc0, &args![entry]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry))
     } else {
         0
     };
     if e.mem.u8(me + SWITCH_EQUIP_QUEUED) == 0 && current != e.mem.u32(me + SWITCH_WEAPON) {
-        let process = e.call(ACTOR_PROCESS, &args![attacker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
         if e.vcall(process, 0x454, &args![]).bool() {
             e.call(ACTOR_SET_008A6840, &args![attacker, 0u32]);
             return;
@@ -120,7 +121,7 @@ pub fn combat_procedure_switch_weapon_update(e: &mut Engine, this: Ptr) {
                 &args![attacker, weapon, count, 0u32, 1u32, 0u32, 1u32],
             );
         } else {
-            let extra = e.call(0x0072_6070, &args![entry]).u32();
+            let extra = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
             e.call(
                 0x0088_c790,
                 &args![attacker, current, extra, 0u32, 0u32, 0u32, 1u32],
@@ -132,7 +133,7 @@ pub fn combat_procedure_switch_weapon_update(e: &mut Engine, this: Ptr) {
     if current != e.mem.u32(me + SWITCH_WEAPON) {
         return;
     }
-    let process = e.call(ACTOR_PROCESS, &args![attacker]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
     if !e.vcall(process, 0x454, &args![]).bool() {
         e.call(ACTOR_SET_008A6840, &args![attacker, 1u32]);
     }

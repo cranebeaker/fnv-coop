@@ -24,9 +24,11 @@ layout! {
 }
 
 /// `006815c0` (`ECX` = object): run on each point before it is set.
+#[cfg(test)]
 const POINT_PREPARE: u32 = 0x0068_15c0;
 /// `00416870` (`ECX` = point; x, y, z floats; `RET 0xc`): sets a point and
 /// returns it.
+#[cfg(test)]
 const POINT_SET: u32 = 0x0041_6870;
 /// The float both points start at (`01016450`, read as the exe loads it).
 const START_COORDINATE: u32 = 0x0101_6450;
@@ -90,12 +92,14 @@ const FORMAT_NOT_A_DOOR: u32 = 0x0101_64f0;
 const FORMAT_BAD_POSITION: u32 = 0x0101_64a0;
 const FORMAT_BAD_ROTATION: u32 = 0x0101_6458;
 /// `007af430` (`ECX` = reference): its base object.
+#[cfg(test)]
 const BASE_OBJECT: u32 = 0x007a_f430;
 /// `00401170` (`ECX` = form): its form type.
 const FORM_TYPE: u32 = 0x0040_1170;
 /// The form type a linked door's base must have (0x1c).
 const DOOR_FORM_TYPE: u32 = 0x1c;
 /// `0084e3a0` (`ECX` = form): its form id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The form type names, three words per type (`01187004` + 12 * type).
 const FORM_TYPE_NAMES: u32 = 0x0118_7004;
@@ -117,17 +121,19 @@ pub fn door_teleport_data_door_teleport_data(
     this: Ptr<DoorTeleportData>,
 ) -> Ptr<DoorTeleportData> {
     let base = this.addr();
-    e.call(POINT_PREPARE, &args![base + 0x4]);
-    e.call(POINT_PREPARE, &args![base + 0x10]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x4));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x10));
     e.set(this, DoorTeleportData::pLinkedDoor, 0);
     e.set(this, DoorTeleportData::cFlags, 0);
     for target in [base + 0x4, base + 0x10] {
         // FLD float / FSTP float onto the stack, three times.
         let coordinate = x87_quiet_bits(e.mem.u32(START_COORDINATE));
         e.with_stack(0xc, |e, point| {
-            let set = e
-                .call(POINT_SET, &args![point, coordinate, coordinate, coordinate])
-                .u32();
+            let set = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, point, coordinate, coordinate, coordinate)
+            );
             for i in 0..3 {
                 let word = e.mem.u32(set + 4 * i);
                 e.mem.set_u32(target + 4 * i, word);
@@ -298,13 +304,13 @@ pub fn door_teleport_data_init_item(
         e.call(LOG_WARNING, &args![FORMAT_NO_DOOR, form_id]);
         return false;
     }
-    let object = e.call(BASE_OBJECT, &args![door]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, door));
     if e.call(FORM_TYPE, &args![object]).u32() != DOOR_FORM_TYPE {
-        let object = e.call(BASE_OBJECT, &args![door]).u32();
-        let named = e.call(BASE_OBJECT, &args![door]).u32();
-        let id = e.call(FORM_ID, &args![named]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, door));
+        let named = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, door));
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, named));
         let editor_id = e.vcall(object, 0x130, &[]).u32();
-        let typed = e.call(BASE_OBJECT, &args![door]).u32();
+        let typed = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, door));
         let kind = e.call(FORM_TYPE, &args![typed]).u32();
         let type_name = e
             .mem
@@ -335,6 +341,7 @@ const ADDRESS_PLUS_4: u32 = 0x0071_7e50;
 /// `00460140` (`ECX` = object): returns the object's address + 0x10.
 const ADDRESS_PLUS_16: u32 = 0x0046_0140;
 /// `00559450` (`ECX` = object): returns the object's first word.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `00537e90` (`ECX` = object, one word; `RET 4`): stores the word as the
 /// object's first word (the engine map's name,
@@ -452,7 +459,7 @@ pub fn fn_0043a420(e: &mut Engine, this: Ptr<DoorTeleportData>) {
         e.call(DATA_PREPARE, &args![copy]);
         e.call(FILL_MEMORY, &args![copy, 0u32, 0x20u32]);
         let door = e.mem.u32(base);
-        let id = e.call(FORM_ID, &args![door]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, door));
         e.mem.set_u32(buffer, id);
         copy_point(e, buffer + 4, base + 4);
         copy_point(e, buffer + 0x10, base + 0x10);
@@ -473,7 +480,7 @@ pub fn fn_0043a420(e: &mut Engine, this: Ptr<DoorTeleportData>) {
 /// `00537e90`), the position (`00717e50`, `006f4ed0`), the rotation
 /// (`00460140`, `0043a280`) and the flags byte.
 pub fn fn_0043a810(e: &mut Engine, this: Ptr<DoorTeleportData>, other: Ptr<DoorTeleportData>) {
-    let door = e.call(FIRST_WORD, &args![other]).u32();
+    let door = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
     e.call(SET_FIRST_WORD, &args![this, door]);
     let position = e.call(ADDRESS_PLUS_4, &args![other]).u32();
     e.call(SET_POINT_AT_4, &args![this, position]);
@@ -493,8 +500,8 @@ pub fn door_teleport_data_compare(
     this: Ptr<DoorTeleportData>,
     other: Ptr<DoorTeleportData>,
 ) -> bool {
-    let mine = e.call(FIRST_WORD, &args![this]).u32();
-    let theirs = e.call(FIRST_WORD, &args![other]).u32();
+    let mine = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
+    let theirs = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
     if mine != theirs {
         return true;
     }
@@ -536,7 +543,7 @@ pub fn door_teleport_data_save_game(e: &mut Engine, this: Ptr<DoorTeleportData>)
         e.mem.set_u32(id.addr(), 0);
         let door = e.get(this, DoorTeleportData::pLinkedDoor);
         if door != 0 {
-            let form_id = e.call(FORM_ID, &args![door]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, door));
             e.mem.set_u32(id.addr(), form_id);
         }
         let game = e.global::<u32>(SAVE_LOAD_GAME);

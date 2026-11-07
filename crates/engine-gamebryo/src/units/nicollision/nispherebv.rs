@@ -70,6 +70,7 @@ const UNITIZE: u32 = 0x004a_0c10;
 /// scalar to `out` and answers `out`.
 const SCALE_POINT: u32 = 0x004a_3760;
 /// `NiPoint3::Dot` (`004b6190`, thiscall on one point, the other point), in ST0.
+#[cfg(test)]
 const NI_POINT3_DOT: u32 = 0x004b_6190;
 /// `NiTrigon::GetNormal` (`00eb3830`, thiscall on the triangle, the out point): answers the
 /// out point.
@@ -651,7 +652,13 @@ pub fn fn_00eac3f0(
                     ));
                     e.mem.set_u32(result_a + offset, moved);
                 }
-                let height = e.call(NI_POINT3_DOT, &args![unit, result_a]).f64();
+                let height = typed_call!(
+                    leaf::FAMILY,
+                    0x004b_6190,
+                    leaf::point3_dot(e, unit, result_a)
+                )
+                .into_ret()
+                .f64();
                 if height > margin {
                     return false;
                 }

@@ -16,6 +16,7 @@ pub fn fn_0061fc50(e: &mut Engine, this: Ptr) {
 /// entries embed (stores its two words at `+0xC` and `+8`, clears `+0` and `+4`).
 const ENTRY_NODE_CONSTRUCT: u32 = 0x0062_0720;
 /// `006815c0` (unnamed in the engine map): `thiscall`, plain `RET`, no stack words.
+#[cfg(test)]
 const MEMBER_SETUP: u32 = 0x0068_15c0;
 /// `00538f40` (unnamed in the engine map): `thiscall`, plain `RET`, no stack words; run on each
 /// member right after `006815c0`.
@@ -33,8 +34,16 @@ pub fn fn_0061fba0(e: &mut Engine, this: Ptr, first: u32, second: u32) -> Ptr {
         &args![base.wrapping_add(0x10), first, second],
     );
     e.mem.set_u32(base, 0x0104_d9c4);
-    e.call(MEMBER_SETUP, &args![base.wrapping_add(0x20)]);
-    e.call(MEMBER_SETUP, &args![base.wrapping_add(0x30)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base.wrapping_add(0x20))
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base.wrapping_add(0x30))
+    );
     e.call(MEMBER_SETUP_AFTER, &args![base.wrapping_add(0x20)]);
     e.call(MEMBER_SETUP_AFTER, &args![base.wrapping_add(0x30)]);
     e.mem.set_u32(base.wrapping_add(0x40), 0x24);

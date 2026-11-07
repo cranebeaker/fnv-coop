@@ -311,6 +311,7 @@ pub(crate) const GRID_CELL_ARRAY_ATTACH_TO_WORLD: u32 = 0x004b_a960;
 pub(crate) const GET_TERRAIN_MANAGER: u32 = 0x0058_6170;
 /// A reference's base form (`this + 0x20`; the map names it
 /// `BGSSaveFormBuffer::GetForm`).
+#[cfg(test)]
 pub(crate) const REFERENCE_GET_BASE_FORM: u32 = 0x007a_f430;
 /// The form type byte (`this + 4`).
 pub(crate) const FORM_GET_TYPE: u32 = 0x0040_1170;
@@ -1228,7 +1229,11 @@ pub fn fn_00450ff0(e: &mut Engine, this: Ptr) -> bool {
 /// The exterior Havok world: the first word of `TESObjectCELL::spExteriorWorld`
 /// (a `NiPointer<bhkWorldM>`, read through `00559450`).
 pub fn fn_00451010(e: &mut Engine) -> u32 {
-    e.call(0x0055_9450, &args![EXTERIOR_WORLD]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, EXTERIOR_WORLD)
+    )
 }
 
 // Translated from 00451020 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1378,7 +1383,11 @@ pub fn fn_004512c0(e: &mut Engine, this: Ptr<TES>, pos: Ptr, reload: u8) {
         e.with_stack(12, |e, point| {
             let x = e.mem.f32(pos.addr());
             let y = e.mem.f32(pos.addr() + 4);
-            e.call(0x0041_6870, &args![point, x, y, 0.0f32]);
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, point, x, y, 0.0f32)
+            );
             e.call(0x0045_72e0, &args![this, pos, point.addr() + 8]);
             fn_00451590(e, 0);
             let point_words = [
@@ -1481,7 +1490,7 @@ pub fn fn_004515a0(e: &mut Engine, this: Ptr<TES>, pos: Ptr, flag: u8) {
     if e.call(GET_WORLD_SPACE, &args![this]).u32() == 0 {
         let data_handler: u32 = e.global(DATA_HANDLER);
         let holder = e.call(0x0046_0140, &args![data_handler]).u32();
-        let slot = e.call(0x0068_15c0, &args![holder]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, holder));
         let world_space = e.mem.u32(slot);
         e.call(0x0045_8200, &args![this, world_space]);
     }
@@ -1693,7 +1702,7 @@ pub fn tes_load_grid_cell(
         e.call(0x0045_4b90, &args![this, cell]);
         return;
     }
-    let form_id = e.call(0x0084_e3a0, &args![cell]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, cell));
     let data_y = e.call(CELL_GET_DATA_Y, &args![cell]).u32();
     let data_x = e.call(CELL_GET_DATA_X, &args![cell]).u32();
     let name = fn_00451cb0(e, Ptr::new(cell));
@@ -1802,12 +1811,12 @@ pub fn fn_00451da0(e: &mut Engine, _this: Ptr<TES>, refr: Ptr) {
 /// `00440d80` nor `00440da0` says no. (The form type the code also reads
 /// through `00401170` is not used.)
 pub fn fn_00451e40(e: &mut Engine, _this: Ptr<TES>, refr: Ptr) -> bool {
-    let form = e.call(REFERENCE_GET_BASE_FORM, &args![refr]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, refr));
     e.call(FORM_GET_TYPE, &args![form]);
-    if e.call(0x0044_0d80, &args![refr]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, refr)) {
         return false;
     }
-    !e.call(0x0044_0da0, &args![refr]).bool()
+    !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, refr))
 }
 
 // Translated from 00451ea0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1862,7 +1871,7 @@ pub fn fn_00451ef0(e: &mut Engine, this: Ptr<TES>, refr: Ptr, cell: Ptr, source:
         return;
     }
     fn_00451da0(e, this, refr);
-    let form = e.call(REFERENCE_GET_BASE_FORM, &args![r]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, r));
     let kind = e.call(FORM_GET_TYPE, &args![form]).u8();
     if !fn_00451e40(e, this, refr) {
         return;
@@ -1901,9 +1910,9 @@ pub fn fn_00451ef0(e: &mut Engine, this: Ptr<TES>, refr: Ptr, cell: Ptr, source:
                 fn_00452390(e, cell);
             }
             let mut attach = true;
-            let form = e.call(REFERENCE_GET_BASE_FORM, &args![r]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, r));
             if e.call(FORM_GET_TYPE, &args![form]).u32() == 0x23 {
-                let form = e.call(REFERENCE_GET_BASE_FORM, &args![r]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, r));
                 if e.call(0x0045_2440, &args![form]).bool() {
                     attach = false;
                 }
@@ -1922,7 +1931,7 @@ pub fn fn_00451ef0(e: &mut Engine, this: Ptr<TES>, refr: Ptr, cell: Ptr, source:
             }
             if kind == 0x1e {
                 let extra = e.call(0x0043_0830, &args![r]).u32();
-                let form = e.call(REFERENCE_GET_BASE_FORM, &args![r]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, r));
                 e.call(0x0045_34f0, &args![form, extra]);
             } else {
                 let shadow_scene_node = fn_00450b80(e, 0);
@@ -1939,7 +1948,7 @@ pub fn fn_00451ef0(e: &mut Engine, this: Ptr<TES>, refr: Ptr, cell: Ptr, source:
         e.call(0x005a_c750, &args![r, actions, 0x1000u32]);
     }
     if kind == 0x25 {
-        let form = e.call(REFERENCE_GET_BASE_FORM, &args![r]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, r));
         let cast = e
             .call(
                 0x00ec_43fb,
@@ -1969,7 +1978,7 @@ pub fn fn_00451ef0(e: &mut Engine, this: Ptr<TES>, refr: Ptr, cell: Ptr, source:
         e.call(0x008c_4640, &args![r]);
         let player: u32 = e.global(PLAYER_CHARACTER);
         if r != player {
-            let form_id = e.call(0x0084_e3a0, &args![r]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, r));
             let node_3d = e.call(0x0043_fcd0, &args![r]).u32();
             e.call(0x004b_6dc0, &args![node_3d, form_id]);
         }
@@ -2124,6 +2133,7 @@ pub(crate) const TERRAIN_MANAGER_UPDATE: u32 = 0x006f_ca90;
 /// &item)`. The list `00452ff0` fills is `listLastLoadedExteriors`.
 pub(crate) const LIST_ADD_HEAD: u32 = 0x005a_e3d0;
 /// The `NiPointer` getter (first word of `this`).
+#[cfg(test)]
 pub(crate) const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer<NiSourceTexture>` constructor `(this, 0)` and destructor.
 pub(crate) const NI_POINTER_CTOR: u32 = 0x0063_3c90;
@@ -2238,7 +2248,7 @@ pub(crate) fn apply_location_image(
                 TES_CREATE_TEXTURE_IMAGE,
                 &args![tes_singleton, name, texture, 1u32, 0u32],
             );
-            let image = e.call(NI_POINTER_GET, &args![texture]).u32();
+            let image = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
             let water_system = e.call(TES_WATER_SYSTEM_GETTER, &args![tes_singleton]).u32();
             e.call(WATER_SYSTEM_SET_TEXTURE, &args![water_system, image]);
             e.call(NI_POINTER_DTOR, &args![texture]);
@@ -2354,12 +2364,12 @@ pub fn tes_update_current_grid_cell(e: &mut Engine, this: Ptr<TES>, pos: Ptr, fl
     }
     let script_context: u32 = e.global(SCRIPT_CONTEXT);
     if e.call(0x0042_ce10, &args![script_context]).bool() {
-        let bound = e.call(NI_POINTER_GET, &args![base + 0xc0]).u32();
+        let bound = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0xc0));
         e.call(0x0062_8da0, &args![bound]);
     }
     let grid_cells = e.get(this, TES::pGridCellA);
     let cell = e.call(0x0045_7070, &args![this]).u32();
-    let bound = e.call(NI_POINTER_GET, &args![base + 0xc0]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0xc0));
     e.call(0x0062_71b0, &args![bound, cell, grid_cells]);
     if e.global::<u32>(DATA_HANDLER) == 0 {
         return false;
@@ -2543,7 +2553,7 @@ pub fn tes_update_current_grid_cell(e: &mut Engine, this: Ptr<TES>, pos: Ptr, fl
         if e.call(GET_WORLD_SPACE, &args![this]).u32() == 0 {
             let data_handler: u32 = e.global(DATA_HANDLER);
             let holder = e.call(0x0046_0140, &args![data_handler]).u32();
-            let slot = e.call(0x0068_15c0, &args![holder]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, holder));
             let world_space = e.mem.u32(slot);
             e.call(SET_WORLD_SPACE, &args![this, world_space]);
         }
@@ -3183,9 +3193,13 @@ pub fn fn_00453a80(e: &mut Engine, this: Ptr<TES>) -> bool {
 /// of the loaded square at the front of the exterior buffer.
 pub(crate) fn loaded_square_cells(e: &mut Engine, this: Ptr<TES>) -> u32 {
     let grid_cells = e.get(this, TES::pGridCellA);
-    let first = e.call(0x0084_e3a0, &args![grid_cells]).i32();
+    let first = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, grid_cells))
+        .into_ret()
+        .i32();
     let grid_cells = e.get(this, TES::pGridCellA);
-    let second = e.call(0x0084_e3a0, &args![grid_cells]).i32();
+    let second = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, grid_cells))
+        .into_ret()
+        .i32();
     first.wrapping_mul(second) as u32
 }
 
@@ -3304,8 +3318,8 @@ pub fn fn_00453dc0(e: &mut Engine, this: Ptr<TES>, cell: Ptr, pos: Ptr) {
         e.call(CELL_ATTACH_TO_WORLD, &args![current, object_root]);
         let havok_world = fn_004543c0(e, Ptr::new(current));
         let base = this.addr();
-        if e.call(NI_POINTER_GET, &args![base + 0xc0]).u32() != 0 {
-            let bound = e.call(NI_POINTER_GET, &args![base + 0xc0]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0xc0)) != 0 {
+            let bound = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0xc0));
             e.call(0x0062_8da0, &args![bound]);
         }
         if havok_world != 0 {
@@ -3553,7 +3567,7 @@ pub fn fn_00454450(e: &mut Engine, this: Ptr<TES>, pos: Ptr) {
         let io_manager: u32 = e.global(IO_MANAGER);
         e.call(0x00c3_dfa0, &args![io_manager, 4u32]);
     }
-    let value = e.call(0x0044_ddc0, &args![this]).u32();
+    let value = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     e.call(0x004b_a7d0, &args![value]);
     e.call(0x0045_c840, &args![this]);
     e.call(0x0045_c780, &args![this]);
@@ -3567,7 +3581,11 @@ pub fn fn_00454450(e: &mut Engine, this: Ptr<TES>, pos: Ptr) {
     e.with_stack(12, |e, point| {
         let x = e.mem.f32(pos.addr());
         let y = e.mem.f32(pos.addr() + 4);
-        e.call(0x0041_6870, &args![point, x, y, 0.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, x, y, 0.0f32)
+        );
         e.call(0x0045_72e0, &args![this, pos, point.addr() + 8]);
         fn_00451590(e, 0);
         let point_words = [
@@ -3696,6 +3714,7 @@ pub(crate) const REFERENCE_RUN_SCRIPT: u32 = 0x0056_5870;
 pub(crate) const SKY_SET_MODE: u32 = 0x0063_a3f0;
 /// Returns `this + 0x68` (`TES::pSky`; the map names it
 /// `MiddleHighProcess::GetSavedAcquireObject`, identical code).
+#[cfg(test)]
 pub(crate) const TES_GET_SKY: u32 = 0x008d_8520;
 /// Returns the word at `this + 0xf8` of the sky (non-null while a sky is
 /// built).
@@ -3703,8 +3722,10 @@ pub(crate) const SKY_GET_WORD_F8: u32 = 0x0047_6c90;
 /// Returns `this` itself (the address of a list node's item word: an empty
 /// constructor for a list item or a vector, and the item getter of a list
 /// node).
+#[cfg(test)]
 pub(crate) const LIST_NODE_ITEM: u32 = 0x0068_15c0;
 /// Returns the next list node (`this + 4`).
+#[cfg(test)]
 pub(crate) const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// The `TESDataHandler`'s first node of the world-space list (`this + 0x10`).
 pub(crate) const DATA_HANDLER_FIRST_WORLD_SPACE: u32 = 0x0046_0140;
@@ -3825,13 +3846,13 @@ pub(crate) const WORLD_SPACE_MIN_X: u32 = 0x0045_65f0;
 pub(crate) const WORLD_SPACE_MIN_Y: u32 = 0x0081_2870;
 pub(crate) const WORLD_SPACE_MAX_X: u32 = 0x009b_88a0;
 pub(crate) const WORLD_SPACE_MAX_Y: u32 = 0x009b_88c0;
+#[cfg(test)]
 pub(crate) const CELL_HAS_FLAG_20: u32 = 0x0044_0d80;
 pub(crate) const CELL_GET_FIRST_REFR: u32 = 0x0054_cee0;
 pub(crate) const CELL_GET_REGION_LIST: u32 = 0x0054_7110;
 pub(crate) const REGION_LIST_CONTAINS: u32 = 0x005f_65d0;
 pub(crate) const REFERENCE_GET_WORLD_SPACE: u32 = 0x0057_5d70;
 pub(crate) const TIME_OBJECT_ADVANCE: u32 = 0x0086_7a40;
-pub(crate) const NI_POINT3_CONSTRUCT_FLOATS: u32 = 0x0041_6870;
 pub(crate) const CELL_GET_COC_PLACEMENT_INFO: u32 = 0x0054_cfd0;
 pub(crate) const POSITION_REQUEST_CONSTRUCT: u32 = 0x0045_6540;
 pub(crate) const PLAYER_ROTATION_GETTER: u32 = 0x0043_0830;
@@ -4264,7 +4285,7 @@ pub fn fn_00455330(e: &mut Engine, this: Ptr<TES>, cell: Ptr) {
 /// `cCellFlags` is set (`00454b10`) and 1 when not; `Sky::SetMode`
 /// (`0063a3f0`).
 pub fn fn_00455400(e: &mut Engine, this: Ptr<TES>, cell: Ptr) {
-    let sky = e.call(TES_GET_SKY, &args![this]).u32();
+    let sky = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
     if e.call(SKY_GET_WORD_F8, &args![sky]).u32() == 0 {
         return;
     }
@@ -4275,7 +4296,7 @@ pub fn fn_00455400(e: &mut Engine, this: Ptr<TES>, cell: Ptr) {
     } else {
         1
     };
-    let sky = e.call(TES_GET_SKY, &args![this]).u32();
+    let sky = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, this));
     e.call(SKY_SET_MODE, &args![sky, mode]);
 }
 
@@ -4299,9 +4320,9 @@ pub fn fn_00455490(e: &mut Engine, this: Ptr<TES>) {
     let data_handler: u32 = e.global(DATA_HANDLER);
     let mut node = fn_00455600(e, Ptr::new(data_handler));
     while node != 0 {
-        let item_slot = e.call(LIST_NODE_ITEM, &args![node]).u32();
+        let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let quest = e.mem.u32(item_slot);
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if quest != 0 && fn_00455620(e, Ptr::new(quest)) {
             e.call(QUEST_RUN, &args![quest]);
         }
@@ -4405,7 +4426,7 @@ pub(crate) fn test_name_differs(e: &mut Engine, form: u32) -> bool {
 /// The item of a list node (`006815c0` returns the node's address; the item
 /// is its first word).
 pub(crate) fn list_node_item(e: &mut Engine, node: u32) -> u32 {
-    let address = e.call(LIST_NODE_ITEM, &args![node]).u32();
+    let address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(address)
 }
 
@@ -4497,7 +4518,7 @@ pub fn tes_test_all_cells(e: &mut Engine, this: Ptr<TES>, mode: i32) {
                         break;
                     }
                     let node: u32 = e.global(TEST_WORLD_SPACE_NODE);
-                    let next = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                    let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                     e.set_global(TEST_WORLD_SPACE_NODE, next);
                 }
             }
@@ -4544,7 +4565,7 @@ pub fn tes_test_all_cells(e: &mut Engine, this: Ptr<TES>, mode: i32) {
                 while world_space != 0 {
                     if !test_name_differs(e, world_space) {
                         let node: u32 = e.global(TEST_WORLD_SPACE_NODE);
-                        let next = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                         e.set_global(TEST_WORLD_SPACE_NODE, next);
                         world_space = if next != 0 {
                             list_node_item(e, next)
@@ -4601,7 +4622,7 @@ pub fn tes_test_all_cells(e: &mut Engine, this: Ptr<TES>, mode: i32) {
                     let current = e.get(this, TES::pWorldSpace).addr();
                     if next_x > world_space_bound_in_cells(e, WORLD_SPACE_MAX_X, current) {
                         let node: u32 = e.global(TEST_WORLD_SPACE_NODE);
-                        let next = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                         e.set_global(TEST_WORLD_SPACE_NODE, next);
                         if next != 0 {
                             e.set_global(TEST_ENTER_WORLD_SPACE, 1u8);
@@ -4632,7 +4653,7 @@ pub fn tes_test_all_cells(e: &mut Engine, this: Ptr<TES>, mode: i32) {
                 }
             }
             if cell != 0
-                && !e.call(CELL_HAS_FLAG_20, &args![cell]).bool()
+                && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, cell))
                 && e.call(CELL_GET_FIRST_REFR, &args![cell]).u32() != 0
             {
                 found = true;
@@ -4701,9 +4722,11 @@ pub(crate) fn test_visit_cell(e: &mut Engine, this: Ptr<TES>, cell: u32, started
         let x_corner = e.call(CELL_GET_DATA_X, &args![cell]).i32().wrapping_shl(12);
         let x = (x_corner as f64 + half_cell) as f32;
         let scratch = e.mem.alloc(12);
-        let made = e
-            .call(NI_POINT3_CONSTRUCT_FLOATS, &args![scratch, x, y, 0.0f32])
-            .u32();
+        let made = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, scratch, x, y, 0.0f32)
+        );
         for word in 0..3u32 {
             let value = e.mem.u32(made + 4 * word);
             e.mem.set_u32(position + 4 * word, value);
@@ -4713,7 +4736,7 @@ pub(crate) fn test_visit_cell(e: &mut Engine, this: Ptr<TES>, cell: u32, started
     if interior {
         e.call(CELL_LOAD_ALL_TEMP_DATA, &args![cell]);
         let rotation = e.mem.alloc(12);
-        e.call(LIST_NODE_ITEM, &args![rotation]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
         e.call(
             CELL_GET_COC_PLACEMENT_INFO,
             &args![cell, position, rotation],
@@ -4836,7 +4859,7 @@ pub(crate) fn test_print_cell(e: &mut Engine, cell: u32, elapsed: f32) {
     let elapsed = elapsed as f64;
     if e.call(CELL_IS_INTERIOR, &args![cell]).bool() {
         let lights = e.call(CELL_GET_LIGHT_COUNT, &args![cell]).u32();
-        let m_number_text = e.call(NI_POINTER_GET, &args![m_number]).u32();
+        let m_number_text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, m_number));
         let name = e.vcall(cell, FORM_SLOT_NAME, &args![]).u32();
         e.call(
             DEBUG_PRINT,
@@ -4853,7 +4876,7 @@ pub(crate) fn test_print_cell(e: &mut Engine, cell: u32, elapsed: f32) {
             ],
         );
         let lights = e.call(CELL_GET_LIGHT_COUNT, &args![cell]).u32();
-        let m_number_text = e.call(NI_POINTER_GET, &args![m_number]).u32();
+        let m_number_text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, m_number));
         let name = e.vcall(cell, FORM_SLOT_NAME, &args![]).u32();
         let output_file: u32 = e.global(TEST_OUTPUT_FILE);
         e.call(
@@ -4875,7 +4898,8 @@ pub(crate) fn test_print_cell(e: &mut Engine, cell: u32, elapsed: f32) {
         let count = e.global::<u32>(TEST_EXTERIOR_COUNT).wrapping_add(1);
         e.set_global(TEST_EXTERIOR_COUNT, count);
         for to_file in [false, true] {
-            let m_number_text = e.call(NI_POINTER_GET, &args![m_number]).u32();
+            let m_number_text =
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, m_number));
             let y = e.call(CELL_GET_DATA_Y, &args![cell]).u32();
             let x = e.call(CELL_GET_DATA_X, &args![cell]).u32();
             let name = e.vcall(cell, FORM_SLOT_NAME, &args![]).u32();
@@ -4940,16 +4964,18 @@ pub fn tes_get_face_count(e: &mut Engine, _this: Ptr<TES>, node: Ptr, all: u8) -
         let child = e.call(0x0043_b4a0, &args![node, index]).u32();
         e.with_stack(4, |e, holder| {
             e.call(NI_POINTER_CTOR, &args![holder, child]);
-            if e.call(NI_POINTER_GET, &args![holder]).u32() != 0 {
-                let object = e.call(NI_POINTER_GET, &args![holder]).u32();
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) != 0 {
+                let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                 if e.vcall(object, 0xc, &args![]).u32() != 0 {
-                    let inner = e.call(NI_POINTER_GET, &args![holder]);
+                    let inner = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder))
+                        .into_ret();
                     let faces = tes_get_face_count(e, _this, Ptr::new(inner.u32()), all);
                     total = total.wrapping_add(faces);
                 } else {
-                    let object = e.call(NI_POINTER_GET, &args![holder]).u32();
+                    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                     if e.vcall(object, 0x1c, &args![]).u32() != 0 {
-                        let geometry = e.call(NI_POINTER_GET, &args![holder]).u32();
+                        let geometry =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                         if all != 0 || !e.call(0x0045_6610, &args![geometry]).bool() {
                             let faces = fn_004567b0(e, Ptr::new(geometry));
                             total = total.wrapping_add(faces as i32);
@@ -4968,7 +4994,11 @@ pub fn tes_get_face_count(e: &mut Engine, _this: Ptr<TES>, node: Ptr, all: u8) -
 /// The 16-bit count at `+0x40` of the object the `NiPointer` at `this + 0xb8`
 /// holds (`004567e0`).
 pub fn fn_004567b0(e: &mut Engine, this: Ptr) -> u16 {
-    let data = e.call(NI_POINTER_GET, &args![this.addr() + 0xb8]).u32();
+    let data = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xb8)
+    );
     fn_004567e0(e, Ptr::new(data))
 }
 
@@ -4997,11 +5027,11 @@ pub fn tes_remove_texture_image(
         e.call(NI_POINTER_CTOR, &args![holder, 0u32]);
         e.call(0x00a6_1b90, &args![name, holder]);
         let mut removed = false;
-        if e.call(NI_POINTER_GET, &args![holder]).u32() != 0 {
-            let texture = e.call(NI_POINTER_GET, &args![holder]).u32();
-            let count = e.call(LIST_NODE_NEXT, &args![texture]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) != 0 {
+            let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
+            let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, texture));
             if count <= extra_references.wrapping_add(2) {
-                let texture = e.call(NI_POINTER_GET, &args![holder]).u32();
+                let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                 e.call(0x00a6_1f30, &args![texture]);
                 removed = true;
             }
@@ -5036,7 +5066,7 @@ pub fn tes_create_texture_image(
     let mut flags = 0xffffu32;
     e.call(0x0066_b0d0, &args![out, 0u32]);
     e.call(0x00a6_1b90, &args![name, out]);
-    if e.call(NI_POINTER_GET, &args![out]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, out)) != 0 {
         return;
     }
     e.with_stack(4, |e, holder| {
@@ -5058,8 +5088,8 @@ pub fn tes_create_texture_image(
             e.call(0x0066_b0d0, &args![out, texture]);
             e.call(0x0043_81b0, &args![fixed_string]);
         });
-        if e.call(NI_POINTER_GET, &args![out]).u32() != 0 {
-            let texture = e.call(NI_POINTER_GET, &args![out]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, out)) != 0 {
+            let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, out));
             e.call(0x00a6_1c50, &args![texture, 0u32]);
         } else if quiet == 0 {
             e.call(DEBUG_PRINT, &args![0x0101_7ca8u32, name]);

@@ -44,6 +44,7 @@ const VECTOR_CONSTRUCT: u32 = 0x0040_1050;
 /// `LookupFormByID`-style lookup in `tesform.cpp` (cdecl, form id).
 const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// The form id of a form (thiscall; the map has no name).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `TESForm` chunk writers: a one-word chunk (cdecl `(id, word)`) and
 /// `TESForm::__AddChunkData` (Xbox PDB, cdecl `(id, data, size)`).
@@ -80,13 +81,16 @@ const PRINT_ERROR: u32 = 0x005b_5e40;
 /// pointer, the next node, the count, appending by pointer to the item,
 /// removing the head, removing an item, clearing, the constructor, the
 /// destructor, and the clearing helper the copy constructor uses.
+#[cfg(test)]
 const LIST_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 const LIST_COUNT: u32 = 0x005a_e380;
 const LIST_APPEND: u32 = 0x0090_5820;
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
 const LIST_REMOVE: u32 = 0x0090_5330;
 const LIST_ADD: u32 = 0x005a_e3d0;
+#[cfg(test)]
 const LIST_CLEAR: u32 = 0x0082_56d0;
 const LIST_CONSTRUCT: u32 = 0x0096_a2d0;
 const LIST_DESTRUCT: u32 = 0x0046_ffb0;
@@ -164,7 +168,7 @@ fn battle_list(this: Ptr<TESRegionDataSound>) -> u32 {
 
 /// The word a list node's item pointer points at.
 fn list_item(e: &mut Engine, node: u32) -> u32 {
-    let item = e.call(LIST_ITEM, &args![node]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(item)
 }
 
@@ -196,7 +200,7 @@ pub fn tes_region_data_sound_set_media_set_incidentals(
     let id = if media_set.is_null() {
         0
     } else {
-        e.call(FORM_ID, &args![media_set]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, media_set))
     };
     e.set(this, TESRegionDataSound::pMediaSetIncidentals, id);
 }
@@ -287,7 +291,7 @@ pub fn tes_region_data_sound_save(e: &mut Engine, this: Ptr<TESRegionDataSound>)
     e.call(REGION_DATA_SAVE, &args![this]);
     if e.vcall(this.addr(), SLOT_GET_MUSIC_TYPE, &[]).u32() != 0 {
         let music_type = e.vcall(this.addr(), SLOT_GET_MUSIC_TYPE, &[]).u32();
-        let id = e.call(FORM_ID, &args![music_type]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, music_type));
         e.call(ADD_WORD_CHUNK, &args![CHUNK_RDMO, id]);
     }
     let incidentals = e.get(this, TESRegionDataSound::pMediaSetIncidentals);
@@ -302,7 +306,7 @@ pub fn tes_region_data_sound_save(e: &mut Engine, this: Ptr<TESRegionDataSound>)
         while node != 0 && list_item(e, node) != 0 && written < count {
             let id = list_item(e, node);
             e.call(ADD_WORD_CHUNK, &args![CHUNK_RDSB, id]);
-            node = e.call(LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             written += 1;
         }
     }
@@ -330,7 +334,7 @@ pub fn tes_region_data_sound_save(e: &mut Engine, this: Ptr<TESRegionDataSound>)
             let value = e.mem.u32(sound.wrapping_add(4 * word));
             e.mem.set_u32(entry.wrapping_add(4 * word), value);
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         copied += 1;
     }
     swap_entries(e, array, count);
@@ -508,7 +512,11 @@ pub fn fn_004f4bd0(e: &mut Engine, this: Ptr<TESRegionDataSound>) {
         e.call(LIST_REMOVE_HEAD, &args![list]);
         e.call(DEALLOCATE, &args![sound]);
     }
-    e.call(LIST_CLEAR, &args![sound_list(this)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, sound_list(this))
+    );
 }
 
 // Translated from 004f4c40 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -633,7 +641,7 @@ pub fn tes_region_data_sound_get_media_set_battle(
                 let id = list_item(e, node);
                 e.mem.set_u32(chosen.addr(), id);
             }
-            node = e.call(LIST_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         if e.mem.u32(chosen.addr()) == 0 {
             return Ptr::NULL;

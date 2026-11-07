@@ -12,12 +12,14 @@ const FORM_TYPE: u32 = 0x0040_1170;
 /// builds on its stack.
 const WORD_CLEAR: u32 = 0x0044_dee0;
 const WORD_SET_BITS: u32 = 0x0084_1100;
+#[cfg(test)]
 const WORD_AT: u32 = 0x0055_9450;
 /// `004280f0` (`thiscall` on a flag word, one word: whether any of the bits is set).
 const ANY_BITS: u32 = 0x0042_80f0;
 /// `0084e3a0` (`thiscall`: the word at +0xC, a form's id), the data handler (`011c3f2c`)
 /// and its `00469860` (`thiscall`, one word, `this` not read: whether the id is above
 /// `0xFEFFFFFF`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 const DATA_HANDLER: u32 = 0x011c_3f2c;
 const IS_HIGH_FORM_ID: u32 = 0x0046_9860;
@@ -52,7 +54,7 @@ pub fn fn_00840f70(e: &mut Engine, this: Ptr, form: Ptr) -> bool {
         let mut high_id = false;
         match form_type.wrapping_sub(0x3a) {
             0..=6 | 0x2f => {
-                let id = e.call(FORM_ID, &args![form]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 let handler: u32 = e.global(DATA_HANDLER);
                 if e.call(IS_HIGH_FORM_ID, &args![handler, id]).bool() {
                     high_id = true;
@@ -68,7 +70,7 @@ pub fn fn_00840f70(e: &mut Engine, this: Ptr, form: Ptr) -> bool {
             0xd => copy_bits(e, this, word, 0x4000_0000),
             _ => {}
         }
-        let value = e.call(WORD_AT, &args![word]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, word));
         e.mem.set_u32(this.addr(), value);
         e.mem.u32(this.addr()) != 0 || high_id
     })

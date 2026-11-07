@@ -10,10 +10,13 @@ const CALLEE_00577BF0: u32 = 0x0057_7bf0;
 /// `hkpContactListener`'s vtable (its RTTI name).
 const CONTACT_LISTENER_VTABLE: u32 = 0x0104_dd7c;
 /// `00559450`: the first word of an object (a `NiPointer`'s object).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `006815c0`: returns its `this`.
+#[cfg(test)]
 const SELF: u32 = 0x0068_15c0;
 /// `008256d0`: whether a `BSSimpleList` node is empty (item and next 0).
+#[cfg(test)]
 const LIST_NODE_EMPTY: u32 = 0x0082_56d0;
 /// `004b59f0`, `004b5a20`, `0044ddc0`, `0056f930`
 /// (`TESObjectREFR::FindReferenceFor3D`, engine map): the steps from a
@@ -21,6 +24,7 @@ const LIST_NODE_EMPTY: u32 = 0x0082_56d0;
 /// body's object.
 const BODY_FROM_ENTITY: u32 = 0x004b_59f0;
 const BODY_NODE: u32 = 0x004b_5a20;
+#[cfg(test)]
 const NODE_OBJECT: u32 = 0x0044_ddc0;
 const FIND_REFERENCE_FOR_3D: u32 = 0x0056_f930;
 const BODY_OBJECT: u32 = 0x004b_5a80;
@@ -64,7 +68,7 @@ fn entity_reference(e: &mut Engine, entity: u32) -> (u32, u32) {
         0
     };
     let object = if node != 0 {
-        e.call(NODE_OBJECT, &args![node]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, node))
     } else {
         0
     };
@@ -97,16 +101,20 @@ pub fn fn_00623640(e: &mut Engine, this: Ptr) {
         return;
     }
     loop {
-        if e.call(LIST_NODE_EMPTY, &args![list]).u8() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list))
+            .into_ret()
+            .u8()
+            != 0
+        {
             break;
         }
-        let slot = e.call(SELF, &args![list]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let record = e.mem.u32(slot);
         e.call(0x0063_f7b0, &args![list]);
-        if e.call(FIRST_WORD, &args![record]).u32() != 0
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, record)) != 0
             && x87_load32(e.mem.u32(record.wrapping_add(4))) > e.global::<f64>(ZERO)
         {
-            let proxy = e.call(FIRST_WORD, &args![record]).u32();
+            let proxy = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, record));
             let entity = e.call(0x004a_e750, &args![proxy]).u32();
             let node = if entity != 0 {
                 e.call(BODY_NODE, &args![entity]).u32()
@@ -114,7 +122,7 @@ pub fn fn_00623640(e: &mut Engine, this: Ptr) {
                 0
             };
             let object = if node != 0 {
-                e.call(NODE_OBJECT, &args![node]).u32()
+                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, node))
             } else {
                 0
             };
@@ -124,7 +132,11 @@ pub fn fn_00623640(e: &mut Engine, this: Ptr) {
                 0
             };
             if reference != 0 {
-                let cause = e.call(FIRST_WORD, &args![record.wrapping_add(8)]).u32();
+                let cause = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, record.wrapping_add(8))
+                );
                 e.vcall(reference, 0x164, &args![cause]);
                 let amount = x87_quiet_bits(e.mem.u32(record.wrapping_add(4)));
                 if e.call(0x008c_7aa0, &[]).u8() == 0 {
@@ -134,10 +146,19 @@ pub fn fn_00623640(e: &mut Engine, this: Ptr) {
                     e.call(0x0087_af50, &args![queue, reference, amount, 0u32]);
                 }
                 if e.call(0x0047_7ba0, &args![reference]).u8() != 0
-                    && e.call(FIRST_WORD, &args![record.wrapping_add(8)]).u32() != 0
+                    && typed_call!(
+                        leaf::FAMILY,
+                        0x0055_9450,
+                        leaf::word_at_0(e, record.wrapping_add(8))
+                    ) != 0
                 {
-                    let cause = e.call(FIRST_WORD, &args![record.wrapping_add(8)]).u32();
-                    let cause_object = e.call(FIRST_WORD, &args![cause]).u32();
+                    let cause = typed_call!(
+                        leaf::FAMILY,
+                        0x0055_9450,
+                        leaf::word_at_0(e, record.wrapping_add(8))
+                    );
+                    let cause_object =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, cause));
                     let player: u32 = e.global(PLAYER);
                     if cause_object == player {
                         let damage = x87_quiet_bits(e.mem.u32(PLAYER_DAMAGE));
@@ -307,7 +328,7 @@ pub fn fo_collision_listener_contact_point_added_callback(e: &mut Engine, this: 
         }
         if play {
             let point = e.mem.u32(event.wrapping_add(0x10));
-            let point = e.call(SELF, &args![point]).u32();
+            let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
             e.call(0x0045_8620, &args![sound, point]);
             let property = e.mem.u32(event.wrapping_add(0x18));
             let level = if property != 0 {
@@ -496,8 +517,8 @@ pub fn fn_00623bd0(e: &mut Engine, this: Ptr) -> Ptr {
 /// one, and the head removed (`0063f7b0`).
 pub fn fn_00623c50(e: &mut Engine, this: Ptr) {
     let list = this.addr() + 4;
-    while !e.call(LIST_NODE_EMPTY, &args![list]).bool() {
-        let node = e.call(SELF, &args![list]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let item = e.mem.u32(node);
         if item != 0 {
             fn_00623820(e, Ptr::new(item), 1);

@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// `00559450`: answers the pointer an `NiPointer`-like holder keeps (`thiscall`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 
 // Translated from 006505d0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -15,7 +16,7 @@ pub fn fn_006505d0(e: &mut Engine, this: Ptr) -> u32 {
     if holder == 0 {
         return 0;
     }
-    e.call(POINTER_GET, &args![holder]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder))
 }
 
 // Translated from 00650600 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -26,7 +27,7 @@ pub fn fn_00650600(e: &mut Engine, this: Ptr) -> u32 {
     if holder == 0 {
         return 0;
     }
-    e.call(POINTER_GET, &args![holder]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder))
 }
 
 /// This unit's translated functions, by exe address.

@@ -203,6 +203,7 @@ const FTOL: u32 = 0x00ec_62c0;
 /// `sprintf_s`-like formatter `(buffer, size, format, ...)` and `Error(text)`
 /// (`cdecl`).
 const FORMAT: u32 = 0x0040_6d00;
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 /// Constructor of an `NiTPrimitiveArray<char const *>` `(max, grow)` and
 /// its `Add(&item)` (`thiscall`).
@@ -851,7 +852,7 @@ fn write_final_master(e: &mut Engine, header: u32, storages: u32, names: u32) ->
                     FORMAT,
                     &args![message, 0x104u32, ADDED_FORMAT, name, file_size],
                 );
-                e.call(ERROR, &args![message]);
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words message);
             });
             let storage = e.mem.u32(value);
             let file_size = e.mem.u32(storage);

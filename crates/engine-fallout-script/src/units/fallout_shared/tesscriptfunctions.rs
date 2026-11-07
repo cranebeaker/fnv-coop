@@ -176,6 +176,7 @@ pub(crate) const VECTOR_DESTRUCT: u32 = 0x00ec_5fce;
 /// Form type byte (`this + 4`, `movzx`).
 pub(crate) const FORM_TYPE: u32 = 0x0040_1170;
 /// `*(this + 0x20)`: the base form of a reference.
+#[cfg(test)]
 pub(crate) const GET_BASE_FORM: u32 = 0x007a_f430;
 /// `this + 0x44`: the extra data list of a reference.
 pub(crate) const EXTRA_DATA_LIST: u32 = 0x005d_43c0;
@@ -241,11 +242,13 @@ pub(crate) const CLEAR_ACTION: u32 = 0x0057_2db0;
 /// `TESObjectREFR::Activate` (Xbox PDB), `thiscall` (`activator, 0, 0, 1`).
 pub(crate) const ACTIVATE: u32 = 0x0057_3170;
 /// Tests form flag `0x800` (`this + 8`).
+#[cfg(test)]
 pub(crate) const FN_00440DA0: u32 = 0x0044_0da0;
 /// `thiscall` on the item list element: the actor's `+0x94` member
 /// (`item, 1`).
 pub(crate) const FN_008248E0: u32 = 0x0082_48e0;
 /// `MiddleHighProcess::GetSavedAcquireObject` (Xbox PDB), `thiscall`.
+#[cfg(test)]
 pub(crate) const MIDDLE_HIGH_PROCESS_SAVED_ACQUIRE: u32 = 0x008d_8520;
 /// Interface message with icon (`cdecl`: `text, 0, icon path, sound, float,
 /// 0`).
@@ -287,11 +290,14 @@ pub(crate) const IS_DEMIGOD_MODE: u32 = 0x0095_26f0;
 
 // Linked list nodes: item at +0, next node at +4 (`BSSimpleList`).
 /// `true` when the node has neither an item nor a next node.
+#[cfg(test)]
 pub(crate) const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// Returns `this`: the address of the node's item.
+#[cfg(test)]
 pub(crate) const LIST_ITEM_PTR: u32 = 0x0068_15c0;
 /// `*(this + 4)`: the next node (the same code reads the reference count of
 /// an `NiRefObject`, whose field is also at +4).
+#[cfg(test)]
 pub(crate) const LIST_NEXT: u32 = 0x0072_6070;
 /// Pulls the next node's content into the head and frees that node.
 pub(crate) const LIST_POP_FRONT: u32 = 0x0063_f7b0;
@@ -321,6 +327,7 @@ pub(crate) const BS_STRING_APPEND: u32 = 0x0040_4820;
 /// `*(this + 4)` of a string global: its text.
 pub(crate) const BS_STRING_TEXT: u32 = 0x0040_3df0;
 /// `NiPointer::operator T*` and `BSStringT::c_str`: `*this`.
+#[cfg(test)]
 pub(crate) const NI_POINTER_GET: u32 = 0x0055_9450;
 
 // Memory statistics.
@@ -676,6 +683,7 @@ pub(crate) const FN_005E0200: u32 = 0x005e_0200;
 /// `Sky::GetInstance` (Xbox PDB), `cdecl`.
 pub(crate) const SKY_GET_INSTANCE: u32 = 0x0046_dd00;
 /// `*(sky + 0x0c)`: `pCurrentClimate` (Xbox PDB, same on PC).
+#[cfg(test)]
 pub(crate) const SKY_GET_CURRENT_CLIMATE: u32 = 0x0084_e3a0;
 /// `*(sky + 0x10)`: `pCurrentWeather` (Xbox PDB, same on PC); the engine map
 /// names it `BaseProcess::GetCurrentProcedureIndex` (identical code).
@@ -736,6 +744,7 @@ pub(crate) const VECTOR_CONSTRUCT_SIMPLE: u32 = 0x0040_1050;
 /// [`LIST_ITEM_PTR`]).
 pub(crate) const TRIVIAL_CONSTRUCT: u32 = 0x0068_15c0;
 /// `NiPoint3::NiPoint3` (`x, y, z`), `thiscall`, returns `this`.
+#[cfg(test)]
 pub(crate) const NI_POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// `NiColorA::NiColorA` (`r, g, b, a`), `thiscall`, returns `this`.
 pub(crate) const NI_COLOR_A_CONSTRUCT: u32 = 0x0041_4430;
@@ -783,6 +792,7 @@ pub(crate) const NI_POINTER_INIT: u32 = 0x0063_3c90;
 pub(crate) const MAKE_TRIANGLE: u32 = 0x004b_3570;
 /// Address of element `index` (`base + index * 4`) of the array at `this`,
 /// `thiscall` (`index`).
+#[cfg(test)]
 pub(crate) const ARRAY_ELEMENT_ADDRESS: u32 = 0x0087_7a30;
 /// `thiscall` on an array (`index, &value`): stores the element.
 pub(crate) const ARRAY_SET_ELEMENT: u32 = 0x0096_ae90;
@@ -966,6 +976,7 @@ pub(crate) const MSG_MENUS: u32 = 0x0103_9ab8;
 /// The `pSky` member of the `TES` (`TES::pSky`, Xbox PDB, `+0x68`, the same on
 /// PC): `*(this + 0x68)`. The engine map names this body
 /// `MiddleHighProcess::GetSavedAcquireObject` (identical code).
+#[cfg(test)]
 pub(crate) const TES_GET_SKY: u32 = 0x008d_8520;
 /// `Sky::SetMode` (Xbox PDB), `thiscall` on the sky (`mode`).
 pub(crate) const SKY_SET_MODE: u32 = 0x0063_a3f0;
@@ -1135,12 +1146,12 @@ pub(crate) fn console_print(e: &mut Engine, words: &[u32]) {
 
 /// The item of a list node (`*LIST_ITEM_PTR(node)`).
 pub(crate) fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(LIST_ITEM_PTR, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 pub(crate) fn list_is_empty(e: &mut Engine, node: u32) -> bool {
-    e.call(LIST_IS_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 pub(crate) fn form_type(e: &mut Engine, form: u32) -> u32 {
@@ -1148,7 +1159,7 @@ pub(crate) fn form_type(e: &mut Engine, form: u32) -> u32 {
 }
 
 pub(crate) fn ni_pointer_get(e: &mut Engine, slot: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 pub(crate) fn player(e: &Engine) -> u32 {
@@ -1180,7 +1191,11 @@ pub(crate) fn float_from_int(value: i32) -> f32 {
 /// own and returns its three words.
 pub(crate) fn make_point(e: &mut Engine, x: f32, y: f32, z: f32) -> [u32; 3] {
     e.with_stack(12, |e, block| {
-        let point = e.call(NI_POINT3_CONSTRUCT, &args![block, x, y, z]).u32();
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, block, x, y, z)
+        );
         [e.mem.u32(point), e.mem.u32(point + 4), e.mem.u32(point + 8)]
     })
 }
@@ -1251,7 +1266,11 @@ pub(crate) fn with_point<R>(
     f: impl FnOnce(&mut Engine, u32) -> R,
 ) -> R {
     e.with_stack(12, |e, block| {
-        e.call(NI_POINT3_CONSTRUCT, &args![block, x, y, z]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, block, x, y, z)
+        );
         f(e, block.addr())
     })
 }
@@ -1339,7 +1358,7 @@ pub fn fn_005b4be0(e: &mut Engine, a: ScriptArgs) -> bool {
             let mut node = e.call(FORM_LIST_ITEMS, &args![form_list]).u32();
             while node != 0 && !list_is_empty(e, node) {
                 let element = node_item(e, node);
-                node = e.call(LIST_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 if e.vcall(element, 0xe4, &args![]).bool() {
                     e.call(FN_004818E0, &args![container, element, count, 0u32]);
                 }
@@ -1363,7 +1382,7 @@ pub fn fn_005b4be0(e: &mut Engine, a: ScriptArgs) -> bool {
             && e.vcall(a.this_obj.addr(), 0x218, &args![]).bool()
         {
             let extra = e.vcall(a.this_obj.addr(), 0x1e8, &args![]).u32();
-            let base = e.call(GET_BASE_FORM, &args![a.this_obj]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, a.this_obj));
             e.call(FN_00606540, &args![base, a.this_obj, extra, 1u32]);
         }
         e.call(TES_CONTAINER_DESTRUCT, &args![container]);
@@ -1410,7 +1429,7 @@ pub fn fn_005b4e90(e: &mut Engine, a: ScriptArgs) -> bool {
             let mut node = e.call(FORM_LIST_ITEMS, &args![form]).u32();
             while node != 0 && !list_is_empty(e, node) {
                 let element = node_item(e, node);
-                node = e.call(LIST_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 if e.vcall(element, 0xe4, &args![]).bool() {
                     list_append(e, list, element);
                 }
@@ -1474,13 +1493,10 @@ pub fn fn_005b4e90(e: &mut Engine, a: ScriptArgs) -> bool {
                 }
                 e.call(FN_00704AF0, &args![]);
             } else if wearable {
-                let process = e
-                    .call(MIDDLE_HIGH_PROCESS_SAVED_ACQUIRE, &args![actor])
-                    .u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 if process != 0 && e.vcall(actor, 0x1d0, &args![]).u32() != 0 {
-                    let process = e
-                        .call(MIDDLE_HIGH_PROCESS_SAVED_ACQUIRE, &args![actor])
-                        .u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     e.vcall(process, 0xc4, &args![actor, 0u32]);
                 }
             }
@@ -1565,18 +1581,18 @@ pub fn fn_005b53d0(e: &mut Engine, a: ScriptArgs) -> bool {
         .u32();
     let mut worn = 0u32;
     if actor != 0 {
-        let base = e.call(GET_BASE_FORM, &args![a.this_obj]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, a.this_obj));
         if e.call(FN_00575400, &args![actor, base]).bool() {
             let changes = e
                 .call(GET_INVENTORY_CHANGES, &args![a.containing_obj])
                 .u32();
             if changes != 0 {
-                let base = e.call(GET_BASE_FORM, &args![a.this_obj]).u32();
+                let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, a.this_obj));
                 worn = e.call(WEARING_OBJECT, &args![changes, base, 0u32]).u32();
             }
         }
     }
-    let base = e.call(GET_BASE_FORM, &args![a.this_obj]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, a.this_obj));
     e.vcall(
         a.containing_obj.addr(),
         0x17c,
@@ -1697,7 +1713,7 @@ pub fn fn_005b5760(e: &mut Engine, a: ScriptArgs) -> bool {
     };
     let form = if form == 0 {
         let player = player(e);
-        e.call(GET_BASE_FORM, &args![player]).u32()
+        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player))
     } else {
         form
     };
@@ -1715,7 +1731,7 @@ pub fn fn_005b57e0(e: &mut Engine, a: ScriptArgs) -> bool {
     };
     let form = if form == 0 {
         let player = player(e);
-        e.call(GET_BASE_FORM, &args![player]).u32()
+        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player))
     } else {
         form
     };
@@ -1736,7 +1752,7 @@ pub fn fn_005b5860(e: &mut Engine, a: ScriptArgs) -> bool {
     if a.this_obj.is_null() || a.containing_obj.is_null() {
         return true;
     }
-    let base = e.call(GET_BASE_FORM, &args![a.this_obj]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, a.this_obj));
     e.vcall(
         a.containing_obj.addr(),
         0x17c,
@@ -1822,7 +1838,7 @@ pub fn script_activate_function(e: &mut Engine, a: ScriptArgs) -> bool {
     } else {
         target
     };
-    if target != 0 && !e.call(FN_00440DA0, &args![target]).bool() {
+    if target != 0 && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, target)) {
         if direct == 0 {
             let had_action = e.call(HAS_ACTION, &args![a.this_obj, 1u32]).bool();
             if !had_action {
@@ -1880,7 +1896,7 @@ pub fn script_player_spell_book(e: &mut Engine) -> bool {
                 }
             }
         }
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     console_print(e, &args![MSG_SPELLS_ADDED, added]);
     true
@@ -2179,7 +2195,8 @@ pub fn script_output_mem_stats(e: &mut Engine, a: ScriptArgs) -> bool {
         let for_height = ni_pointer_get(e, slot);
         let for_width = ni_pointer_get(e, slot);
         let texture = ni_pointer_get(e, slot);
-        let references = e.call(LIST_NEXT, &args![texture]).u32().wrapping_sub(1);
+        let references =
+            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, texture)).wrapping_sub(1);
         let height = e.vcall(for_height, 0x98, &args![]).u32();
         let width = e.vcall(for_width, 0x94, &args![]).u32();
         e.call(
@@ -2400,7 +2417,7 @@ pub fn script_toggle_map_markers_function(e: &mut Engine, a: ScriptArgs) -> bool
     let mut world_node = e.call(DATA_HANDLER_WORLD_SPACES, &args![handler]).u32();
     while world_node != 0 && !list_is_empty(e, world_node) {
         let world = node_item(e, world_node);
-        world_node = e.call(LIST_NEXT, &args![world_node]).u32();
+        world_node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, world_node));
         let markers = e.call(BUILD_MAP_MARKER_LIST, &args![world, 0u32]).u32();
         if markers == 0 {
             continue;
@@ -2696,7 +2713,7 @@ fn reload_form_from_file(e: &mut Engine, form: u32) -> bool {
 /// (`Sky::SetCurrentClimate(climate, 1)`).
 pub fn script_reload_current_climate(e: &mut Engine) -> bool {
     let sky = e.call(SKY_GET_INSTANCE, &args![]).u32();
-    let climate = e.call(SKY_GET_CURRENT_CLIMATE, &args![sky]).u32();
+    let climate = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sky));
     if reload_form_from_file(e, climate) {
         let sky = e.call(SKY_GET_INSTANCE, &args![]).u32();
         e.call(SKY_SET_CURRENT_CLIMATE, &args![sky, climate, 1u32]);
@@ -2966,7 +2983,7 @@ pub fn script_test_local_map(e: &mut Engine, a: ScriptArgs) -> bool {
 
     // The player marker.
     let marker_centre = e.mem.alloc(12);
-    e.call(TRIVIAL_CONSTRUCT, &args![marker_centre]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, marker_centre));
     let source = e.vcall(player, PLAYER_POSITION_SLOT, &args![]).u32();
     let player_position = e.mem.alloc(12);
     for i in 0..3 {
@@ -2975,7 +2992,7 @@ pub fn script_test_local_map(e: &mut Engine, a: ScriptArgs) -> bool {
     }
     if e.call(REFR_GET_INTERIOR, &args![player]).bool() {
         let adjusted = e.mem.alloc(12);
-        e.call(TRIVIAL_CONSTRUCT, &args![adjusted]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, adjusted));
         let source = e.vcall(player, PLAYER_POSITION_SLOT, &args![]).u32();
         let cell = e.call(REFR_GET_PARENT_CELL, &args![player]).u32();
         e.call(
@@ -3215,9 +3232,10 @@ fn local_map_tile(e: &mut Engine, frame: &LocalMapFrame, index: i32) {
                 let sample_x = (f64::from(column) * f64::from(frame.scale)) as f32;
                 let sample_y = (f64::from(row) * f64::from(frame.scale)) as f32;
                 let seen = e.with_stack(12, |e, sample| {
-                    e.call(
-                        NI_POINT3_CONSTRUCT,
-                        &args![sample, sample_x, sample_y, 0.0f32],
+                    typed_call!(
+                        leaf::FAMILY,
+                        0x0041_6870,
+                        leaf::point3_new(e, sample, sample_x, sample_y, 0.0f32)
                     );
                     e.call(POINT3_ADD_ASSIGN, &args![sample, origin]);
                     e.call(CELL_GET_SEEN_VALUE, &args![sample]).i32()
@@ -3312,14 +3330,14 @@ fn local_map_tile(e: &mut Engine, frame: &LocalMapFrame, index: i32) {
     e.call(NODE_SET_LOCAL_TRANSLATE_XYZ, &args![shape, x, y, 0.0f32]);
 
     // The texture, as the base map of a new texturing property.
-    if e.call(NI_POINTER_GET, &args![texture_slot]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture_slot)) != 0 {
         let block = e.call(NI_ALLOC, &args![0x30u32]).u32();
         let property = if block == 0 {
             0
         } else {
             e.call(NI_TEXTURING_PROPERTY_CONSTRUCT, &args![block]).u32()
         };
-        let texture = e.call(NI_POINTER_GET, &args![texture_slot]).u32();
+        let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture_slot));
         fn_005b8fc0(e, Ptr::new(property), texture);
         e.call(
             NI_TEXTURING_PROPERTY_SET_BASE_CLAMP_MODE,
@@ -3342,7 +3360,11 @@ fn local_map_tile(e: &mut Engine, frame: &LocalMapFrame, index: i32) {
 /// at `004f3200`.)
 pub fn fn_005b8fc0(e: &mut Engine, this: Ptr, texture: u32) {
     let list = this.addr() + 0x1c;
-    let slot = e.call(ARRAY_ELEMENT_ADDRESS, &args![list, 0u32]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, list, 0u32)
+    );
     let existing = e.mem.u32(slot);
     let cell = e.mem.alloc(4);
     e.mem.set_u32(cell, existing);
@@ -3624,7 +3646,7 @@ pub(crate) fn on_off(flag: bool) -> u32 {
 /// `Sky::SetMode(mode)` on the sky of the `TES` (`TES::pSky`).
 fn set_sky_mode(e: &mut Engine, mode: u32) {
     let tes = e.global::<u32>(GLOBAL_0011DEA10);
-    let sky = e.call(TES_GET_SKY, &args![tes]).u32();
+    let sky = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes));
     e.call(SKY_SET_MODE, &args![sky, mode]);
 }
 
@@ -4302,10 +4324,12 @@ pub(crate) const SCENE_GRAPH_CALLBACK: u32 = 0x004d_78c0;
 /// Global stored by [`fn_005bac80`].
 pub(crate) const SCENE_GRAPH_CALLBACK_GLOBAL: u32 = 0x011c_6f18;
 /// `thiscall` on the singleton in [`GLOBAL_0011DEA0C`]: `*(this + 8)`.
+#[cfg(test)]
 pub(crate) const FN_0044DDC0: u32 = 0x0044_ddc0;
 /// `thiscall` on the singleton in [`GLOBAL_0011DEA0C`]: `*(this + 0x0c)` (the
 /// engine map and [`SKY_GET_CURRENT_CLIMATE`] name this body for a `Sky`; the
 /// code is the same).
+#[cfg(test)]
 pub(crate) const FN_0084E3A0: u32 = 0x0084_e3a0;
 /// `thiscall` constructor of a scene graph window object (0x30 bytes, `RET
 /// 0x20`): (`value +0 of the window`, `value +4`, `root object`, `title`,
@@ -4349,6 +4373,7 @@ pub(crate) const NODE_CHILD_AT: u32 = 0x0043_b4a0;
 pub(crate) const STRING_COLLECTOR_COUNT: u32 = 0x0065_8930;
 /// `thiscall` on a string collector (`index`): the address of the string
 /// pointer at `index` (`*(this + 4) + index * 4`).
+#[cfg(test)]
 pub(crate) const STRING_COLLECTOR_STRING_ADDRESS: u32 = 0x0087_7a30;
 /// `thiscall` on a string collector: clears its entries and its counts
 /// (`005e03d0`, a function of this unit outside this range).
@@ -4527,9 +4552,9 @@ fn new_scene_graph_window(e: &mut Engine, inputs: impl FnOnce(&mut Engine) -> (u
     }
     let (title, root) = inputs(e);
     let singleton = e.global::<u32>(GLOBAL_0011DEA0C);
-    let field_8 = e.call(FN_0044DDC0, &args![singleton]).u32();
+    let field_8 = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, singleton));
     let singleton = e.global::<u32>(GLOBAL_0011DEA0C);
-    let field_c = e.call(FN_0084E3A0, &args![singleton]).u32();
+    let field_c = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, singleton));
     e.call(
         SCENE_GRAPH_WINDOW_CONSTRUCT,
         &args![
@@ -4722,9 +4747,11 @@ pub fn fn_005bac90(e: &mut Engine, a: ScriptArgs) -> bool {
 fn print_collected_strings(e: &mut Engine, collector: u32) {
     let mut index = 0u32;
     while index < e.call(STRING_COLLECTOR_COUNT, &args![collector]).u32() {
-        let slot = e
-            .call(STRING_COLLECTOR_STRING_ADDRESS, &args![collector, index])
-            .u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, collector, index)
+        );
         let text = e.mem.u32(slot);
         console_print(e, &args![text]);
         index += 1;
@@ -5312,7 +5339,7 @@ pub fn fn_005bb9e0(e: &mut Engine, a: ScriptArgs) -> bool {
             e.with_stack(36, |e, matrix| {
                 copy_matrix(e, source, matrix.addr());
                 e.with_stack(36, |e, rotation| {
-                    e.call(TRIVIAL_CONSTRUCT, &args![rotation]);
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, rotation));
                     let angle = e.global::<f32>(FLOAT_HALF_PI);
                     e.call(NI_MATRIX_FROM_Z_ANGLE, &args![rotation, angle]);
                     e.with_stack(36, |e, product| {
@@ -5331,7 +5358,7 @@ pub fn fn_005bb9e0(e: &mut Engine, a: ScriptArgs) -> bool {
                 };
                 e.with_stack(4, |e, held| {
                     e.call(NI_POINTER_INIT, &args![held, created]);
-                    let object = e.call(NI_POINTER_GET, &args![held]).u32();
+                    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, held));
                     let owner = e.call(FN_00450B80, &args![0u32]).u32();
                     let list = e.call(FN_00454B30, &args![owner]).u32();
                     e.call(FN_00C5AE70, &args![list, object]);
@@ -5640,6 +5667,7 @@ const N045_PLACE_REFERENCE: u32 = 0x0046_98a0;
 /// `TESObjectREFR::FindReferenceFor3D` (`0056f930`, `cdecl`), `0084e3a0` (the form id) and
 /// `Script::PutNumericIDInDouble` (`005acc70`, `cdecl`).
 const N045_REFERENCE_POINT: u32 = 0x0043_0830;
+#[cfg(test)]
 const N045_SET_POINT: u32 = 0x0041_6870;
 const N045_SET_MULTI_LAYER_COLLISION: u32 = 0x00c8_2870;
 const N045_PICK_DATA_CONSTRUCT: u32 = 0x004a_3c20;
@@ -5653,6 +5681,7 @@ const N045_PICK_SET_END: u32 = 0x004a_3eb0;
 const N045_TES_PICK: u32 = 0x0045_8420;
 const N045_PICK_RESULT_OBJECT: u32 = 0x005c_53f0;
 const N045_RESULT_TEST: u32 = 0x0056_09f0;
+#[cfg(test)]
 const N045_FIRST_WORD: u32 = 0x0055_9450;
 const N045_OBJECT_OF: u32 = 0x004a_3a40;
 const N045_OBJECT_TEST: u32 = 0x005d_be40;
@@ -5661,6 +5690,7 @@ const N045_OBJECT_KIND: u32 = 0x0043_b230;
 const N045_INDEX_LIST_AT: u32 = 0x005e_05b0;
 const N045_INDEX_LIST_DESTRUCT: u32 = 0x005e_0600;
 const N045_LAYER_TEST: u32 = 0x00c8_4f50;
+#[cfg(test)]
 const N045_SELF: u32 = 0x0068_15c0;
 const N045_PATHING_LOCATION: u32 = 0x006d_cd70;
 const N045_NAVMESH_NORMAL: u32 = 0x006d_9100;
@@ -5692,6 +5722,7 @@ const N045_PICK_HIT: u32 = 0x0045_1110;
 const N045_FADE_IN: u32 = 0x008b_cd20;
 const N045_SET_SCALE_LIKE: u32 = 0x0056_8bd0;
 const N045_FIND_REFERENCE_FOR_3D: u32 = 0x0056_f930;
+#[cfg(test)]
 const N045_FORM_ID: u32 = 0x0084_e3a0;
 const N045_PUT_NUMERIC_ID_IN_DOUBLE: u32 = 0x005a_cc70;
 /// The constants the bodies read: two doubles added to and taken from a height (`0102f070`,
@@ -5746,7 +5777,11 @@ pub fn fn_005db870(e: &mut Engine, args: ScriptArgs) -> bool {
         copy_point(e, at(0x28), position);
         let location = e.call(N045_REFERENCE_POINT, &args![this]).u32();
         let height = x87_quiet_bits(e.mem.u32(location + 8));
-        e.call(N045_SET_POINT, &args![at(0x34), 0u32, 0u32, height]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, at(0x34), 0u32, 0u32, height)
+        );
         e.mem.set_u8(at(0x35), 0);
         e.mem.set_u32(at(0x3c), 0x0802_2802);
         let layers = e.mem.u32(at(0x3c));
@@ -5783,7 +5818,7 @@ pub fn fn_005db870(e: &mut Engine, args: ScriptArgs) -> bool {
         if e.call(N045_RESULT_TEST, &args![result]).bool() {
             e.mem.set_u8(at(0x10e), 0);
             let holder = e.mem.u32(at(0x70));
-            let first = e.call(N045_FIRST_WORD, &args![holder]).u32();
+            let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
             e.mem.set_u32(at(0x114), first);
             let object = e.call(N045_OBJECT_OF, &args![first]).u32();
             e.mem.set_u32(at(0x118), object);
@@ -5792,7 +5827,7 @@ pub fn fn_005db870(e: &mut Engine, args: ScriptArgs) -> bool {
             if e.mem.u8(at(0x10e)) == 0 {
                 walk_hit_layers(e, ebp);
             }
-            e.call(N045_SELF, &args![at(0x144)]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x144)));
             if e.mem.u8(at(0x10e)) != 0 {
                 e.call(N045_PATHING_LOCATION, &args![at(0x16c), this]);
                 e.call(N045_NAVMESH_NORMAL, &args![at(0x16c), at(0x144)]);
@@ -5918,7 +5953,11 @@ fn pick_from_player(e: &mut Engine, ebp: u32) -> u32 {
     e.mem.set_u32(at(0x14), x87_store32(turned));
     e.call(N045_PICK_DATA_CONSTRUCT, &args![at(0xd0)]);
     let angle = x87_quiet_bits(e.mem.u32(at(0x14)));
-    e.call(N045_SET_POINT, &args![at(0xdc), 0u32, angle, 0u32]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, at(0xdc), 0u32, angle, 0u32)
+    );
     let player = e.global::<u32>(N045_PLAYER);
     let position = e.vcall(player, 0x1f4, &[]).u32();
     copy_point(e, at(0xe8), position);
@@ -5930,8 +5969,8 @@ fn pick_from_player(e: &mut Engine, ebp: u32) -> u32 {
         let word = e.mem.u32(matrix + 4 * i);
         e.mem.set_u32(at(0x110) + 4 * i, word);
     }
-    e.call(N045_SELF, &args![at(0x134)]);
-    e.call(N045_SELF, &args![at(0x140)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x134)));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x140)));
     for row in 0..3u32 {
         e.call(
             N045_MATRIX_GET_ROW,
@@ -5997,7 +6036,7 @@ pub fn fn_005df040(e: &mut Engine, args: ScriptArgs) -> bool {
             return false;
         }
         pick_from_player(e, ebp);
-        e.call(N045_SELF, &args![at(0x174)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x174)));
         e.call(N045_PICK_POINT, &args![at(0xd0), at(0x174)]);
         let player = e.global::<u32>(N045_PLAYER);
         let position = e.vcall(player, 0x1f4, &[]).u32();
@@ -6092,7 +6131,7 @@ pub fn fn_005df5d0(e: &mut Engine, args: ScriptArgs) -> bool {
         e.mem.set_u32(at(0x16c), reference);
         e.mem.set_u32(at(0x170), reference);
         if reference != 0 {
-            let id = e.call(N045_FORM_ID, &args![reference]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             e.mem.set_u32(at(0x174), id);
             e.call(
                 N045_PUT_NUMERIC_ID_IN_DOUBLE,

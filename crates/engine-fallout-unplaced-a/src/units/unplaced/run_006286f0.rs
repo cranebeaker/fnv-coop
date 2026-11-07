@@ -29,6 +29,7 @@ const STORE_BYTE: u32 = 0x0062_2570;
 /// `00437c10` (thiscall): the box constructor (two vector constructors).
 const BOX_CONSTRUCT: u32 = 0x0043_7c10;
 /// `006815c0` (thiscall): the vector constructor (returns `this`).
+#[cfg(test)]
 const VECTOR_CONSTRUCT: u32 = 0x0068_15c0;
 /// `004589c0` (thiscall, float): sets all four lanes to the float.
 const VECTOR_SPLAT: u32 = 0x0045_89c0;
@@ -47,6 +48,7 @@ const LOWEST_FLOAT: u32 = 0x0104_e148;
 /// The float `004589c0` sets the minimum to before the loop (`0104da48`).
 const HIGHEST_FLOAT: u32 = 0x0104_da48;
 /// `00726070` (thiscall): the word at +4 (an array's count).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0072_6070;
 /// `00629ab0` (thiscall, index): the address of element `index` (data at
 /// +0, four bytes each).
@@ -54,6 +56,7 @@ const ARRAY_ELEMENT: u32 = 0x0062_9ab0;
 /// `00460140` (thiscall): `this + 0x10`.
 const PLUS_10: u32 = 0x0046_0140;
 /// `00559450` (thiscall): the word at +0.
+#[cfg(test)]
 const WORD_AT_0: u32 = 0x0055_9450;
 /// `006286d0` (thiscall): the word at +0x58 (engine map name
 /// `LowProcess::GetNumberOfItemsActivated`, a folded body).
@@ -237,11 +240,15 @@ pub fn fn_00628df0(e: &mut Engine, this: Ptr, bounds: Ptr, objects: Ptr, owner: 
         let type_word = locals.byte_add(BOX_SIZE);
         e.call(BOX_CONSTRUCT, &args![object_box]);
         let mut index = 0i32;
-        while index < e.call(ARRAY_COUNT, &args![objects]).i32() {
+        while index
+            < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, objects))
+                .into_ret()
+                .i32()
+        {
             let element = e.call(ARRAY_ELEMENT, &args![objects, index]).u32();
             let item = e.mem.u32(element);
             let object = e.call(PLUS_10, &args![item]).u32();
-            if e.call(WORD_AT_0, &args![object]).u32() != 0
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object)) != 0
                 && !object_inside(e, bounds, object, owner, object_box)
             {
                 let word = e.call(OBJECT_TYPE_WORD, &args![object]).u32();
@@ -278,7 +285,11 @@ pub fn fn_00628980(e: &mut Engine, this: Ptr, bounds: Ptr, groups: Ptr) {
         e.call(BOX_CONSTRUCT, &args![object_box]);
         e.call(LIST_CONSTRUCT, &args![gathered]);
         let mut group = 0i32;
-        while group < e.call(ARRAY_COUNT, &args![groups]).i32() {
+        while group
+            < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, groups))
+                .into_ret()
+                .i32()
+        {
             let element = e.call(ARRAY_ELEMENT, &args![groups, group]).u32();
             let item = e.mem.u32(element);
             let actor = e.call(ELEMENT_ACTOR, &args![item]).u32();
@@ -286,11 +297,15 @@ pub fn fn_00628980(e: &mut Engine, this: Ptr, bounds: Ptr, groups: Ptr) {
             let item = e.mem.u32(element);
             let inner = e.call(ELEMENT_INNER_ARRAY, &args![item]).u32();
             let mut index = 0i32;
-            while index < e.call(ARRAY_COUNT, &args![inner]).i32() {
+            while index
+                < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, inner))
+                    .into_ret()
+                    .i32()
+            {
                 let element = e.call(ARRAY_ELEMENT, &args![inner, index]).u32();
                 let item = e.mem.u32(element);
                 let object = e.call(PLUS_10, &args![item]).u32();
-                if e.call(WORD_AT_0, &args![object]).u32() != 0
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object)) != 0
                     && !object_inside(e, bounds, object, actor, object_box)
                 {
                     let reference = e.call(OBJECT_REFERENCE, &args![object]).u32();
@@ -309,7 +324,11 @@ pub fn fn_00628980(e: &mut Engine, this: Ptr, bounds: Ptr, groups: Ptr) {
         }
         e.call(LIST_CONSTRUCT, &args![done]);
         let mut index = 0i32;
-        while index < e.call(ARRAY_COUNT, &args![gathered]).i32() {
+        while index
+            < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, gathered))
+                .into_ret()
+                .i32()
+        {
             let element = e.call(ARRAY_ELEMENT, &args![gathered, index]).u32();
             let found = e
                 .call(LIST_FIND, &args![done, element, 0u32, 0xffff_ffffu32])
@@ -321,7 +340,11 @@ pub fn fn_00628980(e: &mut Engine, this: Ptr, bounds: Ptr, groups: Ptr) {
                 e.call(LIST_CONSTRUCT, &args![for_key]);
                 e.call(COLLECT_FOR_KEY, &args![this, key, for_key]);
                 let mut added = 0i32;
-                while added < e.call(ARRAY_COUNT, &args![for_key]).i32() {
+                while added
+                    < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, for_key))
+                        .into_ret()
+                        .i32()
+                {
                     let element = e.call(ARRAY_ELEMENT, &args![for_key, added]).u32();
                     e.call(LIST_APPEND, &args![done, element]);
                     added += 1;
@@ -352,15 +375,19 @@ pub fn fn_006286f0(e: &mut Engine, this: Ptr) {
         let min = locals.byte_add(0x30);
         let object_box = locals.byte_add(0x40);
         e.call(BOX_CONSTRUCT, &args![bounds]);
-        e.call(VECTOR_CONSTRUCT, &args![min]);
-        e.call(VECTOR_CONSTRUCT, &args![max]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, min));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, max));
         let lowest = x87_quiet_bits(e.global::<u32>(LOWEST_FLOAT));
         e.call(VECTOR_SPLAT, &args![max, lowest]);
         let highest = x87_quiet_bits(e.global::<u32>(HIGHEST_FLOAT));
         e.call(VECTOR_SPLAT, &args![min, highest]);
         for index in 0..6u32 {
             e.call(BOX_CONSTRUCT, &args![object_box]);
-            let object = e.call(WORD_AT_0, &args![t + index * 4 + 8]).u32();
+            let object = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, t + index * 4 + 8)
+            );
             fn_006288c0(e, Ptr::new(object), object_box);
             e.call(VECTOR_MAX, &args![max, max, object_box.byte_add(0x10)]);
             e.call(VECTOR_MIN, &args![min, min, object_box]);
@@ -418,6 +445,7 @@ const POINT_OPERATION_00439E90: u32 = 0x0043_9e90;
 const REFERENCE_ENTITY: u32 = 0x0062_0b80;
 const ENTITY_COUNT: u32 = 0x00c9_c380;
 const ENTITY_AT: u32 = 0x00c9_c390;
+#[cfg(test)]
 const ENTITY_OBJECT: u32 = 0x0084_e3a0;
 const ENTITY_COLLECT: u32 = 0x00c8_09e0;
 const BOX_RESET: u32 = 0x0062_95a0;
@@ -474,7 +502,7 @@ pub fn fn_00628f90(e: &mut Engine, this: Ptr, reference: u32, out: u32) {
         let at = |n: u32| frame.addr() + 0x250 - n;
         let model = e.call(REFERENCE_MODEL_WORD, &args![reference]).u32();
         let collidable = e.call(FIND_COLLIDABLE_REF, &args![model]).u32();
-        e.call(VECTOR_CONSTRUCT, &args![at(0x28)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(0x28)));
         e.call(LOCAL_48_CONSTRUCT, &args![at(0x70)]);
         e.vcall(reference, 0xf4, &args![at(0x70)]);
         e.call(LOCAL_34_CONSTRUCT, &args![at(0xa4)]);
@@ -492,7 +520,7 @@ pub fn fn_00628f90(e: &mut Engine, this: Ptr, reference: u32, out: u32) {
         let mut index = 0u32;
         while (index as i32) < e.call(ENTITY_COUNT, &args![entity]).i32() && !found {
             let item = e.call(ENTITY_AT, &args![entity, index]).u32();
-            let object = e.call(ENTITY_OBJECT, &args![item]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
             let kind = e.vcall(object, 0x20, &args![]).u32();
             found = kind != KIND_NOT_FOUND;
             index = index.wrapping_add(1);
@@ -506,7 +534,11 @@ pub fn fn_00628f90(e: &mut Engine, this: Ptr, reference: u32, out: u32) {
             e.call(BOX_RESET, &args![bounds]);
             let data = e.vcall(reference, 0x94, &args![]).u32();
             let mut item = 0u32;
-            while (item as i32) < e.call(ARRAY_COUNT, &args![items]).i32() {
+            while (item as i32)
+                < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, items))
+                    .into_ret()
+                    .i32()
+            {
                 e.call(BOX_CONSTRUCT, &args![at(0x120)]);
                 let filler = e.call(WORD_AT_58, &args![data]).u32();
                 let element = e.call(ARRAY_ELEMENT, &args![items, item]).u32();
@@ -531,9 +563,13 @@ pub fn fn_00628f90(e: &mut Engine, this: Ptr, reference: u32, out: u32) {
             let raised = x87_add(height, x87_m32(e.mem.u32(offset_z)));
             e.mem.set_u32(offset_z, x87_store32(raised));
             let mut item = 0u32;
-            while (item as i32) < e.call(ARRAY_COUNT, &args![items]).i32() {
+            while (item as i32)
+                < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, items))
+                    .into_ret()
+                    .i32()
+            {
                 let position = at(0x138);
-                e.call(VECTOR_CONSTRUCT, &args![position]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
                 e.call(LOCAL_48_CONSTRUCT, &args![at(0x180)]);
                 e.vcall(reference, 0xf4, &args![at(0x180)]);
                 e.call(LOCAL_34_CONSTRUCT, &args![at(0x1b4)]);
@@ -573,7 +609,7 @@ pub fn fn_00628f90(e: &mut Engine, this: Ptr, reference: u32, out: u32) {
                 let word = e
                     .call(WORD_GETTER_00931ED0, &args![collidable, at(0x1f8)])
                     .u32();
-                let value = e.call(WORD_AT_0, &args![word]).u32();
+                let value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, word));
                 let answer = e.vcall(collidable, 0x1d0, &args![]).u32();
                 let target = e.mem.u32(collidable + 0xb0);
                 e.call(COLLIDABLE_UPDATE, &args![target, answer, value]);

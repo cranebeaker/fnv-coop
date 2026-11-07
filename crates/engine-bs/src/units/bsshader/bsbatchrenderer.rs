@@ -889,6 +889,7 @@ pub fn bs_batch_renderer_render_pass_immediately_standard(
 }
 
 /// `NiAVObject::GetWorldBound` (engine map; thiscall).
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 /// The renderer holder's draw call `00e6d310` (thiscall, three words).
 const HOLDER_DRAW_00E6D310: u32 = 0x00e6_d310;
@@ -938,7 +939,7 @@ pub fn bs_batch_renderer_render_pass_immediately_skinned(
         if flags == 0 || e.mem.u8(flags + index * 4) != 0 {
             let mut partition = partitions.wrapping_add(index.wrapping_mul(0x2c));
             let word = e.mem.u32(partition + 0x28);
-            let bound = e.call(GET_WORLD_BOUND, &[geometry]).u32();
+            let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, geometry));
             e.vcall(
                 shader,
                 0x64,

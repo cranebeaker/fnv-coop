@@ -44,6 +44,7 @@ use crate::types::NiTArray;
 // ---------------------------------------------------------------------------
 
 /// `NiPointer<T>::operator T*` (`00559450`): the pointer stored at `this`.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// Game-setting accessor (`0043d4d0`): the address of the setting's 4-byte
 /// value (`this + 4`; a static zero when `this` is null).
@@ -196,7 +197,7 @@ const MAIN_RENDERING_MENU: u32 = 0x9c;
 // ---------------------------------------------------------------------------
 
 fn pointer_get(e: &mut Engine, slot: u32) -> u32 {
-    e.call(POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// The int value of a game setting.
@@ -685,11 +686,11 @@ pub fn fn_00870bd0(e: &mut Engine, this: Ptr, target: u32, skip_world: u8) {
 /// child) and hands the result to `00b8b1e0` through a two-float value.
 fn screen_position_of_reference(e: &mut Engine) {
     let picked = e.mem.u32(0x011d_ea20);
-    if picked == 0 || e.call(0x0045_cd60, &args![picked]).u32() == 0 {
+    if picked == 0 || typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, picked)) == 0 {
         return;
     }
     let picked = e.mem.u32(0x011d_ea20);
-    let reference = e.call(0x0045_cd60, &args![picked]).u32();
+    let reference = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, picked));
     let node = e.vcall(reference, 4, &args![]).u32();
     let position = e.call(MEMBER_8C, &args![node]).u32();
     e.with_stack(0x20, |e, block| {
@@ -874,7 +875,7 @@ fn pick_shadow_casters_and_walk_lights(e: &mut Engine, scene: u32, limit: i32) {
         let scale: f64 = e.global(0x0102_1928);
         let threshold = largest as f64 * scale;
         let process = e.vcall(actor, 0x1d0, &args![]).u32();
-        let bound = e.call(0x0043_d450, &args![process]).u32();
+        let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, process));
         let radius = e.call(0x0084_d030, &args![bound]).f32() as f64;
         if radius < threshold {
             let process = e.vcall(actor, 0x1d0, &args![]).u32();
@@ -976,7 +977,7 @@ fn shadow_light(
     if usable {
         let source = e.call(0x005b_f820, &args![light]).u32();
         // The source's four-word bound is copied to a local the code never reads.
-        e.call(0x0043_d450, &args![source]);
+        typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, source));
         let source = e.call(0x005b_f820, &args![light]).u32();
         let position = e.call(MEMBER_8C, &args![source]).u32();
         let words = [
@@ -1393,8 +1394,10 @@ pub fn fn_00872570(e: &mut Engine, release: u8) -> u8 {
             e.call(0x00b6_31d0, &args![accumulator]);
         }
         let world = e.mem.u32(WORLD_OBJECT);
-        let grid = e.call(0x0044_ddc0, &args![world]).u32();
-        let size = e.call(0x0084_e3a0, &args![grid]).i32();
+        let grid = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, world));
+        let size = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, grid))
+            .into_ret()
+            .i32();
         for x in 0..size {
             for y in 0..size {
                 let world = e.mem.u32(WORLD_OBJECT);
@@ -1638,7 +1641,12 @@ pub fn fn_00872b00(e: &mut Engine, this: Ptr) -> u32 {
     let root = e.call(GET_ROOT, &args![]).u32();
     let root_child = e.call(GET_ROOT_CHILD, &args![root]).u32();
     e.call(SET_COLOR, &args![root_child, 0x011a_d840u32]);
-    if e.call(0x0044_ddc0, &args![0x011f_2250u32]).u32() != 4 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, 0x011f_2250u32)
+    ) != 4
+    {
         let player = e.mem.u32(PLAYER_OBJECT);
         let field_of_view = e.call(0x0071_0ab0, &args![player]).f32();
         let root = e.call(GET_ROOT, &args![]).u32();
@@ -1693,22 +1701,22 @@ pub fn fn_00872b00(e: &mut Engine, this: Ptr) -> u32 {
 
     let mut result = 0u32;
     let world = e.mem.u32(WORLD_OBJECT);
-    let highest = e.call(0x008d_8520, &args![world]).u32();
-    if highest != 0 && e.call(0x0045_cd60, &args![highest]).u32() != 0 {
+    let highest = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, world));
+    if highest != 0 && typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, highest)) != 0 {
         let world = e.mem.u32(WORLD_OBJECT);
-        let object = e.call(0x008d_8520, &args![world]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, world));
         let mode = e.call(0x0047_6c90, &args![object]).u32();
         let mode_matches = if mode == 3 {
             true
         } else {
             let world = e.mem.u32(WORLD_OBJECT);
-            let object = e.call(0x008d_8520, &args![world]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, world));
             e.call(0x0047_6c90, &args![object]).u32() == 2
         };
         if mode_matches {
             let world = e.mem.u32(WORLD_OBJECT);
-            let object = e.call(0x008d_8520, &args![world]).u32();
-            result = e.call(0x0045_cd60, &args![object]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, world));
+            result = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, object));
         }
     }
     result
@@ -2201,8 +2209,11 @@ fn sort_and_accumulate_scene(e: &mut Engine, this_addr: u32, target: u32, child:
                                             if fn_00874480(e, Ptr::new(item)) != 0
                                                 && e.call(0x009b_4440, &args![item]).u32() != 0
                                             {
-                                                let shared =
-                                                    e.call(0x0084_e3a0, &args![target]).u32();
+                                                let shared = typed_call!(
+                                                    leaf::FAMILY,
+                                                    0x0084_e3a0,
+                                                    leaf::word_at_c(e, target)
+                                                );
                                                 let indexed_zero =
                                                     e.call(INDEXED_GLOBAL, &args![0u32]).u32();
                                                 e.call(
@@ -2532,11 +2543,19 @@ pub fn fn_008744a0(e: &mut Engine, object: u32) {
         let x = quotient(e, difference_a, 0, 0x0120_03e0);
         let y = quotient(e, difference_a, 1, 0x0120_03e4);
         let z = quotient(e, difference_a, 2, 0x0120_03e8);
-        e.call(0x0041_6870, &args![quotient_a, x, y, z]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, quotient_a, x, y, z)
+        );
         let x = quotient(e, difference_b, 0, 0x0120_03d4);
         let y = quotient(e, difference_b, 1, 0x0120_03d8);
         let z = quotient(e, difference_b, 2, 0x0120_03dc);
-        e.call(0x0041_6870, &args![quotient_b, x, y, z]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, quotient_b, x, y, z)
+        );
         let limit: f64 = e.global(0x0103_1148);
         let mut changed = false;
         for (block, k) in [
@@ -3128,7 +3147,11 @@ pub fn fn_00875110(
             e.call(0x004e_ced0, &args![1u32]);
             let group = e.call(0x0043_c490, &args![0x011e_0e80u32]).u32();
             if group != 0 && e.call(0x004a_4460, &args![group]).u8() == 0 {
-                e.call(0x0041_6870, &args![zero, 0u32, 0u32, 0u32]);
+                typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, zero, 0u32, 0u32, 0u32)
+                );
                 let player_value = player(e);
                 if e.call(0x0077_21a0, &args![player_value]).u32() != 0 {
                     let player_value = player(e);
@@ -3167,9 +3190,9 @@ pub fn fn_00875110(
                 let mut flagged = false;
                 let mut current = group;
                 while current != 0 {
-                    let link = e.call(0x0068_15c0, &args![current]).u32();
+                    let link = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, current));
                     let entry = pointer_get(e, link);
-                    current = e.call(0x0072_6070, &args![current]).u32();
+                    current = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, current));
                     if entry != 0 && e.vcall(entry, 0xc0, &args![]).u8() != 0 {
                         flagged = true;
                         let screen = e.vcall(entry, 0x98, &args![]).u32();
@@ -3244,7 +3267,12 @@ pub fn fn_00875110(
             fn_008750e0(e, Ptr::new(indexed), words[0], words[1], words[2]);
         }
 
-        if e.call(0x0044_ddc0, &args![0x011f_2250u32]).u32() != 4 {
+        if typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, 0x011f_2250u32)
+        ) != 4
+        {
             let player_value = player(e);
             let fov = e.call(0x0071_0ab0, &args![player_value]).f32();
             let root_now = e.call(GET_ROOT, &args![]).u32();
@@ -3377,7 +3405,12 @@ pub fn fn_00875bf0(e: &mut Engine, this: Ptr) {
 /// 0 with 1). `this` is not read.
 pub fn fn_00875e40(e: &mut Engine, _this: Ptr, accumulator: u32, last: u32) {
     let root = e.call(GET_ROOT, &args![]).u32();
-    if e.call(0x0044_ddc0, &args![0x011f_2250u32]).u32() != 4 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, 0x011f_2250u32)
+    ) != 4
+    {
         let player_value = player(e);
         let fov = e.call(0x0071_0ab0, &args![player_value]).f32();
         e.call(SET_CAMERA_FOV, &args![root, fov, 0u32, 0u32, 0u32]);
@@ -3392,7 +3425,12 @@ pub fn fn_00875e40(e: &mut Engine, _this: Ptr, accumulator: u32, last: u32) {
         e.call(0x004a_d0c0, &args![temporary, 0x101u32]);
         let child = e.call(GET_ROOT_CHILD, &args![root]).u32();
         let made = e.vcall(child, 0x48, &args![temporary]).u32();
-        if e.call(0x0044_ddc0, &args![0x011f_2250u32]).u32() != 4 {
+        if typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, 0x011f_2250u32)
+        ) != 4
+        {
             let fov = camera_fov(e);
             e.call(SET_CAMERA_FOV, &args![root, fov, 0u32, made, 0u32]);
         }
@@ -3709,7 +3747,13 @@ pub fn fn_008761e0(e: &mut Engine, this: Ptr, _unused_0: u32, interface_arg: u32
 // Translated from 00876810 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `00456630(this, 0x800)`: a flag query on the node with the mask `0x800`.
 pub fn fn_00876810(e: &mut Engine, this: Ptr) -> u8 {
-    e.call(0x0045_6630, &args![this, 0x800u32]).u8()
+    typed_call!(
+        leaf::FAMILY,
+        0x0045_6630,
+        leaf::flags_at_30_any(e, this, 0x800u32)
+    )
+    .into_ret()
+    .u8()
 }
 
 // Translated from 00876830 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -3775,8 +3819,9 @@ pub fn fn_00876850(
         let memory = e.call(ALLOCATE_OBJECT, &args![0x30u32]).u32();
         if memory != 0 {
             let held = pointer_get(e, 0x011f_a008);
-            let first_value = e.call(0x0044_ddc0, &args![this_addr]).u32();
-            let second_value = e.call(0x0084_e3a0, &args![this_addr]).u32();
+            let first_value = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this_addr));
+            let second_value =
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this_addr));
             e.call(
                 0x004d_61b0,
                 &args![
@@ -4036,15 +4081,19 @@ pub fn main_init_start_cell(e: &mut Engine, cell_name: u32, position: u32) {
             let y = e.call(0x00ec_a6d3, &args![parsed]).u32();
             let handler = data_handler(e);
             let list = e.call(0x0046_0140, &args![handler]).u32();
-            let link = e.call(0x0068_15c0, &args![list]).u32();
+            let link = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let mut world_space = e.mem.u32(link);
             let handler = data_handler(e);
             let mut current = e.call(0x0046_0140, &args![handler]).u32();
             while current != 0 {
-                if e.call(0x0082_56d0, &args![current]).u8() != 0 {
+                if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, current))
+                    .into_ret()
+                    .u8()
+                    != 0
+                {
                     break;
                 }
-                let link = e.call(0x0068_15c0, &args![current]).u32();
+                let link = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, current));
                 let candidate = e.mem.u32(link);
                 let wanted = pooled_text(e, 0x011d_eb48);
                 let name = e.vcall(candidate, 0x130, &args![]).u32();
@@ -4052,7 +4101,7 @@ pub fn main_init_start_cell(e: &mut Engine, cell_name: u32, position: u32) {
                     world_space = candidate;
                     break;
                 }
-                current = e.call(0x0072_6070, &args![current]).u32();
+                current = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, current));
             }
             if world_space != 0 {
                 cell = e.call(0x0058_5b30, &args![world_space, x, y]).u32();
@@ -4095,7 +4144,7 @@ pub fn main_init_start_cell(e: &mut Engine, cell_name: u32, position: u32) {
         let world = e.mem.u32(WORLD_OBJECT);
         e.call(0x0045_15a0, &args![world, position, 1u32]);
         let world = e.mem.u32(WORLD_OBJECT);
-        let grid = e.call(0x0044_ddc0, &args![world]).u32();
+        let grid = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, world));
         e.call(0x004b_a7d0, &args![grid]);
     }
 }
@@ -4330,7 +4379,7 @@ pub fn fn_008774a0(e: &mut Engine, this: Ptr, call_interface_step: u8) {
     e.call(0x0046_14e0, &args![data_handler]);
     let shader_manager = e.call(0x00b4_f5c0, &args![]).u32();
     e.call(0x00b6_31d0, &args![shader_manager]);
-    e.call(ERROR_LOG, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     e.call(0x0070_6320, &args![0u32]);
     let world = e.mem.u32(WORLD_OBJECT);
     e.call(0x0045_ac80, &args![world]);
@@ -4383,14 +4432,14 @@ pub fn fn_00877720(e: &mut Engine, _this: Ptr) -> Ptr {
 /// No arguments (`main` calls it after `0046dd00` with nothing pushed; `ECX` is not read).
 pub fn main_init_sky(e: &mut Engine) {
     with_profile_scope(e, 0x21, 0x26bd, |e| {
-        e.call(ERROR_LOG, &args![0x0108_2ec0u32]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words 0x0108_2ec0u32);
         let node_a = pointer_get(e, 0x011d_eb00);
         let node_b = pointer_get(e, 0x011d_eb34);
         let sky: u32 = e.global(0x011d_ea20);
         e.call(0x0063_a630, &args![sky, node_b, node_a]);
         let sun = pointer_get(e, 0x011d_eda4);
         let sky: u32 = e.global(0x011d_ea20);
-        let sky_part = e.call(0x0045_cd60, &args![sky]).u32();
+        let sky_part = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, sky));
         let light = e.call(0x0043_b230, &args![sky_part]).u32();
         e.vcall(sun, 0xdc, &args![light, 1u32]);
         let sky: u32 = e.global(0x011d_ea20);
@@ -4430,7 +4479,7 @@ pub fn main_init_sky(e: &mut Engine) {
         let node_b = pointer_get(e, 0x011d_eb34);
         e.call(0x00b5_7e30, &args![node_b, 0u32, 0u32]);
         let sky: u32 = e.global(0x011d_ea20);
-        let sky_part = e.call(0x0045_cd60, &args![sky]).u32();
+        let sky_part = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, sky));
         let light = e.call(0x0043_b230, &args![sky_part]).u32();
         e.call(0x00b5_7e30, &args![light, 0u32, 0u32]);
     });

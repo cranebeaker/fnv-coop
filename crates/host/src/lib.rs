@@ -115,6 +115,11 @@ impl Host {
         {
             engine.kernel.threads.wake_delay = delay;
         }
+        // `NV_MOVE_THREADS`: who ran when, printed with the status line (a batch of direct calls
+        // checks it against the batch before, ADR-0014).
+        if std::env::var_os("NV_MOVE_THREADS").is_some() {
+            engine.kernel.threads.order = Some(Vec::new());
+        }
         // The game's threads take turns every `NV_SLICE` calls (200000 unless set; 0: only at
         // waits and sleeps), as they would run side by side on Windows
         // (`engine::thread_host::preempt`).

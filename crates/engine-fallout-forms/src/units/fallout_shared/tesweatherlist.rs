@@ -14,8 +14,10 @@ pub fn fn_004f10b0(e: &mut Engine, this: Ptr) -> u32 {
 }
 
 /// `006815c0` (`ECX`, answers `this`: a list node read as its item word).
+#[cfg(test)]
 const LIST_ITEM_006815C0: u32 = 0x0068_15c0;
 /// `00726070` (`ECX`, answers the word at +4: a list node's next).
+#[cfg(test)]
 const NODE_FOLLOWING_00726070: u32 = 0x0072_6070;
 /// `operator delete` (`00401030`, `cdecl`, one word).
 const OPERATOR_DELETE: u32 = 0x0040_1030;
@@ -36,6 +38,7 @@ const VECTOR_CONSTRUCTOR: u32 = 0x0040_1050;
 /// destination, size; `AL` whether it read).
 const GET_CHUNK_DATA_SIZED: u32 = 0x0047_2890;
 /// `0084e3a0` (`ECX`): the word at +0xc (the form id).
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// The release build's logging stub (`005b5e40`, `cdecl`, variable words).
 const LOG: u32 = 0x005b_5e40;
@@ -112,10 +115,10 @@ pub fn fn_00582570(e: &mut Engine, this: Ptr) -> Ptr {
 pub fn fn_00582780(e: &mut Engine, this: Ptr) {
     let mut node = this.addr();
     while node != 0 {
-        let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_at);
         e.call(OPERATOR_DELETE, &args![item]);
-        node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(LIST_REMOVE_ALL_00470470, &args![this]);
 }
@@ -133,24 +136,24 @@ pub fn fn_005827d0(e: &mut Engine, this: Ptr) -> u32 {
     let mut total = 0u32;
     let mut node = this.addr();
     while node != 0 {
-        let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         // 005827f7: a node without an entry adds nothing and the walk goes on to the next
         // node (00582851); it ends only at a zero node (005827ea).
         if e.mem.u32(item_at) != 0 {
-            let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let entry = e.mem.u32(item_at);
             let chance = if e.mem.u32(entry + 8) != 0 {
-                let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+                let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(item_at);
                 entry_chance(e, entry)
             } else {
-                let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+                let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(item_at);
                 e.mem.u32(entry + 4)
             };
             total = total.wrapping_add(chance);
         }
-        node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if total == 0 {
         return 0;
@@ -161,7 +164,7 @@ pub fn fn_005827d0(e: &mut Engine, this: Ptr) -> u32 {
     let mut entry = 0u32;
     let mut node = this.addr();
     while node != 0 {
-        let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         entry = e.mem.u32(item_at);
         if entry != 0 {
             let chance = entry_chance(e, entry);
@@ -173,7 +176,7 @@ pub fn fn_005827d0(e: &mut Engine, this: Ptr) -> u32 {
                 low = low.wrapping_add(chance);
             }
         }
-        node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if entry != 0 {
         e.mem.u32(entry)
@@ -229,7 +232,7 @@ pub fn tes_weather_list_load_weather_list_chunk(e: &mut Engine, list: Ptr, file:
         )
         .bool();
     if !read {
-        let id = e.call(FORM_ID_0084E3A0, &args![form]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.call(LOG, &args![MESSAGE_CHUNK_ERROR, id]);
     }
     e.with_stack(4, |e, new_head| {
@@ -247,7 +250,7 @@ pub fn tes_weather_list_load_weather_list_chunk(e: &mut Engine, list: Ptr, file:
             };
             e.mem.set_u32(new_head.addr(), entry);
             e.call(LIST_ADD_HEAD_005AE3D0, &args![list, new_head]);
-            let item_at = e.call(LIST_ITEM_006815C0, &args![list]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let head = e.mem.u32(item_at);
             let id = e.mem.u32(read_entry);
             let found = e.call(LOOKUP_FORM, &args![id]).u32();
@@ -262,7 +265,7 @@ pub fn tes_weather_list_load_weather_list_chunk(e: &mut Engine, list: Ptr, file:
                 let id = e.mem.u32(read_entry);
                 e.call(LOG, &args![MESSAGE_NOT_A_WEATHER, id]);
             }
-            let item_at = e.call(LIST_ITEM_006815C0, &args![list]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let head = e.mem.u32(item_at);
             let chance = e.mem.u32(read_entry + 4);
             e.mem.set_u32(head + 4, chance);
@@ -275,7 +278,7 @@ pub fn tes_weather_list_load_weather_list_chunk(e: &mut Engine, list: Ptr, file:
                     &args![found, 0u32, TYPE_TES_FORM, TYPE_TES_GLOBAL, 0u32],
                 )
                 .u32();
-            let item_at = e.call(LIST_ITEM_006815C0, &args![list]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let head = e.mem.u32(item_at);
             e.mem.set_u32(head + 8, global);
         }
@@ -297,6 +300,7 @@ const MEMCPY: u32 = 0x0040_1460;
 /// `_memcmp` (engine map, `00ec4835`, `cdecl`).
 const MEMCMP: u32 = 0x00ec_4835;
 /// `008256d0` (`ECX` = list): whether its head node is empty (both words 0).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `00905820` (`ECX` = list, one stack word: the address of the item): adds an item to a
 /// `BSSimpleList`.
@@ -357,24 +361,24 @@ pub fn tes_weather_list_save(e: &mut Engine, this: Ptr, chunk: u32) {
     let mut node = this.addr();
     while node != 0 {
         let entry_at = array.wrapping_add(index.wrapping_mul(0xc));
-        let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let weather = e.mem.u32(e.mem.u32(item_at));
-        let id = e.call(FORM_ID_0084E3A0, &args![weather]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, weather));
         e.mem.set_u32(entry_at, id);
-        let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let chance = e.mem.u32(e.mem.u32(item_at).wrapping_add(4));
         e.mem.set_u32(entry_at.wrapping_add(4), chance);
-        let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let global_id = if e.mem.u32(e.mem.u32(item_at).wrapping_add(8)) != 0 {
-            let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let global = e.mem.u32(e.mem.u32(item_at).wrapping_add(8));
-            e.call(FORM_ID_0084E3A0, &args![global]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, global))
         } else {
             0
         };
         e.mem.set_u32(entry_at.wrapping_add(8), global_id);
         index = index.wrapping_add(1);
-        node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     swap_entries(e, array, index);
     e.call(
@@ -400,7 +404,7 @@ pub fn fn_005825a0(e: &mut Engine, this: Ptr, other: u32, keep: u8) {
     if keep == 0 {
         fn_00582780(e, this);
     }
-    if e.call(LIST_IS_EMPTY, &args![other]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, other)) {
         return;
     }
     let mut node = other;
@@ -411,14 +415,14 @@ pub fn fn_005825a0(e: &mut Engine, this: Ptr, other: u32, keep: u8) {
         } else {
             0
         };
-        let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let source = e.mem.u32(item_at);
         e.call(MEMCPY, &args![entry, source, 0xcu32]);
         e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), entry);
             e.call(LIST_ADD_00905820, &args![this, slot]);
         });
-        node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -432,7 +436,9 @@ pub fn fn_00582690(e: &mut Engine, this: Ptr, other: u32) -> bool {
     if other == 0 {
         return true;
     }
-    if e.call(LIST_IS_EMPTY, &args![this]).bool() && e.call(LIST_IS_EMPTY, &args![other]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, this))
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, other))
+    {
         return false;
     }
     let mine = e.call(LIST_COUNT, &args![this]).u32();
@@ -444,17 +450,17 @@ pub fn fn_00582690(e: &mut Engine, this: Ptr, other: u32) -> bool {
         let mut found = false;
         let mut theirs = other;
         while !found && theirs != 0 {
-            let item_at = e.call(LIST_ITEM_006815C0, &args![theirs]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
             let their_entry = e.mem.u32(item_at);
-            let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let my_entry = e.mem.u32(item_at);
             found = e.call(MEMCMP, &args![my_entry, their_entry, 0xcu32]).u32() == 0;
-            theirs = e.call(NODE_FOLLOWING_00726070, &args![theirs]).u32();
+            theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
         }
         if !found {
             return true;
         }
-        node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }

@@ -9,7 +9,9 @@ use crate::prelude::*;
 const SLOT_ACTIVE_EFFECT_LIST: u32 = 0x8;
 /// List node helpers (`thiscall`, no stack words): the node's item slot (`006815c0`: the
 /// node itself) and the next node (`00726070`: the word at +4).
+#[cfg(test)]
 const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `007df210` (`thiscall`): 1 when bit 0x80 of the effect's word at +0x18 (`iFlags`) is
 /// set.
@@ -30,9 +32,9 @@ pub fn fn_008255a0(e: &mut Engine, this: Ptr) {
         .vcall(this.addr(), SLOT_ACTIVE_EFFECT_LIST, &args![])
         .u32();
     while node != 0 {
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect = e.mem.u32(slot);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         if effect != 0
             && (e.call(EFFECT_FLAG_80, &args![effect]).bool()
                 || e.call(EFFECT_WORD_44, &args![effect]).u32() != 0)

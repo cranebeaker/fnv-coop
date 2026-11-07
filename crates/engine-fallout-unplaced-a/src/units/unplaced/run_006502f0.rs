@@ -17,8 +17,10 @@ const UNLOCK: u32 = 0x0065_2190;
 const POINTER_CONSTRUCTOR: u32 = 0x0063_3c90;
 const POINTER_DESTRUCTOR: u32 = 0x0045_cec0;
 const MAP_LOOKUP: u32 = 0x006c_62d0;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const POINTER_ASSIGN: u32 = 0x006e_5cc0;
+#[cfg(test)]
 const GET_VALUE: u32 = 0x0044_ddc0;
 const SET_VALUE: u32 = 0x0044_b300;
 
@@ -38,10 +40,10 @@ pub fn fn_006502f0(e: &mut Engine, this: Ptr, key: u32, pointer: Ptr, target: Pt
         if e.call(MAP_LOOKUP, &args![this.addr() + 4, key, local])
             .bool()
         {
-            let entry = e.call(POINTER_GET, &args![local]).u32();
+            let entry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local));
             e.call(POINTER_ASSIGN, &args![pointer, entry.wrapping_add(8)]);
-            let object = e.call(POINTER_GET, &args![pointer]).u32();
-            let value = e.call(GET_VALUE, &args![object]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
+            let value = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object));
             e.call(SET_VALUE, &args![target, value]);
             found = true;
         }

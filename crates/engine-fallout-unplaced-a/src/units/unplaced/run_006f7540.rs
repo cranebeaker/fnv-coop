@@ -38,6 +38,7 @@ const SOURCE_FILE_NAME: u32 = 0x0106_dd30;
 const BLOCK_COUNT: u32 = 0x011d_8598;
 const LAST_SECOND_ARGUMENT: u32 = 0x011d_859c;
 /// Reads the word at its `this` (`00559450`).
+#[cfg(test)]
 const READ_POINTER: u32 = 0x0055_9450;
 /// The game's allocator (`00401000`, cdecl).
 const ALLOCATE: u32 = 0x0040_1000;
@@ -93,8 +94,8 @@ pub fn fn_006f7540(e: &mut Engine, this: Ptr, first: u32, second: u32, x: i16, y
         e.mem.set_u32(base + FIRST_ARGUMENT, first);
         e.mem.set_u8(base + BYTE_48, 0);
         e.mem.set_u8(base + BYTE_49, 0);
-        let inner = e.call(READ_POINTER, &args![first]).u32();
-        let target = e.call(READ_POINTER, &args![inner]).u32();
+        let inner = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, inner));
         let memory = e.call(ALLOCATE, &args![0x48u32]).u32();
         let task = if memory == 0 {
             0
@@ -114,7 +115,7 @@ pub fn fn_006f7540(e: &mut Engine, this: Ptr, first: u32, second: u32, x: i16, y
             .u32()
         };
         e.call(SET_TASK, &args![this, task]);
-        let held = e.call(READ_POINTER, &args![this]).u32();
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         e.vcall(held, TASK_SLOT_20, &args![]);
         e.call(MEMORY_CONTEXT_END, &args![context]);
     });
@@ -134,8 +135,8 @@ pub fn fn_006f76b0(e: &mut Engine, this: Ptr) {
     e.set_global(BLOCK_COUNT, count);
     e.call(RELEASE_006F86E0, &args![this]);
     fn_006f7780(e, this);
-    if e.call(READ_POINTER, &args![this]).u32() != 0 {
-        let task = e.call(READ_POINTER, &args![this]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) != 0 {
+        let task = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         let manager = e.global::<u32>(TASK_MANAGER);
         e.call(CANCEL_TASK, &args![manager, task, 0u32]);
     }

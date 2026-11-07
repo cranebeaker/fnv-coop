@@ -42,10 +42,12 @@ const ASSOCIATED_ITEM_EFFECT_COPY_DATA: u32 = 0x0080_6d50;
 const ACTIVE_EFFECT_DESTRUCTOR: u32 = 0x0080_d930;
 /// `006815c0` (`thiscall`): answers `this` (a point's default constructor; also a list
 /// node's item slot).
+#[cfg(test)]
 const POINT_DEFAULT: u32 = 0x0068_15c0;
 /// Three words at `011f426c` (a point).
 const POINT_011F426C: u32 = 0x011f_426c;
 /// `0044ddc0` (`thiscall`): the effect's word at +8 (`pSpell`).
+#[cfg(test)]
 const EFFECT_SPELL: u32 = 0x0044_ddc0;
 /// `MagicItem::Preload` and `MagicItem::Unload` (engine map, `0040a420`, `0040b800`;
 /// `thiscall`, one word).
@@ -66,12 +68,14 @@ const HIT: u32 = 0x0103_275c;
 const ANGLE_005B9E80: u32 = 0x005b_9e80;
 const ANGLE_005C53D0: u32 = 0x005c_53d0;
 /// `00416870` (`thiscall`, three floats): constructs a point.
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0041_6870;
 /// `004a3760` (`cdecl`, three words: out point, float, point): the point scaled.
 const POINT_SCALED: u32 = 0x004a_3760;
 /// The float the direction is scaled by (`0101e6ec`; also the smallest bound size).
 const SCALE_0101E6EC: u32 = 0x0101_e6ec;
 /// `0084e3a0` (`thiscall`): the word at +0xC; `00825c00` (`thiscall`): the word at +0x14.
+#[cfg(test)]
 const WORD_0C: u32 = 0x0084_e3a0;
 const WORD_14: u32 = 0x0082_5c00;
 /// `008d6f30` (`thiscall`): the reference's word at +0x40 (its cell).
@@ -86,8 +90,10 @@ const PARTICLE_00490E40: u32 = 0x0049_0e40;
 const ANIMATION_TIME: u32 = 0x004b_6220;
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map name of `008d8520`; the body
 /// answers the reference's word at +0x68: its process).
+#[cfg(test)]
 const REFERENCE_PROCESS: u32 = 0x008d_8520;
 /// `0045cd60` (`thiscall`): the process's word at +0x28.
+#[cfg(test)]
 const PROCESS_WORD_28: u32 = 0x0045_cd60;
 /// The creature's vtable slots: +0x22C (one word, here 0: a byte), +0xC4 (one word, here
 /// 1), +0x100 (no stack words: whether it is an actor), +0x1FC (one word, here 0), +0x260
@@ -168,6 +174,7 @@ const LIFT_01020758: u32 = 0x0102_0758;
 const SPHERE_SHAPE_CONSTRUCT: u32 = 0x0056_e950;
 const FILTER_INFO: u32 = 0x0062_2290;
 const PHANTOM_INFO_CONSTRUCT: u32 = 0x0056_e090;
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 const SHAPE_HAVOK_OBJECT: u32 = 0x004a_e750;
 const STRUCT_0056E120: u32 = 0x0056_e120;
@@ -243,8 +250,9 @@ const RESOLVE_FORM: u32 = 0x0048_39c0;
 const SLOT_ACTIVE_EFFECT_LIST: u32 = 0x8;
 /// List helpers (`thiscall`): empty test (`008256d0`), item slot (`006815c0`, the node
 /// itself) and next node (`00726070`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
-const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `004064b0` (`effectitemlist.cpp`; `thiscall` on an `EffectSetting`): a byte;
 /// `00403e60` (`thiscall`, one word: a flag): whether the flag is set.
@@ -308,8 +316,16 @@ pub fn fn_00828470(e: &mut Engine, this: Ptr, caster: u32, spell: u32, effect: u
         &args![this, caster, spell, effect],
     );
     e.mem.set_u32(base, SUMMON_CREATURE_EFFECT_VTABLE);
-    e.call(POINT_DEFAULT, &args![base + APPEAR_LOCATION]);
-    e.call(POINT_DEFAULT, &args![base + APPEAR_ROTATION]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base + APPEAR_LOCATION)
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, base + APPEAR_ROTATION)
+    );
     e.mem.set_u32(base + SUMMONED_CREATURE, 0);
     e.mem.set_u8(base + TARGET_SET, 0);
     e.mem.set_f32(base + APPEAR_TIME, 0.0);
@@ -344,8 +360,10 @@ pub fn summon_creature_effect_scalar_deleting_destructor(
 pub fn fn_00828590(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     e.mem.set_u32(base, SUMMON_CREATURE_EFFECT_VTABLE);
-    if e.mem.u8(base + CACHED) != 0 && e.call(EFFECT_SPELL, &args![this]).u32() != 0 {
-        let spell = e.call(EFFECT_SPELL, &args![this]).u32();
+    if e.mem.u8(base + CACHED) != 0
+        && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) != 0
+    {
+        let spell = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
         e.call(MAGIC_ITEM_UNLOAD, &args![spell, 1u32]);
     }
     e.call(ACTIVE_EFFECT_DESTRUCTOR, &args![this]);
@@ -384,9 +402,9 @@ pub fn summon_creature_effect_copy(e: &mut Engine, this: Ptr) -> u32 {
     e.mem.set_u8(copy + PLACEMENT, placement);
     if e.mem.u8(base + CACHED) != 0
         && e.mem.u8(copy + CACHED) == 0
-        && e.call(EFFECT_SPELL, &args![this]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) != 0
     {
-        let spell = e.call(EFFECT_SPELL, &args![this]).u32();
+        let spell = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
         e.call(MAGIC_ITEM_PRELOAD, &args![spell, 0u32]);
     }
     let cached = e.mem.u8(base + CACHED);
@@ -432,7 +450,7 @@ pub fn summon_creature_effect_start(e: &mut Engine, this: Ptr) {
         let spot = frame.addr();
         let direction = frame.addr() + 0x10;
         let scaled = frame.addr() + 0x20;
-        e.call(POINT_DEFAULT, &args![spot]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, spot));
         let creature = e.mem.u32(base + SUMMONED_CREATURE);
         if fn_00828cb0(e, this, actor, creature, spot) {
             copy_point(e, base + APPEAR_LOCATION, spot);
@@ -443,12 +461,14 @@ pub fn summon_creature_effect_start(e: &mut Engine, this: Ptr) {
         let angle = -x87_load32(e.mem.u32(base + APPEAR_ROTATION + 8));
         let second = e.call(ANGLE_005C53D0, &args![x87_store32(angle)]).f64();
         let second = x87_store32(-second);
-        let point = e
-            .call(POINT_CONSTRUCT, &args![direction, second, first, 0.0f32])
-            .u32();
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, direction, second, first, 0.0f32)
+        );
         let scale = x87_quiet_bits(e.global::<u32>(SCALE_0101E6EC));
         e.call(POINT_SCALED, &args![scaled, scale, point]);
-        let effect_item = e.call(WORD_0C, &args![this]).u32();
+        let effect_item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let setting = e.call(WORD_14, &args![effect_item]).u32();
         let object = setting.wrapping_add(0x18);
         // The exe pushes the two points (copied onto its stack) before the two calls
@@ -479,8 +499,10 @@ pub fn summon_creature_effect_start(e: &mut Engine, this: Ptr) {
             .f64();
         e.mem.set_u32(base + APPEAR_TIME, x87_store32(time));
     });
-    if e.mem.u8(base + CACHED) == 0 && e.call(EFFECT_SPELL, &args![this]).u32() != 0 {
-        let spell = e.call(EFFECT_SPELL, &args![this]).u32();
+    if e.mem.u8(base + CACHED) == 0
+        && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) != 0
+    {
+        let spell = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
         e.call(MAGIC_ITEM_PRELOAD, &args![spell, 0u32]);
         e.mem.set_u8(base + CACHED, 1);
     }
@@ -499,15 +521,16 @@ pub fn summon_creature_effect_finish(e: &mut Engine, this: Ptr) {
     let actor = target_actor(e, this);
     if e.mem.u32(base + SUMMONED_CREATURE) != 0 && actor != 0 {
         let creature = e.mem.u32(base + SUMMONED_CREATURE);
-        let has_free_process = e.call(REFERENCE_PROCESS, &args![creature]).u32() != 0 && {
-            let process = e.call(REFERENCE_PROCESS, &args![creature]).u32();
-            e.call(PROCESS_WORD_28, &args![process]).u32() == 0
-        };
+        let has_free_process =
+            typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, creature)) != 0 && {
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, creature));
+                typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == 0
+            };
         if has_free_process {
             if !e.vcall(creature, SLOT_22C, &args![0u32]).bool() {
                 e.call(ACTOR_KILL, &args![creature, 0u32, 0.0f32]);
             }
-            let process = e.call(REFERENCE_PROCESS, &args![creature]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, creature));
             e.call(FADE_AND_DELETE, &args![process, creature]);
             e.call(CLEANUP_COMMANDED_ACTOR, &args![creature, actor, 1u32]);
         } else {
@@ -516,8 +539,10 @@ pub fn summon_creature_effect_finish(e: &mut Engine, this: Ptr) {
         }
         e.mem.set_u32(base + SUMMONED_CREATURE, 0);
     }
-    if e.mem.u8(base + CACHED) != 0 && e.call(EFFECT_SPELL, &args![this]).u32() != 0 {
-        let spell = e.call(EFFECT_SPELL, &args![this]).u32();
+    if e.mem.u8(base + CACHED) != 0
+        && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this)) != 0
+    {
+        let spell = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
         e.call(MAGIC_ITEM_UNLOAD, &args![spell, 0u32]);
         e.mem.set_u8(base + CACHED, 0);
     }
@@ -741,7 +766,7 @@ pub fn fn_00828f00(e: &mut Engine, this: Ptr, _unused_1: u32, spot: u32) -> bool
         let second_collector = local(0x810);
         e.call(FILTER_INFO, &args![local(0x40), 0x26u32, 0u32, 0u32]);
         e.call(PHANTOM_INFO_CONSTRUCT, &args![info]);
-        let filter = e.call(FIRST_WORD, &args![local(0x40)]).u32();
+        let filter = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local(0x40)));
         e.mem.set_u32(info, filter);
         let havok_shape = e.call(SHAPE_HAVOK_OBJECT, &args![shape]).u32();
         e.mem.set_u32(local(0x9c), havok_shape);
@@ -752,7 +777,7 @@ pub fn fn_00828f00(e: &mut Engine, this: Ptr, _unused_1: u32, spot: u32) -> bool
             let world = e.call(CELL_WORLD, &args![cell]).u32();
             e.call(WORLD_OBJECT_ADD, &args![phantom, world]);
         }
-        e.call(POINT_DEFAULT, &args![local(0xd0)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local(0xd0)));
         e.call(COLLECTOR_CONSTRUCT, &args![first_collector]);
         e.call(COLLECTOR_CONSTRUCT, &args![second_collector]);
         e.call(VECTOR_CONSTRUCT, &args![local(0x830)]);
@@ -766,9 +791,11 @@ pub fn fn_00828f00(e: &mut Engine, this: Ptr, _unused_1: u32, spot: u32) -> bool
             );
             e.mem.set_u32(height, x87_store32(lift));
             let lift = x87_quiet_bits(e.mem.u32(height));
-            let offset = e
-                .call(POINT_CONSTRUCT, &args![point, 0.0f32, 0.0f32, lift])
-                .u32();
+            let offset = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, point, 0.0f32, 0.0f32, lift)
+            );
             let raised = e.call(POINT_COMBINE, &args![spot, combined, offset]).u32();
             e.call(VECTOR_FROM_POINT, &args![vector, raised]);
         }
@@ -908,7 +935,7 @@ pub fn summon_creature_effect_do_summon(e: &mut Engine, this: Ptr, _unused_1: u3
             let creature = e.mem.u32(base + SUMMONED_CREATURE);
             e.call(INIT_COMMANDED_ACTOR, &args![creature, actor]);
             let creature = e.mem.u32(base + SUMMONED_CREATURE);
-            let process = e.call(REFERENCE_PROCESS, &args![creature]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, creature));
             e.vcall(process, PROCESS_SLOT_694, &args![1u32]);
         } else {
             let name = e.call(REFERENCE_NAME, &args![actor]).u32();
@@ -927,7 +954,7 @@ fn print_setting_name(e: &mut Engine, this: Ptr, format: u32) {
     e.with_stack(8, |e, text| {
         let setting = e.call(EFFECT_SETTING, &args![this]).u32();
         let string = e.call(SETTING_NAME, &args![setting, text]).u32();
-        let name = e.call(FIRST_WORD, &args![string]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
         e.call(PRINT, &args![format, name]);
         e.call(STRING_DESTROY, &args![text]);
     });
@@ -961,7 +988,7 @@ pub fn summon_creature_effect_save_game(e: &mut Engine, this: Ptr, argument: u32
         e.mem.set_u32(id.addr(), 0);
         if e.mem.u32(base + SUMMONED_CREATURE) != 0 {
             let creature = e.mem.u32(base + SUMMONED_CREATURE);
-            let form_id = e.call(WORD_0C, &args![creature]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, creature));
             e.mem.set_u32(id.addr(), form_id);
         }
         let save = save_game(e);
@@ -1047,8 +1074,8 @@ pub fn summon_creature_effect_limit_player_summoned_creatures(e: &mut Engine, _t
     let mut oldest = 0u32;
     let mut best = x87_quiet_bits(e.global::<u32>(START_01015F5C));
     let mut count = 0i32;
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect = e.mem.u32(slot);
         let setting = e.call(EFFECT_SETTING, &args![effect]).u32();
         if e.call(SETTING_TEST_004064B0, &args![setting]).bool()
@@ -1062,7 +1089,7 @@ pub fn summon_creature_effect_limit_player_summoned_creatures(e: &mut Engine, _t
                 best = x87_store32(e.call(EFFECT_ELAPSED, &args![effect]).f64());
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if oldest != 0 {
         let limit = e

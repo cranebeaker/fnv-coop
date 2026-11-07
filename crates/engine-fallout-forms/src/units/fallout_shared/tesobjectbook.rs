@@ -282,6 +282,7 @@ const FTOL2: u32 = 0x00ec_62c0;
 const ACTOR_VALUE_NAME: u32 = 0x0066_e950;
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 const STRING_FORMAT: u32 = 0x0040_6f60;
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 const STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// The player (the word at `011dea3c`).
@@ -473,7 +474,7 @@ pub fn tes_object_book_read(e: &mut Engine, this: Ptr, reader: u32) -> bool {
         let name = e.call(ACTOR_VALUE_NAME, &args![skill]).u32();
         let format = e.call(SETTING_STRING, &args![SKILL_MESSAGE_SETTING]).u32();
         e.call(STRING_FORMAT, &args![message, format, name, whole]);
-        let text = e.call(STRING_TEXT, &args![message]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, message));
         show_message(e, text, 1);
         e.call(STRING_DESTRUCT, &args![message]);
     });

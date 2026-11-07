@@ -72,6 +72,7 @@ const SCRAP_DEALLOCATE: u32 = 0x00aa_5610;
 const SCRAP_ALIGNMENT: u32 = 0x010a_2720;
 /// `0044ddc0` (`thiscall`, no stack word): the array's element count; `00401460` (`cdecl`,
 /// `(to, from, bytes)`): the copy `_Reallocate` makes.
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 const COPY_BYTES: u32 = 0x0040_1460;
 /// `00403d30` (`cdecl`, `(block, value, bytes)`; Ghidra names it `_Fiopen`): fills a block.
@@ -79,6 +80,7 @@ const FILL_BYTES: u32 = 0x0040_3d30;
 /// `BSSimpleArray<TESObjectWEAP *,1024>::SetSize` (engine map, `006f2290`, `thiscall`,
 /// `RET 8`) and `00877a30` (`thiscall`, `RET 4`: the address of an element).
 const ARRAY_SET_SIZE: u32 = 0x006f_2290;
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 
 // Translated from 009962f0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -125,7 +127,7 @@ pub fn bs_scrap_array_combat_plan_node_reallocate(
     let block = e
         .call(SCRAP_ALLOCATE, &args![heap, count << 2, alignment])
         .u32();
-    let elements = e.call(ARRAY_COUNT, &args![this]).u32();
+    let elements = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     e.call(COPY_BYTES, &args![block, old, elements << 2]);
     let heap = e.mem.u32(this.addr() + 0x10);
     e.call(SCRAP_DEALLOCATE, &args![heap, old]);
@@ -170,13 +172,19 @@ pub fn fn_00996ae0(e: &mut Engine, _this: Ptr, node: u32, nodes: Ptr, links: Ptr
     let mut walk = node;
     let mut index = count.wrapping_sub(1) as i32;
     while walk != 0 {
-        let slot = e.call(ARRAY_ELEMENT, &args![nodes, index as u32]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, nodes, index as u32)
+        );
         let value = e.mem.u32(walk + 8);
         e.mem.set_u32(slot, value);
         if index > 0 {
-            let slot = e
-                .call(ARRAY_ELEMENT, &args![links, index.wrapping_sub(1) as u32])
-                .u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, links, index.wrapping_sub(1) as u32)
+            );
             let value = e.mem.u32(walk + 0xc);
             e.mem.set_u32(slot, value);
         }
@@ -224,8 +232,11 @@ const NODE_PARENT: u32 = 0x0044_edb0;
 /// `006815c0` (`thiscall` on a list node): the address of the node's item; `00726070`
 /// (`thiscall`): a node's next, also an item's value; `00559450` (`thiscall`): an item's kind;
 /// `0062d990` (`thiscall` on a node): the next node.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT_OR_VALUE: u32 = 0x0072_6070;
+#[cfg(test)]
 const ITEM_KIND: u32 = 0x0055_9450;
 const NODE_NEXT: u32 = 0x0062_d990;
 /// `006e6da0` (`cdecl`: size, block): the placement step after a scrap-heap allocation.
@@ -292,11 +303,11 @@ fn scrap_new(e: &mut Engine, planner: u32, size: u32) -> u32 {
 /// The item of a list node, or `None` at a node without one (`006815c0` twice, as the exe
 /// reads it).
 fn node_item(e: &mut Engine, node: u32) -> Option<u32> {
-    let slot = e.call(NODE_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     if e.mem.u32(slot) == 0 {
         return None;
     }
-    let slot = e.call(NODE_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     Some(e.mem.u32(slot))
 }
 
@@ -347,8 +358,8 @@ pub fn fn_00995780(e: &mut Engine, this: Ptr, step: u32, value: u32, third: u32)
 /// Unnamed in the engine map (`thiscall`, `RET 4`): `009aa3b0` on `this + 0x14` with the item's
 /// kind (`00559450`) and value (`00726070`, read first); passes on its `EAX`.
 pub fn fn_009957c0(e: &mut Engine, this: Ptr, item: Ptr) -> u32 {
-    let value = e.call(NODE_NEXT_OR_VALUE, &args![item]).u32();
-    let kind = e.call(ITEM_KIND, &args![item]).u32();
+    let value = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
+    let kind = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
     e.call(0x009a_a3b0, &args![this.byte_add(0x14), kind, value])
         .u32()
 }
@@ -545,9 +556,9 @@ pub fn fn_00995e30(e: &mut Engine, this: Ptr, node: u32) -> u32 {
     e.with_stack(0x10, |e, children| {
         fn_009966c0(e, children, 0x10, 0);
         fn_00995dd0(e, this, node, children);
-        let mut count = e.call(ARRAY_COUNT, &args![children]).u32();
+        let mut count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, children));
         let mut i = 0u32;
-        while i < e.call(ARRAY_COUNT, &args![children]).u32() {
+        while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, children)) {
             let slot = e.call(ARRAY_AT, &args![children, i]).u32();
             let child = e.mem.u32(slot);
             count = fn_00995e30(e, this, child).wrapping_add(count);
@@ -663,7 +674,7 @@ pub fn fn_00995ef0(e: &mut Engine, this: Ptr, parent: u32, node: Ptr) {
         fn_009966c0(e, children, 0x10, 0);
         fn_00995dd0(e, this, node.addr(), children);
         let mut j = 0u32;
-        while j < e.call(ARRAY_COUNT, &args![children]).u32() {
+        while j < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, children)) {
             let slot = e.call(ARRAY_AT, &args![children, j]).u32();
             let child = e.mem.u32(slot);
             fn_00995ef0(e, this, node_item, Ptr::new(child));
@@ -731,7 +742,7 @@ pub fn fn_00995aa0(e: &mut Engine, this: Ptr) {
             let mut i = 0u32;
             loop {
                 let plan = e.mem.u32(me.wrapping_add(0x34));
-                if i >= e.call(NODE_NEXT_OR_VALUE, &args![plan]).u32() {
+                if i >= typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, plan)) {
                     break;
                 }
                 let plan = Ptr::new(e.mem.u32(me.wrapping_add(0x34)));
@@ -770,9 +781,9 @@ pub fn fn_00995aa0(e: &mut Engine, this: Ptr) {
 /// `plan`, `+0x38` = `known`, and `00995aa0` fills it. Returns `this`.
 pub fn fn_009959f0(e: &mut Engine, this: Ptr, planner: u32, plan: u32, known: u32) -> Ptr {
     let object = e.mem.u32(0x011d_ea0c);
-    let second = e.call(ARRAY_COUNT, &args![object]).u32();
+    let second = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object));
     let object = e.mem.u32(0x011d_ea0c);
-    let first = e.call(0x0084_e3a0, &args![object]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object));
     e.call(
         0x004d_61b0,
         &args![
@@ -1044,8 +1055,12 @@ pub fn fn_00996860(e: &mut Engine, this: Ptr) -> u32 {
             let node = e.mem.u32(current);
             e.vcall(me, 4, &args![node, connections]);
             let mut i = 0u32;
-            while i < e.call(ARRAY_COUNT, &args![connections]).u32() {
-                let slot = e.call(ARRAY_ELEMENT, &args![connections, i]).u32();
+            while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, connections)) {
+                let slot = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, connections, i)
+                );
                 let next = e.mem.u32(slot);
                 e.call(0x006b_9540, &args![open, next]);
                 let node = e.mem.u32(current);
@@ -1118,7 +1133,7 @@ pub fn combat_planner_get_node_connections(e: &mut Engine, this: Ptr, node: Ptr,
             let goal = e
                 .mem
                 .u32(state.wrapping_add(i.wrapping_mul(8)).wrapping_add(0x5c));
-            let kind = e.call(ITEM_KIND, &args![goal]).u32();
+            let kind = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, goal));
             let mut list = fn_009957f0(e, kind);
             let mut connected = false;
             while list != 0 {
@@ -1128,7 +1143,8 @@ pub fn combat_planner_get_node_connections(e: &mut Engine, this: Ptr, node: Ptr,
                 if !e.call(0x0099_4250, &args![step, 1u32]).bool() || at_root {
                     'step: {
                         let applies = fn_009957c0(e, Ptr::new(step), Ptr::new(goal)) as u8 != 0;
-                        let mut value = e.call(NODE_NEXT_OR_VALUE, &args![goal]).u32();
+                        let mut value =
+                            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, goal));
                         if e.call(0x0099_4830, &args![value]).bool() {
                             let state = e.mem.u32(n.wrapping_add(8));
                             value = e.call(0x0098_4470, &args![state, value]).u32();
@@ -1169,9 +1185,17 @@ pub fn combat_planner_get_node_connections(e: &mut Engine, this: Ptr, node: Ptr,
                                     break;
                                 };
                                 let world = e.mem.u32(f + 4);
-                                let raw = e.call(NODE_NEXT_OR_VALUE, &args![effect]).u32();
+                                let raw = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0072_6070,
+                                    leaf::word_at_4(e, effect)
+                                );
                                 let mapped = e.call(0x0099_47f0, &args![world, raw, value]).u32();
-                                let effect_kind = e.call(ITEM_KIND, &args![effect]).u32();
+                                let effect_kind = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0055_9450,
+                                    leaf::word_at_0(e, effect)
+                                );
                                 e.call(0x009a_ae10, &args![world, effect_kind, mapped]);
                                 effects = e.call(NODE_NEXT, &args![effects]).u32();
                             }
@@ -1185,16 +1209,22 @@ pub fn combat_planner_get_node_connections(e: &mut Engine, this: Ptr, node: Ptr,
                             let pair = state.wrapping_add(j.wrapping_mul(8));
                             let other = e.mem.u32(pair.wrapping_add(0x5c));
                             let world = e.mem.u32(f + 4);
-                            let raw = e.call(NODE_NEXT_OR_VALUE, &args![other]).u32();
+                            let raw =
+                                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other));
                             let mapped = e.call(0x0099_47f0, &args![world, raw, value]).u32();
-                            let other_kind = e.call(ITEM_KIND, &args![other]).u32();
+                            let other_kind =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
                             if !e
                                 .call(WORLD_STATE_IS_TRUE, &args![world, other_kind, mapped])
                                 .bool()
                             {
                                 let block = scrap_new(e, me, 8);
                                 let condition = if block != 0 {
-                                    let other_kind = e.call(ITEM_KIND, &args![other]).u32();
+                                    let other_kind = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0055_9450,
+                                        leaf::word_at_0(e, other)
+                                    );
                                     e.call(0x004b_0680, &args![block, other_kind, mapped]).u32()
                                 } else {
                                     0
@@ -1213,16 +1243,22 @@ pub fn combat_planner_get_node_connections(e: &mut Engine, this: Ptr, node: Ptr,
                                 break;
                             };
                             let world = e.mem.u32(f + 4);
-                            let raw = e.call(NODE_NEXT_OR_VALUE, &args![need]).u32();
+                            let raw =
+                                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, need));
                             let mapped = e.call(0x0099_47f0, &args![world, raw, value]).u32();
-                            let need_kind = e.call(ITEM_KIND, &args![need]).u32();
+                            let need_kind =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, need));
                             if !e
                                 .call(WORLD_STATE_IS_TRUE, &args![world, need_kind, mapped])
                                 .bool()
                             {
                                 let block = scrap_new(e, me, 8);
                                 let condition = if block != 0 {
-                                    let need_kind = e.call(ITEM_KIND, &args![need]).u32();
+                                    let need_kind = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0055_9450,
+                                        leaf::word_at_0(e, need)
+                                    );
                                     e.call(0x004b_0680, &args![block, need_kind, mapped]).u32()
                                 } else {
                                     0
@@ -1265,7 +1301,7 @@ pub fn combat_planner_get_node_connections(e: &mut Engine, this: Ptr, node: Ptr,
                         e.call(ARRAY_APPEND, &args![out, f + 8]);
                     }
                 }
-                list = e.call(NODE_NEXT_OR_VALUE, &args![list]).u32();
+                list = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list));
             }
             if !connected {
                 e.call(ARRAY_RELEASE_008454F0, &args![out, 0u32]);

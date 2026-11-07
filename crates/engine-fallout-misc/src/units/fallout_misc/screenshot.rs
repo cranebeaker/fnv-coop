@@ -55,6 +55,7 @@ const CREATE_RENDER_TARGET: u32 = 0x00b6_b610;
 /// word), the pointer getter (`00559450`), the assignment (`0066b0d0`, one
 /// word) and the destructor (`0045cec0`).
 const SMART_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
+#[cfg(test)]
 const SMART_POINTER_GET: u32 = 0x0055_9450;
 const SMART_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const SMART_POINTER_DESTRUCT: u32 = 0x0045_cec0;
@@ -309,7 +310,7 @@ pub fn screenshot_take_save_game_screen_shot(
         let smart_pointer = base + FRAME_POINTER;
         e.call(SMART_POINTER_CONSTRUCT, &args![smart_pointer, target]);
         e.call(FIXED_STRING_DESTRUCT, &args![name]);
-        if e.call(SMART_POINTER_GET, &args![smart_pointer]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, smart_pointer)) == 0 {
             return fail(e, MESSAGE_NO_RENDER_TARGET, smart_pointer, scope);
         }
 
@@ -327,7 +328,7 @@ pub fn screenshot_take_save_game_screen_shot(
             &args![float_owner, 0.0f32, 1.0f32, 1.0f32, remaining],
         );
         let main_object = e.global::<u32>(MAIN_OBJECT_POINTER);
-        let raw_target = e.call(SMART_POINTER_GET, &args![smart_pointer]).u32();
+        let raw_target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, smart_pointer));
         e.call(
             MAIN_OBJECT_METHOD_8706B0,
             &args![main_object, raw_target, 0u32, 0u32],
@@ -350,7 +351,7 @@ pub fn screenshot_take_save_game_screen_shot(
         let rendering_system = e.call(GET_RENDERING_SYSTEM, &[]).u32();
         e.call(RENDERING_SYSTEM_END, &args![rendering_system]);
 
-        let raw_target = e.call(SMART_POINTER_GET, &args![smart_pointer]).u32();
+        let raw_target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, smart_pointer));
         let texture = e
             .call(RENDER_TARGET_TEXTURE, &args![raw_target, 0u32])
             .u32();

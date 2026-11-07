@@ -24,10 +24,13 @@ const MODEL_LOADER_LOAD_FILE: u32 = 0x0044_7080;
 const FORM_COUNTER_A8: u32 = 0x0040_88c0;
 /// `008256d0` (unnamed in the engine map): `thiscall` on a list node, whether the node is empty
 /// (no item and no next).
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0`: returns `this` (a node's address is the address of its item pointer).
+#[cfg(test)]
 const LIST_NODE_ITEM_SLOT: u32 = 0x0068_15c0;
 /// `00726070`: the next-node pointer at `this + 4`.
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// `00825c00` (unnamed in the engine map): the dword at `this + 0x14` (the effect setting of an
 /// effect item).
@@ -174,11 +177,13 @@ fn preload_associated_form(e: &mut Engine, setting: u32, associated: u32) {
                 .call(BUILD_DEFAULT_MODEL_LIST, &args![form, 1u32, 1u32])
                 .u32();
             let mut node = list;
-            while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-                let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let path = e.mem.u32(slot);
                 load_model_file(e, path);
-                node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             e.call(FILENAME_LIST_CLEAR, &args![list]);
             if list != 0 {
@@ -214,13 +219,13 @@ fn preload_model_with_animations(e: &mut Engine, form: u32) {
     let mut node = list;
     while folder_end != 0 && node != 0 {
         e.mem.set_u8(folder_end.wrapping_add(1), 0);
-        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let name = e.mem.u32(slot);
         if name != 0 {
             e.call(STRING_APPEND, &args![path_buffer, PATH_BUFFER_SIZE, name]);
             load_model_file(e, path_buffer);
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let last_slash = e.call(CRT_STRRCHR, &args![model_path, 0x5cu32]).u32();
     if last_slash != 0
@@ -240,13 +245,13 @@ fn preload_model_with_animations(e: &mut Engine, form: u32) {
             .u32();
         let mut node = files;
         while node != 0 {
-            let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let file = e.mem.u32(slot);
             if file != 0 {
                 load_animation_file(e, file);
             }
             e.call(FREE_BLOCK, &args![file]);
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         e.call(FILENAME_LIST_CLEAR, &args![files]);
         if files != 0 {
@@ -268,13 +273,13 @@ fn preload_model_with_animations(e: &mut Engine, form: u32) {
         let mut node = e.call(MEMBER_LIST_AT_4, &args![animation]).u32();
         while node != 0 {
             e.mem.set_u8(folder_end.wrapping_add(1), 0);
-            let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let name = e.mem.u32(slot);
             if name != 0 {
                 e.call(STRING_APPEND, &args![path_buffer, PATH_BUFFER_SIZE, name]);
                 load_animation_file(e, path_buffer);
             }
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     e.mem.free(path_buffer);
@@ -326,14 +331,16 @@ pub fn magic_item_preload(e: &mut Engine, this: Ptr, force: u8) {
     } else {
         this.addr().wrapping_add(0xc)
     };
-    if e.call(LIST_NODE_IS_EMPTY, &args![walked.wrapping_add(4)])
-        .bool()
-    {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, walked.wrapping_add(4))
+    ) {
         return;
     }
     while walked != 0 {
         let node = walked.wrapping_add(4);
-        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect_item = e.mem.u32(slot);
         let setting = e.call(EFFECT_ITEM_SETTING, &args![effect_item]).u32();
         if e.call(EFFECT_SETTING_QUALIFIES, &args![setting]).bool() {
@@ -352,7 +359,7 @@ pub fn magic_item_preload(e: &mut Engine, this: Ptr, force: u8) {
             }
             e.call(SETTING_COUNTER_ADJUST, &args![setting]);
         }
-        let next = e.call(LIST_NODE_NEXT, &args![node]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         walked = if next != 0 { next.wrapping_sub(4) } else { 0 };
     }
 }
@@ -365,6 +372,7 @@ const MAGIC_ITEM_FORM_TYPE: u32 = 0x0118_395c;
 const MAGIC_ITEM_OBJECT_TYPE: u32 = 0x0118_30e8;
 /// `0084e3a0` (thiscall, returns a word; unnamed getter: the form id here, the level of
 /// an effect item in `GetAVEffect`).
+#[cfg(test)]
 const GETTER_0084E3A0: u32 = 0x0084_e3a0;
 /// `EffectItem::GetCost` (`00403f80`, thiscall: one word; `float` in `ST0`).
 const EFFECT_ITEM_GET_COST: u32 = 0x0040_3f80;
@@ -403,7 +411,7 @@ fn effect_list(this: Ptr) -> u32 {
 
 /// The next walked pointer after `node` (`00726070`, then 4 back; 0 at the end).
 fn next_walked(e: &mut Engine, node: u32) -> u32 {
-    let next = e.call(LIST_NODE_NEXT, &args![node]).u32();
+    let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     if next != 0 {
         next.wrapping_sub(4)
     } else {
@@ -413,7 +421,7 @@ fn next_walked(e: &mut Engine, node: u32) -> u32 {
 
 /// The effect setting of the effect item in `node` (0 for an empty slot).
 fn node_setting(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     let item = e.mem.u32(slot);
     if item == 0 {
         0
@@ -477,9 +485,9 @@ pub fn magic_item_get_magic_item_form_id(e: &mut Engine, this: Ptr) -> u32 {
         )
         .u32();
     if as_form != 0 {
-        e.call(GETTER_0084E3A0, &args![as_form]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, as_form))
     } else if as_object != 0 {
-        e.call(GETTER_0084E3A0, &args![as_object]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, as_object))
     } else {
         0
     }
@@ -493,26 +501,32 @@ pub fn magic_item_get_magic_item_form_id(e: &mut Engine, this: Ptr) -> u32 {
 pub fn magic_item_get_av_effect(e: &mut Engine, this: Ptr, minimum_level: i32) -> u32 {
     let mut best = 0u32;
     let mut walked = effect_list(this);
-    if e.call(LIST_NODE_IS_EMPTY, &args![walked.wrapping_add(4)])
-        .bool()
-    {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, walked.wrapping_add(4))
+    ) {
         return 0;
     }
     let mut best_cost: i32 = -1;
     let mut best_level = minimum_level;
     while walked != 0 {
         let node = walked.wrapping_add(4);
-        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         let cost = e.call(EFFECT_ITEM_GET_COST, &args![item, 0u32]).f64();
         let cost = e.call(FTOL, &args![cost]).i32();
-        let level = e.call(GETTER_0084E3A0, &args![item]).i32();
+        let level = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item))
+            .into_ret()
+            .i32();
         if !e.call(EFFECT_ITEM_SKIPPED, &args![item]).bool()
             && (level > best_level || (level == best_level && cost > best_cost))
         {
             best = item;
             best_cost = cost;
-            best_level = e.call(GETTER_0084E3A0, &args![item]).i32();
+            best_level = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item))
+                .into_ret()
+                .i32();
         }
         walked = next_walked(e, node);
     }
@@ -533,9 +547,11 @@ pub fn magic_item_is_loaded(e: &mut Engine, this: Ptr) -> bool {
         return false;
     }
     let mut walked = effect_list(this);
-    if e.call(LIST_NODE_IS_EMPTY, &args![walked.wrapping_add(4)])
-        .bool()
-    {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, walked.wrapping_add(4))
+    ) {
         return true;
     }
     while walked != 0 {
@@ -562,9 +578,11 @@ pub fn magic_item_is_loading_or_loaded(e: &mut Engine, this: Ptr) -> bool {
         return false;
     }
     let mut walked = effect_list(this);
-    if e.call(LIST_NODE_IS_EMPTY, &args![walked.wrapping_add(4)])
-        .bool()
-    {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, walked.wrapping_add(4))
+    ) {
         return true;
     }
     while walked != 0 {
@@ -597,10 +615,11 @@ pub fn magic_item_is_loading(e: &mut Engine, this: Ptr) -> bool {
         }
     }
     let mut walked = effect_list(this);
-    if !e
-        .call(LIST_NODE_IS_EMPTY, &args![walked.wrapping_add(4)])
-        .bool()
-    {
+    if !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, walked.wrapping_add(4))
+    ) {
         while walked != 0 {
             let node = walked.wrapping_add(4);
             let setting = node_setting(e, node);
@@ -657,11 +676,13 @@ fn unload_associated_form(e: &mut Engine, setting: u32, associated: u32, unload:
                 .call(BUILD_DEFAULT_MODEL_LIST, &args![form, 1u32, 1u32])
                 .u32();
             let mut node = list;
-            while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-                let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let path = e.mem.u32(slot);
                 release_model_file(e, path, unload);
-                node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             e.call(FILENAME_LIST_CLEAR, &args![list]);
             if list != 0 {
@@ -697,13 +718,13 @@ fn unload_model_with_animations(e: &mut Engine, form: u32, unload: u8) {
         let mut node = list;
         while folder_end != 0 && node != 0 {
             e.mem.set_u8(folder_end.wrapping_add(1), 0);
-            let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let name = e.mem.u32(slot);
             if name != 0 {
                 e.call(STRING_APPEND, &args![path_buffer, PATH_BUFFER_SIZE, name]);
                 release_model_file(e, path_buffer, unload);
             }
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let last_slash = e.call(CRT_STRRCHR, &args![model_path, 0x5cu32]).u32();
         if last_slash != 0
@@ -723,13 +744,13 @@ fn unload_model_with_animations(e: &mut Engine, form: u32, unload: u8) {
                 .u32();
             let mut node = files;
             while node != 0 {
-                let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let file = e.mem.u32(slot);
                 if file != 0 {
                     release_animation_file(e, file, unload);
                 }
                 e.call(FREE_BLOCK, &args![file]);
-                node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             e.call(FILENAME_LIST_CLEAR, &args![files]);
             if files != 0 {
@@ -751,13 +772,13 @@ fn unload_model_with_animations(e: &mut Engine, form: u32, unload: u8) {
             let mut node = e.call(MEMBER_LIST_AT_4, &args![animation]).u32();
             while node != 0 {
                 e.mem.set_u8(folder_end.wrapping_add(1), 0);
-                let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let name = e.mem.u32(slot);
                 if name != 0 {
                     e.call(STRING_APPEND, &args![path_buffer, PATH_BUFFER_SIZE, name]);
                     release_animation_file(e, path_buffer, unload);
                 }
-                node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
     });
@@ -793,14 +814,16 @@ pub fn magic_item_unload(e: &mut Engine, this: Ptr, unload: u8) {
         e.call(SETTING_UNLOAD_00408910, &args![effect]);
     }
     let mut walked = effect_list(this);
-    if e.call(LIST_NODE_IS_EMPTY, &args![walked.wrapping_add(4)])
-        .bool()
-    {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, walked.wrapping_add(4))
+    ) {
         return;
     }
     while walked != 0 {
         let node = walked.wrapping_add(4);
-        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let effect_item = e.mem.u32(slot);
         let setting = e.call(EFFECT_ITEM_SETTING, &args![effect_item]).u32();
         if e.call(EFFECT_SETTING_QUALIFIES, &args![setting]).bool() {
@@ -832,7 +855,7 @@ pub fn magic_item_magic_item_init_item(e: &mut Engine, this: Ptr, form: u32) {
     e.mem.set_u32(this.addr().wrapping_add(0x18), 0);
     while walked != 0 {
         let node = walked.wrapping_add(4);
-        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         if item != 0 {
             e.call(EFFECT_ITEM_INIT_ITEM, &args![item, form]);
@@ -946,6 +969,7 @@ const SETTING_ASSOCIATED_COUNT_004087E0: u32 = 0x0040_87e0;
 /// pointer, `RET 4`), read by `00559450` (thiscall: the word at `this`) and handed to
 /// `0040c110` (`run_0040c0e0.rs`) when it goes out of scope.
 const MODEL_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
+#[cfg(test)]
 const WORD_AT_THIS_00559450: u32 = 0x0055_9450;
 const MODEL_POINTER_DESTRUCT: u32 = 0x0040_c110;
 /// `ModelLoader::FindModel` (engine map), thiscall on the loader (path, address of the
@@ -960,8 +984,8 @@ const MODEL_0092C870: u32 = 0x0092_c870;
 /// The model pointer `FindModel` filled in `pointer`, given `count` more manual
 /// references when there is one (`00559450` read twice, then `ModManualRefCount`).
 fn add_model_references(e: &mut Engine, pointer: u32, count: i32) {
-    if e.call(WORD_AT_THIS_00559450, &args![pointer]).u32() != 0 {
-        let model = e.call(WORD_AT_THIS_00559450, &args![pointer]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
+        let model = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(MODEL_MOD_MANUAL_REF_COUNT, &args![model, count]);
     }
 }
@@ -995,15 +1019,15 @@ fn finish_model_with_animations(e: &mut Engine, form: u32, count: i32) {
         let model_field = form.wrapping_add(0xdc);
         let path = e.vcall(model_field, SLOT_MODEL_PATH, &args![]).u32();
         find_model(e, path, pointer.addr());
-        if e.call(WORD_AT_THIS_00559450, &args![pointer]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
             let mut i = 0i32;
             while i < count {
-                let model = e.call(WORD_AT_THIS_00559450, &args![pointer]).u32();
+                let model = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                 e.call(MODEL_0092C870, &args![model]);
                 i += 1;
             }
-            let model = e.call(WORD_AT_THIS_00559450, &args![pointer]).u32();
-            let model_path = e.call(WORD_AT_THIS_00559450, &args![model]).u32();
+            let model = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
+            let model_path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model));
             let names = e
                 .call(MEMBER_LIST_AT_4, &args![form.wrapping_add(0x114)])
                 .u32();
@@ -1014,13 +1038,13 @@ fn finish_model_with_animations(e: &mut Engine, form: u32, count: i32) {
                 let mut node = names;
                 while folder_end != 0 && node != 0 {
                     e.mem.set_u8(folder_end.wrapping_add(1), 0);
-                    let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let name = e.mem.u32(slot);
                     if name != 0 {
                         e.call(STRING_APPEND, &args![buffer, PATH_BUFFER_SIZE, name]);
                         reference_model(e, buffer, count);
                     }
-                    node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                    node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 }
                 let last_slash = e.call(CRT_STRRCHR, &args![model_path, 0x5cu32]).u32();
                 if last_slash != 0
@@ -1040,7 +1064,7 @@ fn finish_model_with_animations(e: &mut Engine, form: u32, count: i32) {
                         .u32();
                     let mut node = files;
                     while node != 0 {
-                        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+                        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                         let file = e.mem.u32(slot);
                         if file != 0 {
                             let mut i = 0i32;
@@ -1050,7 +1074,7 @@ fn finish_model_with_animations(e: &mut Engine, form: u32, count: i32) {
                             }
                         }
                         e.call(FREE_BLOCK, &args![file]);
-                        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                     }
                     e.call(FILENAME_LIST_CLEAR, &args![files]);
                     if files != 0 {
@@ -1072,7 +1096,7 @@ fn finish_model_with_animations(e: &mut Engine, form: u32, count: i32) {
                     let mut node = e.call(MEMBER_LIST_AT_4, &args![animation]).u32();
                     while node != 0 {
                         e.mem.set_u8(folder_end.wrapping_add(1), 0);
-                        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+                        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                         let name = e.mem.u32(slot);
                         if name != 0 {
                             e.call(STRING_APPEND, &args![buffer, PATH_BUFFER_SIZE, name]);
@@ -1082,7 +1106,7 @@ fn finish_model_with_animations(e: &mut Engine, form: u32, count: i32) {
                                 i += 1;
                             }
                         }
-                        node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                     }
                 }
             });
@@ -1142,14 +1166,16 @@ fn finish_associated_form(e: &mut Engine, setting: u32, associated: u32, count: 
                 .call(BUILD_DEFAULT_MODEL_LIST, &args![form, 1u32, 1u32])
                 .u32();
             let mut node = list;
-            while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-                let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let path = e.mem.u32(slot);
                 e.with_stack(4, |e, pointer| {
                     e.call(MODEL_POINTER_CONSTRUCT, &args![pointer, 0u32]);
                     find_model(e, path, pointer.addr());
                     add_model_references(e, pointer.addr(), count);
-                    node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                    node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                     e.call(MODEL_POINTER_DESTRUCT, &args![pointer]);
                 });
             }
@@ -1203,15 +1229,19 @@ pub fn magic_item_finished_loading(e: &mut Engine, this: Ptr) {
         }
     }
     let mut walked = effect_list(this);
-    if e.call(LIST_NODE_IS_EMPTY, &args![walked.wrapping_add(4)])
-        .bool()
-    {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, walked.wrapping_add(4))
+    ) {
         return;
     }
     while walked != 0 {
-        let slot = e
-            .call(LIST_NODE_ITEM_SLOT, &args![walked.wrapping_add(4)])
-            .u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, walked.wrapping_add(4))
+        );
         let effect_item = e.mem.u32(slot);
         let setting = e.call(EFFECT_ITEM_SETTING, &args![effect_item]).u32();
         let associated = e

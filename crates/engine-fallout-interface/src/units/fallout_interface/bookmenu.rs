@@ -98,7 +98,9 @@ const TILE_VALUE_00A01440: u32 = 0x00a0_1440;
 const TILE_SET_INT: u32 = 0x0070_0320;
 /// The word at +4 of an object (`00726070`: a menu's tile) and its first word
 /// (`00559450`).
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `00409700` (`thiscall`, a `bool`, `enchantmentitem.cpp` in the engine map) on the
 /// book: picks the open and close sounds and the menu's mode trait `0x1004`.
@@ -143,7 +145,7 @@ const STACKING_TYPE_TWO: u32 = 0x0107_04e8;
 
 /// The menu's own tile (`00726070(this)`).
 fn menu_tile(e: &mut Engine, this: Ptr<BookMenu>) -> u32 {
-    e.call(WORD_AT_FOUR, &args![this]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this))
 }
 
 // Translated from 0073acf0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -237,7 +239,7 @@ pub fn book_menu_create(e: &mut Engine, book: u32, reference: u32) -> u32 {
         e.call(MENU_PREP_FOR_VISIBILITY, &args![menu, 0u32]);
         return root;
     }
-    if menu != 0 && e.call(WORD_AT_FOUR, &args![menu]).u32() != 0 {
+    if menu != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
         // The code tests the pointer again before the deleting call.
         let deleting = menu;
         if deleting != 0 {
@@ -484,17 +486,17 @@ pub fn book_menu_use_workbook(e: &mut Engine, this: Ptr<BookMenu>) {
         let file = frame.addr() + 8;
         let name = frame.addr() + 0x168;
         e.call(STRING_FROM_TEXT, &args![name, WORKBOOK_FILE]);
-        let path = e.call(FIRST_WORD, &args![name]).u32();
+        let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
         e.call(BS_FILE_CONSTRUCT, &args![file, path, 0u32, 0x4000u32, 0u32]);
         e.call(STRING_CONSTRUCT, &args![text]);
         e.call(BS_FILE_OPEN, &args![file, 0u32, 0u32]);
         if !e.call(BS_FILE_IS_OPEN_008905F0, &args![file]).bool() {
-            let path = e.call(FIRST_WORD, &args![name]).u32();
+            let path = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
             e.call(CONSOLE_PRINT, &args![WORKBOOK_ERROR_FORMAT, path]);
         } else {
             e.call(BS_FILE_READ, &args![file, text, 0xffff_ffffu32]);
             let _length = e.call(STRING_LENGTH_004048E0, &args![text]).u32();
-            let contents = e.call(FIRST_WORD, &args![text]).u32();
+            let contents = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let tile = menu_tile(e, this);
             e.call(TILE_SET_STRING, &args![tile, 0x1006u32, contents, 1u32]);
             let tile = menu_tile(e, this);

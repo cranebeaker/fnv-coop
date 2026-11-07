@@ -88,6 +88,7 @@ const SCANLINES_TEXTURE: u32 = 0xbc;
 const ACCUMULATOR: u32 = 0xd4;
 
 /// `00559450` (thiscall on an `NiPointer`, returns the object; unnamed).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `0066b0d0` (thiscall on an `NiPointer`, one word: assigns it; unnamed).
 const POINTER_SET: u32 = 0x0066_b0d0;
@@ -182,6 +183,7 @@ const FRUSTUM_TOP: u32 = 0x0106_f2dc;
 /// `10000.0` (`float`).
 const FRUSTUM_FAR: u32 = 0x0102_2958;
 /// `006815c0` (thiscall: constructs an `NiPoint3` here; returns `this`).
+#[cfg(test)]
 const POINT_INIT_006815C0: u32 = 0x0068_15c0;
 /// `NiPick::NiPick` (`00e98f20`, thiscall: two words).
 const NI_PICK_CONSTRUCT: u32 = 0x00e9_8f20;
@@ -225,6 +227,7 @@ const INTERFACE_IS_MENU_ID_VISIBLE: u32 = 0x0070_2680;
 /// `0043c4b0` (no arguments, returns the renderer; unnamed).
 const RENDERER_0043C4B0: u32 = 0x0043_c4b0;
 /// `0084e3a0` (thiscall, returns a word; unnamed getter).
+#[cfg(test)]
 const GETTER_0084E3A0: u32 = 0x0084_e3a0;
 /// `00644640` (thiscall on the interface, returns `AL`; unnamed).
 const INTERFACE_TEST_00644640: u32 = 0x0064_4640;
@@ -260,6 +263,7 @@ const NI_CAMERA_SET_VIEW_FRUSTUM: u32 = 0x00a6_faf0;
 /// `004e9bb0` (thiscall on the renderer, one word: the camera; unnamed).
 const RENDERER_SET_CAMERA_004E9BB0: u32 = 0x004e_9bb0;
 /// `0045cd60` (thiscall on the interface, returns a menu; unnamed).
+#[cfg(test)]
 const INTERFACE_MENU_0045CD60: u32 = 0x0045_cd60;
 /// `0056c7f0` (thiscall, returns the object's node; unnamed).
 const NODE_0056C7F0: u32 = 0x0056_c7f0;
@@ -268,6 +272,7 @@ const INTERFACE_GET_DEBUG_TEXT_ROOT: u32 = 0x0070_6d10;
 /// The word `fn_007fba00` passes to `00726070` (`011d96c0`).
 const MENU_LIST_011D96C0: u32 = 0x011d_96c0;
 /// `00726070` (thiscall, returns a pointer; unnamed).
+#[cfg(test)]
 const GETTER_00726070: u32 = 0x0072_6070;
 /// `Tile::GetMenuTile` (`00a03d40`).
 const TILE_GET_MENU_TILE: u32 = 0x00a0_3d40;
@@ -384,19 +389,19 @@ pub fn fo_rendered_menu_set_screen_texture(
     if e.get(this, FORenderedMenu::bInitialized) == 0 {
         return;
     }
-    if e.call(POINTER_GET, &args![base + 4]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 4)) == 0 {
         e.call(DEBUG_MESSAGE, &args![NO_SCREEN_MESSAGE]);
         return;
     }
     let kind = e.call(PROPERTY_TYPE_00438220, &[]).u32();
-    let geometry = e.call(POINTER_GET, &args![base + 4]).u32();
+    let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 4));
     let property = e
         .call(NI_AV_OBJECT_GET_PROPERTY, &args![geometry, kind])
         .u32();
     if texture != 0 {
         e.call(PROPERTY_SET_TEXTURE_00438230, &args![property, texture]);
     } else {
-        let default = e.call(POINTER_GET, &args![base + 0x10]).u32();
+        let default = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x10));
         e.call(PROPERTY_SET_TEXTURE_00438230, &args![property, default]);
     }
 }
@@ -456,8 +461,8 @@ pub fn fo_rendered_menu_on_menu_open(e: &mut Engine, this: Ptr<FORenderedMenu>) 
     }
     let root = e.call(INTERFACE_GET_MENUS_ROOT, &[]).u32();
     e.call(TILE_UPDATE_CLIPWINDOWS, &args![root]);
-    if e.call(POINTER_GET, &args![base + 0x1c]).u32() != 0 {
-        let light = e.call(POINTER_GET, &args![base + 0x1c]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c)) != 0 {
+        let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
         e.call(SET_APP_CULLED_00450F90, &args![light, 0u32]);
     }
     e.set(this, FORenderedMenu::bMenuRendering, 1);
@@ -472,8 +477,8 @@ pub fn fn_007fb0b0(e: &mut Engine, this: Ptr<FORenderedMenu>) {
     e.set(this, FORenderedMenu::bMenuRendering, 0);
     e.set(this, FORenderedMenu::bBurstActive, 0);
     e.set(this, FORenderedMenu::bVertHoldActive, 0);
-    if e.call(POINTER_GET, &args![base + 0x1c]).u32() != 0 {
-        let light = e.call(POINTER_GET, &args![base + 0x1c]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c)) != 0 {
+        let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
         e.call(SET_APP_CULLED_00450F90, &args![light, 1u32]);
     }
     fo_rendered_menu_set_screen_texture(e, this, 0);
@@ -578,7 +583,7 @@ pub fn fn_007fb530(e: &mut Engine, this: Ptr<FORenderedMenu>, time: f32) {
 /// base intensity` and that color (`004bc2e0`), then an update (`00a59c60`).
 pub fn fn_007fb5a0(e: &mut Engine, this: Ptr<FORenderedMenu>, time: f32) {
     let base = this.addr();
-    if e.call(POINTER_GET, &args![base + 0x1c]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c)) == 0 {
         return;
     }
     // The frame below `EBP`: `local(n)` is `EBP - n`.
@@ -639,13 +644,13 @@ pub fn fn_007fb5a0(e: &mut Engine, this: Ptr<FORenderedMenu>, time: f32) {
             )
             .u32();
         e.call(COLOR_COMBINE_007FB730, &args![scaled, local(0x24), color]);
-        let light = e.call(POINTER_GET, &args![base + 0x1c]).u32();
+        let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
         e.call(LIGHT_SET_COLOR_004BC2E0, &args![light, local(0x24)]);
         e.call(
             UPDATE_DATA_INIT_0043D410,
             &args![local(0x18), x87_store32(0.0), 0u32, 0u32],
         );
-        let light = e.call(POINTER_GET, &args![base + 0x1c]).u32();
+        let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
         e.call(UPDATE_00A59C60, &args![light, local(0x18)]);
     });
 }
@@ -669,10 +674,10 @@ pub fn fn_007fb790(
     v: u32,
 ) -> bool {
     let base = this.addr();
-    let root = e.call(POINTER_GET, &args![base + 0x14]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x14));
     e.call(SET_APP_CULLED_00450F90, &args![root, 0u32]);
     let interface = e.call(INTERFACE_GET_004B7210, &[]).u32();
-    if e.call(POINTER_GET, &args![base + 4]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 4)) == 0 {
         return false;
     }
     // The frame below `EBP`: `local(n)` is `EBP - n`.
@@ -682,8 +687,8 @@ pub fn fn_007fb790(
         let direction = local(0x64);
         let pick = local(0x4c);
         let mut found = false;
-        e.call(POINT_INIT_006815C0, &args![origin]);
-        e.call(POINT_INIT_006815C0, &args![direction]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
         e.call(NI_PICK_CONSTRUCT, &args![pick, 0u32, 8u32]);
         let camera = if e.call(CAMERA_008B6200, &args![this]).u32() != 0 {
             e.call(CAMERA_008B6200, &args![this]).u32()
@@ -692,7 +697,7 @@ pub fn fn_007fb790(
             e.call(GETTER_006629F0, &args![object]).u32()
         };
         e.call(PICK_00458B30, &args![pick, 1u32]);
-        let geometry = e.call(POINTER_GET, &args![base + 4]).u32();
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 4));
         e.call(PICK_SET_TARGET_00705FC0, &args![pick, geometry]);
         e.call(PICK_006ECD40, &args![pick, 0u32]);
         e.call(PICK_00792780, &args![pick, 1u32]);
@@ -711,7 +716,7 @@ pub fn fn_007fb790(
             let record = e.call(PICK_RECORD_00968670, &args![results, 0u32]).u32();
             if record != 0 {
                 let object = e.call(RECORD_OBJECT_00458B50, &args![record]).u32();
-                let geometry = e.call(POINTER_GET, &args![base + 4]).u32();
+                let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 4));
                 if object == geometry {
                     let coordinates = e
                         .call(RECORD_TEXTURE_COORDINATES_00891170, &args![record])
@@ -732,7 +737,7 @@ pub fn fn_007fb790(
                     }
                     let renderer = e.call(RENDERER_0043C4B0, &[]).u32();
                     let target = e.vcall(renderer, 0xd4, &[]).u32();
-                    let size = e.call(GETTER_0084E3A0, &args![target]).u32();
+                    let size = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, target));
                     let height = x87_store32(f64::from(size));
                     let width = x87_store32(x87_mul(x87_load32(height), e.global::<f64>(ASPECT)));
                     e.mem.set_u32(
@@ -775,7 +780,7 @@ pub fn fn_007fba00(
     if e.get(this, FORenderedMenu::bInitialized) == 0 {
         return;
     }
-    if e.call(POINTER_GET, &args![base + 0x14]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x14)) == 0 {
         return;
     }
     // The frame below `EBP`: `local(n)` is `EBP - n`.
@@ -789,7 +794,11 @@ pub fn fn_007fba00(
         }
         let scene = e.call(INTERFACE_007FA950, &args![interface]).u32();
         let culler = e.call(CULLER_008D80E0, &args![scene]).u32();
-        let accumulator = e.call(POINTER_GET, &args![base + ACCUMULATOR]).u32();
+        let accumulator = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + ACCUMULATOR)
+        );
         e.call(CULLER_SET_ACCUMULATOR_004A0FD0, &args![culler, accumulator]);
         let zero = x87_store32(0.0);
         let one = x87_store32(1.0);
@@ -817,7 +826,7 @@ pub fn fn_007fba00(
             e.call(POINTER_SET, &args![target, texture]);
         }
         if e.call(TEST_004E9510, &[]).bool() {
-            let rendered = e.call(POINTER_GET, &args![target]).u32();
+            let rendered = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, target));
             let value = e.call(RENDERED_TEXTURE_00B6B260, &args![rendered]).u32();
             e.call(SHADER_00B6B8D0, &args![second, value]);
             let clear = local(0x90);
@@ -847,7 +856,7 @@ pub fn fn_007fba00(
         e.mem.set_u32(new_frustum + 0x14, far);
         e.call(NI_CAMERA_SET_VIEW_FRUSTUM, &args![camera, new_frustum]);
         e.call(RENDERER_SET_CAMERA_004E9BB0, &args![renderer, camera]);
-        let menu = e.call(INTERFACE_MENU_0045CD60, &args![interface]).u32();
+        let menu = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interface));
         let mut menu_hidden = 0u8;
         if menu != 0 {
             let node = e.call(NODE_0056C7F0, &args![menu]).u32();
@@ -865,7 +874,7 @@ pub fn fn_007fba00(
             e.call(SET_APP_CULLED_00450F90, &args![debug_text, 1u32]);
         }
         let list = e.global::<u32>(MENU_LIST_011D96C0);
-        let menu_owner = e.call(GETTER_00726070, &args![list]).u32();
+        let menu_owner = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list));
         let tile = e.call(TILE_GET_MENU_TILE, &args![menu_owner]).u32();
         let node = e.call(NODE_0056C7F0, &args![tile]).u32();
         let tile_hidden = e.call(IS_APP_CULLED_00456610, &args![node]).u8();
@@ -873,25 +882,29 @@ pub fn fn_007fba00(
         let node = e.call(NODE_0056C7F0, &args![tile]).u32();
         e.call(SET_APP_CULLED_00450F90, &args![node, 1u32]);
         if base != e.call(INTERFACE_GET_PIPBOY, &[]).u32() {
-            let root = e.call(POINTER_GET, &args![base + 0x14]).u32();
+            let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x14));
             e.call(SET_APP_CULLED_00450F90, &args![root, 0u32]);
         }
         fn_007fc790(e, this);
         e.call(CULLER_00C4F270, &args![culler, 1u32]);
-        let root = e.call(POINTER_GET, &args![base + 0x14]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x14));
         let scene_camera = e.call(GETTER_006629F0, &args![scene]).u32();
         e.call(
             BS_SHADER_UTIL_ACCUMULATE_SCENE,
             &args![scene_camera, root, culler],
         );
-        let accumulator = e.call(POINTER_GET, &args![base + ACCUMULATOR]).u32();
+        let accumulator = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base + ACCUMULATOR)
+        );
         let scene_camera = e.call(GETTER_006629F0, &args![scene]).u32();
         e.call(RENDER_00B6C0D0, &args![scene_camera, accumulator, 0u32]);
         e.call(CULLER_00C4F2D0, &args![culler]);
         fn_007fc8d0(e, this);
         e.call(CULLER_SET_ACCUMULATOR_004A0FD0, &args![culler, 0u32]);
         if base != e.call(INTERFACE_GET_PIPBOY, &[]).u32() {
-            let root = e.call(POINTER_GET, &args![base + 0x14]).u32();
+            let root = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x14));
             e.call(SET_APP_CULLED_00450F90, &args![root, 1u32]);
         }
         let tile = e.call(TILE_GET_MENU_TILE, &args![menu_owner]).u32();
@@ -914,10 +927,10 @@ pub fn fn_007fba00(
             );
         }
         e.call(SHADER_00B6B790, &[]);
-        let rendered = e.call(POINTER_GET, &args![target]).u32();
+        let rendered = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, target));
         e.vcall(base, 0x50, &args![rendered, first, second]);
         if texture == 0 {
-            let rendered = e.call(POINTER_GET, &args![target]).u32();
+            let rendered = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, target));
             let manager = e.call(TEXTURE_MANAGER_004A0EA0, &[]).u32();
             e.call(TEXTURE_MANAGER_RETURN_RENDERED, &args![manager, rendered]);
         }
@@ -962,7 +975,11 @@ pub fn fo_rendered_menu_initialize(e: &mut Engine, this: Ptr<FORenderedMenu>) {
         .u32()
     };
     e.call(POINTER_SET, &args![base + ACCUMULATOR, accumulator]);
-    let accumulator = e.call(POINTER_GET, &args![base + ACCUMULATOR]).u32();
+    let accumulator = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, base + ACCUMULATOR)
+    );
     e.call(ACCUMULATOR_004A1040, &args![accumulator, 10u32]);
     e.with_stack(0x10, |e, frame| {
         let texture_pointer = frame.addr();
@@ -971,7 +988,11 @@ pub fn fo_rendered_menu_initialize(e: &mut Engine, this: Ptr<FORenderedMenu>) {
             BS_SHADER_MANAGER_GET_TEXTURE,
             &args![SCREEN_TEXTURE_PATH, 1u32, texture_pointer, 1u32, 0u32],
         );
-        let texture = e.call(POINTER_GET, &args![texture_pointer]).u32();
+        let texture = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, texture_pointer)
+        );
         if texture == 0 {
             e.call(DEBUG_MESSAGE, &args![NO_TEXTURE_MESSAGE]);
         }
@@ -1006,7 +1027,11 @@ pub fn fo_rendered_menu_prepare_geometry(e: &mut Engine, this: Ptr<FORenderedMen
     let property = e
         .call(NI_AV_OBJECT_GET_PROPERTY, &args![geometry, kind])
         .u32();
-    let default = e.call(POINTER_GET, &args![this.addr() + 0x10]).u32();
+    let default = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x10)
+    );
     e.call(PROPERTY_SET_TEXTURE_00438230, &args![property, default]);
     if e.call(NI_AV_OBJECT_GET_PROPERTY, &args![geometry, 0u32])
         .u32()
@@ -1095,9 +1120,9 @@ pub fn fo_rendered_menu_create_menu_light(
                 let word = e.mem.u32(position + 4 * i);
                 e.mem.set_u32(copy + 4 * i, word);
             }
-            let light = e.call(POINTER_GET, &args![base + 0x1c]).u32();
+            let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
             e.call(LIGHT_SET_POSITION_00440460, &args![light, copy]);
-            let light = e.call(POINTER_GET, &args![base + 0x1c]).u32();
+            let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
             e.call(
                 SHADOW_SCENE_NODE_ADD_LIGHT,
                 &args![shadow_scene_node, light, 1u32],
@@ -1108,20 +1133,20 @@ pub fn fo_rendered_menu_create_menu_light(
                 shadow_scene_node,
             );
             let parent = e.call(GETTER_009611E0, &args![source]).u32();
-            let light = e.call(POINTER_GET, &args![base + 0x1c]).u32();
+            let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
             e.vcall(parent, 0xdc, &args![light, 1u32]);
             e.call(
                 UPDATE_DATA_INIT_0043D410,
                 &args![local(0x28), x87_store32(0.0), 0u32, 0u32],
             );
-            let geometry = e.call(POINTER_GET, &args![base + 4]).u32();
+            let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 4));
             e.call(UPDATE_00A59C60, &args![geometry, local(0x28)]);
-            let light = e.call(POINTER_GET, &args![base + 0x1c]).u32();
+            let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
             e.call(SET_APP_CULLED_00450F90, &args![light, 1u32]);
             let light_name = e
                 .call(FIXED_STRING_INIT, &args![local(0x48), RENDERED_MENU_LIGHT])
                 .u32();
-            let light = e.call(POINTER_GET, &args![base + 0x1c]).u32();
+            let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
             e.call(SET_NAME_00A5B950, &args![light, light_name]);
             e.call(FIXED_STRING_DESTROY, &args![local(0x48)]);
             created = true;
@@ -1137,7 +1162,7 @@ pub fn fo_rendered_menu_create_menu_light(
                     .call(FIND_LIGHT_00653270, &args![LIGHT_TYPE_011F4A98, node])
                     .u32();
                 e.call(POINTER_SET, &args![base + 0x1c, light]);
-                if e.call(POINTER_GET, &args![base + 0x1c]).u32() != 0 {
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c)) != 0 {
                     created = true;
                 }
             } else {
@@ -1157,17 +1182,17 @@ pub fn fo_rendered_menu_create_menu_light(
 /// shadow scene node and clears the pointer.
 pub fn fo_rendered_menu_clear_menu_light(e: &mut Engine, this: Ptr<FORenderedMenu>) {
     let base = this.addr();
-    if e.call(POINTER_GET, &args![base + 0x1c]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c)) == 0 {
         return;
     }
     let root = e.call(MENU_ROOT_005585E0, &args![this]).u32();
     if e.vcall(root, 0xc, &[]).u32() != 0 {
         let root = e.call(MENU_ROOT_005585E0, &args![this]).u32();
         let parent = e.vcall(root, 0xc, &[]).u32();
-        let light = e.call(POINTER_GET, &args![base + 0x1c]).u32();
+        let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
         e.vcall(parent, 0xe8, &args![light]);
     }
-    let light = e.call(POINTER_GET, &args![base + 0x1c]).u32();
+    let light = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c));
     let node = e.get(this, FORenderedMenu::pLightShadowSceneNode);
     e.call(SHADOW_SCENE_NODE_REMOVE_LIGHT, &args![node, light]);
     e.call(POINTER_SET, &args![base + 0x1c, 0u32]);
@@ -1288,7 +1313,11 @@ const IMAGE_SPACE_RENDER_00B97550: u32 = 0x00b9_7550;
 pub fn fn_00705fe0(e: &mut Engine, this: Ptr<FORenderedMenu>) -> Ptr<FORenderedMenu> {
     e.call(RENDERED_MENU_CONSTRUCT, &args![this]);
     e.mem.set_u32(this.addr(), RENDERED_TERMINAL_VTABLE);
-    e.call(POINT_INIT_006815C0, &args![this.addr() + 0xd8]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0xd8)
+    );
     e.call(POINTER_INIT, &args![this.addr() + 0xe4, 0u32]);
     this
 }
@@ -1609,7 +1638,7 @@ pub fn fo_rendered_menu_do_effect(
         e.set_global(EFFECT_TINT + 4 * i, word);
     }
     if e.get(this, FORenderedMenu::bUsePartialScreenGeometry) != 0
-        && e.call(POINTER_GET, &args![base + 0xc]).u32() == 0
+        && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0xc)) == 0
     {
         let first = e.call(GET_MENU_HEIGHT, &args![]).f64();
         let first = x87_store32(first);
@@ -1622,7 +1651,7 @@ pub fn fo_rendered_menu_do_effect(
         );
     }
     if e.get(this, FORenderedMenu::bUsePartialScreenGeometry) != 0 {
-        let geometry = e.call(POINTER_GET, &args![base + 0xc]).u32();
+        let geometry = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0xc));
         let manager = e.call(GETTER_004E3270, &args![]).u32();
         fn_007fbeb0(e, manager, 1, geometry);
     }

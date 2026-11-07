@@ -6,6 +6,7 @@ use crate::prelude::*;
 
 /// `006815c0` (unnamed in the engine map): returns its `this`; the
 /// constructor runs it on +0x10 (a member with nothing to construct).
+#[cfg(test)]
 const IDENTITY_006815C0: u32 = 0x0068_15c0;
 /// `0069aee0` (unnamed in the engine map): the constructor run on +0x24
 /// and +0x34.
@@ -24,7 +25,7 @@ const ZERO_POINT: u32 = 0x011f_426c;
 /// +0x54 and stores 0.0 (`FLDZ`) at +0x20. Returns `this`.
 pub fn fn_006b46a0(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
-    e.call(IDENTITY_006815C0, &args![base + 0x10]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x10));
     e.call(MEMBER_CTOR_0069AEE0, &args![base + 0x24]);
     e.call(MEMBER_CTOR_0069AEE0, &args![base + 0x34]);
     e.call(MEMBER_CTOR_005E04C0, &args![base + 0x44]);

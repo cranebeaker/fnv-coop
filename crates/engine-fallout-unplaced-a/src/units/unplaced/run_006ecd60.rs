@@ -62,6 +62,7 @@ const STATIC_ELEMENT_COUNT: u32 = 0x100;
 const COMPARE_EXCHANGE: u32 = 0x0043_b460;
 /// `0040fbe0` (engine map `Error`, `cdecl`, no words): an empty function the
 /// code calls right after taking and right before releasing the lock.
+#[cfg(test)]
 const EMPTY_HOOK: u32 = 0x0040_fbe0;
 /// `006e6da0` (`cdecl`, two words): returns its second word (the placement
 /// `operator new(size, where)` shape).
@@ -80,12 +81,12 @@ fn lock(e: &mut Engine, this: u32) {
     // The exe's `while (true)` loop: it retries for as long as the old
     // value is non-zero.
     while e.call(COMPARE_EXCHANGE, &args![lock, 0u32, 1u32]).u32() != 0 {}
-    e.call(EMPTY_HOOK, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
 }
 
 /// Calls the empty hook, then releases the lock (`0043b460(lock, 1, 0)`).
 fn unlock(e: &mut Engine, this: u32) {
-    e.call(EMPTY_HOOK, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     e.call(
         COMPARE_EXCHANGE,
         &args![this.wrapping_add(FREE_LIST_LOCK), 1u32, 0u32],
@@ -237,6 +238,7 @@ pub fn fn_006ecf70(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 /// by the engine map), `006f2630`, `006f2750`, `006f2510` (three words each: 0, 0 and an
 /// address) and `006f2b30`; and the `float` stored at `+0x2C` (`0101e340`, read at run
 /// time).
+#[cfg(test)]
 const POINT_DEFAULT: u32 = 0x0068_15c0;
 const CONSTRUCT_006BBC30: u32 = 0x006b_bc30;
 const CONSTRUCT_006F2630: u32 = 0x006f_2630;
@@ -255,8 +257,8 @@ const FLOAT_AT_2C: u32 = 0x0101_e340;
 /// before each), and the member at `+0xA4` (`006f2b30`). Returns `this`.
 pub fn fn_006ed100(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
-    e.call(POINT_DEFAULT, &args![base + 0x8]);
-    e.call(POINT_DEFAULT, &args![base + 0x14]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x8));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x14));
     let value = x87_quiet_bits(e.mem.u32(FLOAT_AT_2C));
     e.mem.set_u32(base + 0x2c, value);
     e.call(CONSTRUCT_006BBC30, &args![base + 0x30]);
@@ -267,7 +269,7 @@ pub fn fn_006ed100(e: &mut Engine, this: Ptr) -> Ptr {
         (0x7c, CONSTRUCT_006F2750),
         (0x90, CONSTRUCT_006F2510),
     ] {
-        let point = e.call(POINT_DEFAULT, &args![base + 0x30]).u32();
+        let point = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x30));
         e.call(construct, &args![base + offset, 0u32, 0u32, point]);
     }
     e.call(CONSTRUCT_006F2B30, &args![base + 0xa4]);

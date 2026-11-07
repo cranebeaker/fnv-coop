@@ -97,6 +97,7 @@ const SCENE_00450B80: u32 = 0x0045_0b80;
 const SCENE_00B5D180: u32 = 0x00b5_d180;
 const NODE_00572160: u32 = 0x0057_2160;
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
+#[cfg(test)]
 const WORD_AT_0_00559450: u32 = 0x0055_9450;
 const NI_POINTER_DESTROY: u32 = 0x0045_cec0;
 const VECTOR_DESTRUCT: u32 = 0x00ec_5fce;
@@ -105,6 +106,7 @@ const MENU_DESTRUCT: u32 = 0x00a1_c520;
 /// `SetFloat` (`00a012d0`), `SetString` (`00a01350`), `00700320` (the integer), `Poke`
 /// (`00a01290`), `GetFloat` (`00a011b0`).
 const INTERFACE_MANAGER: u32 = 0x004b_7210;
+#[cfg(test)]
 const WORD_AT_28_0045CD60: u32 = 0x0045_cd60;
 const TILE_SET_FLOAT: u32 = 0x00a0_12d0;
 const TILE_SET_STRING: u32 = 0x00a0_1350;
@@ -126,6 +128,7 @@ const NI_NODE_CONSTRUCT: u32 = 0x00a5_ecb0;
 const POINT_CONSTRUCT_0043D410: u32 = 0x0043_d410;
 const SET_TRANSLATE_00A59C60: u32 = 0x00a5_9c60;
 const GET_CONTROLLER: u32 = 0x00a5_c570;
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 const BOUND_RADIUS_0084D030: u32 = 0x0084_d030;
 const ROTATION_004A0C90: u32 = 0x004a_0c90;
@@ -140,6 +143,7 @@ const ACTIVATE_SEQUENCE_0047AAB0: u32 = 0x0047_aab0;
 const DEACTIVATE_SEQUENCE_0047B220: u32 = 0x0047_b220;
 const SEQUENCE_LENGTH_00508100: u32 = 0x0050_8100;
 const NODE_CHILD_0043B4A0: u32 = 0x0043_b4a0;
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
 /// `NiMatrix3::MakeXRotation` (`00524ac0`, `RET 4`) and `NiMatrix3::operator*`
 /// (`0043f8d0`, `RET 8`).
@@ -169,6 +173,7 @@ const SCREEN_004DC200: u32 = 0x004d_c200;
 const SCREEN_004DC1F0: u32 = 0x004d_c1f0;
 const TAN_0057DD70: u32 = 0x0057_dd70;
 const SET_VIEW_FRUSTUM: u32 = 0x00a6_faf0;
+#[cfg(test)]
 const POINT_00416870: u32 = 0x0041_6870;
 const LOOK_AT_WORLD_POINT: u32 = 0x00a7_01b0;
 const CAMERA_00733FD0: u32 = 0x0073_3fd0;
@@ -183,8 +188,11 @@ const SOUND_HANDLE_DESTROY: u32 = 0x0048_3710;
 const TILE_GET_MENU_BY_CLASS: u32 = 0x00a0_9030;
 const CASINO_DATA_LIST_005A6260: u32 = 0x005a_6260;
 const CASINO_DATA_CONSTRUCT: u32 = 0x0073_3f50;
+#[cfg(test)]
 const KEY_0084E3A0: u32 = 0x0084_e3a0;
+#[cfg(test)]
 const WORD_AT_4_00726070: u32 = 0x0072_6070;
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 const LIST_APPEND: u32 = 0x005a_e3d0;
 const LIST_SET_FIRST_00726C60: u32 = 0x0072_6c60;
@@ -312,13 +320,17 @@ fn slot_menu(e: &Engine) -> u32 {
 
 /// The item word of a list node, reached through `006815c0` as the code does.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_SELF, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 /// The model node (`spSlotModel`).
 fn model(e: &mut Engine) -> u32 {
-    e.call(WORD_AT_0_00559450, &args![MODEL_011DA9FC]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, MODEL_011DA9FC)
+    )
 }
 
 /// Child `index` of the model node (`0043b4a0`).
@@ -369,7 +381,7 @@ fn play_sound(e: &mut Engine, name: u32) {
 /// `Tile::SetFloat(0xfa9, value, 1)` on the interface manager's cursor tile (+0x28).
 fn set_cursor_fade(e: &mut Engine, value: u32) {
     let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
-    let cursor = e.call(WORD_AT_28_0045CD60, &args![interface]).u32();
+    let cursor = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interface));
     e.call(TILE_SET_FLOAT, &args![cursor, 0xfa9u32, value, 1u32]);
 }
 
@@ -577,17 +589,17 @@ pub fn slot_machine_menu_create(
             return 0;
         }
         let casino = e.global::<u32>(CASINO_011DA9AC);
-        let key = e.call(KEY_0084E3A0, &args![casino]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, casino));
         let data = node_item(e, node);
         if key == e.mem.u32(data) {
             let data = node_item(e, node);
             e.set_global(CASINO_DATA_011DA9A8, data);
             break;
         }
-        if e.call(WORD_AT_4_00726070, &args![node]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node)) == 0 {
             break;
         }
-        node = e.call(WORD_AT_4_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if e.global::<u32>(CASINO_DATA_011DA9A8) == 0 {
         e.with_stack(4, |e, local| {
@@ -599,13 +611,13 @@ pub fn slot_machine_menu_create(
             };
             e.mem.set_u32(local.addr(), data);
             let casino = e.global::<u32>(CASINO_011DA9AC);
-            let key = e.call(KEY_0084E3A0, &args![casino]).u32();
+            let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, casino));
             let data = e.mem.u32(local.addr());
             e.mem.set_u32(data, key);
             e.mem.set_u32(data.wrapping_add(4), 0);
             let player = e.global::<u32>(PLAYER_011DEA3C);
             let list = e.call(CASINO_DATA_LIST_005A6260, &args![player]).u32();
-            if list == 0 || e.call(LIST_IS_EMPTY, &args![list]).bool() {
+            if list == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
                 e.call(LIST_SET_FIRST_00726C60, &args![list, local]);
             } else {
                 e.call(LIST_APPEND, &args![list, local]);
@@ -670,7 +682,7 @@ pub fn slot_machine_menu_create(
         && e.global::<u32>(CASINO_011DA9AC) != 0;
     if !created {
         let menu = slot_menu(e);
-        if menu != 0 && e.call(WORD_AT_4_00726070, &args![menu]).u32() != 0 {
+        if menu != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
             let menu = slot_menu(e);
             e.vcall(menu, 0, &args![1u32]);
         }
@@ -958,14 +970,18 @@ pub fn fn_007c19c0(e: &mut Engine) {
     let source = e.call(RENDER_0045C670, &args![]).u32();
     let accumulator = e.call(RENDER_008D80E0, &args![source]).u32();
     e.call(RENDER_00C4F270, &args![accumulator, 1u32]);
-    let camera = e.call(WORD_AT_0_00559450, &args![CAMERA_011DA9D0]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_011DA9D0)
+    );
     let value = x87_quiet_bits(e.global::<u32>(CAMERA_VALUE_01030FF4));
     e.call(RENDER_00709D50, &args![camera, value]);
     let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
     let target = e.call(RENDER_007FD640, &args![interface]).u32();
     e.with_stack(4, |e, local| {
         e.call(NI_POINTER_FROM_00633C90, &args![local, target]);
-        let pointer = e.call(WORD_AT_0_00559450, &args![local]).u32();
+        let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local));
         e.call(RENDER_004A0FD0, &args![accumulator, pointer]);
         let scene = if camera != 0 {
             camera
@@ -974,7 +990,7 @@ pub fn fn_007c19c0(e: &mut Engine) {
         };
         let node = e.call(SCENE_00450B80, &args![1u32]).u32();
         e.call(ACCUMULATE_SCENE, &args![scene, node, accumulator]);
-        let pointer = e.call(WORD_AT_0_00559450, &args![local]).u32();
+        let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local));
         e.call(RENDER_00B6C0D0, &args![scene, pointer, 0u32]);
         e.call(RENDER_004A0FD0, &args![accumulator, 0u32]);
         e.call(NI_POINTER_ASSIGN, &args![local, 0u32]);
@@ -1024,8 +1040,8 @@ pub fn slot_machine_menu_prepare_3d_elements(e: &mut Engine, this: Ptr<SlotMachi
         let first = frame.addr();
         let second = frame.addr() + 0x24;
         let product = frame.addr() + 0x48;
-        e.call(NODE_SELF, &args![first]);
-        e.call(NODE_SELF, &args![second]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
         let angle = x87_quiet_bits(e.global::<u32>(MODEL_ROTATION_0101FF38));
         e.call(MAKE_X_ROTATION, &args![first, angle]);
         let angle = x87_quiet_bits(e.global::<u32>(MODEL_ROTATION_0101FF38));
@@ -1095,7 +1111,7 @@ pub fn slot_machine_menu_prepare_3d_elements(e: &mut Engine, this: Ptr<SlotMachi
     let node = model(e);
     e.vcall(scene, 0xdc, &args![node, 1u32]);
     let node = model(e);
-    let bound = e.call(GET_WORLD_BOUND, &args![node]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
     let radius = e.call(BOUND_RADIUS_0084D030, &args![bound]).f64();
     let scale: f64 = e.global(LIGHT_SCALE_01021928);
     let radius = x87_store32(x87_mul(radius, scale));
@@ -1216,28 +1232,28 @@ pub fn fn_007c2180(e: &mut Engine, _this: Ptr) -> u32 {
         e.mem.set_u32(at(-0x44), top);
         e.mem.set_u8(at(-0x34), 0);
         e.call(SET_VIEW_FRUSTUM, &args![camera, at(-0x4c)]);
-        let up = e
-            .call(
-                POINT_00416870,
-                &args![
-                    at(-0x68),
-                    0.0f32.to_bits(),
-                    0.0f32.to_bits(),
-                    1.0f32.to_bits()
-                ],
+        let up = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(
+                e,
+                at(-0x68),
+                0.0f32.to_bits(),
+                0.0f32.to_bits(),
+                1.0f32.to_bits()
             )
-            .u32();
-        let target = e
-            .call(
-                POINT_00416870,
-                &args![
-                    at(-0x74),
-                    0.0f32.to_bits(),
-                    0.0f32.to_bits(),
-                    1.0f32.to_bits()
-                ],
+        );
+        let target = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(
+                e,
+                at(-0x74),
+                0.0f32.to_bits(),
+                0.0f32.to_bits(),
+                1.0f32.to_bits()
             )
-            .u32();
+        );
         e.call(LOOK_AT_WORLD_POINT, &args![camera, target, up]);
         e.call(CAMERA_00733FD0, &args![camera, 1.0f32.to_bits()]);
         e.call(
@@ -1780,7 +1796,7 @@ fn idle_closing(e: &mut Engine, this: Ptr<SlotMachineMenu>) {
     }
     let fade = x87_quiet_bits(e.global::<u32>(CURSOR_FADE_01023CD8));
     set_cursor_fade(e, fade);
-    let root = e.call(WORD_AT_4_00726070, &args![this]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     e.call(TILE_SET_INT, &args![root, 0x1772u32, 1u32]);
     e.call(MENU_START_FADE_OUT, &args![this]);
     let casino = e.global::<u32>(CASINO_011DA9AC);
@@ -1834,7 +1850,7 @@ fn idle_closing(e: &mut Engine, this: Ptr<SlotMachineMenu>) {
             let sound = e
                 .call(GET_PICK_UP_SOUND_NAME, &args![player, item, 1u32, 0u32])
                 .u32();
-            let chars = e.call(WORD_AT_0_00559450, &args![text]).u32();
+            let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             show_message(e, chars, LOST_ICON_010208A0, sound);
             e.call(STRING_DESTROY, &args![text]);
         });
@@ -1882,7 +1898,7 @@ fn idle_closing(e: &mut Engine, this: Ptr<SlotMachineMenu>) {
                     let sound = e
                         .call(GET_PICK_UP_SOUND_NAME, &args![player, item, 1u32, 0u32])
                         .u32();
-                    let chars = e.call(WORD_AT_0_00559450, &args![text]).u32();
+                    let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                     show_message(e, chars, WON_ICON_0103A830, sound);
                     e.call(STRING_DESTROY, &args![text]);
                 });
@@ -1936,7 +1952,7 @@ fn set_reel_face(e: &mut Engine, this: Ptr<SlotMachineMenu>, reel: u32, face: i3
         let slot = base
             .wrapping_add(REEL_TEXTURES)
             .wrapping_add((texture as u32).wrapping_mul(4));
-        let image = e.call(WORD_AT_0_00559450, &args![slot]).u32();
+        let image = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         e.vcall(property, 0xf0, &args![0u32, 0u32, image]);
     }
 }

@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// `00559450` (unnamed): `thiscall`, returns the word at `+0`.
+#[cfg(test)]
 const READ_FIRST_WORD: u32 = 0x0055_9450;
 /// `009611e0` (unnamed, `playercharacter.cpp`): `thiscall`; an object whose slot `+0xe8`
 /// is called.
@@ -34,12 +35,12 @@ const UPDATE_00647B70: u32 = 0x0064_7b70;
 /// destructor (`0045cec0`).
 pub fn fn_009f6c90(e: &mut Engine, this: Ptr) {
     let member = this.addr() + 0x30;
-    if e.call(READ_FIRST_WORD, &args![member]).u32() != 0 {
-        let pointer = e.call(READ_FIRST_WORD, &args![member]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member)) != 0 {
+        let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member));
         if e.call(OWNER_009611E0, &args![pointer]).u32() != 0 {
-            let pointer = e.call(READ_FIRST_WORD, &args![member]).u32();
+            let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member));
             let owner = e.call(OWNER_009611E0, &args![pointer]).u32();
-            let pointer = e.call(READ_FIRST_WORD, &args![member]).u32();
+            let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member));
             e.vcall(owner, 0xe8, &args![pointer]);
         }
         e.call(POINTER_SET, &args![member, 0u32]);

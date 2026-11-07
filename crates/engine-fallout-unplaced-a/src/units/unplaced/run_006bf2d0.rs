@@ -7,6 +7,7 @@ use crate::prelude::*;
 /// An array's count (`0044ddc0`, `thiscall`, no arguments), the point test `006c3570`
 /// (`cdecl`, `(&point, area, low, high)`) and its two float constants, 200 (`0102226c`) and
 /// 32 (`0101e340`).
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 const POINT_TEST_006C3570: u32 = 0x006c_3570;
 const FLOAT_200: u32 = 0x0102_226c;
@@ -20,7 +21,7 @@ pub fn fn_006bf2d0(e: &mut Engine, this: Ptr, point: Ptr) -> bool {
     let mut index = 0u32;
     loop {
         let array = e.mem.u32(this.addr() + 8).wrapping_add(0x20);
-        if index >= e.call(ARRAY_COUNT, &args![array]).u32() {
+        if index >= typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) {
             return false;
         }
         let low = x87_quiet_bits(e.global::<u32>(FLOAT_200));

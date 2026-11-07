@@ -90,6 +90,7 @@ const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 const STRING_FROM_TEXT: u32 = 0x0040_c0e0;
 const STRING_ASSIGN: u32 = 0x0040_4820;
 const STRING_SET: u32 = 0x0040_37f0;
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 const STRING_LENGTH: u32 = 0x0040_48e0;
 /// `sprintf` into a `BSStringT` (`00406f60`, cdecl: string, format, ...).
@@ -155,9 +156,12 @@ const TILE_GET_CHILD_BY_NAME: u32 = 0x00a0_3da0;
 const TILE_ADD_NEEDS_UPDATE: u32 = 0x00a0_7530;
 /// The word at +0x28 (`0045cd60`: a tile's parent) and the word at +4 (`00726070`: a menu's
 /// tile, a list node's next).
+#[cfg(test)]
 const WORD_AT_0X28: u32 = 0x0045_cd60;
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 /// The text of a `Tile::Value` (`0084e3a0`).
+#[cfg(test)]
 const VALUE_TEXT: u32 = 0x0084_e3a0;
 /// `Tile::Value`: its float (`00488d50`, `ST0`), set float (float, 1), clear actions, add
 /// (operator, float), add with a tile (operator, tile, trait), calculate (0).
@@ -178,6 +182,7 @@ const TERMINAL_IS_UNLOCKED: u32 = 0x0050_1ae0;
 const TERMINAL_HACK_VALUE: u32 = 0x0050_1270;
 const RUN_RESULT_SCRIPT: u32 = 0x0050_1830;
 /// The base form of a reference (`007af430`, the engine map's `BGSSaveFormBuffer::GetForm`).
+#[cfg(test)]
 const FORM_OF: u32 = 0x007a_f430;
 /// `FORenderedTerminal::PlayShutdownSound` and `FadeOut`.
 const PLAY_SHUTDOWN_SOUND: u32 = 0x007f_fe40;
@@ -236,6 +241,7 @@ const MENU_RENDER_TEMPLATE: u32 = 0x00a1_ddb0;
 /// List node accessors: the address of the node's item (`006815c0`), its next setter
 /// (`006ecd40`), its deleting destructor (`004702f0`); the method run on removed objects
 /// (`004459e0`, 1).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 const NODE_SET_NEXT: u32 = 0x006e_cd40;
 const NODE_DELETE: u32 = 0x0047_02f0;
@@ -413,15 +419,15 @@ fn add_user_trait(e: &mut Engine, name: u32) -> u32 {
 }
 
 fn first_word(e: &mut Engine, object: u32) -> u32 {
-    e.call(FIRST_WORD, &args![object]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object))
 }
 
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    e.call(NODE_ITEM, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
 }
 
 fn word_at_four(e: &mut Engine, object: u32) -> u32 {
-    e.call(WORD_AT_FOUR, &args![object]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, object))
 }
 
 fn now(e: &mut Engine) -> u32 {
@@ -582,7 +588,7 @@ pub fn computers_menu_create(e: &mut Engine, reference: u32) -> u32 {
     }
     let colors = e.call(COLOR_MANAGER, &args![]).u32();
     e.call(COLOR_GET, &args![colors, 3u32, SAVE_COLOR]);
-    let terminal = e.call(FORM_OF, &args![reference]).u32();
+    let terminal = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if fn_00757e80(e, Ptr::new(terminal)) {
         e.with_stack(0x10, |e, color| {
             let one = 1.0f32.to_bits();
@@ -784,7 +790,7 @@ pub fn computers_menu_do_click(e: &mut Engine, this: Ptr, id: i32, tile: u32) {
                     let value = get_value(e, prompt, TRAIT_STRING);
                     let prompt = word(e, this, 0x44);
                     let visible = get_value_q(e, prompt, TRAIT_VISIBLE);
-                    let text = e.call(VALUE_TEXT, &args![value]).u32();
+                    let text = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, value));
                     add_text(e, this, text, value, visible, -1);
                 }
                 e.call(
@@ -1068,7 +1074,7 @@ pub fn fn_007586e0(e: &mut Engine, this: Ptr, push: u8) {
         if description != 0 && e.mem.u8(description) != 0 {
             let screen = word(e, this, 0x44);
             let same = if is_visible(e, screen) {
-                let shown = e.call(VALUE_TEXT, &args![value]).u32();
+                let shown = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, value));
                 e.call(COMPARE_TEXT, &args![description, shown]).u32() == 0
             } else {
                 false
@@ -1290,7 +1296,7 @@ pub fn computers_menu_finish_intro(e: &mut Engine, this: Ptr) {
 /// 2.0, stored as a float).
 fn centre_tile(e: &mut Engine, this: u32, offset: u32, measured: impl FnOnce(&mut Engine) -> u32) {
     let tile = word(e, this, offset);
-    let parent = e.call(WORD_AT_0X28, &args![tile]).u32();
+    let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
     let width = get_float(e, parent, TRAIT_WIDTH);
     let text = measured(e);
     let length = e.call(TEXT_LENGTH, &args![text]).u32();
@@ -1680,7 +1686,7 @@ pub fn computers_menu_animating_text_manager_update(e: &mut Engine, this: Ptr) {
         let mut ancestor = tile;
         while ancestor != 0 {
             let cursor = menu_word(e, 0x40);
-            let stop = e.call(WORD_AT_0X28, &args![cursor]).u32();
+            let stop = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, cursor));
             if ancestor == stop {
                 break;
             }
@@ -1688,7 +1694,7 @@ pub fn computers_menu_animating_text_manager_update(e: &mut Engine, this: Ptr) {
             x = e.call(FTOL, &args![value]).i32().wrapping_add(x);
             let value = get_float(e, ancestor, TRAIT_Y);
             y = e.call(FTOL, &args![value]).i32().wrapping_add(y);
-            ancestor = e.call(WORD_AT_0X28, &args![ancestor]).u32();
+            ancestor = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, ancestor));
         }
         e.call(TILE_UPDATE, &args![tile, 0u32]);
         let me = e.global::<u32>(MENU_SINGLETON);

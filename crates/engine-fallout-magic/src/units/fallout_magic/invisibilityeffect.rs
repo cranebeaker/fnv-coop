@@ -38,6 +38,7 @@ const PLAYER_FADE_TEST: u32 = 0x005b_9b00;
 const PLAYER: u32 = 0x011d_ea3c;
 /// `008d8520` (`thiscall`; the engine map's name `MiddleHighProcess::GetSavedAcquireObject`
 /// is a folded body): the actor's process, cast below from `BaseProcess` to `HighProcess`.
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// `__RTDynamicCast` (`cdecl`: object, 0, source type, target type, 0).
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
@@ -103,7 +104,7 @@ fn actor_value(e: &mut Engine, this: Ptr, actor: u32) -> i32 {
 
 /// The actor's high process: `008d8520`, cast from `BaseProcess` to `HighProcess`.
 fn high_process(e: &mut Engine, actor: u32) -> u32 {
-    let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     dynamic_cast(e, process, TYPE_BASE_PROCESS, TYPE_HIGH_PROCESS)
 }
 

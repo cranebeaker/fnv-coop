@@ -256,6 +256,7 @@ const SWAP_ON_SAVE: u32 = 0x0040_1500;
 const SWAP_WORD: u32 = 0x0040_1080;
 /// `iFormID` getter (`thiscall`; the engine map names the folded body
 /// `0084e3a0`).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// `TESForm` "initialized" bit setter (bit 3 of `iFormFlags`), `thiscall`
 /// (form, value), and its test (`AL`).
@@ -298,6 +299,7 @@ const BOUND_OBJECT_CLONE3D: u32 = 0x0050_ee50;
 /// A reference's word at `+0x144` (`009d9f00`) and the word at `+8` of an
 /// object (`0044ddc0`), both `thiscall`.
 const GET_WORD_144: u32 = 0x009d_9f00;
+#[cfg(test)]
 const GET_WORD_8: u32 = 0x0044_ddc0;
 /// `NiCloningProcess` constructor (`thiscall`, process, scale; `004ad050`)
 /// and `NiCloningProcess::~NiCloningProcess` (Xbox PDB), and
@@ -610,9 +612,9 @@ pub fn bgs_projectile_clone3d(
         let first = e.call(GET_WORD_144, &args![reference]).u32();
         if first != 0 {
             let second = e.call(GET_WORD_144, &args![reference]).u32();
-            if e.call(GET_WORD_8, &args![second]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, second)) != 0 {
                 let third = e.call(GET_WORD_144, &args![reference]).u32();
-                let loader = e.call(GET_WORD_8, &args![third]).u32();
+                let loader = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, third));
                 let model = e.vcall(loader, LOAD_3D_SLOT, &args![0u32]).u32();
                 e.with_stack(CLONING_PROCESS_SIZE, |e, process| {
                     e.call(CLONING_PROCESS_CONSTRUCTOR, &args![process, 1.0f32]);
@@ -626,7 +628,7 @@ pub fn bgs_projectile_clone3d(
         }
         let model = e.vcall(this.addr(), LOAD_3D_SLOT, &args![reference]).u32();
         if model != 0 {
-            let id = e.call(GET_FORM_ID, &args![reference]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             let handler = e.global::<u32>(DATA_HANDLER);
             if e.call(ID_AT_OR_ABOVE_DYNAMIC, &args![handler, id]).bool() {
                 let gate = e.global::<u32>(CLONE_GATE_OBJECT);
@@ -781,7 +783,7 @@ pub fn bgs_projectile_save(e: &mut Engine, this: Ptr<BGSProjectile>) {
         let pointer = e.mem.u32(object + offset);
         saved[slot] = pointer;
         let id = if pointer != 0 {
-            e.call(GET_FORM_ID, &args![pointer]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, pointer))
         } else {
             0
         };

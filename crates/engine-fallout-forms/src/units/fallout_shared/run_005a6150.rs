@@ -64,10 +64,13 @@ pub fn fn_005a63c0(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 /// (`011dea3c`).
 const PLAYER: u32 = 0x011d_ea3c;
 /// `006815c0` (`ECX` = node): the address of the node's item.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`ECX` = node): the next node, or 0.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `0084e3a0` (`ECX` = form): the form id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 
 // Translated from 005a6150 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -98,17 +101,17 @@ pub fn fn_005a6170(e: &mut Engine, _reference: Ptr, form: Ptr, _param2: u32, res
     let player: u32 = e.global(PLAYER);
     let mut node = e.call(0x005a_6260, &args![player]).u32();
     while node != 0 {
-        let at = e.call(NODE_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(at) == 0 {
             break;
         }
-        let at = e.call(NODE_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(at);
-        let id = e.call(FORM_ID, &args![form]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         if e.mem.u32(item) == id {
             let data = e.call(0x0050_4e60, &args![form]).u32();
             let threshold = e.mem.i32(data + 0x28);
-            let at = e.call(NODE_ITEM, &args![node]).u32();
+            let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(at);
             let value = e.mem.i32(item + 4);
             e.mem.set_f64(result.addr(), 0.0);
@@ -122,7 +125,7 @@ pub fn fn_005a6170(e: &mut Engine, _reference: Ptr, form: Ptr, _param2: u32, res
                 }
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     true
 }
@@ -139,19 +142,19 @@ pub fn fn_005a6280(e: &mut Engine, _reference: Ptr, form: Ptr, _param2: u32, res
     let player: u32 = e.global(PLAYER);
     let mut node = e.call(0x004f_2770, &args![player]).u32();
     while node != 0 {
-        let at = e.call(NODE_ITEM, &args![node + 4]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node + 4));
         if e.mem.u32(at) == 0 {
             break;
         }
-        let at = e.call(NODE_ITEM, &args![node + 4]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node + 4));
         let item = e.mem.u32(at);
-        let item_id = e.call(FORM_ID, &args![item]).u32();
-        let id = e.call(FORM_ID, &args![form]).u32();
+        let item_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         if item_id == id {
             e.mem.set_f64(result.addr(), 1.0);
             return true;
         }
-        let next = e.call(NODE_NEXT, &args![node + 4]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node + 4));
         node = if next != 0 { next.wrapping_sub(4) } else { 0 };
     }
     true

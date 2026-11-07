@@ -108,6 +108,7 @@ const LOCATION_DESTROY: u32 = 0x004f_f7e0;
 /// `RET 4`).
 const LOCATION_ASSIGN: u32 = 0x006d_cce0;
 /// `006815c0` (thiscall, no stack words): the `NiPoint3` constructor.
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
 /// `00403e20` (thiscall): the address of a `Setting`'s value (`this + 4`).
 const SETTING_VALUE: u32 = 0x0040_3e20;
@@ -140,6 +141,7 @@ const POINT_SCALE: u32 = 0x0045_bb20;
 /// `0063c8a0` (thiscall `(a, b)`, `RET 4`): `*a += *b`.
 const POINT_ADD_ASSIGN: u32 = 0x0063_c8a0;
 /// `00416870` (thiscall `(point, x, y, z)`, `RET 0xC`): sets the point.
+#[cfg(test)]
 const POINT_SET: u32 = 0x0041_6870;
 /// `NiPoint3::UnitizeGetLength` (`00457910`, thiscall): the length in
 /// `ST0`.
@@ -192,6 +194,7 @@ const NAV_MESH_PTR_DESTROY: u32 = 0x0042_fa40;
 /// result): gets the info's navmesh.
 const GET_NAV_MESH: u32 = 0x0069_ad00;
 /// `00559450` (thiscall): the `NavMesh*` a `NavMeshPtr` holds.
+#[cfg(test)]
 const NAV_MESH_PTR_GET: u32 = 0x0055_9450;
 /// `NavMesh::GetCenter` (`00558220`, thiscall `(mesh, result, triangle)`,
 /// `RET 8`).
@@ -268,6 +271,7 @@ const EDGES_DESTROY: u32 = 0x0072_ba80;
 const FREE_BUFFER: u32 = 0x006a_8500;
 
 /// `0044ddc0` (thiscall): the array's `iSize`.
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// Size of a `NavMeshEdgeLocation` (an `Edges` element).
 const EDGE_SIZE: u32 = 0x18;
@@ -320,13 +324,15 @@ pub fn pathing_search_ray_cast_pathing_search_ray_cast(
         LOCATION_CONSTRUCT,
         &args![this.at(PathingSearchRayCast::GoalLocation)],
     );
-    e.call(
-        POINT_CONSTRUCT,
-        &args![this.at(PathingSearchRayCast::BoundsMin)],
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.at(PathingSearchRayCast::BoundsMin))
     );
-    e.call(
-        POINT_CONSTRUCT,
-        &args![this.at(PathingSearchRayCast::BoundsMax)],
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.at(PathingSearchRayCast::BoundsMax))
     );
     e.set(this, PathingSearchRayCast::pHavokWorld, Ptr::NULL);
     e.set(this, PathingSearchRayCast::pCollector, Ptr::NULL);
@@ -455,22 +461,32 @@ fn build_no_mesh_path(
     let half_double: f64 = e.global(HALF_DOUBLE);
     let extent = e.mem.f32(l(0x24));
     let half_extent = (extent as f64 * half_double) as f32;
-    let offset = e
-        .call(
-            POINT_SET,
-            &args![l(0x108), half_extent.to_bits(), half_extent.to_bits(), 0u32],
+    let offset = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(
+            e,
+            l(0x108),
+            half_extent.to_bits(),
+            half_extent.to_bits(),
+            0u32
         )
-        .u32();
+    );
     let min = e
         .call(POINT_SUBTRACT, &args![l(0x18), l(0x114), offset])
         .u32();
     copy_point(e, this.at(PathingSearchRayCast::BoundsMin).addr(), min);
-    let offset = e
-        .call(
-            POINT_SET,
-            &args![l(0x120), half_extent.to_bits(), half_extent.to_bits(), 0u32],
+    let offset = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(
+            e,
+            l(0x120),
+            half_extent.to_bits(),
+            half_extent.to_bits(),
+            0u32
         )
-        .u32();
+    );
     let max = e.call(POINT_ADD, &args![l(0x18), l(0x12c), offset]).u32();
     copy_point(e, this.at(PathingSearchRayCast::BoundsMax).addr(), max);
     copy_float(e, this.addr() + 0x64, l(0x1c));
@@ -539,7 +555,7 @@ fn add_edge_nodes(
     }
     copy_point(e, l(0x68), l(0x50) + EDGE_LOCATION);
     let triangle = e.mem.u16(l(0x4c)) as u32;
-    let mesh = e.call(NAV_MESH_PTR_GET, &args![l(0x38)]).u32();
+    let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, l(0x38)));
     e.call(TRIANGLE_CENTER, &args![mesh, l(0x5c), triangle]);
     let tenth = float_arg(e, TENTH);
     let toward = e
@@ -818,7 +834,7 @@ pub fn fn_006e6e40(e: &mut Engine, this: Ptr<PathingSearchRayCast>, start: Ptr, 
             let scaled = e.call(POINT_SCALE, &args![l(0x38), l(0x60), radius]).u32();
             e.call(POINT_ADD, &args![l(0x10), l(0x54), scaled]);
             copy_float(e, l(0x4c), l(0x8));
-            e.call(POINT_CONSTRUCT, &args![l(0x48)]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l(0x48)));
             if !e
                 .call(RAY_CAST_STEP, &args![this, l(0x10), l(0x54), l(0x48)])
                 .bool()
@@ -828,7 +844,7 @@ pub fn fn_006e6e40(e: &mut Engine, this: Ptr<PathingSearchRayCast>, start: Ptr, 
             copy_point(e, l(0x10), l(0x48));
             i = i.wrapping_add(1);
         }
-        e.call(POINT_CONSTRUCT, &args![l(0x1c)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, l(0x1c)));
         copy_point(e, l(0x28), end.addr());
         copy_float(e, l(0x20), l(0x8));
         if !e
@@ -894,18 +910,22 @@ pub fn fn_006e7230(e: &mut Engine, this: Ptr<PathingSearchRayCast>, edges: Ptr<B
         let min_at = this.at(PathingSearchRayCast::BoundsMin).addr();
         let max_at = this.at(PathingSearchRayCast::BoundsMax).addr();
         let largest = float_arg(e, LARGEST);
-        let point = e
-            .call(POINT_SET, &args![l(0x10), largest, largest, largest])
-            .u32();
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, l(0x10), largest, largest, largest)
+        );
         copy_point(e, min_at, point);
         let lowest = float_arg(e, LOWEST);
-        let point = e
-            .call(POINT_SET, &args![l(0x1c), lowest, lowest, lowest])
-            .u32();
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, l(0x1c), lowest, lowest, lowest)
+        );
         copy_point(e, max_at, point);
 
         let mut i = 0u32;
-        while i < e.call(ARRAY_SIZE, &args![edges]).u32() {
+        while i < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, edges)) {
             for (combine, at) in [
                 (FLOAT_MIN, min_at),
                 (FLOAT_MIN, min_at + 4),

@@ -40,9 +40,12 @@ const TYPE_TES_OBJECT_REFR: u32 = 0x0118_41cc;
 /// node's item slot), `00726c60` (sets the item, `RET 4`), `00726070` (the next node),
 /// `00905330` (removes the node after `this`, given the item slot, `RET 4`) and
 /// `0063f7b0` (removes the first node's item).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 const NODE_SET_ITEM: u32 = 0x0072_6c60;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 const REMOVE_AFTER: u32 = 0x0090_5330;
 const REMOVE_FIRST: u32 = 0x0063_f7b0;
@@ -78,8 +81,13 @@ pub fn fn_009f25f0(e: &mut Engine, this: Ptr, buffer: u32) {
     }
     let mut node = p + 0x98;
     let mut previous = 0u32;
-    while node != 0 && e.call(NODE_IS_EMPTY, &args![node]).u8() == 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            == 0
+    {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let id = e.mem.u32(slot);
         let mut remove = false;
         if id != 0 {
@@ -97,15 +105,15 @@ pub fn fn_009f25f0(e: &mut Engine, this: Ptr, buffer: u32) {
         }
         if remove {
             if previous != 0 {
-                let slot = e.call(NODE_ITEM, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 e.call(REMOVE_AFTER, &args![previous, slot]);
-                node = e.call(NODE_NEXT, &args![previous]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
             } else {
                 e.call(REMOVE_FIRST, &args![node]);
             }
         } else {
             previous = node;
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
 }

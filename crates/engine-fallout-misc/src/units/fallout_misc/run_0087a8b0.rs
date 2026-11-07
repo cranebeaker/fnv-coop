@@ -30,7 +30,7 @@ pub fn fn_0087a8b0(e: &mut Engine, queue: u32, command: u32, reference: u32, res
         e.mem.set_u32(task, 0x1f);
         e.mem.set_u32(task + 4, command);
         let id = if reference != 0 {
-            e.call(0x0084_e3a0, &args![reference]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference))
         } else {
             0
         };
@@ -66,7 +66,7 @@ pub fn fn_0087a8b0(e: &mut Engine, queue: u32, command: u32, reference: u32, res
                         next = next.wrapping_add(4);
                         let form = e.mem.u32(next.wrapping_sub(4));
                         let id = if form != 0 {
-                            e.call(0x0084_e3a0, &args![form]).u32()
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
                         } else {
                             0
                         };

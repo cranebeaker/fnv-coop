@@ -28,6 +28,7 @@ const GET_FORM_TYPE: u32 = 0x0040_1170;
 const DOOR_FORM_TYPE: u32 = 0x1c;
 /// `BGSSaveFormBuffer::GetForm` (`007af430`, engine map; `thiscall`): the
 /// reference's base form.
+#[cfg(test)]
 const GET_BASE_FORM: u32 = 0x007a_f430;
 /// The two sequence-name globals (`011c61dc`: the open sequence's,
 /// `011c61e0`: the close sequence's, by how `GetOpenState` uses them).
@@ -111,6 +112,7 @@ const AUDIO_INSTANCE: u32 = 0x0045_3a70;
 const GET_SOUND_HANDLE_BY_NUMERIC_ID: u32 = 0x00ad_73b0;
 const SOUND_SET_POSITION: u32 = 0x00ad_8b60;
 const SOUND_PLAY: u32 = 0x00ad_8830;
+#[cfg(test)]
 const SOUND_NUMERIC_ID: u32 = 0x0084_e3a0;
 /// The reference's extra data list (`005d43c0`, `thiscall`) with
 /// `ExtraDataList::SetOpenCloseActivateRef` (`0041e690`), its getter
@@ -157,7 +159,7 @@ fn reference_3d(e: &mut Engine, reference: u32) -> u32 {
 
 /// The form type of the reference's base form.
 fn base_form_type(e: &mut Engine, reference: u32) -> u32 {
-    let base = e.call(GET_BASE_FORM, &args![reference]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     e.call(GET_FORM_TYPE, &args![base]).u32()
 }
 
@@ -360,7 +362,7 @@ pub fn bgs_open_close_form_handle_activate(
         {
             let mut remove = true;
             if base_form_type(e, reference) == DOOR_FORM_TYPE {
-                let door = e.call(GET_BASE_FORM, &args![reference]).u32();
+                let door = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                 if e.call(IS_SLIDING_DOOR, &args![door]).bool() {
                     remove = false;
                 }
@@ -387,7 +389,7 @@ pub fn bgs_open_close_form_handle_activate(
                 e.call(SOUND_HANDLE_CONSTRUCT, &args![handle]);
                 let by_player = activator == e.mem.u32(PLAYER);
                 let flags = if by_player { 0x8000_0121u32 } else { 0x102 };
-                let id = e.call(SOUND_NUMERIC_ID, &args![sound]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
                 let audio = e.call(AUDIO_INSTANCE, &[]).u32();
                 let made = e
                     .call(
@@ -412,7 +414,7 @@ pub fn bgs_open_close_form_handle_activate(
         e.call(SET_OPEN_CLOSE_ACTIVATE_REF, &args![list, activator]);
         e.vcall(reference, 0x48, &args![0x8000_0000u32]);
         if sequence == open && activator == e.mem.u32(PLAYER) {
-            let base = e.call(GET_BASE_FORM, &args![reference]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             let form = bgs_open_close_form_get_as_open_close_form(e, base);
             if form != 0 && e.vcall(form, 0x8, &[]).bool() {
                 let player = e.mem.u32(PLAYER);
@@ -430,7 +432,7 @@ pub fn bgs_open_close_form_handle_activate(
     } else {
         e.call(CLEAR_ACTION, &args![reference, 4u32]);
     }
-    let base = e.call(GET_BASE_FORM, &args![reference]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let form = bgs_open_close_form_get_as_open_close_form(e, base);
     if form != 0 {
         let slot = if opening { 0 } else { 4 };
@@ -567,7 +569,7 @@ pub fn fn_0047ac70(e: &mut Engine, reference: u32, sequence: u32) {
     let list = e.call(EXTRA_DATA_LIST, &args![reference]).u32();
     let activator = e.call(GET_OPEN_CLOSE_ACTIVATE_REF, &args![list]).u32();
     if activator != 0 {
-        let base = e.call(GET_BASE_FORM, &args![reference]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let form = bgs_open_close_form_get_as_open_close_form(e, base);
         if form != 0 {
             let slot = if opened { 0 } else { 4 };
@@ -624,7 +626,7 @@ pub fn bgs_open_close_form_set_open_state(
     if reference == 0 {
         return 0;
     }
-    let base = e.call(GET_BASE_FORM, &args![reference]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if !bgs_open_close_form_is_open_close_form(e, base) {
         return 0;
     }
@@ -711,7 +713,7 @@ pub fn bgs_open_close_form_get_open_state(e: &mut Engine, reference: u32) -> u32
     if reference == 0 {
         return 0;
     }
-    let base = e.call(GET_BASE_FORM, &args![reference]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if !bgs_open_close_form_is_open_close_form(e, base) {
         return 0;
     }
@@ -741,6 +743,7 @@ pub fn bgs_open_close_form_get_open_state(e: &mut Engine, reference: u32) -> u32
 /// (takes a reference when non-null).
 const SMART_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 /// `00559450` (`ECX` = smart pointer): the object it holds.
+#[cfg(test)]
 const SMART_POINTER_GET: u32 = 0x0055_9450;
 /// `0045cec0` (`ECX` = smart pointer): `NiPointer` destruction (drops the reference).
 const SMART_POINTER_DESTRUCT: u32 = 0x0045_cec0;
@@ -774,8 +777,8 @@ pub fn bgs_open_close_form_snap_havok_to_3d(e: &mut Engine, reference: Ptr) {
         let record = frame.addr();
         let holder = frame.addr() + 0xc;
         e.call(SMART_POINTER_CONSTRUCT, &args![holder, root]);
-        if e.call(SMART_POINTER_GET, &args![holder]).u32() != 0 {
-            let node = e.call(SMART_POINTER_GET, &args![holder]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder)) != 0 {
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
             let collision = e.call(FIND_NEXT_COLLISION_OBJECT, &args![node]).u32();
             let uses_velocity = if collision != 0 {
                 e.call(COLLISION_OBJECT_USES_VELOCITY, &args![collision])
@@ -784,17 +787,17 @@ pub fn bgs_open_close_form_snap_havok_to_3d(e: &mut Engine, reference: Ptr) {
                 0
             };
             if uses_velocity != 0 {
-                let node = e.call(SMART_POINTER_GET, &args![holder]).u32();
+                let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                 e.call(SET_CO_USE_VEL, &args![0u32, node]);
             }
             e.call(
                 UPDATE_RECORD_CONSTRUCT,
                 &args![record, 0.0f32.to_bits(), 0u32, 0u32],
             );
-            let node = e.call(SMART_POINTER_GET, &args![holder]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
             e.call(NODE_UPDATE, &args![node, record]);
             if uses_velocity != 0 {
-                let node = e.call(SMART_POINTER_GET, &args![holder]).u32();
+                let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
                 e.call(SET_CO_USE_VEL, &args![u32::from(uses_velocity), node]);
             }
         }

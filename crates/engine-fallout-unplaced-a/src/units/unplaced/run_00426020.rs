@@ -16,6 +16,7 @@ const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// `BaseExtraList::GetExtraData` (`00410220`, `ECX`, one stack word: the type).
 const GET_EXTRA_DATA: u32 = 0x0041_0220;
 /// `0084e3a0` (`ECX`): a word of the object (here handed to `00469860`).
+#[cfg(test)]
 const RECORD_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// `00469860` (`tesdatahandler.cpp`; `ECX` = the data handler, one stack word), `AL`.
 const DATA_HANDLER_TEST_00469860: u32 = 0x0046_9860;
@@ -26,14 +27,17 @@ const CALCULATE_PROCEDURE_TYPE: u32 = 0x0067_77b0;
 /// `00422700` (`extradatalist.cpp`; `ECX` = the list): an extra data whose +0xc is a list.
 const ACTOR_LIST_EXTRA_00422700: u32 = 0x0042_2700;
 /// `008256d0` (`ECX` = list entry): whether the entry is empty (`AL`).
+#[cfg(test)]
 const ENTRY_EMPTY_008256D0: u32 = 0x0082_56d0;
 /// `006815c0` (`ECX` = list entry): the address of the entry's item word.
+#[cfg(test)]
 const ITEM_ADDRESS_006815C0: u32 = 0x0068_15c0;
 /// `0063f7b0` (`ECX` = list entry): removes the entry's item (the walk stays on the entry).
 const REMOVE_ITEM_0063F7B0: u32 = 0x0063_f7b0;
 /// `00726c60` (`ECX` = list entry, one stack word: the address of the new item).
 const SET_ITEM_00726C60: u32 = 0x0072_6c60;
 /// `00726070` (`ECX` = list entry): the next entry.
+#[cfg(test)]
 const NEXT_ENTRY_00726070: u32 = 0x0072_6070;
 /// `00905330` (`ECX` = list entry, one stack word: the address of an item word): removes the
 /// entry after it.
@@ -107,7 +111,7 @@ pub fn fn_00426020(
         let package = e.call(GET_EXTRA_DATA, &args![list, 0x19u32]).u32();
         if package != 0 {
             let object = e.mem.u32(package + 0xc);
-            let word = e.call(RECORD_ID_0084E3A0, &args![object]).u32();
+            let word = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object));
             let handler: u32 = e.global(DATA_HANDLER);
             if e.call(DATA_HANDLER_TEST_00469860, &args![handler, word])
                 .u8()
@@ -129,9 +133,15 @@ pub fn fn_00426020(
         if holder != 0 {
             let mut entry = e.mem.u32(holder + 0xc);
             e.with_stack(4, |e, cast| {
-                while entry != 0 && e.call(ENTRY_EMPTY_008256D0, &args![entry]).u8() == 0 {
+                while entry != 0
+                    && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, entry))
+                        .into_ret()
+                        .u8()
+                        == 0
+                {
                     e.mem.set_u32(cast.addr(), 0);
-                    let item_address = e.call(ITEM_ADDRESS_006815C0, &args![entry]).u32();
+                    let item_address =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, entry));
                     let item = e.mem.u32(item_address);
                     if item != 0 {
                         let actor = resolve(e, item, TYPE_ACTOR);
@@ -141,7 +151,7 @@ pub fn fn_00426020(
                         e.call(REMOVE_ITEM_0063F7B0, &args![entry]);
                     } else {
                         e.call(SET_ITEM_00726C60, &args![entry, cast]);
-                        entry = e.call(NEXT_ENTRY_00726070, &args![entry]).u32();
+                        entry = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                     }
                 }
             });
@@ -158,8 +168,14 @@ pub fn fn_00426020(
         e.with_stack(8, |e, slots| {
             let cast = slots;
             let removed = slots.byte_add(4);
-            while entry != 0 && e.call(ENTRY_EMPTY_008256D0, &args![entry]).u8() == 0 {
-                let item_address = e.call(ITEM_ADDRESS_006815C0, &args![entry]).u32();
+            while entry != 0
+                && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, entry))
+                    .into_ret()
+                    .u8()
+                    == 0
+            {
+                let item_address =
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, entry));
                 let item = e.mem.u32(item_address);
                 e.mem.set_u32(cast.addr(), item);
                 if item != 0 {
@@ -169,13 +185,18 @@ pub fn fn_00426020(
                 if e.mem.u32(cast.addr()) == 0 {
                     if previous == 0 {
                         e.call(REMOVE_ITEM_0063F7B0, &args![entry]);
-                        if e.call(ENTRY_EMPTY_008256D0, &args![entry]).u8() != 0 {
+                        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, entry))
+                            .into_ret()
+                            .u8()
+                            != 0
+                        {
                             entry = 0;
                         }
                     } else {
                         e.mem.set_u32(removed.addr(), item);
                         e.call(REMOVE_NEXT_00905330, &args![previous, removed]);
-                        entry = e.call(NEXT_ENTRY_00726070, &args![previous]).u32();
+                        entry =
+                            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
                     }
                 } else {
                     e.call(SET_ITEM_00726C60, &args![entry, cast]);
@@ -183,7 +204,7 @@ pub fn fn_00426020(
                     let extra_list = e.call(REFERENCE_EXTRA_LIST_005D43C0, &args![form]).u32();
                     e.call(ADD_DROPPED_ITEM, &args![extra_list, reference]);
                     previous = entry;
-                    entry = e.call(NEXT_ENTRY_00726070, &args![entry]).u32();
+                    entry = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
                 }
             }
         });

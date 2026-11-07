@@ -38,11 +38,14 @@ const EFFECT_TARGET: u32 = 0x0059_bb30;
 const TARGET_AS_ACTOR: u32 = 0x0082_2b40;
 /// The active effect's caster (`0045cd60`) and
 /// `MagicCaster::GetCasterAsActor` (`00815410`).
+#[cfg(test)]
 const EFFECT_CASTER: u32 = 0x0045_cd60;
 const CASTER_AS_ACTOR: u32 = 0x0081_5410;
 /// The active effect's magic item (`0044ddc0`).
+#[cfg(test)]
 const EFFECT_ITEM: u32 = 0x0044_ddc0;
 /// The word at +0xC (`0084e3a0`).
+#[cfg(test)]
 const WORD_AT_C: u32 = 0x0084_e3a0;
 /// `EffectItem`'s setting (`00825c00`), the setting's flag test
 /// (`00403e60`), the effect item's actor value (`00403ea0`),
@@ -85,6 +88,7 @@ const ACTOR_KILL: u32 = 0x0089_d900;
 /// `008d8520`; the actor's process), the effect's radiation amount
 /// (`00495460`, `ST0`) and the player's update after a radiation change
 /// (`00968730`).
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 const RADIATION_AMOUNT: u32 = 0x0049_5460;
 const PLAYER_RADIATION_CHANGED: u32 = 0x0096_8730;
@@ -158,10 +162,10 @@ fn target_actor(e: &mut Engine, this: Ptr<ActiveEffect>) -> u32 {
 
 /// The caster's actor: null without a caster.
 fn caster_actor(e: &mut Engine, this: Ptr<ActiveEffect>) -> u32 {
-    if e.call(EFFECT_CASTER, &args![this]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this)) == 0 {
         return 0;
     }
-    let caster = e.call(EFFECT_CASTER, &args![this]).u32();
+    let caster = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
     e.call(CASTER_AS_ACTOR, &args![caster]).u32()
 }
 
@@ -201,7 +205,7 @@ fn alchemy_stats(
     lost: u32,
     amount_of: fn(&mut Engine, Ptr<ActiveEffect>) -> u32,
 ) {
-    let item = e.call(EFFECT_ITEM, &args![this]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     let is_alchemy = e.vcall(item, 0x18, &[]).u32() == 7;
     let alchemy = if is_alchemy {
         e.call(
@@ -228,8 +232,8 @@ fn radiation_step(e: &mut Engine, this: Ptr<ActiveEffect>, target: u32, slot: u3
     if which(e, this) != RADIATION || !setting_flag(e, this, 4) {
         return;
     }
-    if target != 0 && e.call(ACTOR_PROCESS, &args![target]).u32() != 0 {
-        let process = e.call(ACTOR_PROCESS, &args![target]).u32();
+    if target != 0 && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target)) != 0 {
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
         let amount = x87_store32(e.call(RADIATION_AMOUNT, &args![this]).f64());
         e.vcall(process, slot, &args![amount]);
     }
@@ -334,8 +338,8 @@ pub fn value_modifier_effect_finalize(e: &mut Engine, this: Ptr<ActiveEffect>) {
         let negated = x87_quiet_bits(magnitude_bits(e, this)) ^ SIGN;
         set_magnitude_bits(e, this, negated);
         if target != 0 && e.vcall(this.addr(), 0x60, &[]).u32() == HEALTH {
-            let item = e.call(WORD_AT_C, &args![this]).u32();
-            if e.call(WORD_AT_C, &args![item]).u32() != 0 {
+            let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item)) != 0 {
                 let killer = caster_actor(e, this);
                 let magnitude = x87_quiet_bits(magnitude_bits(e, this));
                 let adjusted = e
@@ -381,7 +385,7 @@ pub fn value_modifier_effect_show_attribute_reduction_message(
     if !e.call(EFFECT_ITEM_IS_HOSTILE, &args![effect]).bool() {
         return;
     }
-    let item = e.call(EFFECT_ITEM, &args![this]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     if e.vcall(item, 0x18, &[]).u32() == 4 {
         return;
     }
@@ -491,7 +495,7 @@ pub fn value_modifier_effect_update(e: &mut Engine, this: Ptr<ActiveEffect>, sec
     ));
     e.vcall(this.addr(), 0x64, &args![target, amount, 0xffff_ffffu32]);
     if which(e, this) == HEALTH && target == e.global::<u32>(PLAYER) {
-        let item = e.call(EFFECT_ITEM, &args![this]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
         if item != 0 && e.vcall(item.wrapping_add(0xc), 0x4, &[]).bool() {
             e.call(PRINT, &args![TEXT_FOOD]);
         } else if e.vcall(item, 0x18, &[]).u32() == 7 {
@@ -599,9 +603,9 @@ pub fn value_modifier_effect_modify_actor_value(
         return;
     }
     let mut killer = caster_actor(e, this);
-    let item = e.call(WORD_AT_C, &args![this]).u32();
-    let keep = if e.call(WORD_AT_C, &args![item]).u32() != 0 {
-        let item = e.call(WORD_AT_C, &args![this]).u32();
+    let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
+    let keep = if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item)) != 0 {
+        let item = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         e.call(EFFECT_ITEM_IS_HOSTILE, &args![item]).bool()
     } else {
         false
@@ -619,10 +623,10 @@ pub fn value_modifier_effect_modify_actor_value(
         && index == HEALTH
         && e.vcall(killer, 0x360, &[]).bool()
         && target != killer
-        && e.call(ACTOR_PROCESS, &args![target]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target)) != 0
         && !e.call(ACTOR_GET_ESSENTIAL, &args![target]).bool()
     {
-        let process = e.call(ACTOR_PROCESS, &args![target]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
         let damage = x87_quiet_bits(amount_bits) ^ SIGN;
         let player = e.global::<u32>(PLAYER);
         e.vcall(process, 0x72c, &args![player, damage]);

@@ -40,6 +40,7 @@ const TYPE_TES_FORM: u32 = 0x0118_3028;
 const TYPE_TES_OBJECT_REFR: u32 = 0x0118_41cc;
 /// `0084e3a0`: the word at `this + 0xc` (the form ID); `TESQuest` vtable
 /// slot `0x130`: its editor ID string.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 const SLOT_EDITOR_ID: u32 = 0x130;
 /// The warning printer (`005b5e40`, cdecl, a format and its arguments) and
@@ -50,6 +51,7 @@ const MSG_NO_REFERENCE: u32 = 0x0104_afb4;
 /// `00440d80`: bit 0x20 of a form's flags word (+8); `005d43c0`:
 /// `this + 0x44` (a reference's extra data list);
 /// `ExtraDataList::GetReferencePointer` (`0041c8d0`).
+#[cfg(test)]
 const FORM_FLAG_0X20: u32 = 0x0044_0d80;
 const REFERENCE_EXTRA_DATA: u32 = 0x005d_43c0;
 const EXTRA_REFERENCE_POINTER: u32 = 0x0041_c8d0;
@@ -81,7 +83,7 @@ pub fn tes_quest_target_init_item(e: &mut Engine, this: Ptr<TESQuestTarget>, que
     let reference = e.get(this, TESQuestTarget::m_pTargetRef).addr();
     if reference == 0 {
         let editor_id = e.vcall(quest.addr(), SLOT_EDITOR_ID, &args![]).u32();
-        let form_id = e.call(FORM_ID, &args![quest]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, quest));
         e.call(WARNING, &args![MSG_NO_REFERENCE, form_id, editor_id]);
     } else {
         e.with_stack(4, |e, cell| {
@@ -99,7 +101,7 @@ pub fn tes_quest_target_init_item(e: &mut Engine, this: Ptr<TESQuestTarget>, que
             e.set(this, TESQuestTarget::m_pTargetRef, Ptr::new(found));
             if e.get(this, TESQuestTarget::m_pTargetRef) == Ptr::NULL {
                 let editor_id = e.vcall(quest.addr(), SLOT_EDITOR_ID, &args![]).u32();
-                let quest_id = e.call(FORM_ID, &args![quest]).u32();
+                let quest_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, quest));
                 let form_id = e.mem.u32(cell.addr());
                 e.call(
                     WARNING,
@@ -154,7 +156,10 @@ pub fn tes_quest_target_get_reference(
     follow: u8,
 ) -> Ptr {
     let mut reference = e.get(this, TESQuestTarget::m_pTargetRef).addr();
-    if reference != 0 && e.call(FORM_FLAG_0X20, &args![reference]).bool() && follow != 0 {
+    if reference != 0
+        && typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, reference))
+        && follow != 0
+    {
         let extra = e.call(REFERENCE_EXTRA_DATA, &args![reference]).u32();
         let pointed = e.call(EXTRA_REFERENCE_POINTER, &args![extra]).u32();
         if pointed != 0 {

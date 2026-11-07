@@ -68,7 +68,9 @@ const RENDERED_MENU_NODE: u32 = 0x0063_d040;
 /// List helpers over the handler list at [`HANDLER_LIST`]: `006815c0`
 /// returns its argument (a node's first word is the item) and `00726070` the
 /// next node (the word at `+4`).
+#[cfg(test)]
 const LIST_ITEM_REF: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 /// The head node of the global list of input handlers (a static object).
 const HANDLER_LIST: u32 = 0x011d_8b54;
@@ -171,12 +173,12 @@ fn st0(r: Ret) -> f64 {
 
 /// The address of the item word of list node `node` (`006815c0`).
 fn list_item_word(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_ITEM_REF, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
 }
 
 /// The next node of the handler list (`00726070`).
 fn list_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// `_ftol2_sse` on a `float`.
@@ -326,7 +328,7 @@ pub fn interface_manager_pre_load_main_menus(e: &mut Engine, this: Ptr<Interface
 /// `alpha` as a `float`.
 pub fn interface_manager_set_cursor_alpha(e: &mut Engine, alpha: i32) {
     let manager = e.call(GET_MANAGER, &args![]).u32();
-    let object = e.call(0x0045_cd60, &args![manager]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, manager));
     let node = if object != 0 {
         e.call(TILE_NODE, &args![object]).u32()
     } else {
@@ -1244,7 +1246,7 @@ pub fn fn_00718ee0(
 /// (`strXMLID`, `+0x04`) maps to the trait id `id` (`Tile::TextToTrait`), or
 /// 0.
 pub fn system_color_manager_find(e: &mut Engine, this: Ptr<SystemColorManager>, id: u32) -> u32 {
-    let mut iterator = e.call(0x0055_9450, &args![this]).u32();
+    let mut iterator = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
     // The exe's frame (`SUB ESP,0xc` under `EBP`): the iterator at `EBP-0x4` (+8).
     e.with_stack(0xc, |e, frame| {
         let slot = frame.addr() + 8;
@@ -1280,6 +1282,7 @@ const TEXT_TO_TRAIT: u32 = 0x00a0_1860;
 /// color's id, the menu refresh a ready flag).
 const SET_NAMED_VALUE: u32 = 0x009f_f8a0;
 /// `0044ddc0`: the word at `+0x08` of its object.
+#[cfg(test)]
 const GET_WORD_AT_8: u32 = 0x0044_ddc0;
 /// `005330e0`, `cdecl`: clamps the `float` at the address to `[min, max]`.
 const CLAMP_FLOAT: u32 = 0x0053_30e0;
@@ -1479,7 +1482,7 @@ pub fn fn_00719160(e: &mut Engine, this: Ptr<SystemColor>, name: u32, id: u32) -
     e.call(0x0040_37b0, &args![text]);
     e.call(0x0040_6f60, &args![text, SYSTEM_COLOR_NAME_FORMAT, name]);
     e.call(0x004a_fad0, &args![text]);
-    let characters = e.call(0x0055_9450, &args![text]).u32();
+    let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
     e.call(SET_NAMED_VALUE, &args![characters, id]);
     this
 }
@@ -1667,7 +1670,7 @@ pub fn system_color_set_color(e: &mut Engine, this: Ptr<SystemColor>, color: Ptr
 /// is ready (`004b71d0`) and `Tile::SetNeedsUpdate(4)`.
 pub fn fn_00719580(e: &mut Engine, tile: Ptr) {
     let children = tile.addr() + 4;
-    let mut node = e.call(0x0055_9450, &args![children]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, children));
     // The exe's frame (`SUB ESP,0x8` under `EBP`): the iterator at `EBP-0x8` (+0).
     e.with_stack(0x8, |e, frame| {
         let slot = frame.addr();
@@ -1723,7 +1726,11 @@ pub fn fn_00719630(e: &mut Engine, this: Ptr<InterfaceManagerFields>, _unused_1:
     fn_00719580(e, Ptr::new(menus_root));
     let menus_root = e.mem.u32(this.addr() + 0x9C);
     let mut node = if menus_root != 0 {
-        e.call(0x0055_9450, &args![menus_root + 4]).u32()
+        typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, menus_root + 4)
+        )
     } else {
         0
     };
@@ -1805,10 +1812,10 @@ pub fn fn_00719790(
     if !tile_c.is_null() && !source.is_null() {
         let mut value = maximum;
         if use_last_weapon == 0 {
-            let object = e.call(GET_WORD_AT_8, &args![source]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, source));
             let bonus = e.with_stack(4, |e, slot| {
                 e.mem.set_f32(slot.addr(), 0.0);
-                let owner = e.call(GET_WORD_AT_8, &args![source]).u32();
+                let owner = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, source));
                 e.call(HANDLE_ENTRY_POINT, &args![0x35u32, player, owner, slot]);
                 e.mem.f32(slot.addr())
             });
@@ -1821,7 +1828,7 @@ pub fn fn_00719790(
                 }
             }
         } else {
-            let object = e.call(GET_WORD_AT_8, &args![source]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, source));
             let weapon = e.call(GET_LAST_BOUND_WEAPON, &args![object]).u32();
             let actor_value = st0(e.vcall(player + 0xA4, 0xC, &args![weapon])) as f32;
             if object != 0 && e.call(GET_TYPE_BYTE, &args![object]).u32() == EXPECTED_TYPE {

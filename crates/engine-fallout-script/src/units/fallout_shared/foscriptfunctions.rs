@@ -13,6 +13,7 @@ const DEBUG_FORMAT: u32 = 0x0103_4044;
 
 /// `0044ddc0` (`thiscall`, no stack words): the word at `this` (here the
 /// VATS mode).
+#[cfg(test)]
 const WORD_AT: u32 = 0x0044_ddc0;
 /// `VATS::GetCurrentAction` (engine map), `thiscall`.
 const VATS_CURRENT_ACTION: u32 = 0x009c_71c0;
@@ -25,6 +26,7 @@ const FORM_LIST: u32 = 0x0050_0940;
 const LIST_CONTAINS: u32 = 0x005f_65d0;
 /// `007af430` (`thiscall`): the base form of a reference (the word at
 /// +0x20).
+#[cfg(test)]
 const BASE_FORM: u32 = 0x007a_f430;
 /// `00446390` (`thiscall`): the word at the start of the object.
 const FIRST_WORD: u32 = 0x0044_6390;
@@ -96,9 +98,11 @@ pub fn fo_script_functions_get_vats_value_condition_function(
     let result = result.addr();
     e.mem.set_f64(result, 0.0);
     let mut answered = false;
-    let action = if e.call(WORD_AT, &args![VATS]).u32() == 4 {
+    let action = if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, VATS)) == 4 {
         e.call(VATS_CURRENT_ACTION, &args![VATS]).u32()
-    } else if e.call(WORD_AT, &args![VATS]).u32() == 2 || e.call(WORD_AT, &args![VATS]).u32() == 3 {
+    } else if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, VATS)) == 2
+        || typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, VATS)) == 3
+    {
         e.call(MENU_ACTION, &[]).u32()
     } else {
         0
@@ -121,9 +125,10 @@ pub fn fo_script_functions_get_vats_value_condition_function(
             2 => {
                 if form != 0 && e.mem.u32(action + 0xc) != 0 {
                     let actor = e.mem.u32(action + 0xc);
-                    if e.call(BASE_FORM, &args![actor]).u32() != 0 {
+                    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor)) != 0 {
                         let actor = e.mem.u32(action + 0xc);
-                        let base = e.call(BASE_FORM, &args![actor]).u32();
+                        let base =
+                            typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
                         if !e.vcall(form, 0x10c, &args![base]).bool() {
                             e.mem.set_f64(result, 1.0);
                         }
@@ -133,7 +138,7 @@ pub fn fo_script_functions_get_vats_value_condition_function(
             3 => {
                 if e.mem.u32(action + 0xc) != 0 && form != 0 {
                     let actor = e.mem.u32(action + 0xc);
-                    let base = e.call(BASE_FORM, &args![actor]).u32();
+                    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
                     if form_list_contains(e, form, base) {
                         e.mem.set_f64(result, 1.0);
                     }

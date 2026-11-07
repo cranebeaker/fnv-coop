@@ -213,6 +213,7 @@ const STRING_FORMAT: u32 = 0x0040_6f60;
 /// Placement `operator new(size, where)`: returns `where`.
 const PLACEMENT_NEW: u32 = 0x006e_6da0;
 /// The load of the pointer stored in the slot that is its `this`.
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiTMapBase::RemoveAll` (empties a map; `this` = map).
 const MAP_REMOVE_ALL: u32 = 0x0043_8af0;
@@ -227,8 +228,10 @@ const LIST_NEXT_NODE: u32 = 0x007b_52d0;
 /// `NiTList` walk: address of the element slot of `node` (`node + 8`).
 const LIST_ELEMENT_SLOT: u32 = 0x0063_17a0;
 /// `BSSimpleList` node: its own address (the item slot is the first word).
+#[cfg(test)]
 const SIMPLE_LIST_NODE: u32 = 0x0068_15c0;
 /// `BSSimpleList` node: the next node (`node + 4`).
+#[cfg(test)]
 const SIMPLE_LIST_NEXT: u32 = 0x0072_6070;
 /// `BSSimpleArray::IsFull` (`iSize == iReservedSize`).
 const ARRAY_IS_FULL: u32 = 0x0043_8b90;
@@ -287,7 +290,7 @@ const SLOT_ARRAY_ALLOCATE: u32 = 0x04;
 
 /// `*slot` through the game's pointer getter (`00559450`).
 fn pointer_in_slot(e: &mut Engine, slot: Ptr) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// Adds `by` to a counter of a scene-data struct (32-bit wrap-around).
@@ -314,8 +317,8 @@ fn setting_value(e: &mut Engine, setting: u32) -> u32 {
 
 /// The form ID of a reference: `0084e3a0(007af430(reference))`.
 fn reference_form_id(e: &mut Engine, reference: u32) -> u32 {
-    let form = e.call(0x007a_f430, &args![reference]).u32();
-    e.call(0x0084_e3a0, &args![form]).u32()
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
 }
 
 /// The memory estimate both collectors compute for geometry data `data`
@@ -474,7 +477,7 @@ pub fn fn_004a7d20(e: &mut Engine, this: Ptr<BGSSceneInfo>, cell: u32) {
 
     let mut object_node = e.call(0x0054_5710, &args![cell]).u32();
     while object_node != 0 {
-        let slot = e.call(SIMPLE_LIST_NODE, &args![object_node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, object_node));
         let form = e.mem.u32(slot);
         if form == 0 {
             break;
@@ -489,7 +492,7 @@ pub fn fn_004a7d20(e: &mut Engine, this: Ptr<BGSSceneInfo>, cell: u32) {
                 e.mem.set_u32(this.addr() + 0x30, total);
             }
         }
-        object_node = e.call(SIMPLE_LIST_NEXT, &args![object_node]).u32();
+        object_node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, object_node));
     }
 
     e.call(MAP_REMOVE_ALL, &args![reference_map]);
@@ -513,7 +516,7 @@ pub fn fn_004a8030(e: &mut Engine, this: Ptr) -> u32 {
 /// points at.
 pub fn fn_004a8050(e: &mut Engine, this: Ptr) -> u32 {
     let data = pointer_in_slot(e, this.byte_add(0xb8));
-    e.call(0x0045_cd60, &args![data]).u32()
+    typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, data))
 }
 
 // Translated from 004a8070 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -610,7 +613,11 @@ pub fn bgs_scene_info_collect_scene_data_from_node(
     e.call(MAP_REMOVE_ALL, &args![LIGHT_GEOMETRY_MAP]);
     if with_addons
         && e.global::<u8>(INCLUDE_ADDONS) != 0
-        && e.call(0x0044_ddc0, &args![SCENE_DATA_ADDON_NODES]).u32() == 0
+        && typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, SCENE_DATA_ADDON_NODES)
+        ) == 0
     {
         bgs_scene_info_collect_scene_data_from_addon_nodes(e, this);
     }
@@ -704,7 +711,14 @@ pub fn bgs_scene_info_collect_scene_data_recursive(
                 let handler = e.global::<u32>(DATA_HANDLER);
                 if index >= 0
                     && index < e.call(0x0045_a120, &args![handler]).i32()
-                    && index < e.call(0x0044_ddc0, &args![SCENE_DATA_ADDON_NODES]).i32()
+                    && index
+                        < typed_call!(
+                            leaf::FAMILY,
+                            0x0044_ddc0,
+                            leaf::word_at_8(e, SCENE_DATA_ADDON_NODES)
+                        )
+                        .into_ret()
+                        .i32()
                 {
                     for slot in 0..16u32 {
                         if slot > 3 {
@@ -745,14 +759,16 @@ pub fn bgs_scene_info_collect_scene_data_recursive(
                     let extra = e.call(0x005d_43c0, &args![reference]).u32();
                     let mut decal = e.call(0x0041_f050, &args![extra]).u32();
                     while decal != 0 {
-                        let slot = e.call(SIMPLE_LIST_NODE, &args![decal]).u32();
+                        let slot =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, decal));
                         if e.mem.u32(slot) == 0 {
                             break;
                         }
                         bump(e, data, SceneInfoDataStruct::counter_38, 1);
-                        decal = e.call(SIMPLE_LIST_NEXT, &args![decal]).u32();
+                        decal = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, decal));
                     }
-                    let form = e.call(0x007a_f430, &args![reference]).u32();
+                    let form =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                     let form_type = e.call(0x0040_1170, &args![form]).u32();
                     if (0x2a..=0x2d).contains(&form_type) {
                         bump(e, data, SceneInfoDataStruct::counter_04, 1);
@@ -941,11 +957,12 @@ pub fn fn_004a9050(e: &mut Engine) -> i32 {
             world = e.call(0x0058_6390, &args![world, 1u32]).u32();
         }
         if world != 0 {
-            let adjustment = if e.call(0x0084_e3a0, &args![world]).u32() == 0x3c {
-                setting_value(e, SETTING_WASTELAND_LOD_ADJUSTMENT)
-            } else {
-                setting_value(e, SETTING_CITY_LOD_ADJUSTMENT)
-            };
+            let adjustment =
+                if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, world)) == 0x3c {
+                    setting_value(e, SETTING_WASTELAND_LOD_ADJUSTMENT)
+                } else {
+                    setting_value(e, SETTING_CITY_LOD_ADJUSTMENT)
+                };
             budget = budget.wrapping_sub(adjustment as i32);
         }
     }

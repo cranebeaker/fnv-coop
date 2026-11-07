@@ -192,9 +192,11 @@ pub(crate) const STRCMP: u32 = 0x0040_8b20;
 pub(crate) const VECTOR_CONSTRUCTOR_ITERATOR: u32 = 0x00ec_782f;
 
 /// The word at `+4` of `this` (`00726070`, the list-node `next` getter).
+#[cfg(test)]
 pub(crate) const GET_WORD_AT_4: u32 = 0x0072_6070;
 /// The word at `+0x20` of `this` (`007af430`: `TESObject::nod_lpNext` and
 /// `TESObjectREFR::baseForm` share it).
+#[cfg(test)]
 pub(crate) const GET_WORD_AT_20: u32 = 0x007a_f430;
 /// `TESForm::GetFormType` folded accessor: the byte at `+4`.
 pub(crate) const GET_FORM_TYPE: u32 = 0x0040_1170;
@@ -409,8 +411,8 @@ pub fn fn_00603280(e: &mut Engine, race: Ptr, sex: i32, list: Ptr) {
     let mut require_flag = true;
     loop {
         let handler = e.global::<u32>(DATA_HANDLER);
-        let objects = e.call(GET_WORD_AT_4, &args![handler]).u32();
-        let mut node = e.call(GET_WORD_AT_4, &args![objects]).u32();
+        let objects = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, handler));
+        let mut node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, objects));
         while node != 0 {
             if e.call(GET_FORM_TYPE, &args![node]).u32() == 0x2a {
                 let matches = e.call(NPC_GET_RACE, &args![node]).u32() == race.addr()
@@ -423,7 +425,8 @@ pub fn fn_00603280(e: &mut Engine, race: Ptr, sex: i32, list: Ptr) {
                         .bool());
                 if matches {
                     let player = e.global::<u32>(PLAYER_SINGLETON);
-                    let player_base = e.call(GET_WORD_AT_20, &args![player]).u32();
+                    let player_base =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
                     if node != player_base {
                         e.with_stack(4, |e, slot| {
                             e.mem.set_u32(slot.addr(), node);
@@ -432,7 +435,7 @@ pub fn fn_00603280(e: &mut Engine, race: Ptr, sex: i32, list: Ptr) {
                     }
                 }
             }
-            node = e.call(GET_WORD_AT_20, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, node));
         }
         if e.call(0x0076_b610, &args![list]).bool() && require_flag {
             require_flag = false;
@@ -498,7 +501,7 @@ pub fn tesnpc_init_item(e: &mut Engine, this: Ptr<TESNPC>) {
             e.set(this, TESNPC::pCombatStyle, style);
             if style.is_null() {
                 let name = e.vcall(base, VSLOT_GET_FORM_NAME, &args![]).u32();
-                let form_id = e.call(0x0084_e3a0, &args![this]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 e.call(
                     0x005b_5e40,
                     &args![0x0104_a600u32, resolved_id, form_id, name],
@@ -512,7 +515,11 @@ pub fn tesnpc_init_item(e: &mut Engine, this: Ptr<TESNPC>) {
         e.vcall(base, VSLOT_SET_COMBAT_STYLE, &args![default_style]);
     }
 
-    let health = e.call(GET_WORD_AT_4, &args![base + COMPONENT_HEALTH]).u32();
+    let health = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, base + COMPONENT_HEALTH)
+    );
     if health == 0 {
         e.call(0x0056_5210, &args![this, 1u32]);
     }
@@ -621,11 +628,11 @@ pub fn fn_00603790(e: &mut Engine, this: Ptr<TESNPC>, source: Ptr<TESNPC>) {
     let hair_color = e.call(NPC_GET_HAIR_COLOR, &args![source]).u32();
     e.set(this, TESNPC::iHairColor, hair_color);
     let mut node = e.call(NPC_GET_HEAD_PARTS, &args![source]).u32();
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let item = e.call(0x0068_15c0, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let own_parts = e.call(NPC_GET_HEAD_PARTS, &args![this]).u32();
         e.call(0x0090_5820, &args![own_parts, item]);
-        node = e.call(GET_WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let source_coord = e.call(NPC_FACE_COORD_POINTER, &args![source]).u32();
     let own_coord = e.call(NPC_FACE_COORD_POINTER, &args![this]).u32();
@@ -634,7 +641,9 @@ pub fn fn_00603790(e: &mut Engine, this: Ptr<TESNPC>, source: Ptr<TESNPC>) {
         &args![source_coord, own_coord, 0u32, 0u32],
     );
     let player = e.global::<u32>(PLAYER_SINGLETON);
-    if player == 0 || this.addr() != e.call(GET_WORD_AT_20, &args![player]).u32() {
+    if player == 0
+        || this.addr() != typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player))
+    {
         e.call(0x004c_0cd0, &args![this, source]);
     }
 }
@@ -721,13 +730,13 @@ pub fn tesnpc_compare(e: &mut Engine, this: Ptr<TESNPC>, other: Ptr) -> bool {
         return true;
     }
     let mut node = e.call(NPC_GET_HEAD_PARTS, &args![this]).u32();
-    while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-        let item = e.call(0x0068_15c0, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let other_parts = e.call(NPC_GET_HEAD_PARTS, &args![other]).u32();
         if !e.call(0x005f_65d0, &args![other_parts, item]).bool() {
             return true;
         }
-        node = e.call(GET_WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if e.get(this, TESNPC::fHeight) != e.get(other, TESNPC::fHeight) {
         return true;
@@ -744,9 +753,11 @@ pub fn tesnpc_compare(e: &mut Engine, this: Ptr<TESNPC>, other: Ptr) -> bool {
 /// `0.0`).
 pub fn tesnpc_get_face_coord(e: &mut Engine, this: Ptr<TESNPC>, coord: Ptr) {
     e.call(FACEGEN_INIT_COORD, &args![coord]);
-    let race = e
-        .call(GET_WORD_AT_4, &args![this.addr() + COMPONENT_RACE])
-        .u32();
+    let race = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this.addr() + COMPONENT_RACE)
+    );
     if race == 0 {
         let default_coord = e.call(FACEGEN_DEFAULT_COORD, &args![]).u32();
         e.call(FACEGEN_COPY_COORD, &args![default_coord, coord, 0u32, 0u32]);
@@ -769,12 +780,14 @@ pub fn fn_00603b50(e: &mut Engine, this: Ptr<TESNPC>) -> Ptr {
     let mut hair = e.get(this, TESNPC::pHair);
     if e.get(this, TESNPC::pOriginalRace) != Ptr::NULL {
         let player = e.global::<u32>(PLAYER_SINGLETON);
-        let player_base = e.call(GET_WORD_AT_20, &args![player]).u32();
+        let player_base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
         if this.addr() != player_base {
             let sex = e.call(GET_SEX, &args![this]).u32();
-            let race = e
-                .call(GET_WORD_AT_4, &args![this.addr() + COMPONENT_RACE])
-                .u32();
+            let race = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, this.addr() + COMPONENT_RACE)
+            );
             hair = e.call(0x0061_3870, &args![race, sex]).ptr();
         }
     }
@@ -810,6 +823,7 @@ const TO_ACTOR_VALUE: u32 = 0x0066_ec10;
 /// `TESActorBaseData::GetLevel` (`0047ded0`).
 const GET_LEVEL: u32 = 0x0047_ded0;
 /// `TESForm::GetFormID` folded accessor: the word at `+0xc`.
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// The form id of the player's base NPC form.
 const PLAYER_BASE_FORM_ID: u32 = 7;
@@ -832,20 +846,24 @@ const ATTRIBUTES_GET_SEVENTH: u32 = 0x005f_1230;
 pub fn tesnpc_init_values(e: &mut Engine, this: Ptr<TESNPC>, extra_divisor: bool) {
     let base = this.addr();
     let mut value: f32 = 0.0;
-    if e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32() == 0
+    if typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, base + COMPONENT_RACE)
+    ) == 0
         || e.get(this, TESNPC::pCl) == Ptr::NULL
     {
         return;
     }
     let mut is_player_base = false;
-    if e.call(GET_FORM_ID, &args![this]).u32() == PLAYER_BASE_FORM_ID {
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == PLAYER_BASE_FORM_ID {
         is_player_base = true;
     }
     let mut use_class = true;
     if is_player_base {
         let setting = e.call(GET_INT_SETTING_VALUE, &args![0x011d_0e7cu32]).u32();
         let class = e.call(NPC_GET_CLASS, &args![this]).u32();
-        let class_form_id = e.call(GET_FORM_ID, &args![class]).u32();
+        let class_form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, class));
         if e.mem.u32(setting) == class_form_id {
             use_class = false;
         }
@@ -959,7 +977,9 @@ pub fn tesnpc_init_values(e: &mut Engine, this: Ptr<TESNPC>, extra_divisor: bool
 /// `this` is the health component): the stored health (`00726070`), 0 when
 /// it is negative.
 pub fn tesnpc_get_form_health(e: &mut Engine, this: Ptr) -> i32 {
-    let health = e.call(GET_WORD_AT_4, &args![this]).i32();
+    let health = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this))
+        .into_ret()
+        .i32();
     health.max(0)
 }
 
@@ -979,7 +999,11 @@ pub fn fn_00603fc0(e: &mut Engine, this: Ptr<TESNPC>, use_base: bool) -> i32 {
     if level < 1 {
         level = 1;
     }
-    let health = e.call(GET_WORD_AT_4, &args![base + COMPONENT_HEALTH]).u32();
+    let health = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, base + COMPONENT_HEALTH)
+    );
     let result = if health != 0 {
         let start = if use_base { health } else { 0 };
         let start = start as f64;
@@ -1081,7 +1105,7 @@ pub fn fn_00604210(e: &mut Engine, race: Ptr, sex: i32) -> f32 {
 /// when the stored weight is 0.0 and the NPC has a race; for every other NPC
 /// the exe returns the float at `+0x1f4` (`00944300`, the height field).
 pub fn tesnpc_get_weight(e: &mut Engine, this: Ptr<TESNPC>) -> f32 {
-    if e.call(GET_FORM_ID, &args![this]).u32() != PLAYER_BASE_FORM_ID {
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) != PLAYER_BASE_FORM_ID {
         return e.call(0x0094_4300, &args![this]).f32();
     }
     let zero: f64 = e.global(ZERO_DOUBLE);
@@ -1175,9 +1199,9 @@ pub fn tesnpc_get_head_part_mod_texture_file_name(
     if file == 0 {
         return false;
     }
-    let form_id = e.call(GET_FORM_ID, &args![this]).u32() & 0x00ff_ffff;
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) & 0x00ff_ffff;
     let race = e.call(NPC_GET_RACE, &args![this]).u32();
-    let race_id = e.call(GET_FORM_ID, &args![race]).u32() & 0x00ff_ffff;
+    let race_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, race)) & 0x00ff_ffff;
     let file_name = e.call(FILE_NAME, &args![file]).u32();
     let is_update = e
         .call(STRNICMP, &args![file_name, UPDATE_PREFIX, 6u32])
@@ -1225,7 +1249,9 @@ pub fn fn_006044c0(e: &mut Engine, this: Ptr<TESNPC>) -> Ptr<TESNPC> {
 pub fn fn_006044e0(e: &mut Engine, this: Ptr<TESNPC>, index: i32, slot: Ptr) {
     let setting = e.call(GET_BOOL_SETTING_VALUE, &args![0x011d_5adcu32]).u32();
     let player = e.global::<u32>(PLAYER_SINGLETON);
-    if e.mem.u8(setting) != 0 || this.addr() == e.call(GET_WORD_AT_20, &args![player]).u32() {
+    if e.mem.u8(setting) != 0
+        || this.addr() == typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player))
+    {
         e.call(NI_POINTER_ASSIGN, &args![slot, 0u32]);
         return;
     }
@@ -1257,11 +1283,19 @@ pub fn fn_006044e0(e: &mut Engine, this: Ptr<TESNPC>, index: i32, slot: Ptr) {
 pub fn bs_face_gen_manager_get_default_base_modulation_texture(e: &mut Engine) -> Ptr {
     let manager = e.global::<u32>(FACE_GEN_MANAGER);
     if manager != 0 {
-        e.call(0x0055_9450, &args![manager + 0x119c]).ptr()
+        typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, manager + 0x119c)
+        )
+        .into_ret()
+        .ptr()
     } else {
         e.with_stack(4, |e, empty| {
             e.call(NI_POINTER_CONSTRUCT, &args![empty, 0u32]);
-            let texture = e.call(0x0055_9450, &args![empty]).ptr();
+            let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, empty))
+                .into_ret()
+                .ptr();
             e.call(NI_POINTER_DESTROY, &args![empty]);
             texture
         })
@@ -1279,7 +1313,7 @@ pub fn bs_face_gen_manager_get_default_base_modulation_texture(e: &mut Engine) -
 pub fn tesnpc_get_voice_type(e: &mut Engine, this: Ptr) -> Ptr {
     let npc = Ptr::<TESNPC>::new(this.addr().wrapping_sub(COMPONENT_ACTOR_BASE_DATA));
     let player = e.global::<u32>(PLAYER_SINGLETON);
-    if npc.addr() == e.call(GET_WORD_AT_20, &args![player]).u32() {
+    if npc.addr() == typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player)) {
         let alternate = fn_006047a0(e, Ptr::new(player)) != 0;
         let male = e.call(GET_SEX, &args![npc]).i32() == 0;
         let default_object = match (male, alternate) {
@@ -1295,7 +1329,11 @@ pub fn tesnpc_get_voice_type(e: &mut Engine, this: Ptr) -> Ptr {
     if voice != 0 {
         return Ptr::new(voice);
     }
-    let race = e.call(GET_WORD_AT_4, &args![this.addr() + 0xdc]).u32();
+    let race = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this.addr() + 0xdc)
+    );
     if race == 0 {
         return Ptr::NULL;
     }
@@ -1390,14 +1428,14 @@ pub fn fn_006047c0(
     let inventory = e.call(0x004b_f220, &args![actor]).u32();
     e.call(0x004b_fe50, &args![inventory, 1u32, actor]);
 
-    if e.call(PROCESS_OF_ACTOR, &args![actor]).u32() != 0 {
-        let process = e.call(PROCESS_OF_ACTOR, &args![actor]).u32();
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, 0x168, &args![0u32]);
-        let process = e.call(PROCESS_OF_ACTOR, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, 0x16c, &args![0u32]);
-        let process = e.call(PROCESS_OF_ACTOR, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, 0x164, &args![0u32]);
-        let process = e.call(PROCESS_OF_ACTOR, &args![actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         e.vcall(process, 0x160, &args![0u32, 0u32, 0u32]);
     }
 
@@ -1410,16 +1448,16 @@ pub fn fn_006047c0(
             continue;
         }
         let mut equip = true;
-        let form = e.call(0x0044_ddc0, &args![item]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let covered = (biped_model != 0
             && e.call(FILLS_BIPED_SLOT, &args![biped_model, slot, 0u32, 0u32])
                 .bool())
             || e.call(0x0057_5400, &args![actor, form]).bool();
         if !covered {
-            let first_word = e.call(GET_FIRST_WORD, &args![item]).u32();
+            let first_word = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
             let extra = if first_word != 0 {
-                let held = e.call(GET_FIRST_WORD, &args![item]).u32();
-                let itself = e.call(0x0068_15c0, &args![held]).u32();
+                let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+                let itself = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, held));
                 e.mem.u32(itself)
             } else {
                 0
@@ -1456,17 +1494,18 @@ pub fn fn_006047c0(
                 return;
             }
             let mut free_item = true;
-            let weapon_form = e.call(0x0044_ddc0, &args![weapon]).u32();
+            let weapon_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, weapon));
             if !e.call(0x0057_5400, &args![actor, weapon_form]).bool() {
                 let mut extra = 0;
-                if e.call(GET_FIRST_WORD, &args![weapon]).u32() != 0 {
-                    let held = e.call(GET_FIRST_WORD, &args![weapon]).u32();
-                    let itself = e.call(0x0068_15c0, &args![held]).u32();
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, weapon)) != 0 {
+                    let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, weapon));
+                    let itself = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, held));
                     extra = e.mem.u32(itself);
                     free_item = false;
                 }
-                let count = e.call(GET_WORD_AT_4, &args![weapon]).u32();
-                let equipped_form = e.call(0x0044_ddc0, &args![weapon]).u32();
+                let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, weapon));
+                let equipped_form =
+                    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, weapon));
                 e.call(
                     0x0088_c830,
                     &args![actor, equipped_form, count, extra, 1u32, 0u32, 1u32],
@@ -1474,10 +1513,12 @@ pub fn fn_006047c0(
                 if free_item {
                     e.call(0x0044_59e0, &args![weapon, 1u32]);
                 }
-            } else if e.call(PROCESS_OF_ACTOR, &args![actor]).u32() != 0 {
-                let weapon_form = e.call(0x0044_ddc0, &args![weapon]).u32();
+            } else if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+                let weapon_form =
+                    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, weapon));
                 if weapon_form != e.call(0x008a_1710, &args![actor]).u32() {
-                    let process = e.call(PROCESS_OF_ACTOR, &args![actor]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     let extra = e.vcall(actor.addr(), 0x1d0, &args![]).u32();
                     e.vcall(process, 0x160, &args![weapon, extra, 0u32]);
                 }
@@ -1488,16 +1529,18 @@ pub fn fn_006047c0(
     if !keep_flag {
         e.call(FLAG_OBJECT_SET, &args![flag_object, saved_flag as u32]);
     }
-    if e.call(PROCESS_OF_ACTOR, &args![actor]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
         e.call(0x008c_26e0, &args![actor, 1u32]);
     }
 }
 
 /// `Actor::GetProcess` folded accessor (`008d8520`): the word at `+0x68`.
+#[cfg(test)]
 const PROCESS_OF_ACTOR: u32 = 0x008d_8520;
 /// `TESBipedModelForm::FillsBipedSlot(slot, a, b)` (`00480af0`).
 const FILLS_BIPED_SLOT: u32 = 0x0048_0af0;
 /// The word at `+0` of `this` (`00559450`).
+#[cfg(test)]
 const GET_FIRST_WORD: u32 = 0x0055_9450;
 
 // Translated from 00604ba0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1537,11 +1580,11 @@ pub fn fn_00604ba0(e: &mut Engine, this: Ptr, template: Ptr) {
             source = default_npc.addr();
             let handler = e.global::<u32>(DATA_HANDLER);
             let first = e.call(DATA_HANDLER_FIRST_LIST, &args![handler]).u32();
-            let first = e.call(0x0068_15c0, &args![first]).u32();
+            let first = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first));
             let race = e.mem.u32(first);
             e.call(SET_WORD_AT_4, &args![source + COMPONENT_RACE, race]);
             let second = e.call(DATA_HANDLER_SECOND_LIST, &args![handler]).u32();
-            let second = e.call(0x0068_15c0, &args![second]).u32();
+            let second = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
             let class = e.mem.u32(second);
             e.call(NPC_SET_CLASS, &args![source, class]);
         } else if e
@@ -1611,7 +1654,11 @@ pub fn fn_00604ba0(e: &mut Engine, this: Ptr, template: Ptr) {
             e.call(0x0050_f9c0, &args![this, voice]);
             let flag = e.call(TEST_ACTOR_FLAGS, &args![base_data, 1u32]).u8();
             e.call(0x0047_dd50, &args![this, 1u32, flag as u32, 1u32]);
-            let race = e.call(GET_WORD_AT_4, &args![source + COMPONENT_RACE]).u32();
+            let race = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, source + COMPONENT_RACE)
+            );
             e.call(SET_WORD_AT_4, &args![component + 0xdc, race]);
             let height = e.call(0x0094_4300, &args![source]).f32();
             e.call(0x0094_42e0, &args![npc, height]);
@@ -1731,7 +1778,7 @@ pub fn tesnpc_clone_3d(e: &mut Engine, this: Ptr<TESNPC>, reference: Ptr) -> Ptr
             0x0047_ce10,
             &args![base + COMPONENT_ACTOR_BASE_DATA, reference],
         );
-        let base_form = e.call(GET_WORD_AT_20, &args![reference]).u32();
+        let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         return e.vcall(base_form, 0x178, &args![reference]).ptr();
     }
     let mut model: u32 = 0;
@@ -1853,7 +1900,9 @@ const RACE_HEAD_PART_ENTRY: u32 = 0x0061_3b20;
 /// The race's list of eye colours (`00503650`: `this + 0xa8`) and the
 /// emptiness test of a list node (`008256d0`).
 const RACE_EYE_LIST: u32 = 0x0050_3650;
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_NODE_SELF: u32 = 0x0068_15c0;
 /// `NiAVObject` helper (`004b3e60(object, node, scale, 1, 0)`, cdecl) that
 /// attaches the object to the actor's head node; true on success.
@@ -1885,7 +1934,7 @@ pub fn fn_006056f0(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr) {
     let head_pointer = e
         .call(NI_POINTER_ASSIGN, &args![base + 0x1c8, head_node])
         .u32();
-    let head = e.call(GET_FIRST_WORD, &args![head_pointer]).u32();
+    let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, head_pointer));
     let body_name = fn_00605d40(e, 0);
     let body = e.call(FIND_NODE_BY_NAME, &args![root, body_name]).u32();
     let body_node = if body != 0 {
@@ -1917,7 +1966,11 @@ pub fn fn_006056f0(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr) {
         }
     }
 
-    let race = e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32();
+    let race = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, base + COMPONENT_RACE)
+    );
     if race == 0 {
         return;
     }
@@ -1937,8 +1990,14 @@ pub fn fn_006056f0(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr) {
         tesnpc_get_face_coord(e, this, params);
         if eyes == 0 {
             let eye_list = e.call(RACE_EYE_LIST, &args![race]).u32();
-            if eye_list != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![eye_list]).bool() {
-                let item = e.call(LIST_NODE_SELF, &args![eye_list]).u32();
+            if eye_list != 0
+                && !typed_call!(
+                    leaf::FAMILY,
+                    0x0082_56d0,
+                    leaf::both_words_zero(e, eye_list)
+                )
+            {
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, eye_list));
                 eyes = e.mem.u32(item);
                 e.mem.set_u32(block + 0x8c, eyes);
             }
@@ -1962,9 +2021,9 @@ pub fn fn_006056f0(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr) {
         }
         let texture_flag = fn_00605d50(e);
         e.mem.set_u8(block + 0xd4, texture_flag);
-        let biped = e.call(GET_FIRST_WORD, &args![base + 0x1c4]).u32();
+        let biped = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c4));
         e.call(APPLY_FACE_PARAMS, &args![biped, params]);
-        let skinned = e.call(GET_FIRST_WORD, &args![base + 0x1c8]).u32();
+        let skinned = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c8));
         e.call(APPLY_FACE_PARAMS, &args![skinned, params]);
         e.call(FACE_PARAMS_DESTROY, &args![params]);
     });
@@ -2247,7 +2306,7 @@ pub fn tesnpc_load(e: &mut Engine, this: Ptr<TESNPC>, file: Ptr) -> bool {
             TAG_NAM0 | TAG_NAM1 | TAG_NAM2 | TAG_NAM3 => {
                 if !logged_face_texture {
                     let file_name = e.call(FILE_NAME, &args![file]).u32();
-                    let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+                    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                     let name = e.vcall(base, VSLOT_GET_FORM_NAME, &args![]).u32();
                     e.call(
                         LOG_MESSAGE,
@@ -2444,9 +2503,9 @@ pub fn tesnpc_load(e: &mut Engine, this: Ptr<TESNPC>, file: Ptr) -> bool {
         }
     }
 
-    if e.call(GET_FORM_ID, &args![this]).u32() == PLAYER_BASE_FORM_ID {
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == PLAYER_BASE_FORM_ID {
         let player = e.global::<u32>(PLAYER_SINGLETON);
-        if player != 0 && e.call(GET_WORD_AT_20, &args![player]).u32() == 0 {
+        if player != 0 && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player)) == 0 {
             e.call(REFERENCE_SET_OBJECT_REFERENCE, &args![player, this]);
         }
     }
@@ -2457,7 +2516,7 @@ pub fn tesnpc_load(e: &mut Engine, this: Ptr<TESNPC>, file: Ptr) -> bool {
     .u16()
         == 0
     {
-        let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let name = e.vcall(base, VSLOT_GET_FORM_NAME, &args![]).u32();
         e.call(LOG_MESSAGE, &args![MESSAGE_SPEED_ZERO, name, form_id]);
     }
@@ -2507,7 +2566,7 @@ fn lookup_chunk_form(e: &mut Engine, file: Ptr, target: u32) -> (Ptr, u32) {
 /// Logs that a form named by a chunk was not found: `format` takes the form
 /// id, the NPC name and the NPC form id.
 fn log_missing_form(e: &mut Engine, this: Ptr<TESNPC>, format: u32, id: u32) {
-    let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let name = e.vcall(this.addr(), VSLOT_GET_FORM_NAME, &args![]).u32();
     e.call(LOG_MESSAGE, &args![format, id, name, form_id]);
 }
@@ -2526,7 +2585,7 @@ fn load_data_chunk(e: &mut Engine, this: Ptr<TESNPC>, file: Ptr) {
         return;
     }
     if data_size != 0x1c && data_size.wrapping_shl(1) != 0x1c {
-        let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let name = e.vcall(this.addr(), VSLOT_GET_FORM_NAME, &args![]).u32();
         e.call(
             LOG_MESSAGE,
@@ -2677,7 +2736,7 @@ const TYPE_TES_BOUND_OBJECT: u32 = 0x0118_3108;
 /// `MiddleHighProcess::GetSavedAcquireObject`-style getter (`008d8520`): the
 /// process of an actor.
 fn process_of(e: &mut Engine, actor: u32) -> u32 {
-    e.call(PROCESS_OF_ACTOR, &args![actor]).u32()
+    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
 }
 
 /// `NiAVObject::UpdateProperties`-less update: the update-data block built by
@@ -2770,16 +2829,18 @@ pub fn tesnpc_replace_ref_model(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr) {
 ///
 pub fn fn_00605e70(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Ptr, worn: Ptr) {
     let female = e.get(this, TESNPC::iActorBaseFlags) & 1 != 0;
-    let race = e
-        .call(GET_WORD_AT_4, &args![this.addr() + COMPONENT_RACE])
-        .u32();
+    let race = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this.addr() + COMPONENT_RACE)
+    );
     e.call(0x004a_b250, &args![biped, race, female]);
     if !actor.is_null() && process_of(e, actor.addr()) != 0 {
         let process = process_of(e, actor.addr());
         e.vcall(process, 0x468, &args![1u32]);
     }
     let mut index = 0u32;
-    while index < e.call(0x0044_ddc0, &args![worn]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, worn)) {
         let slot = e.call(0x006a_7ad0, &args![worn, index]).u32();
         let item = e.mem.u32(slot);
         tesnpc_init_worn_object(e, this, actor, biped, Ptr::new(item));
@@ -2857,7 +2918,7 @@ pub fn tesnpc_init_worn(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Pt
         }
         let entry = e.call(0x004c_8c10, &args![changes, slot, 0u32]).u32();
         if entry != 0 {
-            let item = e.call(0x0044_ddc0, &args![entry]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             if entry != 0 {
                 e.call(0x0044_59e0, &args![entry, 1u32]);
             }
@@ -2903,20 +2964,20 @@ pub fn tesnpc_init_worn_object(
         e.call(LOG_MESSAGE, &args![0x0104_a828u32, name]);
     }
     let list = e.call(0x0047_5020, &args![item]).u32();
-    if list != 0 && e.call(GET_WORD_AT_4, &args![list]).u32() != 0 {
-        let first = e.call(GET_WORD_AT_4, &args![list]).u32();
+    if list != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list)) != 0 {
+        let first = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list));
         let mut node = e.call(0x0050_0940, &args![first]).u32();
         while node != 0 {
-            if e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
                 return true;
             }
-            let cell = e.call(LIST_NODE_SELF, &args![node]).u32();
+            let cell = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let form = e.mem.u32(cell);
             let model = e.call(0x0048_0db0, &args![form]).u32();
             if model != 0 {
                 e.call(0x0048_0bd0, &args![model, biped, female, u32::MAX]);
             }
-            node = e.call(GET_WORD_AT_4, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     true
@@ -3023,9 +3084,11 @@ pub fn fn_00606540(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Ptr, fo
             }
         }
         let female = e.get(this, TESNPC::iActorBaseFlags) & 1 != 0;
-        let race = e
-            .call(GET_WORD_AT_4, &args![this.addr() + COMPONENT_RACE])
-            .u32();
+        let race = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, this.addr() + COMPONENT_RACE)
+        );
         e.call(0x004a_b250, &args![biped, race, female]);
     }
     let cast = e
@@ -3039,11 +3102,11 @@ pub fn fn_00606540(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Ptr, fo
         let owner = e.call(0x005d_43c0, &args![cast]).u32();
         let extra = e.call(0x0042_e8c0, &args![owner]).u32();
         if extra != 0
-            && e.call(0x0044_ddc0, &args![extra + 0x20]).u32() != 0
+            && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, extra + 0x20)) != 0
             && e.call(0x0044_1420, &args![extra, 0u32]).u32() != 0
         {
             let mut index = 0u32;
-            while index < e.call(0x0044_ddc0, &args![extra + 0x20]).u32() {
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, extra + 0x20)) {
                 let flags = e.call(0x0044_1420, &args![extra, index]).u32();
                 if e.mem.u8(flags) == 0 && e.mem.u8(flags + 1) != 0 {
                     notify = false;
@@ -3059,7 +3122,7 @@ pub fn fn_00606540(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Ptr, fo
     if e.call(0x0043_fcd0, &args![actor]).u32() == 0 || force != 0 {
         let mut equip = e.call(0x005f_1590, &args![this, actor]).u8() | force;
         let player = e.global::<u32>(PLAYER_SINGLETON);
-        let player_base = e.call(GET_WORD_AT_20, &args![player]).u32();
+        let player_base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player));
         if this.addr() == player_base {
             let changes = e.call(0x004b_f220, &args![actor]).u32();
             if changes != 0 {
@@ -3138,7 +3201,7 @@ pub fn tesnpc_linear_face_gen_head_load(e: &mut Engine, this: Ptr<TESNPC>, actor
 fn clone_head_node(e: &mut Engine, slot: u32) -> u32 {
     e.with_stack(0x1c, |e, process| {
         e.call(0x004a_d050, &args![process, 1.0f32]);
-        let node = e.call(GET_FIRST_WORD, &args![slot]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         let clone = e.call(0x00a5_d2c0, &args![node, process]).u32();
         e.call(0x004a_d270, &args![process]);
         clone
@@ -3151,10 +3214,10 @@ fn clone_head_node(e: &mut Engine, slot: u32) -> u32 {
 fn copy_child_data(e: &mut Engine, child: u32, copy: u32, pointer: u32) {
     let source = e.call(0x0054_95f0, &args![child]).u32();
     e.call(0x00a5_d510, &args![source, copy]);
-    let value = e.call(GET_FIRST_WORD, &args![copy]).u32();
+    let value = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, copy));
     e.call(NI_POINTER_ASSIGN, &args![pointer, value]);
-    if e.call(GET_FIRST_WORD, &args![pointer]).u32() != 0 {
-        let held = e.call(GET_FIRST_WORD, &args![pointer]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) != 0 {
+        let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.vcall(child, 0xe4, &args![held]);
     }
 }
@@ -3168,7 +3231,7 @@ fn head_load_body(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Ptr, cop
     if e.call(0x0065_1b30, &args![]).u32() == 0 {
         return;
     }
-    if e.call(GET_FIRST_WORD, &args![biped]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, biped)) == 0 {
         return;
     }
     if e.call(0x0043_faf0, &args![]).u8() == 0 {
@@ -3185,7 +3248,7 @@ fn head_load_body(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Ptr, cop
     }
     let attach = e.call(0x004a_b230, &args![biped, 0u32]).u32();
     e.with_stack(0x24, |e, scratch| {
-        e.call(LIST_NODE_SELF, &args![scratch]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, scratch));
     });
     let mut palette = 0;
     if e.vcall(actor.addr(), 0x1e4, &args![]).u32() != 0 {
@@ -3197,7 +3260,7 @@ fn head_load_body(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Ptr, cop
         }
     }
     if attach == 0 || root == 0 {
-        let id = e.call(GET_FORM_ID, &args![this]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         e.call(LOG_MESSAGE, &args![0x0104_a860u32, id]);
         return;
     }
@@ -3209,15 +3272,16 @@ fn head_load_body(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Ptr, cop
         let mut selected = 0u32;
         e.call(NI_POINTER_CONSTRUCT, &args![pointer_a, 0u32]);
         e.call(NI_POINTER_CONSTRUCT, &args![pointer_b, 0u32]);
-        if e.call(GET_FIRST_WORD, &args![base + 0x1c4]).u32() != 0 {
-            let skinned = e.call(GET_FIRST_WORD, &args![base + 0x1c8]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c4)) != 0 {
+            let skinned = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c8));
             let mut reuse = false;
             if skinned != 0 {
-                let skinned = e.call(GET_FIRST_WORD, &args![base + 0x1c8]).u32();
-                reuse = e.call(GET_WORD_AT_4, &args![skinned]).u32() <= 1;
+                let skinned =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c8));
+                reuse = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, skinned)) <= 1;
             }
             if reuse {
-                head_a = e.call(GET_FIRST_WORD, &args![base + 0x1c4]).u32();
+                head_a = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c4));
             } else {
                 head_a = clone_head_node(e, base + 0x1c4);
             }
@@ -3241,10 +3305,10 @@ fn head_load_body(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Ptr, cop
                 }
             }
         }
-        if e.call(GET_FIRST_WORD, &args![base + 0x1c8]).u32() != 0 {
-            let skinned = e.call(GET_FIRST_WORD, &args![base + 0x1c8]).u32();
-            if e.call(GET_WORD_AT_4, &args![skinned]).u32() <= 1 {
-                head_b = e.call(GET_FIRST_WORD, &args![base + 0x1c8]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c8)) != 0 {
+            let skinned = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c8));
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, skinned)) <= 1 {
+                head_b = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c8));
             } else {
                 head_b = clone_head_node(e, base + 0x1c8);
             }
@@ -3283,17 +3347,25 @@ fn head_load_body(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Ptr, cop
                                 e.call(0x004a_dda0, &args![skin, position, value]);
                             }
                         } else {
-                            let id = e.call(GET_FORM_ID, &args![this]).u32();
+                            let id =
+                                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                             let name = e.vcall(this.addr(), VSLOT_GET_FORM_NAME, &args![]).u32();
                             e.call(LOG_MESSAGE, &args![0x0104_a908u32, name, id]);
                         }
                         let skin = e.call(0x0043_fad0, &args![cast]).u32();
                         let shape = e.call(0x0043_b230, &args![skin]).u32();
                         e.call(0x00a5_d510, &args![shape, copy]);
-                        let value = e.call(GET_FIRST_WORD, &args![copy]).u32();
+                        let value =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, copy));
                         e.call(NI_POINTER_ASSIGN, &args![pointer_b, value]);
-                        if e.call(GET_FIRST_WORD, &args![pointer_b]).u32() != 0 {
-                            let held = e.call(GET_FIRST_WORD, &args![pointer_b]).u32();
+                        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer_b))
+                            != 0
+                        {
+                            let held = typed_call!(
+                                leaf::FAMILY,
+                                0x0055_9450,
+                                leaf::word_at_0(e, pointer_b)
+                            );
                             let skin = e.call(0x0043_fad0, &args![cast]).u32();
                             e.call(0x004a_ddc0, &args![skin, held]);
                         }
@@ -3312,29 +3384,41 @@ fn head_load_body(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Ptr, cop
                 }
             }
         }
-        if e.call(GET_FIRST_WORD, &args![base + 0x1c4]).u32() == 0
-            && e.call(GET_FIRST_WORD, &args![base + 0x1c8]).u32() == 0
-            && e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32() != 0
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c4)) == 0
+            && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c8)) == 0
+            && typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, base + COMPONENT_RACE)
+            ) != 0
         {
             let cell_a = copy + 0xc;
             let cell_b = copy + 0x10;
             e.mem.set_u32(cell_a, head_a);
             e.mem.set_u32(cell_b, head_b);
-            let race = e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32();
+            let race = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, base + COMPONENT_RACE)
+            );
             e.call(
                 0x0061_3c50,
                 &args![race, cell_a, cell_b, this, 0u32, 0u32, 0u32],
             );
             head_a = e.mem.u32(cell_a);
             head_b = e.mem.u32(cell_b);
-            let race = e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32();
+            let race = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, base + COMPONENT_RACE)
+            );
             let face_number = fn_00607350(e, Ptr::new(race));
             e.set(this, TESNPC::sLastRaceFaceNum, face_number);
             e.call(NI_POINTER_ASSIGN, &args![base + 0x1c4, head_a]);
             e.call(NI_POINTER_ASSIGN, &args![base + 0x1c8, head_b]);
         }
         if head_a == 0 && head_b == 0 {
-            let id = e.call(GET_FORM_ID, &args![this]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             e.call(LOG_MESSAGE, &args![0x0104_a8b8u32, id]);
         }
         if head_a != 0 {
@@ -3391,8 +3475,8 @@ fn head_load_body(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr, biped: Ptr, cop
 /// of the word at `this + 8`: `0043fad0` of the pointer's target, or 0.
 pub fn fn_006072c0(e: &mut Engine, this: Ptr) -> u32 {
     let inner = e.mem.u32(this.addr() + 8);
-    if inner != 0 && e.call(GET_FIRST_WORD, &args![inner + 0x10]).u32() != 0 {
-        let target = e.call(GET_FIRST_WORD, &args![inner + 0x10]).u32();
+    if inner != 0 && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, inner + 0x10)) != 0 {
+        let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, inner + 0x10));
         e.call(0x0043_fad0, &args![target]).u32()
     } else {
         0
@@ -3433,16 +3517,28 @@ pub fn tesnpc_init_head(e: &mut Engine, this: Ptr<TESNPC>, first: Ptr, second: P
     let base = this.addr();
     e.call(NI_POINTER_ASSIGN, &args![base + 0x1c4, 0u32]);
     e.call(NI_POINTER_ASSIGN, &args![base + 0x1c8, 0u32]);
-    if e.call(GET_FIRST_WORD, &args![base + 0x1c4]).u32() == 0
-        && e.call(GET_FIRST_WORD, &args![base + 0x1c8]).u32() == 0
-        && e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32() != 0
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c4)) == 0
+        && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c8)) == 0
+        && typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, base + COMPONENT_RACE)
+        ) != 0
     {
-        let race = e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32();
+        let race = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, base + COMPONENT_RACE)
+        );
         e.call(
             0x0061_3c50,
             &args![race, first, second, this, 1u32, 0u32, 0u32],
         );
-        let race = e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32();
+        let race = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, base + COMPONENT_RACE)
+        );
         let face_number = fn_00607350(e, Ptr::new(race));
         e.set(this, TESNPC::sLastRaceFaceNum, face_number);
     }
@@ -3480,7 +3576,7 @@ pub fn fn_00607420(
     }
     let attach = e.call(0x004a_b230, &args![biped, 0u32]).u32();
     e.with_stack(0x24, |e, scratch| {
-        e.call(LIST_NODE_SELF, &args![scratch]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, scratch));
     });
     let mut palette = 0;
     if e.vcall(actor.addr(), 0x1e4, &args![]).u32() != 0 {
@@ -3492,7 +3588,7 @@ pub fn fn_00607420(
         }
     }
     if attach == 0 || root == 0 {
-        let id = e.call(GET_FORM_ID, &args![this]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         e.call(LOG_MESSAGE, &args![0x0104_a860u32, id]);
     } else {
         if head_a != 0 {
@@ -3698,7 +3794,11 @@ pub fn fn_00608f00(e: &mut Engine, this: Ptr<TESNPC>, buffer: Ptr) {
         e.call(SAVE_FORM_ID, &args![buffer, class, 0u32]);
     }
     if change_flag_set(e, 0x0042_8110, buffer, 0x200_0000) {
-        let race = e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32();
+        let race = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, base + COMPONENT_RACE)
+        );
         e.call(SAVE_FORM_ID, &args![buffer, race, 0u32]);
         let original = e.get(this, TESNPC::pOriginalRace);
         e.call(SAVE_FORM_ID, &args![buffer, original, 0u32]);
@@ -3745,13 +3845,13 @@ pub fn fn_00608f00(e: &mut Engine, this: Ptr<TESNPC>, buffer: Ptr) {
         let token = e.call(0x0086_5f20, &args![buffer]).u32();
         let mut node = base + 0x1dc;
         while node != 0 {
-            let cell = e.call(LIST_NODE_SELF, &args![node]).u32();
+            let cell = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let part = e.mem.u32(cell);
             if part != 0 {
                 e.call(SAVE_FORM_ID, &args![buffer, part, 0u32]);
                 count += 1;
             }
-            node = e.call(GET_WORD_AT_4, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         e.call(0x0086_5ff0, &args![buffer, count, token]);
     }
@@ -3801,7 +3901,13 @@ pub fn fn_00609220(e: &mut Engine, this: Ptr<TESNPC>, buffer: Ptr) {
     }
     if change_flag_set(e, 0x0042_8110, buffer, 0x200_0000) {
         let race = load_form_cast(e, buffer, TYPE_TES_RACE);
-        if race != e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32() {
+        if race
+            != typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, base + COMPONENT_RACE)
+            )
+        {
             e.call(SET_WORD_AT_4, &args![base + COMPONENT_RACE, race]);
             changed |= 0x1b;
         }
@@ -3927,13 +4033,13 @@ fn load_face(e: &mut Engine, this: Ptr<TESNPC>, buffer: Ptr, changed: &mut u8) {
             e.call(0x0060_ba40, &args![array]);
             let mut node = base + 0x1dc;
             while node != 0 {
-                let item_cell = e.call(LIST_NODE_SELF, &args![node]).u32();
+                let item_cell = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let part = e.mem.u32(item_cell);
                 e.mem.set_u32(cell, part);
                 if part != 0 {
                     e.call(0x007c_b2e0, &args![array, cell]);
                 }
-                node = e.call(GET_WORD_AT_4, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             e.call(0x0047_0470, &args![base + 0x1dc]);
             let count = e.call(0x0086_4a60, &args![buffer]).u32();
@@ -3946,7 +4052,7 @@ fn load_face(e: &mut Engine, this: Ptr<TESNPC>, buffer: Ptr, changed: &mut u8) {
             }
             let mut node = base + 0x1dc;
             while node != 0 {
-                let item_cell = e.call(LIST_NODE_SELF, &args![node]).u32();
+                let item_cell = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let part = e.mem.u32(item_cell);
                 e.mem.set_u32(cell, part);
                 if part != 0 {
@@ -3959,9 +4065,9 @@ fn load_face(e: &mut Engine, this: Ptr<TESNPC>, buffer: Ptr, changed: &mut u8) {
                     }
                     e.call(0x009a_4320, &args![array, index, 1u32]);
                 }
-                node = e.call(GET_WORD_AT_4, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
-            if e.call(0x0044_ddc0, &args![array]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array)) != 0 {
                 parts_differ = true;
             }
             e.call(0x0060_bae0, &args![array]);
@@ -4065,7 +4171,7 @@ pub fn fn_00609bf0(e: &mut Engine, this: Ptr<TESNPC>, file: Ptr) -> bool {
         return false;
     }
     let word = e.call(0x008d_8ac0, &args![file]).u32();
-    word == e.call(GET_FORM_ID, &args![this]).u32()
+    word == typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this))
 }
 
 // Translated from 00609c70 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -4121,23 +4227,32 @@ pub fn fn_00609d60(e: &mut Engine, this: Ptr<TESNPC>, _unused_1: u32) {
             }
         }
         let mut id = 0u32;
-        if e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32() != 0 {
-            let race = e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32();
-            id = e.call(GET_FORM_ID, &args![race]).u32();
+        if typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, base + COMPONENT_RACE)
+        ) != 0
+        {
+            let race = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, base + COMPONENT_RACE)
+            );
+            id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, race));
         }
         e.mem.set_u32(cell, id);
         e.call(0x0048_4d20, &args![this, cell, 4u32]);
         let mut id = 0u32;
         let hair = e.get(this, TESNPC::pHair);
         if !hair.is_null() {
-            id = e.call(GET_FORM_ID, &args![hair]).u32();
+            id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, hair));
         }
         e.mem.set_u32(cell, id);
         e.call(0x0048_4d20, &args![this, cell, 4u32]);
         let mut id = 0u32;
         let eyes = e.get(this, TESNPC::pEyeColor);
         if !eyes.is_null() {
-            id = e.call(GET_FORM_ID, &args![eyes]).u32();
+            id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, eyes));
         }
         e.mem.set_u32(cell, id);
         e.call(0x0048_4d20, &args![this, cell, 4u32]);
@@ -4218,7 +4333,12 @@ pub fn fn_00609f60(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr) {
         }
         race
     });
-    if e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32() != race {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, base + COMPONENT_RACE)
+    ) != race
+    {
         changed = true;
     }
     e.call(SET_WORD_AT_4, &args![base + COMPONENT_RACE, race]);
@@ -4331,7 +4451,11 @@ pub fn fn_00609f60(e: &mut Engine, this: Ptr<TESNPC>, actor: Ptr) {
     {
         e.with_stack(FACE_PARAMS_SIZE, |e, params| {
             e.call(FACE_PARAMS_CONSTRUCT, &args![params]);
-            let race = e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32();
+            let race = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, base + COMPONENT_RACE)
+            );
             e.call(0x0061_41f0, &args![race, this, params, 0u32, 0u32]);
             let first = e.vcall(actor.addr(), 0x1ac, &args![0u32]).u32();
             e.call(APPLY_FACE_PARAMS, &args![first, params]);
@@ -4404,11 +4528,11 @@ pub fn fn_0060a950(e: &mut Engine, this: Ptr<TESNPC>, eyes: Ptr) {
         let name_right = frame.addr() + 0x18;
         e.call(NI_POINTER_CONSTRUCT, &args![left, 0u32]);
         e.call(NI_POINTER_CONSTRUCT, &args![right, 0u32]);
-        if e.call(GET_FIRST_WORD, &args![base + 0x1c4]).u32() != 0 {
-            let head = e.call(GET_FIRST_WORD, &args![base + 0x1c4]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c4)) != 0 {
+            let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c4));
             let count = e.call(0x0043_b480, &args![head]).u32();
             for index in 0..count {
-                let head = e.call(GET_FIRST_WORD, &args![base + 0x1c4]).u32();
+                let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c4));
                 let child = e.call(0x0043_b4a0, &args![head, index]).u32();
                 for (eye_name, pointer) in [(0x0104_aac0u32, left), (0x0104_aab0u32, right)] {
                     let name = e.call(0x0041_3f40, &args![child]).u32();
@@ -4419,8 +4543,8 @@ pub fn fn_0060a950(e: &mut Engine, this: Ptr<TESNPC>, eyes: Ptr) {
                     }
                 }
             }
-            if e.call(GET_FIRST_WORD, &args![left]).u32() != 0
-                && e.call(GET_FIRST_WORD, &args![right]).u32() != 0
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, left)) != 0
+                && typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, right)) != 0
             {
                 e.call(0x0040_37b0, &args![path]);
                 if !eyes.is_null() {
@@ -4430,13 +4554,15 @@ pub fn fn_0060a950(e: &mut Engine, this: Ptr<TESNPC>, eyes: Ptr) {
                     e.call(0x0040_6f60, &args![path, 0x0104_aa80u32]);
                 }
                 e.call(NI_POINTER_CONSTRUCT, &args![texture, 0u32]);
-                let text = e.call(GET_FIRST_WORD, &args![path]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, path));
                 let tes = e.global::<u32>(TES_SINGLETON);
                 e.call(0x0045_68c0, &args![tes, text, texture, 0u32, 0u32]);
-                if e.call(GET_FIRST_WORD, &args![texture]).u32() != 0 {
-                    let left_shape = e.call(GET_FIRST_WORD, &args![left]).u32();
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture)) != 0 {
+                    let left_shape =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, left));
                     let left_shape = e.call(0x0050_d100, &args![left_shape]).u32();
-                    let right_shape = e.call(GET_FIRST_WORD, &args![right]).u32();
+                    let right_shape =
+                        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, right));
                     let right_shape = e.call(0x0050_d100, &args![right_shape]).u32();
                     if left_shape != 0 && right_shape != 0 {
                         let left_data = e.call(0x0043_b230, &args![left_shape]).u32();
@@ -4455,9 +4581,11 @@ pub fn fn_0060a950(e: &mut Engine, this: Ptr<TESNPC>, eyes: Ptr) {
                             0
                         };
                         if left_usable != 0 && right_usable != 0 {
-                            let held = e.call(GET_FIRST_WORD, &args![texture]).u32();
+                            let held =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
                             e.vcall(left_usable, 0xfc, &args![0u32, held]);
-                            let held = e.call(GET_FIRST_WORD, &args![texture]).u32();
+                            let held =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
                             e.vcall(right_usable, 0xfc, &args![0u32, held]);
                             e.call(NI_POINTER_DESTROY, &args![texture]);
                             e.call(0x0040_37d0, &args![path]);
@@ -4472,29 +4600,32 @@ pub fn fn_0060a950(e: &mut Engine, this: Ptr<TESNPC>, eyes: Ptr) {
                     } else {
                         0
                     };
-                    let held = e.call(GET_FIRST_WORD, &args![texture]).u32();
+                    let held = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
                     e.call(0x005b_8fc0, &args![property, held]);
                     e.call(0x004f_3200, &args![property, 3u32]);
                     fn_0060aeb0(e, Ptr::new(property), 2);
                     for pointer in [left, right] {
-                        let node = e.call(GET_FIRST_WORD, &args![pointer]).u32();
+                        let node =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                         if e.call(0x00a5_9d30, &args![node, 5u32]).u32() != 0 {
-                            let node = e.call(GET_FIRST_WORD, &args![pointer]).u32();
+                            let node =
+                                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                             e.call(0x00a5_b230, &args![node, 5u32]);
                         }
-                        let node = e.call(GET_FIRST_WORD, &args![pointer]).u32();
+                        let node =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
                         e.call(0x0043_9410, &args![node, property]);
                     }
                 }
                 e.call(NI_POINTER_DESTROY, &args![texture]);
                 e.call(0x0040_37d0, &args![path]);
             }
-            let head = e.call(GET_FIRST_WORD, &args![base + 0x1c4]).u32();
+            let head = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c4));
             for (eye_name, fixed) in [(0x0104_aac0u32, name_left), (0x0104_aab0u32, name_right)] {
                 let head = if eye_name == 0x0104_aac0 {
                     head
                 } else {
-                    e.call(GET_FIRST_WORD, &args![base + 0x1c4]).u32()
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base + 0x1c4))
                 };
                 let name = e.call(0x0043_8170, &args![fixed, eye_name]).u32();
                 let node = e.vcall(head, 0x9c, &args![name]).u32();
@@ -4527,7 +4658,11 @@ fn shape_size_in_range(e: &mut Engine, data: u32) -> bool {
 pub fn fn_0060aeb0(e: &mut Engine, this: Ptr, argument: u32) {
     let owner = this.addr() + 0x1c;
     e.with_stack(4, |e, cell| {
-        let slot = e.call(0x0087_7a30, &args![owner, 0u32]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, owner, 0u32)
+        );
         let mut object = e.mem.u32(slot);
         e.mem.set_u32(cell.addr(), object);
         if object == 0 {
@@ -5060,7 +5195,7 @@ impl Activation {
             }
         }
         if dialogue != 0 {
-            let id = e.call(GET_FORM_ID, &args![dialogue]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, dialogue));
             if e.call(0x0061_9df0, &args![id]).bool()
                 && e.call(0x0083_c7b0, &args![dialogue]).bool()
                 && !e.call(0x0083_c7e0, &args![dialogue]).bool()
@@ -5133,7 +5268,7 @@ impl Activation {
                 let mut reached = false;
                 if e.call(0x0041_d8a0, &args![self.target_state]).u32() != 0 {
                     let list = e.call(0x0041_d8a0, &args![self.target_state]).u32();
-                    if e.call(GET_WORD_AT_4, &args![list]).u32() == 0 {
+                    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list)) == 0 {
                         e.vcall(tp, 0x288, &args![a, 2u32]);
                         reached = true;
                     }
@@ -5181,7 +5316,7 @@ impl Activation {
             let mut set_one = true;
             if e.call(0x0041_d8a0, &args![self.activator_state]).u32() != 0 {
                 let list = e.call(0x0041_d8a0, &args![self.activator_state]).u32();
-                if e.call(GET_WORD_AT_4, &args![list]).u32() == 0 {
+                if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list)) == 0 {
                     let process = process_of(e, a);
                     e.vcall(process, 0x288, &args![a, 2u32]);
                     set_one = false;
@@ -5477,7 +5612,11 @@ pub fn fn_0060b210(e: &mut Engine, this: Ptr, flag: u8) {
 /// not null) is refreshed through `008b78c0(actor, 0)`.
 pub fn fn_0060b240(e: &mut Engine, this: Ptr<TESNPC>, race: Ptr, actor: Ptr) {
     let base = this.addr();
-    let current = e.call(GET_WORD_AT_4, &args![base + COMPONENT_RACE]).u32();
+    let current = typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, base + COMPONENT_RACE)
+    );
     if race.addr() == current {
         return;
     }
@@ -5801,7 +5940,7 @@ pub fn fn_0060b980(e: &mut Engine, this: Ptr) -> u32 {
     if proxy == 0 {
         0
     } else {
-        e.call(GET_FIRST_WORD, &args![proxy]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, proxy))
     }
 }
 

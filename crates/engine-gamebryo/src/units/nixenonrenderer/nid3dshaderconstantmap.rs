@@ -4956,7 +4956,6 @@ const ROTATE_POINT_004B4500: u32 = 0x004b_4500;
 const MATRIX_TRANSPOSE_004768C0: u32 = 0x0047_68c0;
 const MATRIX_TIMES_POINT_0043F8D0: u32 = 0x0043_f8d0;
 const TRANSFORM_PRODUCT_0062C250: u32 = 0x0062_c250;
-const POINT_DOT_004B6190: u32 = 0x004b_6190;
 const LIGHT_MATRIX_00B71A40: u32 = 0x00b7_1a40;
 const D3D_FROM_NI_00B799A0: u32 = 0x00b7_99a0;
 const IS_KIND_OF_0043B300: u32 = 0x0043_b300;
@@ -5377,7 +5376,9 @@ pub fn ni_d3d_shader_constant_map_get_dynamic_effect_data(
                 for (i, value) in values.iter().enumerate() {
                     e.mem.set_u32(o + 4 * i as u32, *value);
                 }
-                let dot = e.call(POINT_DOT_004B6190, &args![point, l18]).f64();
+                let dot = typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, point, l18))
+                    .into_ret()
+                    .f64();
                 e.mem.set_u32(o + 0xc, x87_store32(dot));
                 true
             }

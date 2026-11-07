@@ -12,9 +12,11 @@ use crate::prelude::*;
 /// map's `BaseProcess::GetActorPackageThatIsRunning` is folded code).
 const ITEM_LIST: u32 = 0x0071_7e50;
 /// True for an empty list node (`008256d0`).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// The item slot of a node (`006815c0`, returns the node itself; its first
 /// word is the item).
+#[cfg(test)]
 const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
 /// Removes the first node of the list (`0063f7b0`, `this` = the list).
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -34,8 +36,8 @@ pub fn fn_0060f3a0(e: &mut Engine, this: Ptr) {
     if list == 0 {
         return;
     }
-    while !e.call(NODE_IS_EMPTY, &args![list]).bool() {
-        let slot = e.call(NODE_ITEM_SLOT, &args![list]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let item = e.mem.u32(slot);
         if item != 0 {
             fn_0060f410(e, Ptr::new(item), 1);

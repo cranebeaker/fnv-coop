@@ -67,8 +67,11 @@ const TASK_QUEUE: u32 = 0x0120_2d98;
 /// emptiness test, the add-at-head (address of the item), the removal (by
 /// the item's address), the membership test, the clear and the destructor
 /// bodies of a list, and the constructor of one.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const NODE_EMPTY: u32 = 0x0082_56d0;
 const LIST_ADD_HEAD: u32 = 0x005a_e3d0;
 const LIST_REMOVE: u32 = 0x0090_5330;
@@ -96,6 +99,7 @@ const SOUND_HANDLE_STOP: u32 = 0x00ad_88f0;
 const SOUND_HANDLE_RELEASE: u32 = 0x00ad_8d10;
 const SOUND_HANDLE_DESTRUCTOR: u32 = 0x0048_3710;
 /// The form of a reference (`this` only) and a form's type byte.
+#[cfg(test)]
 const FORM_OF: u32 = 0x007a_f430;
 const FORM_TYPE: u32 = 0x0040_1170;
 /// The talking activator's radio station form (`this` = base form).
@@ -104,6 +108,7 @@ const RADIO_STATION_FORM: u32 = 0x004f_d3c0;
 /// reference list, float list).
 const STATIONS_IN_RANGE: u32 = 0x004f_f1a0;
 /// A test on a reference (`this` only).
+#[cfg(test)]
 const REFERENCE_TEST_00440DA0: u32 = 0x0044_0da0;
 /// A word of a station reference (`this` only).
 const REFERENCE_VALUE_0056B210: u32 = 0x0056_b210;
@@ -143,6 +148,7 @@ const STATE_SET_POWER: u32 = 0x0045_8b30;
 const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 const STRING_DESTROY: u32 = 0x0040_37d0;
 const STRING_FORMAT: u32 = 0x0040_6f60;
+#[cfg(test)]
 const STRING_C_STR: u32 = 0x0055_9450;
 /// A setting's string (`ECX` = the setting).
 const SETTING_STRING: u32 = 0x004c_69f0;
@@ -217,7 +223,7 @@ const STATION_STATE: u32 = 4;
 const STATION_USERS: u32 = 0x1c;
 
 fn item_of(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -239,11 +245,11 @@ fn is_actor(e: &mut Engine, reference: u32) -> bool {
 }
 
 fn next_of(e: &mut Engine, node: u32) -> u32 {
-    e.call(NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 fn is_empty(e: &mut Engine, node: u32) -> bool {
-    e.call(NODE_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 fn shutting_down(e: &Engine) -> bool {
@@ -393,9 +399,9 @@ pub fn fn_008325b0(e: &mut Engine, radio: u32, on: u8) {
         }
         let mut station = 0u32;
         if radio != 0 {
-            let base = e.call(FORM_OF, &args![radio]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, radio));
             if e.call(FORM_TYPE, &args![base]).u32() == 0x15 {
-                let base = e.call(FORM_OF, &args![radio]).u32();
+                let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, radio));
                 station = e.call(RADIO_STATION_FORM, &args![base]).u32();
             }
         }
@@ -481,17 +487,18 @@ pub fn fn_00832830(e: &mut Engine, form: u32) -> u32 {
     while node != 0 && !is_empty(e, node) {
         let station = item_of(e, node);
         let reference = e.mem.u32(station);
-        if e.call(FORM_OF, &args![reference]).u32() == form {
+        if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference)) == form {
             let take = best == 0 || {
                 let best_reference = e.mem.u32(best);
-                let replaces = e
-                    .call(REFERENCE_TEST_00440DA0, &args![best_reference])
-                    .bool()
-                    && {
-                        let station = item_of(e, node);
-                        let reference = e.mem.u32(station);
-                        !e.call(REFERENCE_TEST_00440DA0, &args![reference]).bool()
-                    };
+                let replaces = typed_call!(
+                    leaf::FAMILY,
+                    0x0044_0da0,
+                    leaf::form_flag_800(e, best_reference)
+                ) && {
+                    let station = item_of(e, node);
+                    let reference = e.mem.u32(station);
+                    !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
+                };
                 replaces
                     || (best_word == 0 && {
                         let station = item_of(e, node);
@@ -551,7 +558,7 @@ pub fn fallout_radio_clear_inactive_receivers(e: &mut Engine, force: u8) {
             }
             let receiver = item_of(e, node);
             e.mem.set_u32(slot.addr(), receiver);
-            let item = e.call(NODE_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.call(LIST_REMOVE, &args![RECEIVER_LIST, item]);
             node = RECEIVER_LIST;
             let mut station_node = STATION_LIST;
@@ -661,13 +668,13 @@ pub fn fn_00832cb0(e: &mut Engine, reference: u32, other: u32) -> u32 {
     };
     let mut radio_kind = false;
     for kind in [0x15u32, 0x2a, 0x2b, 0x2c, 0x2d] {
-        let base = e.call(FORM_OF, &args![reference]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         if e.call(FORM_TYPE, &args![base]).u32() == kind {
             radio_kind = true;
             break;
         }
     }
-    let base = e.call(FORM_OF, &args![reference]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let talker_kind = e.call(FORM_TYPE, &args![base]).u32() == 0x16;
     let delete_entry = |e: &mut Engine| {
         if entry != 0 {
@@ -676,7 +683,7 @@ pub fn fn_00832cb0(e: &mut Engine, reference: u32, other: u32) -> u32 {
     };
     let mut station = 0u32;
     if radio_kind && !e.vcall(reference, 0x100, &args![]).bool() {
-        let base = e.call(FORM_OF, &args![reference]).u32();
+        let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let form = e.call(RADIO_STATION_FORM, &args![base]).u32();
         if form == 0 {
             delete_entry(e);
@@ -688,7 +695,7 @@ pub fn fn_00832cb0(e: &mut Engine, reference: u32, other: u32) -> u32 {
             return 0;
         }
     } else if radio_kind && e.vcall(reference, 0x100, &args![]).bool() && other != 0 {
-        let form = e.call(FORM_OF, &args![other]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, other));
         if form == 0 {
             delete_entry(e);
             return 0;
@@ -717,7 +724,11 @@ pub fn fn_00832cb0(e: &mut Engine, reference: u32, other: u32) -> u32 {
         now.wrapping_sub(back),
     );
     e.set(state, StationState::iCurrentItemDuration, 1);
-    let form = e.call(FORM_OF, &args![e.mem.u32(entry)]).u32();
+    let form = typed_call!(
+        leaf::FAMILY,
+        0x007a_f430,
+        leaf::word_at_20(e, e.mem.u32(entry))
+    );
     let flag = e.vcall(form, 0xb4, &args![]).u8();
     fn_00833100(e, state, flag);
     let same = u8::from(fn_00833040(e, state));
@@ -839,7 +850,8 @@ pub fn fallout_radio_update_stations(e: &mut Engine, full: u8) {
                     found = true;
                     let mut power = 100u8;
                     fn_00834210(e, Ptr::new(station + STATION_STATE), 0);
-                    let slot = e.call(NODE_ITEM, &args![range_node]).u32();
+                    let slot =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, range_node));
                     let range = x87_quiet_bits(e.mem.u32(slot));
                     let value = e
                         .call(STATION_VALUE_0056B190, &args![e.mem.u32(station)])
@@ -928,7 +940,7 @@ fn show_discovery(e: &mut Engine, text: u32, reference: u32) {
     let format = e.call(SETTING_STRING, &args![DISCOVERY_SETTING]).u32();
     e.call(STRING_FORMAT, &args![text, format, name]);
     let time = x87_quiet_bits(e.global::<u32>(MESSAGE_TIME));
-    let c_str = e.call(STRING_C_STR, &args![text]).u32();
+    let c_str = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
     e.call(
         SHOW_MESSAGE,
         &args![c_str, 0u32, DISCOVERY_TEXT, 0u32, time, 0u32],
@@ -942,17 +954,17 @@ fn report_new_stations(e: &mut Engine, references: u32, ranges: u32) {
     e.call(STATIONS_IN_RANGE, &args![player, references, ranges]);
     let mut node = references;
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
         let reference = item_of(e, node);
-        let skip = e.call(REFERENCE_TEST_00440DA0, &args![reference]).bool() && {
+        let skip = typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference)) && {
             let reference = item_of(e, node);
             !e.call(PENDING_ENABLED, &args![reference]).bool()
         };
         if !skip {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if !e.call(LIST_CONTAINS, &args![DISCOVERED_LIST, slot]).bool() {
                 if e.global::<u8>(SKIP_DISCOVERY_MESSAGE) == 0 {
                     e.with_stack(0x14, |e, locals| {
@@ -966,7 +978,7 @@ fn report_new_stations(e: &mut Engine, references: u32, ranges: u32) {
                         e.call(STRING_DESTROY, &args![text]);
                     });
                 }
-                let slot = e.call(NODE_ITEM, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 e.call(LIST_ADD_HEAD, &args![DISCOVERED_LIST, slot]);
             }
         }
@@ -994,7 +1006,6 @@ const FIRST_ITEM: u32 = 0x0083_b9a0;
 const PRECACHE_SOUNDS: u32 = 0x0083_c470;
 const FIRST_RESPONSE: u32 = 0x0083_c7b0;
 const NEXT_RESPONSE: u32 = 0x0083_c7e0;
-const RESPONSE_TOPIC_INFO: u32 = 0x0084_e3a0;
 const TOPIC_INFO_TEST: u32 = 0x0057_9200;
 const RUN_RESULT: u32 = 0x0061_f170;
 const STATE_TEST_00833C00: u32 = 0x0083_3c00;
@@ -1028,7 +1039,6 @@ const VECTOR_LENGTH: u32 = 0x0045_7990;
 const SOUND_FORM_BYTE: u32 = 0x0055_3b90;
 const ACTOR_VOICE_TYPE: u32 = 0x0041_81e0;
 const TOPIC_INFO_SPEAKER: u32 = 0x0063_9b40;
-const RESPONSE_OBJECT: u32 = 0x0044_ddc0;
 const RESPONSE_PARENT: u32 = 0x0096_11e0;
 const RESPONSE_LOCATION: u32 = 0x0044_1110;
 const LIST_COUNT_0044A670: u32 = 0x0044_a670;
@@ -1081,15 +1091,15 @@ fn static_volume(e: &mut Engine, power: u8) -> u32 {
 fn start_response(e: &mut Engine, station: u32) {
     let conversation = e.mem.u32(station + 4);
     let response = e.call(CURRENT_RESPONSE, &args![conversation]).u32();
-    if e.call(RESPONSE_TOPIC_INFO, &args![response]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, response)) != 0 {
         let conversation = e.mem.u32(station + 4);
         let response = e.call(CURRENT_RESPONSE, &args![conversation]).u32();
-        let info = e.call(RESPONSE_TOPIC_INFO, &args![response]).u32();
+        let info = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, response));
         if !e.call(TOPIC_INFO_TEST, &args![info]).bool() {
             let reference = e.mem.u32(station);
             let conversation = e.mem.u32(station + 4);
             let response = e.call(CURRENT_RESPONSE, &args![conversation]).u32();
-            let info = e.call(RESPONSE_TOPIC_INFO, &args![response]).u32();
+            let info = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, response));
             e.call(RUN_RESULT, &args![info, 0u32, reference]);
         }
     }
@@ -1164,9 +1174,11 @@ fn update_station(e: &mut Engine, station: u32, ebp: u32) {
     let mut has_voice_file = false;
     let mut has_alternative = false;
     let mut pipboy_updated = false;
-    let disabled = e
-        .call(REFERENCE_TEST_00440DA0, &args![e.mem.u32(station)])
-        .bool();
+    let disabled = typed_call!(
+        leaf::FAMILY,
+        0x0044_0da0,
+        leaf::form_flag_800(e, e.mem.u32(station))
+    );
     let paused = e.global::<u32>(RADIO_STATE) & 1 != 0;
     let resumed = e.global::<u32>(RADIO_STATE) & 2 != 0;
     let is_pipboy = station == e.global::<u32>(CURRENT_PIPBOY_STATION);
@@ -1192,7 +1204,11 @@ fn update_station(e: &mut Engine, station: u32, ebp: u32) {
     }
     let mut sound = e.global::<u32>(ATTENUATION_SOUND);
     if e.mem.u32(station) != 0 {
-        let form = e.call(FORM_OF, &args![e.mem.u32(station)]).u32();
+        let form = typed_call!(
+            leaf::FAMILY,
+            0x007a_f430,
+            leaf::word_at_20(e, e.mem.u32(station))
+        );
         let source = e
             .call(
                 RTTI_CAST,
@@ -1214,7 +1230,7 @@ fn update_station(e: &mut Engine, station: u32, ebp: u32) {
             e.mem.set_u32(station + 0x10, duration);
         } else if response != 0 {
             let current = e.call(CURRENT_RESPONSE, &args![response]).u32();
-            if e.call(FORM_OF, &args![current]).u32() != 0
+            if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, current)) != 0
                 && e.call(MEDIA_DURATION, &args![7i32]).u32() != 0
             {
                 let duration = e.call(MEDIA_DURATION, &args![7i32]).u32();
@@ -1397,28 +1413,28 @@ fn update_station(e: &mut Engine, station: u32, ebp: u32) {
             continue;
         }
         let current = e.call(CURRENT_RESPONSE, &args![response]).u32();
-        if e.call(FORM_OF, &args![current]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, current)) != 0 {
             has_voice_file = true;
         }
         let current = e.call(CURRENT_RESPONSE, &args![response]).u32();
         if current != 0 {
             let current = e.call(CURRENT_RESPONSE, &args![response]).u32();
-            let slot = e.call(NODE_ITEM, &args![current]).u32();
-            if e.call(STRING_C_STR, &args![slot]).u32() != 0 {
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, current));
+            if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) != 0 {
                 let current = e.call(CURRENT_RESPONSE, &args![response]).u32();
-                let slot = e.call(NODE_ITEM, &args![current]).u32();
-                let list = e.call(STRING_C_STR, &args![slot]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, current));
+                let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
                 let count = e.call(LIST_COUNT_0044A670, &args![list]).u32();
                 has_alternative = count > 1 && {
                     let current = e.call(CURRENT_RESPONSE, &args![response]).u32();
                     let alternatives = e.call(RESPONSE_LIST_00460140, &args![current]).u32();
-                    e.call(STRING_C_STR, &args![alternatives]).u32() != 0
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, alternatives)) != 0
                 };
             }
         }
         if has_voice_file {
             let current = e.call(CURRENT_RESPONSE, &args![response]).u32();
-            let form = e.call(FORM_OF, &args![current]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, current));
             let name = e.call(SOUND_FILE_NAME, &args![form]).u32();
             e.call(COPY_BOUNDED, &args![path, 0x104u32, name]);
             if e.call(STRING_FIND, &args![path, VOICE_SUFFIX]).u32() == 0 {
@@ -1434,7 +1450,7 @@ fn update_station(e: &mut Engine, station: u32, ebp: u32) {
         } else if has_alternative {
             let current = e.call(CURRENT_RESPONSE, &args![response]).u32();
             let alternatives = e.call(RESPONSE_LIST_00460140, &args![current]).u32();
-            let text = e.call(STRING_C_STR, &args![alternatives]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, alternatives));
             e.call(COPY_BOUNDED, &args![path, 0x104u32, text]);
             fn_00833c40(e, state, 0);
         } else {
@@ -1449,9 +1465,9 @@ fn update_station(e: &mut Engine, station: u32, ebp: u32) {
         let radio = radio_of(e, node);
         if radio != 0 && is_actor(e, radio) {
             actor = radio_of(e, node);
-            if e.call(RESPONSE_TOPIC_INFO, &args![response]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, response)) != 0 {
                 let voice = e.call(ACTOR_VOICE_TYPE, &args![actor]).u32();
-                let info = e.call(RESPONSE_TOPIC_INFO, &args![response]).u32();
+                let info = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, response));
                 if voice == e.call(TOPIC_INFO_SPEAKER, &args![info]).u32() {
                     voice_match = true;
                 }
@@ -1660,9 +1676,9 @@ fn speak_with_actor(e: &mut Engine, actor: u32, node: u32, response: u32, path: 
     let current = e.call(CURRENT_RESPONSE, &args![response]).u32();
     let parent = e.call(RESPONSE_PARENT, &args![current]).u32();
     let current = e.call(CURRENT_RESPONSE, &args![response]).u32();
-    let info = e.call(RESPONSE_TOPIC_INFO, &args![current]).u32();
+    let info = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, current));
     let current = e.call(CURRENT_RESPONSE, &args![response]).u32();
-    let object = e.call(RESPONSE_OBJECT, &args![current]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, current));
     let handle = item_of(e, node) + 4;
     e.vcall(
         actor,
@@ -1769,11 +1785,11 @@ pub fn fn_008356e0(e: &mut Engine, form: u32, reference: u32) -> u32 {
                 break;
             }
             let candidate = item_of(e, node);
-            if e.call(FORM_OF, &args![candidate]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, candidate)) == 0 {
                 break;
             }
             let candidate = item_of(e, node);
-            if form == e.call(FORM_OF, &args![candidate]).u32() {
+            if form == typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, candidate)) {
                 found = item_of(e, node);
                 done = true;
             }
@@ -1927,7 +1943,11 @@ pub fn fn_008366e0(e: &mut Engine, buffer: u32) {
     for global in [CURRENT_PIPBOY_STATION, LOST_PIPBOY_STATION] {
         let station = e.global::<u32>(global);
         let form = if station != 0 {
-            e.call(FORM_OF, &args![e.mem.u32(station)]).u32()
+            typed_call!(
+                leaf::FAMILY,
+                0x007a_f430,
+                leaf::word_at_20(e, e.mem.u32(station))
+            )
         } else {
             0
         };
@@ -3211,7 +3231,7 @@ pub fn fn_00832240(e: &mut Engine, reference: u32, keep: u32) -> bool {
             let node = list.addr();
             if node != 0 && item_of(e, node) != 0 {
                 let first = item_of(e, node);
-                if e.call(FORM_OF, &args![first]).u32() != 0 {
+                if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, first)) != 0 {
                     reference = item_of(e, node);
                 }
             }
@@ -3221,7 +3241,7 @@ pub fn fn_00832240(e: &mut Engine, reference: u32, keep: u32) -> bool {
         e.set_global(LOST_PIPBOY_STATION, 0u32);
         fallout_radio_update_stations(e, 1);
     }
-    let form = e.call(FORM_OF, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let station = fn_00832830(e, form);
     e.set_global(CURRENT_PIPBOY_STATION, station);
     if e.global::<u32>(CURRENT_PIPBOY_STATION) == 0 {
@@ -3236,8 +3256,12 @@ pub fn fn_00832240(e: &mut Engine, reference: u32, keep: u32) -> bool {
     } else {
         let station = e.global::<u32>(CURRENT_PIPBOY_STATION);
         let station_reference = e.mem.u32(station);
-        let station_form = e.call(FORM_OF, &args![station_reference]).u32();
-        if station_form == e.call(FORM_OF, &args![reference]).u32() {
+        let station_form = typed_call!(
+            leaf::FAMILY,
+            0x007a_f430,
+            leaf::word_at_20(e, station_reference)
+        );
+        if station_form == typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference)) {
             let station = e.global::<u32>(CURRENT_PIPBOY_STATION);
             e.mem.set_u32(station, reference);
         }
@@ -3328,7 +3352,7 @@ pub fn fn_00835b90(e: &mut Engine, reference: u32) -> u8 {
     if shutting_down(e) {
         return 0;
     }
-    let form = e.call(FORM_OF, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let station = fn_00832830(e, form);
     if station == 0 {
         return 0;
@@ -3422,7 +3446,7 @@ pub fn fn_008363a0(e: &mut Engine, this: Ptr<StationState>, value: u32) {
         let remove = receiver == 0 || e.mem.u32(receiver) == 0;
         if remove {
             if previous != 0 {
-                let slot = e.call(NODE_ITEM, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 e.call(LIST_REMOVE, &args![previous, slot]);
                 node = next_of(e, previous);
             } else {
@@ -3464,14 +3488,14 @@ pub fn fn_00836470(e: &mut Engine, this: Ptr<StationState>, _unused_1: u32) {
             true
         } else {
             let radio = radio_of(e, node);
-            if e.call(FORM_OF, &args![radio]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, radio)) == 0 {
                 true
             } else {
                 let radio = radio_of(e, node);
-                let form = e.call(FORM_OF, &args![radio]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, radio));
                 if e.call(FORM_TYPE, &args![form]).u32() == 0x15 {
                     let radio = radio_of(e, node);
-                    let form = e.call(FORM_OF, &args![radio]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, radio));
                     e.call(RADIO_STATION_FORM, &args![form]).u32() == 0
                 } else {
                     false
@@ -4139,7 +4163,7 @@ pub fn fallout_radio_pipboy_update(e: &mut Engine, force: u32) {
             e.set_global(LOST_PIPBOY_STATION, station);
             fallout_radio_pipboy_radio_enable(e, 0);
             stop_and_release(e, PIPBOY_HANDLE_638);
-            let text = e.call(STRING_C_STR, &args![message]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, message));
             let hud = e.global::<u32>(HUD_011D96C0);
             let time = x87_quiet_bits(e.global::<u32>(MESSAGE_TIME));
             e.call(
@@ -4196,7 +4220,7 @@ pub fn fallout_radio_pipboy_update(e: &mut Engine, force: u32) {
             let response = current_response(e, item);
             let with_form = response != 0 && {
                 let response = current_response(e, item);
-                e.call(FORM_OF, &args![response]).u32() != 0
+                typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response)) != 0
             };
             if with_form && fn_00833ce0(e) == 0 {
                 news = true;
@@ -4208,13 +4232,13 @@ pub fn fallout_radio_pipboy_update(e: &mut Engine, force: u32) {
             }
             let has_text = current_response(e, item) != 0 && {
                 let response = current_response(e, item);
-                let slot = e.call(NODE_ITEM, &args![response]).u32();
-                e.call(STRING_C_STR, &args![slot]).u32() != 0
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, response));
+                typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) != 0
             };
             if has_text {
                 let response = current_response(e, item);
-                let slot = e.call(NODE_ITEM, &args![response]).u32();
-                let text = e.call(STRING_C_STR, &args![slot]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, response));
+                let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
                 let length = e.call(LIST_COUNT_0044A670, &args![text]).u32();
                 music = length > 2 && {
                     let response = current_response(e, item);
@@ -4226,9 +4250,10 @@ pub fn fallout_radio_pipboy_update(e: &mut Engine, force: u32) {
                 };
                 if !music {
                     let response = current_response(e, item);
-                    if e.call(FORM_OF, &args![response]).u32() != 0 {
+                    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response)) != 0 {
                         let response = current_response(e, item);
-                        let form = e.call(FORM_OF, &args![response]).u32();
+                        let form =
+                            typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response));
                         let file = e.call(SOUND_FILE_NAME, &args![form]).u32();
                         if e.call(STRSTR, &args![file, TEXT_WAV]).u32() != 0 {
                             music = true;
@@ -4239,19 +4264,22 @@ pub fn fallout_radio_pipboy_update(e: &mut Engine, force: u32) {
             let _elapsed = audio_time(e).wrapping_sub(e.mem.u32(pipboy_station(e) + 0xc));
             if music {
                 let response = current_response(e, item);
-                let has_form = e.call(FORM_OF, &args![response]).u32() != 0;
+                let has_form =
+                    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response)) != 0;
                 stop_and_release(e, PIPBOY_HANDLE_5BC);
                 if has_form {
                     let response = current_response(e, item);
-                    let form = e.call(FORM_OF, &args![response]).u32();
+                    let form =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response));
                     let response = current_response(e, item);
-                    let form_again = e.call(FORM_OF, &args![response]).u32();
+                    let form_again =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response));
                     let file = e.call(SOUND_FILE_NAME, &args![form_again]).u32();
                     load_voice_file(e, file, form);
                 } else {
                     let response = current_response(e, item);
                     let list = e.call(RESPONSE_LIST_00460140, &args![response]).u32();
-                    let file = e.call(STRING_C_STR, &args![list]).u32();
+                    let file = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
                     load_voice_file(e, file, 0);
                 }
                 let station = pipboy_station(e);
@@ -4272,7 +4300,7 @@ pub fn fallout_radio_pipboy_update(e: &mut Engine, force: u32) {
                 let buffer = at(0x154);
                 let path = at(0x15c);
                 let response = current_response(e, item);
-                let form = e.call(FORM_OF, &args![response]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, response));
                 let file = e.call(SOUND_FILE_NAME, &args![form]).u32();
                 e.call(
                     FORMAT_00406D00,
@@ -4330,8 +4358,8 @@ fn show_subtitle(e: &mut Engine, item: u32, handle_copy: u32) {
     e.call(SOUND_HANDLE_ASSIGN, &args![handle_copy, PIPBOY_HANDLE_5BC]);
     let handle: Vec<u32> = (0..3).map(|i| e.mem.u32(handle_copy + i * 4)).collect();
     let response = current_response(e, item);
-    let slot = e.call(NODE_ITEM, &args![response]).u32();
-    let text = e.call(STRING_C_STR, &args![slot]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, response));
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     e.call(
         SHOW_SUBTITLE_00705210,
         &args![text, handle[0], handle[1], handle[2], point[0], point[1], point[2], player, 0u32],
@@ -4355,7 +4383,11 @@ pub fn fallout_radio_enable_npc_radio(e: &mut Engine, radio: u32, station_refere
         if shutting_down(e) {
             return;
         }
-        let form = e.call(FORM_OF, &args![station_reference]).u32();
+        let form = typed_call!(
+            leaf::FAMILY,
+            0x007a_f430,
+            leaf::word_at_20(e, station_reference)
+        );
         let mut station = fn_00832830(e, form);
         if station != 0 {
             let _age = audio_time(e).wrapping_sub(e.mem.u32(station + 0xc));
@@ -4406,13 +4438,21 @@ pub fn fn_008359e0(e: &mut Engine, station_reference: u32, on: u32) {
         return;
     }
     let on = on as u8;
-    let form = e.call(FORM_OF, &args![station_reference]).u32();
+    let form = typed_call!(
+        leaf::FAMILY,
+        0x007a_f430,
+        leaf::word_at_20(e, station_reference)
+    );
     let station = fn_00832830(e, form);
     e.call(
         ENTER_CRITICAL_SECTION,
         &args![RADIO_CRITICAL_SECTION, NAME_SET_BROADCAST_STATE],
     );
-    let form = e.call(FORM_OF, &args![station_reference]).u32();
+    let form = typed_call!(
+        leaf::FAMILY,
+        0x007a_f430,
+        leaf::word_at_20(e, station_reference)
+    );
     e.call(FORM_SET_BROADCAST_00511370, &args![form, u32::from(on)]);
     if station != 0 {
         let state = Ptr::new(station + STATION_STATE);
@@ -4485,7 +4525,12 @@ pub fn fallout_radio_start_radio_conversation(e: &mut Engine, station_reference:
         return;
     }
     let reference = e.mem.u32(station);
-    if e.call(REFERENCE_TEST_00440DA0, &args![reference]).u32() & 0xff != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
+        .into_ret()
+        .u32()
+        & 0xff
+        != 0
+    {
         return;
     }
     let state = Ptr::new(station + STATION_STATE);
@@ -4630,7 +4675,7 @@ fn prune(e: &mut Engine, list: u32, keep: &mut dyn FnMut(&mut Engine, u32) -> bo
             previous = node;
             node = next_of(e, node);
         } else if previous != 0 {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.call(LIST_REMOVE, &args![previous, slot]);
             node = next_of(e, previous);
         } else {

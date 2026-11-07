@@ -61,10 +61,12 @@ const HANDLE_ASSIGN: u32 = 0x0041_8900;
 /// `00483710` (`thiscall`): the `BSSoundHandle` destructor.
 const HANDLE_DESTRUCT: u32 = 0x0048_3710;
 /// `0084e3a0` (`thiscall`): a form's id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `ImpactMixer::PlayFootstep` (engine map), `cdecl` (reference, type).
 const PLAY_FOOTSTEP: u32 = 0x0083_7cc0;
 /// `007af430` (`thiscall`): a reference's base form.
+#[cfg(test)]
 const BASE_FORM: u32 = 0x007a_f430;
 /// `TESCreature::PickCreatureSound` (engine map), `RET 4`.
 const PICK_CREATURE_SOUND: u32 = 0x005f_92d0;
@@ -94,6 +96,7 @@ const WEAPON_NOTE_SOUND: u32 = 0x008b_ffa0;
 /// `Actor::GetArmorBeingWorn` (engine map), `RET 4`.
 const ARMOR_BEING_WORN: u32 = 0x0089_1b90;
 /// `0044ddc0` (`thiscall`): the word at `this`.
+#[cfg(test)]
 const WORD_AT: u32 = 0x0044_ddc0;
 /// `00512d40` (`thiscall`, `RET 4`): the armor's sound for the note type.
 const ARMOR_NOTE_SOUND: u32 = 0x0051_2d40;
@@ -335,7 +338,7 @@ fn play_typed_note(
             {
                 return frequency;
             }
-            let base = e.call(BASE_FORM, &args![reference]).u32();
+            let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             let note_type = e.mem.u8(note + 4);
             let kind = if note_type < 0x16 {
                 u32::from(note_type)
@@ -350,7 +353,7 @@ fn play_typed_note(
             return e.with_stack(0x10, |e, handle| {
                 let handle = handle.addr();
                 let flags = player_flag(e, reference) | 0x4000_0102;
-                let id = e.call(FORM_ID, &args![sound]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
                 let audio = e.call(AUDIO_INSTANCE, &[]).u32();
                 e.call(HANDLE_BY_ID, &args![audio, handle, id, flags]);
                 let frequency = adjust_frequency(e, this, reference, has_value, frequency);
@@ -405,7 +408,7 @@ fn play_typed_note(
             e.with_stack(0x10, |e, handle| {
                 let handle = handle.addr();
                 let flags = player_flag(e, reference) | 0x4000_0102;
-                let id = e.call(FORM_ID, &args![sound]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
                 let audio = e.call(AUDIO_INSTANCE, &[]).u32();
                 e.call(HANDLE_BY_ID, &args![audio, handle, id, flags]);
                 let at = position(e, reference);
@@ -422,7 +425,7 @@ fn play_typed_note(
             if armor == 0 {
                 return frequency;
             }
-            let armor_form = e.call(WORD_AT, &args![armor]).u32();
+            let armor_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, armor));
             let note_type = u32::from(e.mem.u8(note + 4));
             let sound = e
                 .call(ARMOR_NOTE_SOUND, &args![armor_form, note_type])
@@ -434,7 +437,7 @@ fn play_typed_note(
                     let temporary = handle + 0x10;
                     e.call(HANDLE_CONSTRUCT, &args![handle]);
                     if reference == e.global::<u32>(PLAYER_POINTER) {
-                        let id = e.call(FORM_ID, &args![sound]).u32();
+                        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
                         let audio = e.call(AUDIO_INSTANCE, &[]).u32();
                         let made = e
                             .call(HANDLE_BY_ID, &args![audio, temporary, id, 0x4020_0101u32])
@@ -442,7 +445,7 @@ fn play_typed_note(
                         e.call(HANDLE_ASSIGN, &args![handle, made]);
                         e.call(HANDLE_DESTRUCT, &args![temporary]);
                     } else {
-                        let id = e.call(FORM_ID, &args![sound]).u32();
+                        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
                         let audio = e.call(AUDIO_INSTANCE, &[]).u32();
                         let made = e
                             .call(HANDLE_BY_ID, &args![audio, temporary, id, 0x4000_0102u32])

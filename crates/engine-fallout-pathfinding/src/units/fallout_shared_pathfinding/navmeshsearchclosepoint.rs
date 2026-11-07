@@ -60,6 +60,7 @@ const DOOR_LOCK_DESTRUCT: u32 = 0x0050_1e50;
 /// `006c9900(request)`: the address of the request's lock data (`+0x5C`).
 const REQUEST_LOCK_DATA: u32 = 0x006c_9900;
 /// `007af430(door)`: the word at `+0x20` (the door's base form).
+#[cfg(test)]
 const DOOR_BASE_FORM: u32 = 0x007a_f430;
 /// `00518000(base form)`: whether bit 3 of the byte at `+0x84` is set
 /// (`TESObjectDOOR::IsMinimalUse`, map name).
@@ -284,7 +285,7 @@ fn expand_edge(
                 e.call(DOOR_LOCK_DESTRUCT, &args![lock]);
                 return;
             }
-            let base_form = e.call(DOOR_BASE_FORM, &args![door]).u32();
+            let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, door));
             if e.call(IS_MINIMAL_USE, &args![base_form]).bool() {
                 cost = quiet(e.global::<f32>(MINIMAL_USE_DOOR_COST));
             }

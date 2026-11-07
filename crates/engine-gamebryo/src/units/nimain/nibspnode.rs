@@ -54,6 +54,7 @@ const PLANE_SAVE_BINARY: u32 = 0x00eb_5410;
 const PLANE_CONSTRUCT: u32 = 0x00a6_9940;
 const PLANE_GET_VIEWER_STRING: u32 = 0x00a6_9a60;
 const PLANE_COMPARE: u32 = 0x00a9_26b0;
+#[cfg(test)]
 const PLANE_WHICH_SIDE: u32 = 0x0049_da80;
 /// `NiAVObject::UpdateWorldData` (`00a68c60`, one word) and `NiAVObject::Cull` (`00a59e00`,
 /// the culling process).
@@ -306,14 +307,22 @@ pub fn ni_bsp_node_apply_transform(
 pub fn ni_bsp_node_on_visible(e: &mut Engine, this: Ptr, culler: Ptr) {
     let camera = e.mem.u32(culler.addr() + 0xc);
     let plane = this.addr() + WORLD_PLANE;
-    let mut side = e.call(PLANE_WHICH_SIDE, &args![plane, camera + 0x8c]).u32();
+    let mut side = typed_call!(
+        leaf::FAMILY,
+        0x0049_da80,
+        leaf::plane_side(e, plane, camera + 0x8c)
+    );
     if side == 0 {
         side = e.with_stack(0xc, |e, direction| {
             for (index, offset) in [0x68u32, 0x74, 0x80].into_iter().enumerate() {
                 let value = x87_quiet_bits(e.mem.u32(camera + offset));
                 e.mem.set_u32(direction.addr() + 4 * index as u32, value);
             }
-            e.call(PLANE_WHICH_SIDE, &args![plane, direction]).u32()
+            typed_call!(
+                leaf::FAMILY,
+                0x0049_da80,
+                leaf::plane_side(e, plane, direction)
+            )
         });
     }
     let children = e.mem.u32(this.addr() + 0xa0);

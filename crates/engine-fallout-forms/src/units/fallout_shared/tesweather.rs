@@ -56,8 +56,10 @@ const CLOUD_LOWER_NAME: u32 = 0x0103_17cc;
 const FOG_FAR_DEFAULT: u32 = 0x0103_17c8;
 const FOG_POWER_DEFAULT: u32 = 0x0103_17c4;
 /// `006815c0` (`ECX`, answers `this`: a list node read as its item word).
+#[cfg(test)]
 const LIST_ITEM_006815C0: u32 = 0x0068_15c0;
 /// `00726070` (`ECX`, answers the word at +4: a list node's next).
+#[cfg(test)]
 const NODE_FOLLOWING_00726070: u32 = 0x0072_6070;
 /// `operator delete` (`00401030`, `cdecl`, one word).
 const OPERATOR_DELETE: u32 = 0x0040_1030;
@@ -83,6 +85,7 @@ const TYPE_IMAGE_SPACE_MODIFIER: u32 = 0x0118_62b8;
 /// `00474cb0` (`ECX`): the length of the form's name (vtable slot +0x130), 0 without one.
 const NAME_LENGTH_00474CB0: u32 = 0x0047_4cb0;
 /// `0084e3a0` (`ECX`): the word at +0xc (the form id).
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// The release build's logging stub (`005b5e40`, `cdecl`, variable words).
 const LOG: u32 = 0x005b_5e40;
@@ -221,7 +224,7 @@ pub fn fn_005820a0(e: &mut Engine, this: Ptr, owner: Ptr) {
                 let name = e.vcall(owner.addr(), 0x130, &args![]).u32();
                 e.call(LOG, &args![MESSAGE_NAMED_OWNER, id, name]);
             } else {
-                let owner_id = e.call(FORM_ID_0084E3A0, &args![owner]).u32();
+                let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
                 e.call(LOG, &args![MESSAGE_OWNER_ID, id, owner_id]);
             }
         }
@@ -284,14 +287,14 @@ pub fn tes_weather_clear_data(e: &mut Engine, this: Ptr<TESWeather>) {
 pub fn fn_00581f50(e: &mut Engine, this: Ptr) {
     let mut node = this.addr();
     while node != 0 {
-        let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_at) == 0 {
             break;
         }
-        let item_at = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_at);
         e.call(OPERATOR_DELETE, &args![item]);
-        node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(LIST_REMOVE_ALL_00470470, &args![this]);
 }
@@ -717,16 +720,16 @@ pub fn tes_weather_save(e: &mut Engine, this: Ptr<TESWeather>) {
     );
     let mut node = base.wrapping_add(0x1f8);
     while node != 0 {
-        let item = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             break;
         }
         swap_sound(e, node);
-        let item = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let sound = e.mem.u32(item);
         e.call(ADD_CHUNK_DATA, &args![CHUNK_SNAM, sound, 8u32]);
         swap_sound(e, node);
-        node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(CLOSE_FORM, &args![this]);
 }
@@ -750,7 +753,7 @@ fn swap_parameter_blocks(e: &mut Engine, base: u32) {
 /// When saved data is byte-swapped (`00401500`): `00462230` on the node's sound record.
 fn swap_sound(e: &mut Engine, node: u32) {
     if e.call(SWAPS_BYTE_ORDER, &[]).bool() {
-        let item = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let sound = e.mem.u32(item);
         e.call(SWAP_SOUND_00462230, &args![sound]);
     }
@@ -811,15 +814,15 @@ pub fn fn_00581630(e: &mut Engine, this: Ptr<TESWeather>, form: u32) {
     e.call(LIST_REMOVE_ALL_00470470, &args![base.wrapping_add(0x1f8)]);
     let mut node = source.wrapping_add(0x1f8);
     while node != 0 {
-        let item = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             break;
         }
         let memory = e.call(ALLOCATE, &args![8u32]).u32();
         let record = if memory != 0 {
-            let item = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let second = e.mem.u32(e.mem.u32(item).wrapping_add(4));
-            let item = e.call(LIST_ITEM_006815C0, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let first = e.mem.u32(e.mem.u32(item));
             e.call(SOUND_RECORD_CTOR, &args![memory, first, second])
                 .u32()
@@ -830,7 +833,7 @@ pub fn fn_00581630(e: &mut Engine, this: Ptr<TESWeather>, form: u32) {
             e.mem.set_u32(slot.addr(), record);
             e.call(LIST_ADD_00905820, &args![base.wrapping_add(0x1f8), slot]);
         });
-        node = e.call(NODE_FOLLOWING_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -859,23 +862,23 @@ pub fn fn_00581880(e: &mut Engine, this: Ptr<TESWeather>, form: u32) -> bool {
         return true;
     }
     while theirs != 0 && mine != 0 {
-        let item = e.call(LIST_ITEM_006815C0, &args![theirs]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         if e.mem.u32(item) == 0 {
             break;
         }
-        let item = e.call(LIST_ITEM_006815C0, &args![mine]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
         if e.mem.u32(item) == 0 {
             break;
         }
-        let item = e.call(LIST_ITEM_006815C0, &args![mine]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
         let my_sound = e.mem.u32(item);
-        let item = e.call(LIST_ITEM_006815C0, &args![theirs]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         let their_sound = e.mem.u32(item);
         if e.call(MEMCMP, &args![their_sound, my_sound, 8u32]).u32() != 0 {
             return true;
         }
-        theirs = e.call(NODE_FOLLOWING_00726070, &args![theirs]).u32();
-        mine = e.call(NODE_FOLLOWING_00726070, &args![mine]).u32();
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
     }
     if e.mem.u32(base.wrapping_add(0x368)) != e.mem.u32(source.wrapping_add(0x368)) {
         return true;
@@ -940,7 +943,7 @@ pub fn tes_image_space_modifiable_count_form_save(e: &mut Engine, this: Ptr) {
                 .wrapping_add(4),
         );
         if modifier != 0 {
-            let id = e.call(FORM_ID_0084E3A0, &args![modifier]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, modifier));
             e.call(ADD_WORD_CHUNK, &args![index.wrapping_add(CHUNK_IAD_0), id]);
         }
         index += 1;

@@ -10,6 +10,7 @@ use crate::prelude::*;
 const FORM_GET_FILE: u32 = 0x0048_4e60;
 const FORM_ADD_COMPILE_INDEX: u32 = 0x0048_5d50;
 const LOOKUP_FORM: u32 = 0x0048_39c0;
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The warning printer (`005b5e40`, cdecl, variable arguments) and
 /// `"MASTERFILE: Could not find Form (%08X) on challenge '%s' (%08X)."`
@@ -52,7 +53,7 @@ fn resolve_form(e: &mut Engine, this: Ptr, offset: u32) {
     let form = e.call(LOOKUP_FORM, &args![id]).u32();
     e.mem.set_u32(base + offset, form);
     if e.mem.u32(base + offset) == 0 {
-        let form_id = e.call(FORM_ID, &args![this]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let name = e.vcall(base, 0x130, &args![]).u32();
         e.call(WARNING, &args![MISSING_FORM_FORMAT, id, name, form_id]);
     }
@@ -220,7 +221,7 @@ pub fn tes_challenge_save(e: &mut Engine, this: Ptr) {
     for (offset, chunk) in [(0x74u32, CHUNK_SNAM), (0x78, CHUNK_XNAM)] {
         let form = e.mem.u32(at + offset);
         if form != 0 {
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(ADD_CHUNK_WORD, &args![chunk, id]);
         }
     }

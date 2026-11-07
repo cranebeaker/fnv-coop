@@ -87,6 +87,7 @@ const COVER_VTABLE: u32 = 0x0106_d29c;
 const REQUEST_CONSTRUCT: u32 = 0x006e_2420;
 const REQUEST_COPY_TO: u32 = 0x006e_2750;
 /// `006815c0` (`thiscall`): the `NiPoint3` constructor.
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0068_15c0;
 /// The constructor's defaults (`float`s, through the x87 stack): actor
 /// radius `0104e0e8`, actor height `0101e704`, crouch height `0101e6ec`,
@@ -122,8 +123,10 @@ const NI_POINTER_CONSTRUCT: u32 = 0x0042_fb00;
 const NI_POINTER_FROM: u32 = 0x0063_3c90;
 const NI_POINTER_DESTRUCT: u32 = 0x0042_fa40;
 const NI_POINTER_RELEASE: u32 = 0x0045_cec0;
+#[cfg(test)]
 const WORD_AT: u32 = 0x0055_9450;
 /// `0084e3a0` (`thiscall`): a navmesh's key.
+#[cfg(test)]
 const NAV_MESH_KEY: u32 = 0x0084_e3a0;
 /// `006997b0` (`thiscall`, `RET 8`): a navmesh triangle's cover object
 /// into an `NiPointer` (triangle, out); answers whether there is one.
@@ -158,9 +161,9 @@ pub fn pathing_request_cover_pathing_request_cover(
     let base = this.addr();
     e.call(REQUEST_CONSTRUCT, &args![this]);
     e.mem.set_u32(base, COVER_VTABLE);
-    e.call(POINT_CONSTRUCT, &args![base + 0xb0]);
-    e.call(POINT_CONSTRUCT, &args![base + 0xd4]);
-    e.call(POINT_CONSTRUCT, &args![base + 0xe0]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0xb0));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0xd4));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0xe0));
     for (offset, constant) in [
         (0x68u32, DEFAULT_ACTOR_RADIUS),
         (0x6c, DEFAULT_ACTOR_HEIGHT),
@@ -347,8 +350,8 @@ pub fn fn_006e4570(e: &mut Engine, this: Ptr<PathingCoverLocation>) -> u32 {
         {
             let edge = e.get(this, PathingCoverLocation::cEdge);
             let triangle = e.mem.u16(triangle);
-            let mesh = e.call(WORD_AT, &args![nav_mesh]).u32();
-            let mesh_key = e.call(NAV_MESH_KEY, &args![mesh]).u32();
+            let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nav_mesh));
+            let mesh_key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, mesh));
             fn_006e4630(e, mesh_key, triangle, edge)
         } else {
             0
@@ -375,7 +378,7 @@ fn triangle_cover(e: &mut Engine, this: Ptr, nav_mesh: Ptr, cover: Ptr) -> Optio
     }
     e.call(NI_POINTER_FROM, &args![cover, 0u32]);
     let triangle = e.call(LOCATION_TRIANGLE, &args![this]).u16();
-    let mesh = e.call(WORD_AT, &args![nav_mesh]).u32();
+    let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, nav_mesh));
     Some(
         e.call(TRIANGLE_COVER, &args![mesh, u32::from(triangle), cover])
             .bool(),
@@ -395,7 +398,7 @@ pub fn fn_006e4650(e: &mut Engine, this: Ptr<PathingCoverLocation>, owner: u32) 
             None => false,
             Some(found) => {
                 let result = if found {
-                    let object = e.call(WORD_AT, &args![cover]).u32();
+                    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, cover));
                     e.mem.u32(object + 0x70) == owner
                 } else {
                     false
@@ -422,7 +425,7 @@ pub fn fn_006e4740(e: &mut Engine, this: Ptr<PathingCoverLocation>) -> u32 {
             None => 0xffff_ffff,
             Some(found) => {
                 let result = if found {
-                    let object = e.call(WORD_AT, &args![cover]).u32();
+                    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, cover));
                     e.mem.u32(object + 0x70)
                 } else {
                     0xffff_ffff

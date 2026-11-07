@@ -38,6 +38,7 @@ const MANAGER_INITIALIZE: u32 = 0x00ad_9640;
 /// `BSAudio::Init` (engine map; `thiscall`, `RET 4`).
 const AUDIO_INIT: u32 = 0x00ad_7020;
 /// The error report `0040fbe0` (cdecl, variable arguments).
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 
 /// The setting object whose value byte (+4, `011f6da0`) enables audio. The code tests the
@@ -82,7 +83,7 @@ pub fn fn_00aea590(e: &mut Engine, _this: Ptr, result: i32, _unused_message: u32
     if result >= 0 {
         return true;
     }
-    e.call(ERROR, &args![MSG_NOT_INITIALIZED]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words MSG_NOT_INITIALIZED);
     false
 }
 

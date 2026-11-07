@@ -68,6 +68,7 @@ const SET_COMPILE_DATA: u32 = 0x005a_ae70;
 /// `00484ab0` (`ECX` = form, a word; `RET 4`).
 const FORM_SET_484AB0: u32 = 0x0048_4ab0;
 /// `00671d10` (`ECX` = script): whether it is kept.
+#[cfg(test)]
 const SCRIPT_KEPT: u32 = 0x0067_1d10;
 /// The chunk tags.
 const CHUNK_SCRO: u32 = 0x4f52_4353;
@@ -98,6 +99,7 @@ const TYPE_TES_TOPIC: u32 = 0x0118_4720;
 /// `00474cb0` (`ECX` = owner): whether to name it by its slot `0x130`.
 const OWNER_NAMED: u32 = 0x0047_4cb0;
 /// `0084e3a0` (`ECX` = form): its form id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `005b5e40` (cdecl: format, arguments...): writes a warning line.
 const LOG_WARNING: u32 = 0x005b_5e40;
@@ -269,7 +271,7 @@ pub fn package_event_action_load(e: &mut Engine, this: Ptr<PackageEventAction>, 
     let script = e.get(this, PackageEventAction::pResultScript);
     e.call(FORM_SET_484AB0, &args![script, 0u32]);
     let script = e.get(this, PackageEventAction::pResultScript);
-    if e.call(SCRIPT_KEPT, &args![script]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, script)) == 0 {
         drop_script(e, this);
     }
 }
@@ -302,7 +304,7 @@ fn resolve(e: &mut Engine, field: u32, owner: Ptr, target: u32, named: u32, by_i
             let name = e.vcall(owner.addr(), 0x130, &[]).u32();
             e.call(LOG_WARNING, &args![named, id, name]);
         } else {
-            let owner_id = e.call(FORM_ID, &args![owner]).u32();
+            let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             e.call(LOG_WARNING, &args![by_id, id, owner_id]);
         }
         e.mem.set_u32(field, 0);
@@ -354,7 +356,7 @@ pub fn package_event_action_init_item(e: &mut Engine, this: Ptr<PackageEventActi
     let errors = e.call(WARNING_COUNT, &[]).u32();
     e.call(SET_WARNING_COUNT, &args![kept]);
     if errors != 0 {
-        let id = e.call(FORM_ID, &args![owner]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
         let name = e.vcall(owner.addr(), 0x130, &[]).u32();
         e.call(LOG_WARNING, &args![FORMAT_SCRIPT_ERRORS, name, id]);
     }
@@ -363,8 +365,11 @@ pub fn package_event_action_init_item(e: &mut Engine, this: Ptr<PackageEventActi
 /// The other action's fields, through the folded getters the exe calls:
 /// `00559450` (the word at +0), `0044ddc0` (the same) and `00726070` (the
 /// word at +4), each `thiscall` with no stack word.
+#[cfg(test)]
 const OTHER_IDLE: u32 = 0x0055_9450;
+#[cfg(test)]
 const OTHER_TOPIC: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const OTHER_SCRIPT: u32 = 0x0072_6070;
 /// `Script::CompareResultScripts` (engine map, `005ab240`, `thiscall`, `RET
 /// 4`) and `Script::SaveResultScript` (engine map, `005abe00`, `thiscall`).
@@ -386,23 +391,27 @@ pub fn package_event_action_compare(
     this: Ptr<PackageEventAction>,
     other: u32,
 ) -> bool {
-    if e.get(this, PackageEventAction::pIdle) != e.call(OTHER_IDLE, &args![other]).u32() {
+    if e.get(this, PackageEventAction::pIdle)
+        != typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other))
+    {
         return true;
     }
-    if e.get(this, PackageEventAction::pTopic) != e.call(OTHER_TOPIC, &args![other]).u32() {
+    if e.get(this, PackageEventAction::pTopic)
+        != typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, other))
+    {
         return true;
     }
     if e.get(this, PackageEventAction::pResultScript) == 0
-        && e.call(OTHER_SCRIPT, &args![other]).u32() == 0
+        && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other)) == 0
     {
         return false;
     }
     if e.get(this, PackageEventAction::pResultScript) == 0
-        || e.call(OTHER_SCRIPT, &args![other]).u32() == 0
+        || typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other)) == 0
     {
         return true;
     }
-    let theirs = e.call(OTHER_SCRIPT, &args![other]).u32();
+    let theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other));
     let mine = e.get(this, PackageEventAction::pResultScript);
     e.call(COMPARE_RESULT_SCRIPTS, &args![mine, theirs]).bool()
 }
@@ -417,14 +426,14 @@ pub fn package_event_action_save(e: &mut Engine, this: Ptr<PackageEventAction>, 
     e.call(ADD_CHUNK, &args![kind]);
     let idle = e.get(this, PackageEventAction::pIdle);
     let idle_id = if idle != 0 {
-        e.call(FORM_ID, &args![idle]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, idle))
     } else {
         0
     };
     e.call(ADD_CHUNK_WORD, &args![CHUNK_INAM, idle_id]);
     let topic = e.get(this, PackageEventAction::pTopic);
     let topic_id = if topic != 0 {
-        e.call(FORM_ID, &args![topic]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, topic))
     } else {
         0
     };

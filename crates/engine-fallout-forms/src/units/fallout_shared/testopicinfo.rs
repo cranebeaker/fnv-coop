@@ -27,9 +27,11 @@ const SHARED_RESPONSES: u32 = 0x011c_c07c;
 /// The info whose responses the shared list holds (`011cbf3c`).
 const SHARED_RESPONSES_INFO: u32 = 0x011c_bf3c;
 /// `0045cd60` (`ECX` = response): the word at +0x28 (`pNext`).
+#[cfg(test)]
 const RESPONSE_NEXT: u32 = 0x0045_cd60;
 /// `00559450` (`ECX` = object): the word at +0 (a string's characters; a
 /// response list's first response).
+#[cfg(test)]
 const WORD_AT_ZERO: u32 = 0x0055_9450;
 /// `TESResponse::GetResponseText` (`00616de0`, `ECX` = response).
 const GET_RESPONSE_TEXT: u32 = 0x0061_6de0;
@@ -94,6 +96,7 @@ const FORM_TYPE: u32 = 0x0040_1170;
 /// The form type an idle must have (0x48).
 const IDLE_FORM_TYPE: u32 = 0x48;
 /// `0084e3a0` (`ECX` = form): the word at +0xc (`TESForm` form id).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `005b5e40` (cdecl: format, arguments...): writes a warning line.
 const LOG_WARNING: u32 = 0x005b_5e40;
@@ -119,7 +122,7 @@ const CHUNK_LNAM: u32 = 0x4d41_4e4c;
 pub fn fn_0061cad0(e: &mut Engine, this: Ptr) {
     let mut response = e.mem.u32(this.addr());
     while response != 0 {
-        let next = e.call(RESPONSE_NEXT, &args![response]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, response));
         if response != 0 {
             fn_0061cb30(e, Ptr::new(response), 1);
         }
@@ -168,7 +171,7 @@ pub fn fn_0061cb60(e: &mut Engine, this: Ptr, first: u32) {
             fn_0061cc60(e, this, copy);
         }
         previous = copy;
-        source = e.call(RESPONSE_NEXT, &args![source]).u32();
+        source = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, source));
     }
 }
 
@@ -199,8 +202,8 @@ pub fn fn_0061cc60(e: &mut Engine, this: Ptr, response: u32) {
 /// `pNext` (+0x28). The engine map gives it no name.
 pub fn fn_0061cc90(e: &mut Engine, this: Ptr<TesResponse>, response: u32) {
     let mut last = this.addr();
-    while e.call(RESPONSE_NEXT, &args![last]).u32() != 0 {
-        last = e.call(RESPONSE_NEXT, &args![last]).u32();
+    while typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, last)) != 0 {
+        last = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, last));
     }
     e.set(Ptr::<TesResponse>::new(last), TesResponse::pNext, response);
 }
@@ -227,17 +230,17 @@ pub fn tes_topic_info_get_info_display_text(
 ) {
     e.call(STRING_SET, &args![string, 0u32, 0u32]);
     let list = tes_topic_info_get_response_list(e, this, Ptr::NULL);
-    let mut response = e.call(WORD_AT_ZERO, &args![list]).u32();
+    let mut response = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     while response != 0 {
         let text = e.call(GET_RESPONSE_TEXT, &args![response]).u32();
         e.call(STRING_APPEND, &args![string, text]);
-        if e.call(RESPONSE_NEXT, &args![response]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, response)) != 0 {
             e.call(STRING_APPEND, &args![string, RESPONSE_SEPARATOR]);
         }
         if first_only != 0 {
             break;
         }
-        response = e.call(RESPONSE_NEXT, &args![response]).u32();
+        response = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, response));
     }
 }
 
@@ -277,7 +280,11 @@ pub fn tes_topic_info_get_response_list(e: &mut Engine, this: Ptr, list: Ptr) ->
         if list.is_null() {
             return target;
         }
-        let first = e.call(WORD_AT_ZERO, &args![SHARED_RESPONSES]).u32();
+        let first = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, SHARED_RESPONSES)
+        );
         fn_0061cb60(e, list, first);
         return list;
     }
@@ -356,7 +363,7 @@ fn read_idle(e: &mut Engine, info: Ptr, file: u32) -> u32 {
         }
         let id = e.mem.u32(id_slot.addr());
         if id != 0 && idle == 0 {
-            let info_id = e.call(FORM_ID, &args![info]).u32();
+            let info_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, info));
             e.call(LOG_WARNING, &args![FORMAT_NO_IDLE, id, info_id]);
         }
         idle
@@ -436,6 +443,7 @@ const EMPTY_STRING: u32 = 0x0101_1584;
 const FORM_004077C0: u32 = 0x0040_77c0;
 const FORM_004013E0: u32 = 0x0040_13e0;
 /// `00440d80` (`ECX` = form): a byte.
+#[cfg(test)]
 const FORM_00440D80: u32 = 0x0044_0d80;
 /// `00619a70` (`run_00619a70`; `ECX` = info): `iInfoIndex` (in `AX`).
 const INFO_INDEX: u32 = 0x0061_9a70;
@@ -476,6 +484,7 @@ const RESULT_SCRIPT_SIZE: u32 = 0x54;
 /// The info whose result scripts `RESULT_SCRIPTS` holds (`011cbf40`).
 const RESULT_SCRIPTS_INFO: u32 = 0x011c_bf40;
 /// `0061c360`'s target and the topic code's arrays.
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0084_e3a0;
 /// `00619c50` (`ECX` = topic, the info; `RET 4`).
 const TOPIC_00619C50: u32 = 0x0061_9c50;
@@ -484,6 +493,7 @@ const TOPIC_00619C50: u32 = 0x0061_9c50;
 const ARRAY_OF_00717E50: u32 = 0x0071_7e50;
 /// `00877a30` (`ECX` = array, an index; `RET 4`): the address of that
 /// element.
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// `00486b80` (`ECX` = array, an index; `RET 4`): removes that element.
 const ARRAY_REMOVE: u32 = 0x0048_6b80;
@@ -494,12 +504,15 @@ const ARRAY_00619FE0: u32 = 0x0061_9fe0;
 /// `00436aa0` (`ECX` = info): `this + 0x30`, the topic list.
 const ADD_TOPICS: u32 = 0x0043_6aa0;
 /// `008256d0` (`ECX` = list node): a byte; true at the end of the list.
+#[cfg(test)]
 const NODE_IS_END: u32 = 0x0082_56d0;
 /// `0063f7b0` (`ECX` = list node).
 const NODE_0063F7B0: u32 = 0x0063_f7b0;
 /// `006815c0` (`ECX` = list node): the address of its item.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`ECX` = list node): the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `00905330` (`ECX` = node, the address of an item; `RET 4`).
 const NODE_00905330: u32 = 0x0090_5330;
@@ -669,12 +682,12 @@ fn warn_with_description(e: &mut Engine, info: Ptr, id: u32, format: u32, size: 
             e.call(STRING_CONSTRUCT, &args![text]);
             tes_topic_info_get_info_display_text(e, info, text, 1);
             if topic != 0 && quest != 0 {
-                let topic_id = e.call(FORM_ID, &args![topic]).u32();
+                let topic_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, topic));
                 let topic_name = e.vcall(topic, 0x130, &[]).u32();
-                let quest_id = e.call(FORM_ID, &args![quest]).u32();
+                let quest_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, quest));
                 let quest_name = e.vcall(quest, 0x138, &[]).u32();
-                let characters = e.call(WORD_AT_ZERO, &args![text]).u32();
-                let info_id = e.call(FORM_ID, &args![info]).u32();
+                let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
+                let info_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, info));
                 e.call(
                     SPRINTF,
                     &args![
@@ -689,8 +702,8 @@ fn warn_with_description(e: &mut Engine, info: Ptr, id: u32, format: u32, size: 
                     ],
                 );
             } else {
-                let characters = e.call(WORD_AT_ZERO, &args![text]).u32();
-                let info_id = e.call(FORM_ID, &args![info]).u32();
+                let characters = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
+                let info_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, info));
                 e.call(SPRINTF, &args![buffer, FORMAT_INFO, info_id, characters]);
             }
             e.call(LOG_WARNING, &args![format, id, buffer]);
@@ -719,11 +732,11 @@ fn resolve_list(
         if node == 0 {
             break;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             break;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let raw = e.mem.u32(item);
         let (id, found) = e.with_stack(8, |e, slots| {
             e.mem.set_u32(slots.addr(), raw);
@@ -737,19 +750,21 @@ fn resolve_list(
             (id, found)
         });
         if found == 0 {
-            if e.call(NODE_NEXT, &args![node]).u32() != 0 || previous == 0 {
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node)) != 0
+                || previous == 0
+            {
                 e.call(NODE_0063F7B0, &args![node]);
             } else {
                 e.with_stack(4, |e, copy| {
                     e.mem.set_u32(copy.addr(), id);
                     e.call(NODE_00905330, &args![previous, copy]);
                 });
-                node = e.call(NODE_NEXT, &args![previous]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
             }
             warn(e, id);
         } else {
             previous = node;
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
 }
@@ -978,15 +993,23 @@ pub fn fn_0061d140(e: &mut Engine, this: Ptr, topic: Ptr) {
     }
     let array = e.call(ARRAY_OF_00717E50, &args![holder]).u32();
     let index = u32::from(e.call(INFO_INDEX, &args![this]).u16());
-    let element = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+    let element = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, array, index)
+    );
     if e.mem.u32(element) == this.addr() {
         let index = u32::from(e.call(INFO_INDEX, &args![this]).u16());
         e.call(ARRAY_REMOVE, &args![array, index]);
     } else {
-        let count = e.call(ARRAY_COUNT, &args![array]).u32() as i32;
+        let count = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, array)) as i32;
         let mut index = 0i32;
         while index < count {
-            let element = e.call(ARRAY_ELEMENT, &args![array, index as u32]).u32();
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index as u32)
+            );
             if e.mem.u32(element) == this.addr() {
                 e.call(ARRAY_REMOVE, &args![array, index as u32]);
                 break;
@@ -1008,7 +1031,7 @@ pub fn fn_0061d250(e: &mut Engine, this: Ptr) {
         return;
     }
     loop {
-        if e.call(NODE_IS_END, &args![list]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
             break;
         }
         e.call(NODE_0063F7B0, &args![list]);
@@ -1071,10 +1094,14 @@ pub fn tes_topic_info_init_item(e: &mut Engine, this: Ptr) {
         let data = e.call(CONVERSATION_DATA, &args![this]).u32();
         tes_conversation_data_init_item(e, Ptr::new(data), this);
     }
-    let mut response = e.call(WORD_AT_ZERO, &args![SHARED_RESPONSES]).u32();
+    let mut response = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SHARED_RESPONSES)
+    );
     while response != 0 {
         e.call(RESPONSE_INIT_ITEM, &args![response, this]);
-        response = e.call(RESPONSE_NEXT, &args![response]).u32();
+        response = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, response));
     }
     if e.mem.u32(base + 0x40) != 0 {
         let raw = e.mem.u32(base + 0x40);
@@ -1245,7 +1272,7 @@ pub fn tes_topic_info_load(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
         if e.mem.u8(base + 0x23) as i8 == 3 {
             e.mem.set_u8(base + 0x23, 0);
         }
-        if !e.call(FORM_00440D80, &args![this]).bool() {
+        if !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
             let current = e.mem.u32(CURRENT_TOPIC);
             let topic_id = e.mem.u32(topic);
             let previous_id = e.mem.u32(previous.addr());
@@ -1254,10 +1281,11 @@ pub fn tes_topic_info_load(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
                 .bool()
             {
                 let current = e.mem.u32(CURRENT_TOPIC);
-                let current_id = e.call(FORM_ID, &args![current]).u32();
+                let current_id =
+                    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, current));
                 let current = e.mem.u32(CURRENT_TOPIC);
                 let name = e.vcall(current, 0x130, &[]).u32();
-                let info_id = e.call(FORM_ID, &args![this]).u32();
+                let info_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 e.call(
                     LOG_WARNING,
                     &args![FORMAT_NOT_INSERTED, info_id, name, current_id, topic_id],
@@ -1324,7 +1352,7 @@ pub fn fn_0061e600(
     third: u32,
     speaker: Ptr,
 ) -> u8 {
-    if e.call(FORM_00440D80, &args![this]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
         return 0;
     }
     if e.call(INFO_00619B20, &args![this]).bool() && e.call(INFO_00619B40, &args![this]).bool() {
@@ -1619,14 +1647,14 @@ const COPY_ALL_COMPONENTS: u32 = 0x0048_51b0;
 fn append_items(e: &mut Engine, mut node: u32, list_of: impl Fn(&mut Engine) -> u32, slot: u32) {
     e.mem.set_u32(slot, 0);
     while node != 0 {
-        let at = e.call(NODE_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(at) == 0 {
             break;
         }
-        let at = e.call(NODE_ITEM, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(at);
         e.mem.set_u32(slot, item);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         let list = list_of(e);
         e.call(LIST_APPEND, &args![list, slot]);
     }
@@ -1648,17 +1676,22 @@ pub fn fn_0061c210(e: &mut Engine, this: Ptr, _unused_1: u32, other: u32) {
         e.mem.set_u32(second, 0);
         let node = e.call(LINK_TO, &args![other]).u32();
         append_items(e, node, |e| e.call(LINK_TO, &args![this]).u32(), first);
-        let node = e.call(LINK_FROM, &args![other]).u32();
-        append_items(e, node, |e| e.call(LINK_FROM, &args![this]).u32(), first);
+        let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
+        append_items(
+            e,
+            node,
+            |e| typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this)),
+            first,
+        );
         let mut node = e.call(FOLLOW_UP, &args![other]).u32();
         while node != 0 {
-            let at = e.call(NODE_ITEM, &args![node]).u32();
+            let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(at);
             e.mem.set_u32(second, item);
             if item == 0 {
                 return;
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             let list = e.call(FOLLOW_UP, &args![this]).u32();
             e.call(LIST_APPEND, &args![list, second]);
         }
@@ -1796,7 +1829,7 @@ pub fn fn_0061d8c0(e: &mut Engine, this: Ptr, out: u32, condition: u32) {
     let first = e.global::<u32>(CONDITION_VTABLE_WORD);
     e.mem.set_u32(out, first);
     e.mem.set_u32(out.wrapping_add(0xc), 7);
-    let id = e.call(FORM_ID, &args![topic]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, topic));
     e.mem.set_u32(out.wrapping_add(8), id);
     e.mem.set_u32(out.wrapping_add(4), 0);
     e.mem.set_u32(out.wrapping_add(0x10), 0);
@@ -1819,7 +1852,7 @@ pub fn tes_topic_info_get_form_detailed_string(e: &mut Engine, this: Ptr, string
         e.mem.set_u8(topic_part, 0);
         let topic = owner_topic(e, this.addr());
         if topic != 0 {
-            let id = e.call(FORM_ID, &args![topic]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, topic));
             let name = e.vcall(topic, 0x130, &[]).u32();
             e.call(SPRINTF, &args![topic_part, FORMAT_TOPIC, name, id]);
         }
@@ -1827,19 +1860,19 @@ pub fn tes_topic_info_get_form_detailed_string(e: &mut Engine, this: Ptr, string
         if topic != 0 && e.call(FORM_004013E0, &args![this]).bool() {
             let quest = e.call(TOPIC_QUEST, &args![topic, this]).u32();
             if quest != 0 {
-                let id = e.call(FORM_ID, &args![quest]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, quest));
                 let name = e.vcall(quest, 0x138, &[]).u32();
                 e.call(SPRINTF, &args![quest_part, FORMAT_QUEST, name, id]);
             }
         }
         e.mem.set_u8(text_part, 0);
         let list = tes_topic_info_get_response_list(e, this, Ptr::NULL).addr();
-        let response = e.call(WORD_AT_ZERO, &args![list]).u32();
+        let response = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
         if response != 0 {
             let text = e.call(GET_RESPONSE_TEXT, &args![response]).u32();
             e.call(SPRINTF, &args![text_part, FORMAT_TEXT, text]);
         }
-        let id = e.call(FORM_ID, &args![this]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let editor = e.call(FORM_TEXT_AT_401280, &args![this]).u32();
         let kind = e.call(FORM_TEXT_AT_440E30, &args![this]).u32();
         e.call(
@@ -1965,7 +1998,7 @@ pub fn fn_0061e330(e: &mut Engine, this: Ptr, form: u32) {
     });
     fn_0061d230(e, this);
     let list = tes_topic_info_get_response_list(e, Ptr::new(source), Ptr::NULL).addr();
-    let mut response = e.call(WORD_AT_ZERO, &args![list]).u32();
+    let mut response = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     while response != 0 {
         let block = e.call(OPERATOR_NEW, &args![RESPONSE_SIZE]).u32();
         let copy = if block != 0 {
@@ -1976,10 +2009,10 @@ pub fn fn_0061e330(e: &mut Engine, this: Ptr, form: u32) {
         e.call(RESPONSE_COPY, &args![copy, response]);
         let list = tes_topic_info_get_response_list(e, this, Ptr::NULL).addr();
         fn_0061cc60(e, Ptr::new(list), copy);
-        response = e.call(RESPONSE_NEXT, &args![response]).u32();
+        response = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, response));
     }
     let holder = e.call(INFO_TEXT_HOLDER, &args![source]).u32();
-    let text = e.call(WORD_AT_ZERO, &args![holder]).u32();
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
     fn_0061cfd0(e, this, text);
     let other = e.mem.u32(source.wrapping_add(0x40));
     if other == 0 {

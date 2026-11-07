@@ -41,6 +41,7 @@ const ENTITY_OWNER_4B5A50: u32 = 0x004b_5a50;
 /// `globalfunc.cpp` helper (`004b5a80`, cdecl(entity)).
 const ENTITY_OBJECT_4B5A80: u32 = 0x004b_5a80;
 /// Thiscall getter on the object `004b5a50` gave (`0044ddc0`).
+#[cfg(test)]
 const OWNER_GET_44DDC0: u32 = 0x0044_ddc0;
 /// `TESObjectREFR::FindReferenceFor3D` (engine map, cdecl(node)).
 const FIND_REFERENCE_FOR_3D: u32 = 0x0056_f930;
@@ -73,6 +74,7 @@ const TABLE_12681C0: u32 = 0x0126_81c0;
 /// The island's entity array (`00624700`: `this + 0x48`).
 const ISLAND_ENTITIES: u32 = 0x48;
 /// The array's size (`00726070`, thiscall).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0072_6070;
 /// The array's element address (`00629ab0`, thiscall(index)).
 const ARRAY_ELEMENT: u32 = 0x0062_9ab0;
@@ -90,6 +92,7 @@ const TES_GET_450B80: u32 = 0x0045_0b80;
 const UPDATE_OBJECT_LIGHTING: u32 = 0x00b5_d9f0;
 /// Thiscall getter on a reference (`007af430`, the engine map's
 /// `BGSSaveFormBuffer::GetForm` on folded code).
+#[cfg(test)]
 const REFERENCE_GET_FORM: u32 = 0x007a_f430;
 /// The two forms `007af430`'s result is compared against.
 const FORM_011CA27C: u32 = 0x011c_a27c;
@@ -105,6 +108,7 @@ const STACK_TRANSFORM_CONSTRUCT: u32 = 0x0056_ded0;
 /// The constructor of the 0x34-byte stack transform (`00476a80`).
 const STACK_NI_TRANSFORM_CONSTRUCT: u32 = 0x0047_6a80;
 /// Returns `this` (`006815c0`).
+#[cfg(test)]
 const IDENTITY_6815C0: u32 = 0x0068_15c0;
 /// Thiscall getter (`00436aa0`: `this + 0x30`).
 const GET_436AA0: u32 = 0x0043_6aa0;
@@ -144,7 +148,7 @@ fn entity_reference(e: &mut Engine, entity: u32) -> (u32, u32) {
     let object = if owner == 0 {
         0
     } else {
-        e.call(OWNER_GET_44DDC0, &args![owner]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, owner))
     };
     let reference = if object == 0 {
         0
@@ -302,7 +306,9 @@ pub fn fn_00624580(e: &mut Engine, _this: Ptr, island: Ptr) {
         return;
     }
     let entities = fn_00624700(e, island);
-    let count = e.call(ARRAY_SIZE, &args![entities]).i32();
+    let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entities))
+        .into_ret()
+        .i32();
     let mut index = 0i32;
     while index < count {
         let slot = e.call(ARRAY_ELEMENT, &args![entities, index]).u32();
@@ -351,7 +357,9 @@ pub fn fn_00624720(e: &mut Engine, _this: Ptr, island: Ptr) {
         return;
     }
     let entities = fn_00624700(e, island);
-    let count = e.call(ARRAY_SIZE, &args![entities]).i32();
+    let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entities))
+        .into_ret()
+        .i32();
     let mut index = 0i32;
     while index < count {
         let slot = e.call(ARRAY_ELEMENT, &args![entities, index]).u32();
@@ -391,9 +399,9 @@ pub fn fn_00624720(e: &mut Engine, _this: Ptr, island: Ptr) {
                 let scene = e.call(TES_GET_450B80, &args![0u32]).u32();
                 e.call(UPDATE_OBJECT_LIGHTING, &args![scene, node, 0u32]);
             }
-            let form = e.call(REFERENCE_GET_FORM, &args![reference]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             let matches = form == e.global::<u32>(FORM_011CA27C) || {
-                let form = e.call(REFERENCE_GET_FORM, &args![reference]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                 form == e.global::<u32>(FORM_011CA280)
             };
             if matches {
@@ -432,7 +440,9 @@ pub fn fn_00624720(e: &mut Engine, _this: Ptr, island: Ptr) {
 /// then `00458620(destination + 0x24, 00436aa0(source))` (the part at
 /// `source + 0x30`). Returns `destination`.
 pub fn fn_00624ad0(e: &mut Engine, destination: Ptr, source: Ptr) -> Ptr {
-    let rotation = e.call(IDENTITY_6815C0, &args![source]).ptr::<()>();
+    let rotation = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, source))
+        .into_ret()
+        .ptr::<()>();
     fn_00624b10(e, destination, rotation);
     let translation = e.call(GET_436AA0, &args![source]).u32();
     e.call(
@@ -450,7 +460,7 @@ pub fn fn_00624ad0(e: &mut Engine, destination: Ptr, source: Ptr) -> Ptr {
 /// `destination`.
 pub fn fn_00624b10(e: &mut Engine, destination: Ptr, source: Ptr) -> Ptr {
     e.with_stack(POINT_SIZE, |e, point| {
-        e.call(IDENTITY_6815C0, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         let mut index = 0u32;
         while index < 3 {
             let row = e.call(ROW_4B4CF0, &args![source, index]).u32();

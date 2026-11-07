@@ -81,6 +81,7 @@ const DATA_HANDLER: u32 = 0x011c_3f2c;
 const DATA_HANDLER_TEST_004226E0: u32 = 0x0042_26e0;
 /// The word at +8 of an object (`0044ddc0`): an array's size, the data's
 /// `eProcedure`, ...
+#[cfg(test)]
 const WORD_AT_8: u32 = 0x0044_ddc0;
 /// The procedure's package procedure type, by `SANDBOX_PROCEDURE` (six
 /// words in `.rdata`).
@@ -95,6 +96,7 @@ const PACKAGE_LOCATION_GET_LOC_TYPE: u32 = 0x0067_8ca0;
 const PACKAGE_LOCATION_GET_LOC_REFERENCE: u32 = 0x0067_f390;
 /// Reads the word at +0x68 (`008d8520`; the engine map's name
 /// `MiddleHighProcess::GetSavedAcquireObject` belongs to folded code).
+#[cfg(test)]
 const OBJECT_AT_0X68: u32 = 0x008d_8520;
 /// `TESObjectREFR` getter (`00569b80`).
 const REFERENCE_VALUE_00569B80: u32 = 0x0056_9b80;
@@ -131,6 +133,7 @@ const FTOL: u32 = 0x00ec_62c0;
 /// `abs` (`00ec7d40`, cdecl).
 const ABS: u32 = 0x00ec_7d40;
 /// A choice item's target (`00559450`, the word at +0).
+#[cfg(test)]
 const CHOICE_TARGET: u32 = 0x0055_9450;
 /// `Actor::GetAnimAction` (`008a7570`).
 const ACTOR_GET_ANIM_ACTION: u32 = 0x008a_7570;
@@ -294,11 +297,11 @@ pub fn fn_009f5690(e: &mut Engine, this: Ptr) -> bool {
 /// `0044ddc0`): -1 for -1, else the entry of the six-word table at
 /// `010935dc`.
 pub fn fn_009f4640(e: &mut Engine, this: Ptr) -> u32 {
-    let procedure = e.call(WORD_AT_8, &args![this]).u32();
+    let procedure = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     if procedure == 0xffff_ffff {
         return 0xffff_ffff;
     }
-    let procedure = e.call(WORD_AT_8, &args![this]).u32();
+    let procedure = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     e.mem
         .u32(PROCEDURE_TYPES.wrapping_add(procedure.wrapping_mul(4)))
 }
@@ -421,7 +424,7 @@ pub fn fn_009f3af0(e: &mut Engine, this: Ptr, actor: Ptr, location: Ptr) {
             e.mem.set_u32(base + LOCATION, reference);
         }
         4 | 5 => {
-            let object = e.call(OBJECT_AT_0X68, &args![actor]).u32();
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if object != 0 {
                 let reference = e.vcall(object, 0x514, &args![]).u32();
                 e.mem.set_u32(base + LOCATION, reference);
@@ -601,11 +604,13 @@ pub fn sand_box_actor_package_data_handle_deleted_reference(
         found = true;
     }
     let targets = Ptr::new(base + POTENTIAL_TARGETS);
-    let mut count = e.call(WORD_AT_8, &args![targets]).i32();
+    let mut count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, targets))
+        .into_ret()
+        .i32();
     let mut index = 0i32;
     while index < count {
         let choice = fn_009f6190(e, targets, index as u32);
-        if e.call(CHOICE_TARGET, &args![choice]).u32() == reference {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, choice)) == reference {
             found = true;
             fn_009f63a0(e, targets, index as u32, 1);
             count = count.wrapping_sub(1);
@@ -712,7 +717,7 @@ pub fn fn_009f4300(e: &mut Engine, this: Ptr, actor: Ptr, stop: bool) -> bool {
     if e.call(VALUE_008041A0, &args![idle]).u32() == 3 {
         return true;
     }
-    let object = e.call(OBJECT_AT_0X68, &args![actor]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(object, 0x394, &args![actor]);
     true
 }
@@ -879,15 +884,19 @@ const SCAN_CALLBACK: u32 = 0x009f_5070;
 /// `Actor::GetBestFoodItem` (`00891d30`).
 const ACTOR_GET_BEST_FOOD_ITEM: u32 = 0x0089_1d30;
 /// The word at +4 of an object (`00726070`): a choice's procedure.
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// A reference's base form (`007af430`, the word at +0x20).
+#[cfg(test)]
 const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 /// A form's type byte (`00401170`, the byte at +4).
 const FORM_TYPE: u32 = 0x0040_1170;
 /// The reference flag tests of the scan (`00440d80` bit 0x20, `004077c0`
 /// bit 0x4000, `00440da0` bit 0x800 of the word at +8).
+#[cfg(test)]
 const REFERENCE_FLAG_0X20: u32 = 0x0044_0d80;
 const REFERENCE_FLAG_0X4000: u32 = 0x0040_77c0;
+#[cfg(test)]
 const REFERENCE_FLAG_0X800: u32 = 0x0044_0da0;
 /// An actor test with the reference (`008859e0`).
 const ACTOR_TEST_008859E0: u32 = 0x0088_59e0;
@@ -926,6 +935,7 @@ const SCORE_00647B70: u32 = 0x0064_7b70;
 /// Sets a choice's full score (`0041fd00`, the word at +0xC).
 const CHOICE_SET_FULL_SCORE: u32 = 0x0041_fd00;
 /// A choice's full score (`0084e3a0`, the word at +0xC).
+#[cfg(test)]
 const CHOICE_FULL_SCORE: u32 = 0x0084_e3a0;
 /// The difference of two positions (`00439ef0`: the first position, the
 /// result address and the second position; answers the result).
@@ -1156,7 +1166,7 @@ pub fn sand_box_actor_package_data_scan_world(e: &mut Engine, this: Ptr, actor: 
     let package = Ptr::new(package);
     if fn_009f45e0(e, package) {
         let food = e.call(ACTOR_GET_BEST_FOOD_ITEM, &args![actor]).u32();
-        if food != 0 && e.call(WORD_AT_8, &args![food]).u32() != 0 {
+        if food != 0 && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, food)) != 0 {
             add_choice(e, base, 0, 2);
             e.mem.set_u8(base + FOOD, 1);
         }
@@ -1192,19 +1202,19 @@ fn may_use(e: &mut Engine, reference: u32, actor: u32) -> bool {
 #[allow(clippy::if_same_then_else)]
 pub fn fn_009f5070(e: &mut Engine, reference: Ptr, functor: Ptr) -> bool {
     let reference = reference.addr();
-    let data = e.call(WORD_AT_4, &args![functor]).u32();
-    let actor = e.call(CHOICE_TARGET, &args![functor]).u32();
+    let data = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, functor));
+    let actor = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, functor));
     if data == 0 {
         return false;
     }
-    if actor == 0 || e.call(REFERENCE_BASE_FORM, &args![actor]).u32() == 0 {
+    if actor == 0 || typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor)) == 0 {
         return false;
     }
     // No reference skips like a flagged one (009f50bf).
     if reference == 0
-        || e.call(REFERENCE_FLAG_0X20, &args![reference]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, reference))
         || e.call(REFERENCE_FLAG_0X4000, &args![reference]).bool()
-        || e.call(REFERENCE_FLAG_0X800, &args![reference]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
     {
         return false;
     }
@@ -1223,13 +1233,13 @@ pub fn fn_009f5070(e: &mut Engine, reference: Ptr, functor: Ptr) -> bool {
     if e.call(REFERENCE_TEST_0057B500, &args![reference]).bool() {
         return false;
     }
-    let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let kind = e.call(FORM_TYPE, &args![base_form]).u32();
     match kind.wrapping_sub(0x1d) {
         // 0x30
         0x13 => {
             if fn_009f54b0(e, package) && may_use(e, reference, actor) {
-                let form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                 let collection = form + 0x30;
                 e.call(IDLE_COLLECTION_VALUE_0092B440, &args![collection]);
                 e.call(IDLE_COLLECTION_VALUE_00479E80, &args![collection]);
@@ -1263,7 +1273,7 @@ pub fn fn_009f5070(e: &mut Engine, reference: Ptr, functor: Ptr) -> bool {
             if e.call(FURNITURE_MARKER_VALUE, &args![marker]).u32() == 0 {
                 return false;
             }
-            let furniture = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+            let furniture = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             if fn_009f4600(e, package)
                 && e.call(FURNITURE_CAN_SLEEP_ON, &args![furniture]).bool()
                 && may_use(e, reference, actor)
@@ -1395,10 +1405,12 @@ pub fn fn_009f56b0(e: &mut Engine, this: Ptr, actor: Ptr, distance: f32) -> bool
     let position = e.vcall(location, 0x1f4, &args![]).u32();
     // FCOMP with 0.0, C3 and C2 tested: equal (ordered).
     if x87_load32(distance) == zero {
-        let form = e.call(REFERENCE_BASE_FORM, &args![location]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, location));
         let special_a = e.global::<u32>(SPECIAL_BASE_A);
         let special_b = e.global::<u32>(SPECIAL_BASE_B);
-        if form == special_a || e.call(REFERENCE_BASE_FORM, &args![location]).u32() == special_b {
+        if form == special_a
+            || typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, location)) == special_b
+        {
             distance = x87_quiet_bits(e.mem.u32(TWENTY));
         } else if e.vcall(location, 0x100, &args![]).bool() {
             if e.vcall(location, 0x214, &args![]).u32() == 9 {
@@ -1413,7 +1425,7 @@ pub fn fn_009f56b0(e: &mut Engine, this: Ptr, actor: Ptr, distance: f32) -> bool
             }
         } else {
             let mut extra = x87_quiet_bits(e.mem.u32(TWENTY));
-            let form = e.call(REFERENCE_BASE_FORM, &args![location]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, location));
             let kind = e.call(FORM_TYPE, &args![form]).u32();
             if matches!(kind.wrapping_sub(0x15), 0 | 6 | 11 | 12) {
                 extra = 0;
@@ -1509,7 +1521,7 @@ pub fn sand_box_actor_package_data_save_game(e: &mut Engine, this: Ptr, buffer: 
     }
     let targets = base.wrapping_add(POTENTIAL_TARGETS);
     let count = if targets != 0 {
-        e.call(WORD_AT_8, &args![targets]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, targets))
     } else {
         0
     };
@@ -1554,7 +1566,9 @@ pub fn fn_009f4700(e: &mut Engine, this: Ptr, actor: Ptr, package: Ptr) {
     if x87_load32(e.mem.u32(base + TOTAL_TIME)) == zero {
         if !package.is_null() && e.call(PACKAGE_LIST_0041D8A0, &args![package]).u32() != 0 {
             let list = e.call(PACKAGE_LIST_0041D8A0, &args![package]).u32();
-            let count = e.call(WORD_AT_4, &args![list]).i32();
+            let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list))
+                .into_ret()
+                .i32();
             e.mem
                 .set_u32(base + TOTAL_TIME, x87_store32(f64::from(count)));
         }
@@ -1623,8 +1637,8 @@ pub fn fn_009f4700(e: &mut Engine, this: Ptr, actor: Ptr, package: Ptr) {
         if e.mem.u8(base + CHAIR) == 0 {
             weights[2] = weights[2].wrapping_sub(0xf);
         }
-        if e.call(OBJECT_AT_0X68, &args![actor]).u32() != 0 {
-            let object = e.call(OBJECT_AT_0X68, &args![actor]).u32();
+        if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+            let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             let value = e.vcall(object, 0xb8, &args![]).f64();
             // FCOMP with 0.0, C0 and C3 tested: above clears dialogue.
             if value > zero {
@@ -1634,9 +1648,11 @@ pub fn fn_009f4700(e: &mut Engine, this: Ptr, actor: Ptr, package: Ptr) {
     }
     let mut total = 0i32;
     let targets = Ptr::new(base + POTENTIAL_TARGETS);
-    let count = e.call(WORD_AT_8, &args![targets]).i32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, targets))
+        .into_ret()
+        .i32();
     // The exe keeps the actor's +0x68 object here without reading it again.
-    e.call(OBJECT_AT_0X68, &args![actor]);
+    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.with_stack(0x24, |e, locals| {
         let position = locals.addr();
         let difference = locals.addr() + 0xc;
@@ -1655,8 +1671,10 @@ pub fn fn_009f4700(e: &mut Engine, this: Ptr, actor: Ptr, package: Ptr) {
         while index < count {
             let choice = fn_009f6190(e, targets, index as u32);
             index += 1;
-            let base_score = e.call(WORD_AT_8, &args![choice]).i32();
-            let procedure = e.call(WORD_AT_4, &args![choice]).u32();
+            let base_score = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, choice))
+                .into_ret()
+                .i32();
+            let procedure = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, choice));
             let weight = weights[procedure as usize];
             let score = e
                 .call(
@@ -1665,7 +1683,7 @@ pub fn fn_009f4700(e: &mut Engine, this: Ptr, actor: Ptr, package: Ptr) {
                 )
                 .u32();
             e.call(MOBILE_OBJECT_GET_CURRENT_PACKAGE, &args![actor]);
-            let target = e.call(CHOICE_TARGET, &args![choice]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, choice));
             if target != 0 {
                 if target == e.mem.u32(base + PREV_TARGET_OBJECT) {
                     e.call(CHOICE_SET_FULL_SCORE, &args![choice, 0u32]);
@@ -1693,7 +1711,8 @@ pub fn fn_009f4700(e: &mut Engine, this: Ptr, actor: Ptr, package: Ptr) {
                         continue;
                     }
                 }
-                let dialogue = e.call(WORD_AT_4, &args![choice]).u32() == 5;
+                let dialogue =
+                    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, choice)) == 5;
                 let limit = if dialogue { far_squared } else { near_squared };
                 let limit = x87_quiet_bits(x87_quiet_bits(limit));
                 let target_position = e.vcall(target, 0x1f4, &args![]).u32();
@@ -1718,10 +1737,16 @@ pub fn fn_009f4700(e: &mut Engine, this: Ptr, actor: Ptr, package: Ptr) {
                     continue;
                 }
                 if dialogue {
-                    let refused = if e.call(OBJECT_AT_0X68, &args![actor]).u32() == 0 {
+                    let refused = if typed_call!(
+                        leaf::FAMILY,
+                        0x008d_8520,
+                        leaf::word_at_68(e, actor)
+                    ) == 0
+                    {
                         true
                     } else {
-                        let object = e.call(OBJECT_AT_0X68, &args![actor]).u32();
+                        let object =
+                            typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                         !e.vcall(object, 0x204, &args![actor, target]).bool()
                     };
                     if refused {
@@ -1756,7 +1781,9 @@ pub fn fn_009f4700(e: &mut Engine, this: Ptr, actor: Ptr, package: Ptr) {
         let mut index = 0i32;
         while index < count {
             let choice = fn_009f6190(e, targets, index as u32);
-            let score = e.call(CHOICE_FULL_SCORE, &args![choice]).i32();
+            let score = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, choice))
+                .into_ret()
+                .i32();
             remaining = remaining.wrapping_sub(score);
             if remaining < 0 {
                 break;
@@ -1769,9 +1796,9 @@ pub fn fn_009f4700(e: &mut Engine, this: Ptr, actor: Ptr, package: Ptr) {
                 let value = e.mem.u32(choice.addr() + 4 * word);
                 e.mem.set_u32(chosen.addr() + 4 * word, value);
             }
-            let procedure = e.call(WORD_AT_4, &args![chosen]).u32();
+            let procedure = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, chosen));
             e.mem.set_u32(base + PROCEDURE, procedure);
-            let target = e.call(CHOICE_TARGET, &args![chosen]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, chosen));
             e.mem.set_u32(base + CURRENT_TARGET_OBJECT, target);
         });
         let marker = if e.mem.u32(base + CURRENT_TARGET_OBJECT) != 0 {
@@ -1886,11 +1913,11 @@ pub fn sand_box_actor_package_data_forget_target_and_pick_procedure(
     let base = this.addr();
     if e.mem.u32(base + CURRENT_TARGET_OBJECT) != 0 {
         let targets = Ptr::new(base + POTENTIAL_TARGETS);
-        let count = e.call(WORD_AT_8, &args![targets]).u32() as i32;
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, targets)) as i32;
         let mut index: i32 = 0;
         while index < count {
             let choice = fn_009f6190(e, targets, index as u32);
-            let target = e.call(CHOICE_TARGET, &args![choice]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, choice));
             if target == e.mem.u32(base + CURRENT_TARGET_OBJECT) {
                 e.mem.set_u32(choice.addr() + 8, 0);
             }
@@ -2013,20 +2040,20 @@ pub fn sand_box_actor_package_data_init_load_game(e: &mut Engine, this: Ptr, buf
         e.call(SET_TARGETED, &args![target, 1u32]);
     }
     let targets = Ptr::new(base + POTENTIAL_TARGETS);
-    let count = e.call(WORD_AT_8, &args![targets]).u32();
+    let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, targets));
     let mut index = 0u32;
     while index < count {
         let choice = fn_009f6190(e, targets, index);
         e.call(CHOICE_INIT_LOAD_GAME_009A4F40, &args![choice, buffer]);
         index = index.wrapping_add(1);
     }
-    let mut count = e.call(WORD_AT_8, &args![targets]).u32() as i32;
+    let mut count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, targets)) as i32;
     let mut index: i32 = 0;
     let mut dropped = false;
     while index < count {
         let choice = fn_009f6190(e, targets, index as u32);
-        if e.call(CHOICE_TARGET, &args![choice]).u32() == 0 {
-            let procedure = e.call(WORD_AT_4, &args![choice]).u32();
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, choice)) == 0 {
+            let procedure = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, choice));
             if e.call(PROCEDURE_TEST_0092A980, &args![procedure]).u8() != 0 {
                 fn_009f63a0(e, targets, index as u32, 1);
                 count = count.wrapping_sub(1);

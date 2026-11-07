@@ -37,6 +37,7 @@ const PARENT_OF: u32 = 0x0096_11e0;
 /// `NiPointer` assignment (`this` = the pointer, object).
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 /// The pointer's object (`this` = the pointer).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `NiAVObject::SetAppCulled`-shaped call (`this`, flag).
 const SET_CULLED: u32 = 0x0045_0f90;
@@ -78,6 +79,7 @@ const SET_FLAG_00810530: u32 = 0x0081_0530;
 const PROPERTY_AT: u32 = 0x0043_b4a0;
 /// The shared body that answers `this` (here constructing two `NiMatrix3`
 /// temporaries; it does not write them).
+#[cfg(test)]
 const ANSWER_THIS: u32 = 0x0068_15c0;
 /// The local rotation of an object (`this` only; nine floats).
 const LOCAL_ROTATION: u32 = 0x006a_9540;
@@ -90,6 +92,7 @@ const SET_AXIS_ANGLE: u32 = 0x0064_04b0;
 /// A float of the interface (`007ddef0`, no arguments; ST0).
 const INTERFACE_VALUE_007DDEF0: u32 = 0x007d_def0;
 /// `NiPoint3` constructor (`this`, x, y, z).
+#[cfg(test)]
 const POINT_CONSTRUCT: u32 = 0x0041_6870;
 /// The menu light (`this` only).
 const MENU_LIGHT: u32 = 0x0068_38b0;
@@ -207,7 +210,7 @@ fn assign_named(e: &mut Engine, slot: u32, name: u32) {
 
 /// The object of the pointer at `slot`.
 fn pointer(e: &mut Engine, slot: u32) -> u32 {
-    e.call(POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// A setting's float, as the bit pattern an `FLD`/`FSTP` copy gives.
@@ -470,22 +473,28 @@ pub fn fo_pipboy_manager_init_light(e: &mut Engine, this: Ptr<FOPipboyManager>) 
         let third = frame.addr() + 0x18;
         let colour = frame.addr() + 0x24;
         let point = frame.addr() + 0x34;
-        let zero = e
-            .call(POINT_CONSTRUCT, &args![first, 0.0f32, 0.0f32, 0.0f32])
-            .u32();
+        let zero = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, first, 0.0f32, 0.0f32, 0.0f32)
+        );
         e.call(LIGHT_SET_AMBIENT, &args![light, zero]);
-        let zero = e
-            .call(POINT_CONSTRUCT, &args![second, 0.0f32, 0.0f32, 0.0f32])
-            .u32();
+        let zero = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, second, 0.0f32, 0.0f32, 0.0f32)
+        );
         e.call(LIGHT_SET_DIFFUSE, &args![light, zero]);
         e.call(LIGHT_SET_0050C630, &args![light, 0.0f32]);
         e.call(LIGHT_SET_0050C660, &args![light, 0.0f32]);
         e.call(LIGHT_SET_0050C690, &args![light, 0.0f32]);
         e.call(LIGHT_SET_DIMMER, &args![light, 1.0f32]);
         let range = setting_float_bits(e, SETTING_LIGHT_RANGE);
-        let at = e
-            .call(POINT_CONSTRUCT, &args![third, range, 0.0f32, 0.0f32])
-            .u32();
+        let at = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, third, range, 0.0f32, 0.0f32)
+        );
         e.call(LIGHT_SET_0050DD50, &args![light, at]);
         e.call(
             COLOR_CONSTRUCT,
@@ -496,7 +505,11 @@ pub fn fo_pipboy_manager_init_light(e: &mut Engine, this: Ptr<FOPipboyManager>) 
         let red = x87_quiet_bits(e.mem.u32(colour));
         let green = x87_quiet_bits(e.mem.u32(colour + 4));
         let blue = x87_quiet_bits(e.mem.u32(colour + 8));
-        e.call(POINT_CONSTRUCT, &args![point, red, green, blue]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, red, green, blue)
+        );
         e.call(SET_SCREEN_LIGHT_COLOR, &args![this, point]);
     });
     e.call(SET_SCREEN_LIGHT_BASE, &args![this, 1.0f32]);
@@ -590,8 +603,8 @@ pub fn fo_pipboy_manager_init_knobs(e: &mut Engine, this: Ptr<FOPipboyManager>) 
         let own = frame.addr();
         let parent = frame.addr() + 0x24;
         let product = frame.addr() + 0x48;
-        e.call(ANSWER_THIS, &args![own]);
-        e.call(ANSWER_THIS, &args![parent]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, own));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, parent));
         if pointer(e, me_addr + KNOBS) != 0 {
             let knob = pointer(e, me_addr + KNOBS);
             let rotation = e.call(LOCAL_ROTATION, &args![knob]).u32();
@@ -1542,6 +1555,7 @@ const VALUE_005C5420: u32 = 0x005c_5420;
 /// scale `00706e20` (in `ST0`) and the double `01078128`.
 const PICK_CHECK_007178A0: u32 = 0x0071_78a0;
 const PICK_CHECK_00717920: u32 = 0x0071_7920;
+#[cfg(test)]
 const POINT_CONSTRUCT_006815C0: u32 = 0x0068_15c0;
 const PICK_CONSTRUCT: u32 = 0x00e9_8f20;
 const PICK_SET_00458B30: u32 = 0x0045_8b30;
@@ -1918,8 +1932,8 @@ pub fn fn_007f8720(
         let direction = f + 0x1c;
         let origin = f + 0x28;
         let pick = f + 0x34;
-        e.call(POINT_CONSTRUCT_006815C0, &args![origin]);
-        e.call(POINT_CONSTRUCT_006815C0, &args![direction]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
         e.call(PICK_CONSTRUCT, &args![pick, 0u32, 8u32]);
         e.call(PICK_SET_00458B30, &args![pick, 1u32]);
         let screen = e.call(INTERFACE_OBJECT_007FA950, &args![this]).u32();

@@ -46,8 +46,10 @@ const RESPONSE_DATA_SIZE: u32 = 0x18;
 /// The empty string (`01011584`).
 const EMPTY_STRING: u32 = 0x0101_1584;
 /// `00559450` (`ECX` = object): the word at +0 (a string's characters).
+#[cfg(test)]
 const WORD_AT_ZERO: u32 = 0x0055_9450;
 /// `006815c0` (`ECX` = object): returns `ECX`.
+#[cfg(test)]
 const SELF: u32 = 0x0068_15c0;
 /// The game's `memcpy` wrapper (`00401460`, cdecl: destination, source,
 /// count).
@@ -60,6 +62,7 @@ const STRING_CONSTRUCT: u32 = 0x0040_37b0;
 /// `004037d0` (`ECX` = string): the string object's destructor.
 const STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// `007af430` (`ECX` = object): the word at +0x20.
+#[cfg(test)]
 const WORD_AT_0X20: u32 = 0x007a_f430;
 /// `0050f9c0` (`ECX` = object, one word): stores it at +0x20.
 const SET_WORD_AT_0X20: u32 = 0x0050_f9c0;
@@ -111,6 +114,7 @@ const OWNER_QUEST: u32 = 0x0061_9d00;
 /// string, a byte; `RET 8`).
 const GET_INFO_DISPLAY_TEXT: u32 = 0x0061_e2b0;
 /// `0084e3a0` (`ECX` = form): the word at +0xc (the form id).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The virtual slot the warning takes the topic's name from.
 const TOPIC_NAME_SLOT: u32 = 0x130;
@@ -162,10 +166,10 @@ pub fn fn_00616c70(e: &mut Engine, this: Ptr<TesResponse>) {
 /// string (`01011584`) when they are 0.
 pub fn tes_response_get_response_text(e: &mut Engine, this: Ptr<TesResponse>) -> u32 {
     let text = this.addr() + 0x18;
-    if e.call(WORD_AT_ZERO, &args![text]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text)) == 0 {
         EMPTY_STRING
     } else {
-        e.call(WORD_AT_ZERO, &args![text]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text))
     }
 }
 
@@ -176,11 +180,11 @@ pub fn tes_response_get_response_text(e: &mut Engine, this: Ptr<TesResponse>) ->
 /// at +0x20 and +0x24 (the idles; `007af430`/`0050f9c0` and
 /// `0059bb30`/`007037c0`). The engine map gives it no name.
 pub fn fn_006174d0(e: &mut Engine, this: Ptr<TesResponse>, source: Ptr<TesResponse>) {
-    let data = e.call(SELF, &args![source]).u32();
+    let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, source));
     e.call(MEMCPY, &args![this, data, RESPONSE_DATA_SIZE]);
     let text = tes_response_get_response_text(e, source);
     e.call(STRING_SET, &args![this.addr() + 0x18, text, 0u32]);
-    let speaker = e.call(WORD_AT_0X20, &args![source]).u32();
+    let speaker = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, source));
     e.call(SET_WORD_AT_0X20, &args![this, speaker]);
     let listener = e.call(WORD_AT_0X24, &args![source]).u32();
     e.call(SET_WORD_AT_0X24, &args![this, listener]);
@@ -261,7 +265,7 @@ fn warn_missing(e: &mut Engine, owner: Ptr, format: u32, id: u32, describe: bool
         e.with_stack(DESCRIPTION_SIZE, |e, buffer| {
             if describe {
                 let topic_id = if topic != 0 {
-                    e.call(FORM_ID, &args![topic]).u32()
+                    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, topic))
                 } else {
                     0
                 };
@@ -271,7 +275,7 @@ fn warn_missing(e: &mut Engine, owner: Ptr, format: u32, id: u32, describe: bool
                     EMPTY_STRING
                 };
                 let quest_id = if quest != 0 {
-                    e.call(FORM_ID, &args![quest]).u32()
+                    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, quest))
                 } else {
                     0
                 };
@@ -280,8 +284,8 @@ fn warn_missing(e: &mut Engine, owner: Ptr, format: u32, id: u32, describe: bool
                 } else {
                     EMPTY_STRING
                 };
-                let text = e.call(WORD_AT_ZERO, &args![string]).u32();
-                let info_id = e.call(FORM_ID, &args![info]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
+                let info_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, info));
                 e.call(
                     SPRINTF,
                     &args![
@@ -331,7 +335,7 @@ pub fn tes_response_init_item(e: &mut Engine, this: Ptr<TesResponse>, owner: Ptr
             warn_missing(e, owner, format, id, describe);
         }
     }
-    if e.call(WORD_AT_ZERO, &args![this]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) != 0 {
         let value = e.call(SETTING_VALUE, &args![STANDARD_EMOTION_VALUE]).u32();
         let value = e.mem.u32(value);
         e.call(SET_WORD_AT_4, &args![this, value]);
@@ -433,10 +437,12 @@ pub fn fn_00616f40(
     if speaker.is_null() {
         return false;
     }
-    let form = e.call(WORD_AT_0X20, &args![speaker]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, speaker));
     let kind = e.call(FORM_TYPE, &args![form]).i32();
     if kind == 0x16 || (kind > 0x29 && kind <= 0x2b) {
-        let form = e.call(WORD_AT_0X20, &args![speaker]).ptr();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, speaker))
+            .into_ret()
+            .ptr();
         return tes_response_get_audio_full_path(e, this, form, quest, topic, info, result);
     }
     false
@@ -513,7 +519,7 @@ pub fn tes_response_get_audio_full_path(
             }
         }
         let extension = e.call(SETTING_TEXT, &args![VOICE_EXTENSION_011CBE14]).u32();
-        let name = e.call(WORD_AT_ZERO, &args![filename]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, filename));
         fn_00616e20(
             e,
             this,
@@ -597,7 +603,7 @@ pub fn tes_response_get_audio_filename(
     }
     e.with_stack(0x10c, |e, buffer| {
         fn_006172c0(e, quest, topic, buffer, PATH_SIZE);
-        let id = e.call(FORM_ID, &args![info]).u32() & 0x00ff_ffff;
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, info)) & 0x00ff_ffff;
         e.call(
             STRING_FORMAT,
             &args![result, FORMAT_AUDIO_FILENAME, buffer, id, number],
@@ -614,6 +620,7 @@ pub fn fn_006174b0(e: &mut Engine, this: Ptr<TesResponse>) -> u8 {
 /// The type descriptor of `TESRaceForm` (`01186bc0`) and the word at +4
 /// (`00726070`, `thiscall`): the race form's race.
 const TES_RACE_FORM_TYPE: u32 = 0x0118_6bc0;
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 
 // Translated from 00617270 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -628,7 +635,7 @@ pub fn tes_race_form_get_form_race(e: &mut Engine, form: u32) -> u32 {
         )
         .u32();
     if race_form != 0 {
-        e.call(WORD_AT_4, &args![race_form]).u32()
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, race_form))
     } else {
         0
     }

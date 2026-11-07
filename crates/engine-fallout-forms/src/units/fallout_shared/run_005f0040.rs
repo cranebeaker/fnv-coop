@@ -51,10 +51,10 @@ pub fn fn_005f0040(e: &mut Engine, this: Ptr, id: Ptr) -> bool {
 /// the empty string at `01011584` when that is null.
 pub fn fn_005f0060(e: &mut Engine, this: Ptr) -> u32 {
     let text = this.byte_add(VOICE_EDITOR_ID);
-    if e.call(0x0055_9450, &args![text]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text)) == 0 {
         0x0101_1584
     } else {
-        e.call(0x0055_9450, &args![text]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text))
     }
 }
 
@@ -215,20 +215,22 @@ pub fn fn_005f03a0(e: &mut Engine, this: Ptr) {
     let mut kind = 0i32;
     while kind < 0x16 {
         let mut node = e.call(0x005f_0ac0, &args![this, kind]).u32();
-        if node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
+        if node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             e.call(WRITE_WORD_CHUNK, &args![0x5444_5343u32, kind]);
-            while node != 0 && !e.call(0x0082_56d0, &args![node]).bool() {
-                let slot = e.call(0x0068_15c0, &args![node]).u32();
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let sound = e.mem.u32(slot);
                 let mut id = 0u32;
                 let form = e.mem.u32(sound);
                 if form != 0 {
-                    id = e.call(0x0084_e3a0, &args![form]).u32();
+                    id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 }
                 e.call(WRITE_WORD_CHUNK, &args![0x4944_5343u32, id]);
                 let chance = e.mem.u8(sound + 4);
                 e.call(WRITE_BYTE_CHUNK, &args![0x4344_5343u32, u32::from(chance)]);
-                node = e.call(0x0072_6070, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
         kind += 1;

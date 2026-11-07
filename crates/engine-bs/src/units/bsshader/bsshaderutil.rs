@@ -29,8 +29,10 @@ const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 /// `NiTMapBase<..>::GetNext` (`00559120`, `thiscall`, three words: &position, &key, &value).
 const MAP_GET_NEXT: u32 = 0x0055_9120;
 /// `00559450` (`thiscall`, no stack words): the word at `this` (a smart pointer's object).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `00726070` (`thiscall`, no stack words): the word at `this + 4`.
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// `NiTMapBase<..>::RemoveAt` (`00405430`, `thiscall`, one word: the key).
 const MAP_REMOVE_AT: u32 = 0x0040_5430;
@@ -60,9 +62,13 @@ pub fn fn_006503b0(e: &mut Engine, this: Ptr) {
         e.call(NI_POINTER_CONSTRUCT, &args![value, 0u32]);
         while e.mem.u32(position) != 0 {
             e.call(MAP_GET_NEXT, &args![map, position, key, value]);
-            let object = e.call(POINTER_GET, &args![value]).u32();
-            let inner = e.call(POINTER_GET, &args![object.wrapping_add(8)]).u32();
-            if e.call(WORD_AT_4, &args![inner]).u32() == 1 {
+            let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, value));
+            let inner = typed_call!(
+                leaf::FAMILY,
+                0x0055_9450,
+                leaf::word_at_0(e, object.wrapping_add(8))
+            );
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, inner)) == 1 {
                 let k = e.mem.u32(key);
                 e.call(MAP_REMOVE_AT, &args![map, k]);
             }

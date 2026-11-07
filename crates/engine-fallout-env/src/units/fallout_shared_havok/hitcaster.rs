@@ -15,6 +15,7 @@ layout! {
 }
 
 /// `*this` of a `NiPointer` (`00559450`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `hkColor::rgbFromChars` (engine map name of `00cabb00`; cdecl, four
 /// bytes).
@@ -33,16 +34,16 @@ const SLOT_9C: u32 = 0x9c;
 /// `rgbFromChars(0x58, 0xad, 0x56, 0x28)` for the phantom.
 pub fn hit_caster_add(e: &mut Engine, this: Ptr<HitCaster>, world: u32) {
     let pointer = this.addr() + HitCaster::spShapePhantom.off;
-    if e.call(POINTER_GET, &args![pointer]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer)) == 0 {
         return;
     }
-    let phantom = e.call(POINTER_GET, &args![pointer]).u32();
+    let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
     e.vcall(phantom, SLOT_9C, &args![world]);
     if world != 0 {
         let color = e
             .call(RGB_FROM_CHARS, &args![0x58u32, 0xadu32, 0x56u32, 0x28u32])
             .u32();
-        let phantom = e.call(POINTER_GET, &args![pointer]).u32();
+        let phantom = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
         e.call(SET_DEBUG_OBJECT_COLOR, &args![world, phantom, color]);
     }
 }

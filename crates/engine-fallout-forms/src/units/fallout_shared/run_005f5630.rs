@@ -67,8 +67,10 @@ const LIST_ADD: u32 = 0x005a_e3d0;
 const FORM_LIST_OWNER: u32 = 0x011c_3f2c;
 const FIRST_FORM_NODE: u32 = 0x0046_1150;
 /// The address of a list node's data word.
+#[cfg(test)]
 const NODE_DATA: u32 = 0x0068_15c0;
 /// A list node's next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// Form tests both walks make (`__thiscall`, no stack words; each reads
 /// the word at `form + 0x70`).
@@ -222,7 +224,7 @@ pub fn fn_005f5880(e: &mut Engine) {
     let owner = e.global::<u32>(FORM_LIST_OWNER);
     let mut node = e.call(FIRST_FORM_NODE, &args![owner]).u32();
     while node != 0 {
-        let data = e.call(NODE_DATA, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let form = e.mem.u32(data);
         let active = form != 0
             && e.call(FORM_TEST_005A6150, &args![form]).u32() == 0
@@ -233,7 +235,7 @@ pub fn fn_005f5880(e: &mut Engine) {
         } else if form != 0 {
             add_to_kind_list(e, OTHER_LISTS, form);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -344,22 +346,22 @@ pub fn fn_005f5950(
     let mut node = ACTIVE_LISTS + kind as u32 * 8;
     let mut completed = false;
     while node != 0 {
-        let data = e.call(NODE_DATA, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let form = e.mem.u32(data);
         let mut matches = true;
         if form == 0 {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         let this = Ptr::new(form);
         if e.call(FORM_TEST_005A6150, &args![form]).u32() != 0
             && e.call(0x005f_5f60, &args![form]).u32() == 0
         {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         if fn_005f5930(e, this) != 0 && e.call(FORM_TEST_005A60D0, &args![form]).u32() == 0 {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         if e.call(0x004f_d3a0, &args![form]).u32() != 0 {
@@ -383,7 +385,7 @@ pub fn fn_005f5950(
             }
         }
         if !matches {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         if e.call(0x0040_7820, &args![form]).u32() != 0 {
@@ -397,7 +399,7 @@ pub fn fn_005f5950(
             }
         }
         if !matches {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         if fn_005f5fa0(e, this) != 0 {
@@ -429,7 +431,7 @@ pub fn fn_005f5950(
             }
         }
         if !matches {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         fn_005f60e0(e, this, amount);
@@ -455,9 +457,10 @@ pub fn fn_005f5950(
                 count = count.wrapping_sub(step);
             }
         } else {
-            if e.call(NODE_NEXT, &args![form + 0x2c]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, form + 0x2c)) != 0 {
                 let player = e.global::<u32>(0x011d_ea3c);
-                let script = e.call(NODE_NEXT, &args![form + 0x2c]).u32();
+                let script =
+                    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, form + 0x2c));
                 e.call(0x005a_c340, &args![script, player, 0u32]);
             }
             if e.call(FORM_KIND, &args![form]).u32() != 0xb || fn_005f5fa0(e, this) != 0x1b {
@@ -486,7 +489,7 @@ pub fn fn_005f5950(
                 completed = true;
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if completed {
         fn_005f5880(e);
@@ -664,24 +667,24 @@ pub fn fn_005f6110(e: &mut Engine, form: u32, amount: u32) -> bool {
     let mut node = ACTIVE_LISTS + 0xd * 8;
     let mut completed = false;
     while node != 0 {
-        let data = e.call(NODE_DATA, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let challenge = e.mem.u32(data);
         if challenge == 0 {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         let this = Ptr::new(challenge);
         if e.call(FORM_TEST_005A6150, &args![challenge]).u32() != 0 && fn_005f5f60(e, this) == 0 {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         if fn_005f5930(e, this) != 0 && e.call(FORM_TEST_005A60D0, &args![challenge]).u32() == 0 {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
-        let wanted = e.call(0x0084_e3a0, &args![form]).u32();
-        if wanted != e.call(0x0084_e3a0, &args![challenge]).u32() {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+        let wanted = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
+        if wanted != typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, challenge)) {
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         fn_005f60e0(e, this, amount);
@@ -707,9 +710,18 @@ pub fn fn_005f6110(e: &mut Engine, form: u32, amount: u32) -> bool {
                 count = count.wrapping_sub(step);
             }
         } else {
-            if e.call(NODE_NEXT, &args![challenge + 0x2c]).u32() != 0 {
+            if typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, challenge + 0x2c)
+            ) != 0
+            {
                 let player = e.global::<u32>(0x011d_ea3c);
-                let script = e.call(NODE_NEXT, &args![challenge + 0x2c]).u32();
+                let script = typed_call!(
+                    leaf::FAMILY,
+                    0x0072_6070,
+                    leaf::word_at_4(e, challenge + 0x2c)
+                );
                 e.call(0x005a_c340, &args![script, player, 0u32]);
             }
             if e.call(FORM_KIND, &args![challenge]).u32() != 0xb || fn_005f5fa0(e, this) != 0x1b {
@@ -736,7 +748,7 @@ pub fn fn_005f6110(e: &mut Engine, form: u32, amount: u32) -> bool {
                 completed = true;
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if completed {
         fn_005f5880(e);

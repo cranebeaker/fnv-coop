@@ -186,9 +186,11 @@ pub fn fn_00906fe0(e: &mut Engine, this: Ptr<LowProcess>) {
 /// its argument is set.
 const DELETE_EMPTY_DESTRUCTOR: u32 = 0x007b_3fa0;
 /// `008256d0` (`thiscall`): whether both words at `+0` and `+4` of a list head are zero.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (`thiscall`): returns `this` (here the list head, whose first word is the
 /// head node's item).
+#[cfg(test)]
 const LIST_HEAD_ITEM: u32 = 0x0068_15c0;
 /// `00905330` (`thiscall`, `RET 4`): removes from a `BSSimpleList` the item held in the word
 /// its argument points to.
@@ -216,8 +218,8 @@ const OBJECT_TO_ACQUIRE_DELETE_SLOT: u32 = 0x10;
 /// through `006815c0` into a stack word, removes it with `00905330(list, &word)`, and frees
 /// the word's value afterwards, when non-zero, with `007b3fa0(value, 1)`.
 fn free_list_items(e: &mut Engine, list: u32) {
-    while !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-        let head = e.call(LIST_HEAD_ITEM, &args![list]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let item = e.mem.u32(head);
         let removed = e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), item);
@@ -364,6 +366,7 @@ const PACKAGE_GET_TYPE: u32 = 0x0041_ca90;
 const PACKAGE_GET_FLAGS: u32 = 0x0044_1110;
 /// `0045cd60` (`thiscall` on the process, plain `RET`): the word
 /// `ShouldUseCombatControllerForPackage` compares with 1.
+#[cfg(test)]
 const PROCESS_GET_0045CD60: u32 = 0x0045_cd60;
 /// `__RTDynamicCast` (`00ec43fb`, `cdecl`, 5 words) and the type
 /// descriptors `Update_ov2` casts between (`MobileObject` to `Actor`).
@@ -399,6 +402,7 @@ const PACKAGE_CHANGE_TOPIC: u32 = 0x0090_3cd0;
 const PACKAGE_DONE_SCRIPT: u32 = 0x0090_3e20;
 const PACKAGE_DONE_TOPIC: u32 = 0x0090_3e00;
 /// `00671d10` (`thiscall`, plain `RET`): tested on the change script.
+#[cfg(test)]
 const SCRIPT_GET_00671D10: u32 = 0x0067_1d10;
 /// `00884f80` (`thiscall` on the actor, plain `RET`, `actor.cpp`): run at
 /// the end of `StartNewPackage`.
@@ -664,7 +668,10 @@ pub fn low_process_should_use_combat_controller_for_package(
             if e.call(PACKAGE_GET_FLAGS, &args![package]).u32() & mask == 0 {
                 return false;
             }
-            e.call(PROCESS_GET_0045CD60, &args![this]).i32() <= 1
+            typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this))
+                .into_ret()
+                .i32()
+                <= 1
         }
         _ => false,
     }
@@ -866,7 +873,7 @@ pub fn low_process_change_package(e: &mut Engine, this: Ptr<LowProcess>, actor: 
     }
     let script = e.call(PACKAGE_CHANGE_SCRIPT, &args![package]).u32();
     if script != 0
-        && (e.call(SCRIPT_GET_00671D10, &args![script]).u32() != 0
+        && (typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, script)) != 0
             || e.call(GET_0055B980, &args![script]).u32() != 0)
     {
         run_package_script(e, script, actor.addr());
@@ -931,13 +938,16 @@ const MINUS_ONE: u32 = 0x0101_2054;
 const PACKAGE_TEST_0067EFD0: u32 = 0x0067_efd0;
 /// `00671d10` (`thiscall` on a package, plain `RET`): its package target
 /// (`PackageTarget`).
+#[cfg(test)]
 const PACKAGE_GET_TARGET: u32 = 0x0067_1d10;
 /// `PackageTarget::GetTargReference` (engine map, `00680020`).
 const PACKAGE_TARGET_GET_REFERENCE: u32 = 0x0068_0020;
 /// `00440d80` (`thiscall`, plain `RET`): tested on the target reference.
+#[cfg(test)]
 const REFERENCE_TEST_00440D80: u32 = 0x0044_0d80;
 /// `0044ddc0` (`thiscall` on a package target, plain `RET`): an integer
 /// (the flee distance for `ProcessFleeNonCombat`).
+#[cfg(test)]
 const PACKAGE_TARGET_GET_VALUE: u32 = 0x0044_ddc0;
 /// `TESObjectREFR::GetDistanceFromReference` (engine map, `005723b0`,
 /// `RET 0xc`; ST0).
@@ -957,6 +967,7 @@ const TOPIC_CREATE_DIALOGUE_ITEM: u32 = 0x0061_b320;
 const DIALOGUE_FIRST_RESPONSE: u32 = 0x0083_c7b0;
 const DIALOGUE_GET_CURRENT_RESPONSE: u32 = 0x0083_c820;
 const DIALOGUE_RUN_RESULT: u32 = 0x0083_c850;
+#[cfg(test)]
 const GET_WORD_0C: u32 = 0x0084_e3a0;
 const REFERENCE_SET_SAY_TO_TOPIC: u32 = 0x0057_ad20;
 const REFERENCE_SET_SAY_TO_TOPIC_INFO: u32 = 0x0057_ace0;
@@ -1048,21 +1059,21 @@ pub fn low_process_reset_target(e: &mut Engine, this: Ptr<LowProcess>) {
     let base = this.addr();
     let target_reference = |e: &mut Engine| {
         let package = e.vcall(base, GET_CURRENT_PACKAGE_SLOT, &args![]).u32();
-        let target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
         e.call(PACKAGE_TARGET_GET_REFERENCE, &args![target]).u32()
     };
     if e.vcall(base, GET_CURRENT_PACKAGE_SLOT, &args![]).u32() == 0 {
         return;
     }
     let package = e.vcall(base, GET_CURRENT_PACKAGE_SLOT, &args![]).u32();
-    if e.call(PACKAGE_GET_TARGET, &args![package]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package)) == 0 {
         return;
     }
     if target_reference(e) == 0 {
         return;
     }
     let reference = target_reference(e);
-    if e.call(REFERENCE_TEST_00440D80, &args![reference]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, reference)) {
         return;
     }
     if reference == e.mem.u32(base.wrapping_add(TARGET)) {
@@ -1087,9 +1098,11 @@ pub fn low_process_process_flee_non_combat(e: &mut Engine, this: Ptr<LowProcess>
     }
     e.vcall(base, SET_LOCATION_FOR_PACKAGE_SLOT, &args![actor, 0u32]);
     let mut flee_distance = 0u32;
-    if e.call(PACKAGE_GET_TARGET, &args![package]).u32() != 0 {
-        let target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
-        let value = e.call(PACKAGE_TARGET_GET_VALUE, &args![target]).i32();
+    if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package)) != 0 {
+        let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
+        let value = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, target))
+            .into_ret()
+            .i32();
         flee_distance = x87_store32(f64::from(value));
     }
     let target = e.mem.u32(base.wrapping_add(TARGET));
@@ -1159,9 +1172,9 @@ pub fn low_process_process_greet(
         return;
     }
     e.call(REFERENCE_SET_SAY_TO_TOPIC, &args![actor, topic]);
-    let info = e.call(GET_WORD_0C, &args![item]).u32();
+    let info = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
     e.call(REFERENCE_SET_SAY_TO_TOPIC_INFO, &args![actor, info]);
-    let speaker_object = e.call(GET_WORD_0C, &args![actor]).u32();
+    let speaker_object = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
     e.call(SAY_TO_CALLBACK, &args![speaker_object, 1u32]);
     e.vcall(actor.addr(), ACTOR_SLOT_140, &args![]);
 }
@@ -1325,8 +1338,8 @@ pub fn low_process_clear_current_data_for_process(
         e.mem.set_u32(base.wrapping_add(SAVED_ACQUIRE_OBJECT), 0);
     }
     let list = base.wrapping_add(OBJECT_LIST);
-    while !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-        let head = e.call(LIST_HEAD_ITEM, &args![list]).u32();
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let item = e.mem.u32(head);
         e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), item);
@@ -1350,6 +1363,7 @@ const ACTOR_SLOT_214: u32 = 0x214;
 const ACTOR_SLOT_418: u32 = 0x418;
 /// The reference's base form (`007af430`, the word at `+0x20`) and the
 /// form's type byte (`00401170`, zero-extended).
+#[cfg(test)]
 const REFERENCE_GET_BASE_FORM: u32 = 0x007a_f430;
 const FORM_GET_TYPE: u32 = 0x0040_1170;
 /// The form type the door helpers check for (0x1c).
@@ -1395,12 +1409,14 @@ const PATROL_NEAR: u32 = 0x0101_6978;
 const FLOAT_MAX: u32 = 0x0102_31b0;
 /// `00440da0` / `00440d80` (`thiscall` on a reference, plain `RET`): tested
 /// on the ambush target.
+#[cfg(test)]
 const REFERENCE_TEST_00440DA0: u32 = 0x0044_0da0;
 /// `TESPackage::SetNeverRun` (engine map, `00674e70`, `RET 8`).
 const PACKAGE_SET_NEVER_RUN: u32 = 0x0067_4e70;
 /// A package's vtable slot `+0x148` (actor, 0; its `AL` tested).
 const PACKAGE_SLOT_148: u32 = 0x148;
 /// `00726070` (`thiscall` on a list node, plain `RET`): the next node.
+#[cfg(test)]
 const LIST_NEXT_NODE: u32 = 0x0072_6070;
 /// `0063f7b0` (`thiscall` on a list, plain `RET`): removes its head item.
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -1419,7 +1435,7 @@ pub fn fn_0090d570(e: &mut Engine, door: Ptr, actor: Ptr) -> bool {
     if door.addr() == 0 {
         return false;
     }
-    let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![door]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, door));
     if e.call(FORM_GET_TYPE, &args![base_form]).u32() != DOOR_FORM_TYPE {
         return false;
     }
@@ -1456,7 +1472,7 @@ pub fn fn_0090d480(e: &mut Engine, door: Ptr, actor: Ptr) -> bool {
     if door.addr() == 0 {
         return false;
     }
-    let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![door]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, door));
     if e.call(FORM_GET_TYPE, &args![base_form]).u32() != DOOR_FORM_TYPE {
         return false;
     }
@@ -1647,7 +1663,7 @@ pub fn low_process_process_ambush_wait(e: &mut Engine, this: Ptr<LowProcess>, ac
     let base = this.addr();
     let package = e.vcall(base, GET_PACKAGE_RUNNING_SLOT, &args![]).u32();
     let target = e.mem.u32(base.wrapping_add(TARGET));
-    if target == 0 || e.call(REFERENCE_TEST_00440DA0, &args![target]).bool() {
+    if target == 0 || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, target)) {
         e.vcall(
             base,
             ADD_TO_PROCEDURE_INDEX_RUNNING_SLOT,
@@ -1656,9 +1672,9 @@ pub fn low_process_process_ambush_wait(e: &mut Engine, this: Ptr<LowProcess>, ac
         return;
     }
     let target = e.mem.u32(base.wrapping_add(TARGET));
-    if e.call(REFERENCE_TEST_00440D80, &args![target]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, target)) {
         let target = e.mem.u32(base.wrapping_add(TARGET));
-        if e.call(REFERENCE_TEST_00440D80, &args![target]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, target)) {
             let target = e.mem.u32(base.wrapping_add(TARGET));
             e.call(PACKAGE_SET_NEVER_RUN, &args![package, target, 1u32]);
         }
@@ -1738,11 +1754,11 @@ fn clear_matching_objects(e: &mut Engine, this: u32, matches: impl Fn(&mut Engin
     let list = this.wrapping_add(OBJECT_LIST);
     let mut node = list;
     while node != 0 {
-        let first = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(first) == 0 {
             break;
         }
-        let head = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(head);
         if matches(e, item) {
             let removed = e.with_stack(4, |e, slot| {
@@ -1755,7 +1771,7 @@ fn clear_matching_objects(e: &mut Engine, this: u32, matches: impl Fn(&mut Engin
             }
             node = list;
         } else {
-            node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
 }
@@ -1768,11 +1784,11 @@ fn clear_matching_locations(e: &mut Engine, this: u32, matches: impl Fn(&mut Eng
     let mut node = this.wrapping_add(GENERIC_LOCATIONS_LIST);
     let mut previous = 0u32;
     while node != 0 {
-        let first = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(first) == 0 {
             break;
         }
-        let head = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let location = e.mem.u32(head);
         if matches(e, location) {
             if previous != 0 {
@@ -1780,13 +1796,13 @@ fn clear_matching_locations(e: &mut Engine, this: u32, matches: impl Fn(&mut Eng
                     e.mem.set_u32(slot.addr(), location);
                     e.call(LIST_REMOVE_ITEM, &args![previous, slot]);
                 });
-                node = e.call(LIST_NEXT_NODE, &args![previous]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
             } else {
                 e.call(LIST_REMOVE_HEAD, &args![node]);
             }
         } else {
             previous = node;
-            node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
 }
@@ -1826,8 +1842,9 @@ pub fn low_process_clear_object_from_acquire_list_ov2(
     form: u32,
 ) {
     let base = this.addr();
-    let matches =
-        |e: &mut Engine, reference: u32| e.call(GET_WORD_0C, &args![reference]).u32() == form;
+    let matches = |e: &mut Engine, reference: u32| {
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference)) == form
+    };
     clear_matching_acquire(e, base.wrapping_add(ACQUIRE_OBJECT), |e, object| {
         let reference = e.mem.u32(object);
         matches(e, reference)
@@ -1989,7 +2006,7 @@ pub fn low_process_process_patrol_start_travel_to_next_ref(
                 ],
             );
             e.call(PATHING_REQUEST_SET_008E7C50, &args![request, 0u32]);
-            let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![reference]).u32();
+            let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             if e.call(FORM_GET_TYPE, &args![base_form]).u32() == ANGLED_FORM_TYPE
                 || base_form == e.global::<u32>(ANGLED_FORM)
             {
@@ -2151,6 +2168,7 @@ const EXTRA_SET_ACTOR_PACKAGE_DATA: u32 = 0x0042_11d0;
 /// `008d8520` (`thiscall`, plain `RET`; the word at `+0x68`, engine map
 /// `MiddleHighProcess::GetSavedAcquireObject` by folding): the actor's
 /// process here.
+#[cfg(test)]
 const ACTOR_GET_PROCESS: u32 = 0x008d_8520;
 /// `ActorPackage::NullInstanceData` (engine map, `008c6060`) and
 /// `ActorPackage::InitFromPackage` (`008c6080`, `RET 8`).
@@ -2179,6 +2197,7 @@ const EXTRA_REMOVE_ACTOR_PACKAGE_DATA: u32 = 0x0042_12e0;
 /// table): given the current package.
 const ACTOR_TAKE_PACKAGE_004534F0: u32 = 0x0045_34f0;
 /// `00559450` (`thiscall`, plain `RET`): the `ActorPackage`'s package.
+#[cfg(test)]
 const ACTOR_PACKAGE_GET_PACKAGE: u32 = 0x0055_9450;
 /// `BaseProcess::SaveGame_ov2` (engine map, `008d0f30`, `RET 4`).
 const BASE_PROCESS_SAVE_GAME: u32 = 0x008d_0f30;
@@ -2247,17 +2266,17 @@ pub fn low_process_save_package_to_extra_data(e: &mut Engine, this: Ptr<LowProce
     if data == 0 {
         return;
     }
-    if e.call(ACTOR_GET_PROCESS, &args![actor]).u32() != 0 {
-        let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         if e.vcall(process, GET_ACTOR_PACKAGE_RUNNING_SLOT, &args![])
             .u32()
             != 0
         {
-            let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             let running = e
                 .vcall(process, GET_ACTOR_PACKAGE_RUNNING_SLOT, &args![])
                 .u32();
-            e.call(PACKAGE_TARGET_GET_VALUE, &args![running]);
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, running));
         }
     }
     e.call(EXTRA_SET_ACTOR_PACKAGE_DATA, &args![extra, data]);
@@ -2296,12 +2315,11 @@ pub fn low_process_load_package_from_extra_data(e: &mut Engine, this: Ptr<LowPro
         let current = e.vcall(base, GET_CURRENT_PACKAGE_SLOT, &args![]).u32();
         e.call(ACTOR_TAKE_PACKAGE_004534F0, &args![actor, current]);
         let mut index = e.call(EXTRA_GET_PACKAGE_INDEX, &args![extra]).i32();
-        let package = e
-            .call(
-                ACTOR_PACKAGE_GET_PACKAGE,
-                &args![base.wrapping_add(PACKAGE)],
-            )
-            .u32();
+        let package = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, base.wrapping_add(PACKAGE))
+        );
         let kind = e.call(PACKAGE_GET_PROCEDURE_TYPE, &args![package]).u32();
         if kind != u32::MAX && index >= e.call(PROCEDURE_COUNT, &args![kind]).i32() {
             index = 0;
@@ -2396,13 +2414,13 @@ pub fn low_process_save_game_ov2(e: &mut Engine, this: Ptr<LowProcess>, buffer: 
     let mark = e.call(SAVE_START_VARIABLE_SIZE, &args![buffer]).u32();
     let mut node = base.wrapping_add(GENERIC_LOCATIONS_LIST);
     while node != 0 {
-        let head = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let location = e.mem.u32(head);
         if location != 0 {
             e.call(SAVE_FORM_ID, &args![buffer, location, 0u32]);
             count = count.wrapping_add(1);
         }
-        node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(SAVE_VARIABLE_SIZE, &args![buffer, count, mark]);
     let save_modifiers = e.with_stack(4, |e, out| {
@@ -2750,9 +2768,11 @@ pub fn low_process_process_guard(e: &mut Engine, this: Ptr<LowProcess>, actor: P
         e.call(PACKAGE_GET_00676280, &args![package, actor]);
         near
     } else {
-        let target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
         let radius = if target != 0 {
-            let value = e.call(PACKAGE_TARGET_GET_VALUE, &args![target]).i32();
+            let value = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, target))
+                .into_ret()
+                .i32();
             x87_store32(f64::from(value))
         } else {
             x87_quiet_bits(e.global::<u32>(GUARD_DEFAULT_RADIUS))
@@ -2866,7 +2886,11 @@ pub fn low_process_get_location_for_package(
         return result;
     }
     let locations = base.wrapping_add(GENERIC_LOCATIONS_LIST);
-    if e.call(LIST_IS_EMPTY, &args![locations]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, locations)
+    ) {
         let cell = e.call(ACTOR_GET_008D6F30, &args![actor]).u32();
         let position = e
             .vcall(actor.addr(), ACTOR_GET_LOCATION_SLOT, &args![])
@@ -2928,17 +2952,21 @@ pub fn low_process_get_location_for_package(
         e.mem.set_u32(base.wrapping_add(OBJECT_FOR_LOCATION), 0);
         let temp = base.wrapping_add(TEMP_LOC_LIST);
         loop {
-            let head = e.call(LIST_HEAD_ITEM, &args![temp]).u32();
+            let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, temp));
             if e.mem.u32(head) == 0 {
                 break;
             }
-            let head = e.call(LIST_HEAD_ITEM, &args![temp]).u32();
+            let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, temp));
             e.call(LIST_ADD_ITEM, &args![locations, head]);
             e.call(LIST_REMOVE_HEAD, &args![temp]);
         }
     }
-    if !e.call(LIST_IS_EMPTY, &args![locations]).bool() {
-        let head = e.call(LIST_HEAD_ITEM, &args![locations]).u32();
+    if !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, locations)
+    ) {
+        let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, locations));
         result = e.mem.u32(head);
         e.call(LIST_REMOVE_HEAD, &args![locations]);
     }
@@ -3242,13 +3270,21 @@ pub fn low_process_get_current_destination_coordinate(
                         && e.call(GET_0055B980, &args![package]).u32() != 0;
                     if located {
                         location_coord(e, package, actor.addr());
-                    } else if e.call(PACKAGE_GET_TARGET, &args![package]).u32() != 0 && {
-                        let package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
-                        e.call(PACKAGE_TARGET_GET_REFERENCE, &args![package_target])
-                            .u32()
-                            != 0
-                    } {
-                        let package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+                    } else if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package))
+                        != 0
+                        && {
+                            let package_target = typed_call!(
+                                leaf::FAMILY,
+                                0x0067_1d10,
+                                leaf::word_at_30(e, package)
+                            );
+                            e.call(PACKAGE_TARGET_GET_REFERENCE, &args![package_target])
+                                .u32()
+                                != 0
+                        }
+                    {
+                        let package_target =
+                            typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
                         let reference = e
                             .call(PACKAGE_TARGET_GET_REFERENCE, &args![package_target])
                             .u32();
@@ -3402,7 +3438,7 @@ pub fn low_process_process_acquire(e: &mut Engine, this: Ptr<LowProcess>, actor:
     }
     if e.mem.u32(base.wrapping_add(TARGET)) != 0 {
         let package = current(e);
-        package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+        package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     }
     if e.mem.u32(base.wrapping_add(TARGET)) != 0 {
         let package = current(e);
@@ -3412,7 +3448,7 @@ pub fn low_process_process_acquire(e: &mut Engine, this: Ptr<LowProcess>, actor:
         };
         if typed {
             let target = e.mem.u32(base.wrapping_add(TARGET));
-            let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![target]).u32();
+            let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target));
             let form_type = e.call(FORM_GET_TYPE, &args![base_form]).u32();
             match form_type {
                 0x15 | 0x1b | 0x1c | 0x20 | 0x21 | 0x24..=0x27 | 0x2a..=0x2d | 0x3b | 0x3c => {
@@ -3421,7 +3457,8 @@ pub fn low_process_process_acquire(e: &mut Engine, this: Ptr<LowProcess>, actor:
                 }
                 0x1e => {
                     let target = e.mem.u32(base.wrapping_add(TARGET));
-                    let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![target]).u32();
+                    let base_form =
+                        typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target));
                     let light = e
                         .call(
                             DYNAMIC_CAST,
@@ -3452,7 +3489,7 @@ pub fn low_process_process_acquire(e: &mut Engine, this: Ptr<LowProcess>, actor:
     }
     let mut count = 1u32;
     let package = current(e);
-    if e.call(PACKAGE_GET_TARGET, &args![package]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package)) != 0 {
         let package = current(e);
         count = e
             .call(PACKAGE_GET_INITIAL_TARGET_COUNT, &args![package])
@@ -3480,7 +3517,7 @@ pub fn low_process_process_acquire(e: &mut Engine, this: Ptr<LowProcess>, actor:
             let last = e.call(PACKAGE_GET_PROCEDURE_TYPE, &args![package]).u32() == 0x1a && {
                 let package = current(e);
                 let node = e.call(PACKAGE_GET_LIST_0041D8A0, &args![package]).u32();
-                e.call(LIST_NEXT_NODE, &args![node]).u32() == 0
+                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node)) == 0
             };
             step(e, if last { 2 } else { 1 });
         }
@@ -3554,7 +3591,13 @@ pub fn low_process_process_activate(
     let base = this.addr();
     let package = e.vcall(base, GET_CURRENT_PACKAGE_SLOT, &args![]).u32();
     let target_of = |e: &Engine| e.mem.u32(base.wrapping_add(TARGET));
-    if target_of(e) == 0 || e.call(REFERENCE_TEST_00440D80, &args![target_of(e)]).bool() {
+    if target_of(e) == 0
+        || typed_call!(
+            leaf::FAMILY,
+            0x0044_0d80,
+            leaf::form_flag_20(e, target_of(e))
+        )
+    {
         e.vcall(base, SET_TARGET_FOR_PACKAGE_SLOT, &args![actor]);
     }
     if target_of(e) == 0 {
@@ -3567,7 +3610,7 @@ pub fn low_process_process_activate(
         }
         return false;
     }
-    let package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+    let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     if e.call(PACKAGE_TARGET_GET_TYPE, &args![package_target])
         .u32()
         == 0
@@ -3581,9 +3624,10 @@ pub fn low_process_process_activate(
         .call(PACKAGE_GET_LOCATION_REFERENCE, &args![package, actor])
         .u32();
     if location != 0 && e.call(REFERENCE_IS_FURNITURE, &args![location]).bool() {
-        let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![target_of(e)]).u32();
+        let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target_of(e)));
         let matches = base_form == e.global::<u32>(ANGLED_FORM) || {
-            let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![target_of(e)]).u32();
+            let base_form =
+                typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target_of(e)));
             base_form == e.global::<u32>(ACTIVATE_DONE_FORM)
         };
         if matches {
@@ -3727,7 +3771,7 @@ pub fn low_process_process_activate(
             let target = target_of(e);
             e.call(REFERENCE_ACTIVATE, &args![target, actor, 0u32, 0u32, 1u32]);
         } else if e.call(PACKAGE_GET_TYPE, &args![package]).u32() == 2 {
-            let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             e.vcall(
                 process,
                 ADD_TO_PROCEDURE_INDEX_RUNNING_SLOT,
@@ -3750,7 +3794,7 @@ pub fn low_process_process_activate(
 /// The reference pointer of a reference's extra data (`0041c8d0`), taking
 /// its place when `00440d80` holds for the reference and it has one.
 fn reference_pointer(e: &mut Engine, reference: u32) -> u32 {
-    if reference == 0 || !e.call(REFERENCE_TEST_00440D80, &args![reference]).bool() {
+    if reference == 0 || !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, reference)) {
         return reference;
     }
     let extra = e.call(REFERENCE_GET_EXTRA_LIST, &args![reference]).u32();
@@ -3815,8 +3859,8 @@ pub fn low_process_get_target_for_package(
     }
     let mut result = 0u32;
     let is_current = package == e.vcall(base, GET_CURRENT_PACKAGE_SLOT, &args![]).u32();
-    if e.call(PACKAGE_GET_TARGET, &args![package]).u32() != 0 {
-        let package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+    if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package)) != 0 {
+        let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
         let kind = e
             .call(PACKAGE_TARGET_GET_TYPE, &args![package_target])
             .u32();
@@ -3866,7 +3910,7 @@ pub fn low_process_get_target_for_package(
                 }
             }
             if result != 0
-                && e.call(REFERENCE_TEST_00440D80, &args![result]).bool()
+                && typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, result))
                 && !e.vcall(result, ACTOR_SLOT_100, &args![]).bool()
                 && e.call(REFERENCE_GET_EXTRA_LIST, &args![result]).u32() != 0
             {
@@ -3881,11 +3925,11 @@ pub fn low_process_get_target_for_package(
             result = e.call(ACTOR_GET_00569B80, &args![actor]).u32();
         } else if e.call(PACKAGE_TEST_0067EFD0, &args![package]).bool() {
             let objects = base.wrapping_add(OBJECT_LIST);
-            if e.call(LIST_IS_EMPTY, &args![objects]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, objects)) {
                 result = find_acquire_candidates(e, this, actor, package, is_current);
             }
-            if !e.call(LIST_IS_EMPTY, &args![objects]).bool() {
-                let head = e.call(LIST_HEAD_ITEM, &args![objects]).u32();
+            if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, objects)) {
+                let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, objects));
                 let first = e.mem.u32(head);
                 e.mem.set_u32(base.wrapping_add(ACQUIRE_OBJECT), first);
                 let object = e.mem.u32(base.wrapping_add(ACQUIRE_OBJECT));
@@ -3967,7 +4011,7 @@ fn find_acquire_candidates(
         let radius = point + 12;
         let coord = point + 16;
         copy_point(e, point, position);
-        let package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+        let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
         let kind = e
             .call(PACKAGE_TARGET_GET_TYPE, &args![package_target])
             .u32();
@@ -3986,17 +4030,17 @@ fn find_acquire_candidates(
                 }
                 let form_list = e.mem.u32(base.wrapping_add(TARGET_FORM_LIST));
                 let mut node = e.call(FORM_LIST_GET_LIST, &args![form_list]).u32();
-                if !e.call(LIST_IS_EMPTY, &args![node]).bool() {
+                if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
                     // The walk reads each entry into a local nothing uses
                     // later; it runs while the list number is not above
                     // the step count.
                     let mut steps = 0i32;
                     while node != 0
-                        && !e.call(LIST_IS_EMPTY, &args![node]).bool()
+                        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
                         && i32::from(e.mem.i16(base.wrapping_add(FORM_LIST_NUMBER))) <= steps
                     {
-                        e.call(LIST_HEAD_ITEM, &args![node]);
-                        node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
+                        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                         steps = steps.wrapping_add(1);
                     }
                 }
@@ -4095,7 +4139,7 @@ fn find_acquire_candidates(
     e.mem.set_u32(base.wrapping_add(FORM_TYPE_FOR_LOCATION), 0);
     e.mem.set_u32(base.wrapping_add(OBJECT_TO_ACQUIRE), 0);
     e.vcall(base, EVALUATE_ORDER_ACQUIRE_LIST_SLOT, &args![actor]);
-    let package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+    let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     if package_target != 0
         && e.call(PACKAGE_TARGET_GET_TYPE, &args![package_target])
             .u32()
@@ -4172,6 +4216,7 @@ const PACKAGE_TEST_008840F0: u32 = 0x0088_40f0;
 /// and whose duration is the word at `+4` (`00726070`).
 const PACKAGE_GET_SCHEDULE: u32 = 0x0041_d8a0;
 const SCHEDULE_GET_HOUR: u32 = 0x0086_a460;
+#[cfg(test)]
 const WORD_04: u32 = 0x0072_6070;
 /// `00621b00` (`thiscall` on the `ActorPackage`; ST0): the `float` at
 /// `+0x10` (its start hour by its use).
@@ -4263,12 +4308,15 @@ pub fn low_process_update_missed_packages(
         let mut cell = 0u32;
         let mut space = 0u32;
         let mut set_angle = false;
-        if !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-            while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-                let head = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
+                let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let missed = e.mem.u32(head);
                 let mut target = 0u32;
-                let package_target = e.call(PACKAGE_GET_TARGET, &args![missed]).u32();
+                let package_target =
+                    typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, missed));
                 if package_target != 0 {
                     target = e
                         .call(PACKAGE_TARGET_GET_REFERENCE, &args![package_target])
@@ -4299,17 +4347,28 @@ pub fn low_process_update_missed_packages(
                             };
                         }
                         0 => {
-                            let reference = if e.call(PACKAGE_GET_TARGET, &args![missed]).u32() == 0
+                            let reference = if typed_call!(
+                                leaf::FAMILY,
+                                0x0067_1d10,
+                                leaf::word_at_30(e, missed)
+                            ) == 0
                             {
                                 None
                             } else {
-                                let package_target =
-                                    e.call(PACKAGE_GET_TARGET, &args![missed]).u32();
+                                let package_target = typed_call!(
+                                    leaf::FAMILY,
+                                    0x0067_1d10,
+                                    leaf::word_at_30(e, missed)
+                                );
                                 let reference = e
                                     .call(PACKAGE_TARGET_GET_REFERENCE, &args![package_target])
                                     .u32();
                                 (reference != 0
-                                    && !e.call(REFERENCE_TEST_00440D80, &args![reference]).bool())
+                                    && !typed_call!(
+                                        leaf::FAMILY,
+                                        0x0044_0d80,
+                                        leaf::form_flag_20(e, reference)
+                                    ))
                                 .then_some(reference)
                             };
                             match reference {
@@ -4319,12 +4378,16 @@ pub fn low_process_update_missed_packages(
                                     e.call(REFERENCE_SET_LOCATION, &args![actor, position]);
                                     set_angle = true;
                                     if !e.vcall(reference, ACTOR_SLOT_100, &args![]).bool()
-                                        && !e
-                                            .call(REFERENCE_TEST_00440DA0, &args![reference])
-                                            .bool()
-                                        && !e
-                                            .call(REFERENCE_TEST_00440D80, &args![reference])
-                                            .bool()
+                                        && !typed_call!(
+                                            leaf::FAMILY,
+                                            0x0044_0da0,
+                                            leaf::form_flag_800(e, reference)
+                                        )
+                                        && !typed_call!(
+                                            leaf::FAMILY,
+                                            0x0044_0d80,
+                                            leaf::form_flag_20(e, reference)
+                                        )
                                     {
                                         e.call(
                                             REFERENCE_ACTIVATE,
@@ -4350,25 +4413,45 @@ pub fn low_process_update_missed_packages(
                             };
                         }
                         1 => {
-                            if e.call(PACKAGE_GET_TARGET, &args![missed]).u32() != 0 {
+                            if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, missed))
+                                != 0
+                            {
                                 let known = {
-                                    let pt = e.call(PACKAGE_GET_TARGET, &args![missed]).u32();
+                                    let pt = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0067_1d10,
+                                        leaf::word_at_30(e, missed)
+                                    );
                                     e.call(PACKAGE_TARGET_GET_REFERENCE, &args![pt]).u32() != 0
                                 } || {
-                                    let pt = e.call(PACKAGE_GET_TARGET, &args![missed]).u32();
+                                    let pt = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0067_1d10,
+                                        leaf::word_at_30(e, missed)
+                                    );
                                     e.call(PACKAGE_TARGET_GET_OBJECT, &args![pt]).u32() != 0
                                 } || {
-                                    let pt = e.call(PACKAGE_GET_TARGET, &args![missed]).u32();
+                                    let pt = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0067_1d10,
+                                        leaf::word_at_30(e, missed)
+                                    );
                                     e.call(PACKAGE_TARGET_GET_OBJECT_TYPE, &args![pt]).u32() != 0
                                 };
                                 if known {
-                                    let pt = e.call(PACKAGE_GET_TARGET, &args![missed]).u32();
+                                    let pt = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0067_1d10,
+                                        leaf::word_at_30(e, missed)
+                                    );
                                     let reference =
                                         e.call(PACKAGE_TARGET_GET_REFERENCE, &args![pt]).u32();
                                     if reference != 0
-                                        && !e
-                                            .call(REFERENCE_TEST_00440D80, &args![reference])
-                                            .bool()
+                                        && !typed_call!(
+                                            leaf::FAMILY,
+                                            0x0044_0d80,
+                                            leaf::form_flag_20(e, reference)
+                                        )
                                         && reference != e.global::<u32>(PLAYER)
                                     {
                                         let position = e
@@ -4400,7 +4483,7 @@ pub fn low_process_update_missed_packages(
                         enumerate_doors(e, actor, UNLOCK_DOORS_CALLBACK);
                     }
                 }
-                node = e.call(WORD_04, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             if list != 0 {
                 e.call(LIST_CLEAR, &args![list]);
@@ -4422,7 +4505,7 @@ pub fn low_process_update_missed_packages(
             e.call(LIST_DELETE, &args![node, 1u32]);
         }
     }
-    let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(process, SET_LOCKED_LOCATION_SLOT, &args![0u32]);
 }
 
@@ -4504,12 +4587,12 @@ pub fn low_process_check_for_new_package(
         changed = false;
         let timed = {
             let schedule = e.call(PACKAGE_GET_SCHEDULE, &args![package]).u32();
-            e.call(WORD_04, &args![schedule]).u32() != 0
+            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, schedule)) != 0
         } && e.call(PACKAGE_TEST_0067EFD0, &args![package]).bool();
         if timed {
             let mut done = false;
             let mut run_script = false;
-            let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if e.vcall(process, GET_CURRENT_ACTION_COMPLETE_SLOT, &args![])
                 .bool()
                 || running_procedure(e, base, package) == PROCEDURE_DONE
@@ -4534,12 +4617,20 @@ pub fn low_process_check_for_new_package(
                         .f64();
                     let start = e.call(FTOL, &args![start]).i32();
                     let schedule = e.call(PACKAGE_GET_SCHEDULE, &args![package]).u32();
-                    start.wrapping_add(e.call(WORD_04, &args![schedule]).i32())
+                    start.wrapping_add(
+                        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, schedule))
+                            .into_ret()
+                            .i32(),
+                    )
                 } else {
                     let schedule = e.call(PACKAGE_GET_SCHEDULE, &args![package]).u32();
                     let start = i32::from(e.call(SCHEDULE_GET_HOUR, &args![schedule]).u8() as i8);
                     let schedule = e.call(PACKAGE_GET_SCHEDULE, &args![package]).u32();
-                    start.wrapping_add(e.call(WORD_04, &args![schedule]).i32())
+                    start.wrapping_add(
+                        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, schedule))
+                            .into_ret()
+                            .i32(),
+                    )
                 };
                 if end > 0x17 {
                     end = end.wrapping_sub(0x17);
@@ -4564,7 +4655,7 @@ pub fn low_process_check_for_new_package(
                 }
             }
         } else if e.call(PACKAGE_TEST_0067EFD0, &args![package]).bool() {
-            let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             let finished = e
                 .vcall(process, GET_CURRENT_ACTION_COMPLETE_SLOT, &args![])
                 .bool()
@@ -4700,8 +4791,8 @@ pub fn low_process_check_for_new_package(
         fn_0090ac20(e, this, 0);
         e.vcall(base, SET_TARGET_ACTIVATED_SLOT, &args![0u32]);
         let list = base.wrapping_add(OBJECT_LIST);
-        while !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-            let head = e.call(LIST_HEAD_ITEM, &args![list]).u32();
+        while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+            let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let item = e.mem.u32(head);
             e.with_stack(4, |e, slot| {
                 e.mem.set_u32(slot.addr(), item);
@@ -4836,7 +4927,8 @@ fn update_location_doors(e: &mut Engine, this: u32, actor: u32) {
 fn update_location_angle(e: &mut Engine, this: u32, actor: u32, location: u32) {
     let current = |e: &mut Engine| e.vcall(this, GET_CURRENT_PACKAGE_SLOT, &args![]).u32();
     let furniture = location != 0
-        && e.call(REFERENCE_GET_BASE_FORM, &args![location]).u32() == e.global::<u32>(ANGLED_FORM);
+        && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, location))
+            == e.global::<u32>(ANGLED_FORM);
     let angled = furniture || {
         let package = current(e);
         e.call(GET_0055B980, &args![package]).u32() != 0 && {
@@ -4876,7 +4968,7 @@ fn update_wander(e: &mut Engine, this: Ptr<LowProcess>, actor: u32, package: u32
         e.vcall(base, SET_TARGET_FOR_PACKAGE_SLOT, &args![actor]);
     }
     let target = e.mem.u32(base.wrapping_add(TARGET));
-    if target == 0 || e.call(REFERENCE_TEST_00440D80, &args![target]).bool() {
+    if target == 0 || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, target)) {
         step(e);
         return;
     }
@@ -4902,10 +4994,14 @@ fn update_wander(e: &mut Engine, this: Ptr<LowProcess>, actor: u32, package: u32
         return;
     }
     if e.call(PACKAGE_GET_TYPE, &args![package]).u32() == 1 {
-        let package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
-        let value = e
-            .call(PACKAGE_TARGET_GET_VALUE, &args![package_target])
-            .i32();
+        let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
+        let value = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, package_target)
+        )
+        .into_ret()
+        .i32();
         let reach = x87_store32(f64::from(value));
         let target = e.mem.u32(base.wrapping_add(TARGET));
         let distance = e
@@ -4918,10 +5014,14 @@ fn update_wander(e: &mut Engine, this: Ptr<LowProcess>, actor: u32, package: u32
     }
     // A radius is worked out here and never used (the exe's dead store).
     let mut radius = 0u32;
-    let package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
-    let mut count = e
-        .call(PACKAGE_TARGET_GET_VALUE, &args![package_target])
-        .i32();
+    let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
+    let mut count = typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, package_target)
+    )
+    .into_ret()
+    .i32();
     if count <= 0 {
         count = WANDER_DEFAULT_COUNT;
     }
@@ -4997,7 +5097,7 @@ pub fn low_process_update(e: &mut Engine, this: Ptr<LowProcess>, mobile: Ptr) {
         0
     };
     if actor == 0 {
-        let process = e.call(ACTOR_GET_PROCESS, &args![mobile]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, mobile));
         e.vcall(process, COMPUTE_LAST_TIME_PROCESSED_SLOT, &args![]);
         e.call(EMPTY_00483710, &args![UPDATE_MARKER]);
         return;
@@ -5018,7 +5118,8 @@ pub fn low_process_update(e: &mut Engine, this: Ptr<LowProcess>, mobile: Ptr) {
         e.vcall(base, SET_LOCATION_FOR_PACKAGE_SLOT, &args![actor, 0u32]);
         let new_package = current(e);
         if new_package != 0 {
-            let package_target = e.call(PACKAGE_GET_TARGET, &args![new_package]).u32();
+            let package_target =
+                typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, new_package));
             if package_target != 0
                 && e.call(PACKAGE_TARGET_GET_TYPE, &args![package_target])
                     .u32()
@@ -5094,8 +5195,9 @@ pub fn low_process_update(e: &mut Engine, this: Ptr<LowProcess>, mobile: Ptr) {
                     }
                     // The time delta is computed and stored, its value unused.
                     low_process_get_time_delta(e, this, actor);
-                    let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
-                    if e.call(PROCESS_GET_0045CD60, &args![process]).u32() == 3 {
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+                    if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == 3 {
                         let p = current(e);
                         if e.vcall(p, PACKAGE_SLOT_13C, &args![actor, 0u32, minus_one, 0u32])
                             .bool()
@@ -5249,8 +5351,8 @@ pub fn low_process_update(e: &mut Engine, this: Ptr<LowProcess>, mobile: Ptr) {
             }
             e.mem.set_u32(base.wrapping_add(ACQUIRE_OBJECT), 0);
             let list = base.wrapping_add(OBJECT_LIST);
-            while !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-                let head = e.call(LIST_HEAD_ITEM, &args![list]).u32();
+            while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+                let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                 let item = e.mem.u32(head);
                 e.with_stack(4, |e, slot| {
                     e.mem.set_u32(slot.addr(), item);
@@ -5263,7 +5365,7 @@ pub fn low_process_update(e: &mut Engine, this: Ptr<LowProcess>, mobile: Ptr) {
             if current(e) != 0 && {
                 let p = current(e);
                 let schedule = e.call(PACKAGE_GET_SCHEDULE, &args![p]).u32();
-                e.call(WORD_04, &args![schedule]).u32() == 0
+                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, schedule)) == 0
             } {
                 let old = current(e);
                 low_process_set_current_package_from_schedule(e, this, Ptr::new(actor));
@@ -5276,7 +5378,7 @@ pub fn low_process_update(e: &mut Engine, this: Ptr<LowProcess>, mobile: Ptr) {
     }
     let _ = package;
     if !e.call(ACTOR_IS_WAITING_ON_PATH, &args![actor]).bool() || skipped {
-        let process = e.call(ACTOR_GET_PROCESS, &args![mobile]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, mobile));
         e.vcall(process, COMPUTE_LAST_TIME_PROCESSED_SLOT, &args![]);
         e.mem.set_u8(base.wrapping_add(SKIPPED_TIME_STAMP), 0);
     } else {
@@ -5580,6 +5682,7 @@ const BLOCKED_TIME_00408840: u32 = 0x0040_8840;
 const BLOCKED_TIME_LIMIT: u32 = 0x0101_ffa0;
 /// `00559450` (`thiscall`, no stack words): the word at `this` (here the current package of
 /// the embedded `ActorPackage` at `+4`).
+#[cfg(test)]
 const WORD_AT_00559450: u32 = 0x0055_9450;
 /// `TESPackage::SetIsCreated` (engine map, `00674d70`; `thiscall`, one stack word) and
 /// `Actor::StopMoving` (engine map, `008b3ab0`; `thiscall`, no stack words).
@@ -5680,9 +5783,11 @@ pub fn low_process_process_movement_blocked(e: &mut Engine, this: Ptr<LowProcess
         ADD_TO_PROCEDURE_INDEX_RUNNING_SLOT,
         &args![actor, 1u32],
     );
-    let package = e
-        .call(WORD_AT_00559450, &args![this.addr() + PACKAGE])
-        .u32();
+    let package = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + PACKAGE)
+    );
     e.call(PACKAGE_SET_IS_CREATED, &args![package, 1u32]);
 }
 
@@ -5879,6 +5984,7 @@ const ACTOR_ADD_FOLLOWER: u32 = 0x008b_c790;
 /// The package location of a package (`0055b980`, no stack words) and the word at `+8`
 /// (`0044ddc0`, no stack words).
 const PACKAGE_LOCATION_0055B980: u32 = 0x0055_b980;
+#[cfg(test)]
 const WORD_08_0044DDC0: u32 = 0x0044_ddc0;
 
 // Translated from 00908cd0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -5934,19 +6040,23 @@ pub fn low_process_create_followfor_escort(
     let new_location = e.call(PACKAGE_LOCATION_0055B980, &args![package]).u32();
     e.call(LOCATION_0067F1F0, &args![new_location, distance]);
     let current = e.vcall(base, GET_CURRENT_PACKAGE_SLOT, &args![]).u32();
-    let current_target = e.call(PACKAGE_GET_TARGET, &args![current]).u32();
+    let current_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, current));
     e.call(PACKAGE_SET_TARGET, &args![package, current_target]);
     e.call(PACKAGE_00984F60, &args![package, 6u32]);
-    let package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+    let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     e.call(PACKAGE_TARGET_SET_TYPE, &args![package_target, 0u32]);
-    let package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+    let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     e.call(PACKAGE_TARGET_SET_REFERENCE, &args![package_target, actor]);
-    let escort_target = e.call(PACKAGE_GET_TARGET, &args![escort_package]).u32();
-    let word = e.call(WORD_08_0044DDC0, &args![escort_target]).u32();
-    let package_target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+    let escort_target = typed_call!(
+        leaf::FAMILY,
+        0x0067_1d10,
+        leaf::word_at_30(e, escort_package)
+    );
+    let word = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, escort_target));
+    let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     e.call(ACTOR_PACKAGE_SET_TARGET, &args![package_target, word]);
     e.call(PACKAGE_0067A1B0, &args![package, escort_package]);
-    let process = e.call(ACTOR_GET_PROCESS, &args![target]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
     e.vcall(process, COMPUTE_LAST_TIME_PROCESSED_SLOT, &args![]);
     e.vcall(process, PROCESS_SAVE_PACKAGE_SLOT, &args![target]);
     e.call(ACTOR_ADD_FOLLOWER, &args![actor, target]);
@@ -5982,7 +6092,7 @@ pub fn low_process_process_remove_worn(
     actor: u32,
     advance: u8,
 ) {
-    let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![actor]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
     let npc = e
         .call(
             DYNAMIC_CAST,
@@ -5995,7 +6105,7 @@ pub fn low_process_process_remove_worn(
             ],
         )
         .u32();
-    let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![actor]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor));
     let creature = e
         .call(
             DYNAMIC_CAST,
@@ -6060,21 +6170,23 @@ pub fn low_process_check_if_has_object(
     let package = e
         .vcall(this.addr(), GET_CURRENT_PACKAGE_SLOT, &args![])
         .u32();
-    let target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     if target == 0 {
         return false;
     }
     let kind = e.call(PACKAGE_TARGET_GET_TYPE, &args![target]).u32();
     e.with_stack(4, |e, local| match kind {
         0 | 3 => {
-            let reference = e
-                .call(WORD_08_0044DDC0, &args![this.addr() + PACKAGE])
-                .u32();
+            let reference = typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, this.addr() + PACKAGE)
+            );
             if reference == 0 {
                 return false;
             }
-            let word = e.call(GET_WORD_0C, &args![reference]).u32();
-            let form = e.call(REFERENCE_GET_BASE_FORM, &args![reference]).u32();
+            let word = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             e.call(
                 ACTOR_HAS_OBJECTS,
                 &args![actor, form, 0u32, 1u32, word, local],
@@ -6203,7 +6315,8 @@ pub fn low_process_process_combat(e: &mut Engine, this: Ptr<LowProcess>, actor: 
             e.call(ACTOR_SET_CURRENT_TARGET, &args![target, actor]);
             if !actor_slot_22c(e, target) {
                 if !e.call(ACTOR_TEST_00493BB0, &args![target]).bool() {
-                    let process = e.call(ACTOR_GET_PROCESS, &args![target]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
                     enter_combat_call(e, process, target, actor);
                 }
                 e.vcall(target, ACTOR_COMBAT_ROUND_SLOT, &args![]);
@@ -6213,7 +6326,7 @@ pub fn low_process_process_combat(e: &mut Engine, this: Ptr<LowProcess>, actor: 
         rounds = rounds.wrapping_sub(1);
     }
     if fought {
-        let process = e.call(ACTOR_GET_PROCESS, &args![target]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
         e.vcall(process, COMPUTE_LAST_TIME_PROCESSED_SLOT, &args![]);
     }
 }
@@ -6271,18 +6384,22 @@ pub fn low_process_process_alarm(e: &mut Engine, this: Ptr<LowProcess>, actor: u
         let mut found = false;
         e.with_stack(4, |e, attack| {
             while node != 0 {
-                let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+                let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(item_address) == 0 || found {
                     break;
                 }
-                let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+                let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(item_address);
-                let reference = e.call(GET_WORD_0C, &args![item]).u32();
-                e.call(WORD_08_0044DDC0, &args![item]);
+                let reference = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
+                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                 // A local the exe sets to 0 and tests before the call for larger words.
                 let tested = 0u32;
                 e.mem.set_u32(attack.addr(), 0);
-                if e.call(LIST_NEXT_NODE, &args![item]).i32() > 2 {
+                if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+                    .into_ret()
+                    .i32()
+                    > 2
+                {
                     if tested != 0
                         && e.call(
                             ACTOR_GET_SHOULD_ATTACK_ACTOR,
@@ -6301,7 +6418,7 @@ pub fn low_process_process_alarm(e: &mut Engine, this: Ptr<LowProcess>, actor: u
                 {
                     found = true;
                 }
-                node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         });
         if found {
@@ -6449,7 +6566,7 @@ pub fn low_process_revert(e: &mut Engine, this: Ptr<LowProcess>, flags: u32, for
         e.mem.set_u8(base + 0x30, 0);
         e.mem.set_u32(base + TRACKED_DAMAGE, x87_store32(0.0));
     }
-    if !e.call(REFERENCE_TEST_00440D80, &args![form]).bool() {
+    if !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, form)) {
         let save = e.global::<u32>(SAVE_LOAD_GAME);
         e.call(SAVE_LOAD_TEST_0055F5B0, &args![save]);
     }
@@ -6483,6 +6600,7 @@ const SIZE_REPORT_SETTING: u32 = 0x011d_e4e8;
 const SETTING_BYTE_ADDRESS: u32 = 0x0040_8d60;
 /// `Error` (engine map, `0040fbe0`; `cdecl`, varargs) and the debug print (`DEBUG_PRINT`,
 /// `005b5e40`).
+#[cfg(test)]
 const ERROR_REPORT: u32 = 0x0040_fbe0;
 const SAVE_DEBUG_PRINT: u32 = 0x005b_5e40;
 /// A form's vtable slot `+0x130` (no stack words): its name.
@@ -6601,23 +6719,9 @@ fn report_saved_size(e: &mut Engine, (form_format, format): (u32, u32), size: u3
         let word = e.mem.u32(record + 5);
         let name = e.vcall(form, FORM_NAME_SLOT, &args![]).u32();
         let id = e.mem.u32(record);
-        e.call(
-            ERROR_REPORT,
-            &args![
-                form_format,
-                size,
-                id,
-                name,
-                word,
-                line,
-                LOW_PROCESS_SOURCE_FILE
-            ],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words form_format, size, id, name, word, line, LOW_PROCESS_SOURCE_FILE);
     } else {
-        e.call(
-            ERROR_REPORT,
-            &args![format, size, line, LOW_PROCESS_SOURCE_FILE],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words format, size, line, LOW_PROCESS_SOURCE_FILE);
     }
 }
 
@@ -6709,7 +6813,7 @@ pub fn low_process_get_save_size(
 fn save_numeric_id(e: &mut Engine, reference: u32) {
     e.with_stack(4, |e, local| {
         let id = if reference != 0 {
-            e.call(GET_WORD_0C, &args![reference]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference))
         } else {
             0
         };
@@ -7097,10 +7201,10 @@ pub fn low_process_init_load_game_ov2(e: &mut Engine, this: Ptr<LowProcess>, buf
     let mut previous = 0u32;
     e.with_stack(4, |e, item_local| {
         while node != 0 {
-            if e.call(LIST_IS_EMPTY, &args![node]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
                 break;
             }
-            let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let id = e.mem.u32(item_address);
             e.mem.set_u32(item_local.addr(), id);
             let mut remove = false;
@@ -7121,15 +7225,16 @@ pub fn low_process_init_load_game_ov2(e: &mut Engine, this: Ptr<LowProcess>, buf
             }
             if remove {
                 if previous != 0 {
-                    let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+                    let item_address =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     e.call(LIST_REMOVE_ITEM, &args![previous, item_address]);
-                    node = e.call(LIST_NEXT_NODE, &args![previous]).u32();
+                    node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
                 } else {
                     e.call(LIST_REMOVE_HEAD, &args![node]);
                 }
             } else {
                 previous = node;
-                node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
     });
@@ -7425,7 +7530,7 @@ fn evaluate_acquire_entry(
         return false;
     }
     let owner = e.call(REFERENCE_GET_OWNER, &args![object]).u32();
-    if owner == e.call(REFERENCE_GET_BASE_FORM, &args![actor]).u32()
+    if owner == typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor))
         || e.call(ACTOR_TEST_00566950, &args![actor]).bool()
     {
         return false;
@@ -7457,11 +7562,11 @@ pub fn low_process_evaluate_order_acquire_list(e: &mut Engine, this: Ptr<LowProc
     let wanted = test(e, RUNNING_TEST_008E3120);
     let dangerous = test(e, RUNNING_TEST_008E3100);
     while node != 0 {
-        let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             break;
         }
-        let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let entry = e.mem.u32(item_address);
         let object = e.mem.u32(entry + ACQUIRE_REFERENCE);
         let owner_actor = if e.vcall(object, REFERENCE_SLOT_100, &args![]).bool() {
@@ -7476,7 +7581,7 @@ pub fn low_process_evaluate_order_acquire_list(e: &mut Engine, this: Ptr<LowProc
         let owner = e.call(REFERENCE_GET_OWNER, &args![object]).u32();
         let own = owner == 0 || {
             let owner = e.call(REFERENCE_GET_OWNER, &args![object]).u32();
-            owner == e.call(REFERENCE_GET_BASE_FORM, &args![actor]).u32()
+            owner == typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, actor))
         };
         if own && !e.vcall(object, REFERENCE_SLOT_100, &args![]).bool() {
             let distance = whole_distance(e, actor, object);
@@ -7501,7 +7606,7 @@ pub fn low_process_evaluate_order_acquire_list(e: &mut Engine, this: Ptr<LowProc
         } else if entry != 0 {
             e.call(DELETE_EMPTY_DESTRUCTOR, &args![entry, 1u32]);
         }
-        node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(LIST_CLEAR, &args![base + TEMP_OBJECT_LIST]);
 }
@@ -7556,9 +7661,9 @@ fn add_temp_location(e: &mut Engine, process: u32, reference: u32) {
 /// object are all unset, takes the reference in again; each item is deleted (`004459e0(1)`).
 pub fn fn_0090e660(e: &mut Engine, reference: u32, actor: u32) -> bool {
     if reference == 0
-        || e.call(REFERENCE_TEST_00440D80, &args![reference]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, reference))
         || e.call(REFERENCE_TEST_004077C0, &args![reference]).bool()
-        || e.call(REFERENCE_TEST_00440DA0, &args![reference]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
     {
         return false;
     }
@@ -7570,7 +7675,7 @@ pub fn fn_0090e660(e: &mut Engine, reference: u32, actor: u32) -> bool {
     if actor == 0 {
         return true;
     }
-    let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     let process = e
         .call(
             DYNAMIC_CAST,
@@ -7587,11 +7692,11 @@ pub fn fn_0090e660(e: &mut Engine, reference: u32, actor: u32) -> bool {
         return true;
     }
     let is_actor = e.vcall(reference, REFERENCE_SLOT_100, &args![]).bool();
-    let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![reference]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let form_type = e.call(FORM_GET_TYPE, &args![base_form]).u32();
     let wanted_type = e.mem.u32(process + FORM_TYPE_FOR_LOCATION);
     let matches_type = wanted_type != 0 && {
-        let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![reference]).u32();
+        let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         e.call(
             FORM_MATCHES_PACKAGE_OBJECT_TYPE,
             &args![base_form, wanted_type],
@@ -7602,7 +7707,7 @@ pub fn fn_0090e660(e: &mut Engine, reference: u32, actor: u32) -> bool {
     let takes = matches_type
         || (e.mem.u32(process + OBJECT_FOR_LOCATION) != 0
             && e.mem.u32(process + OBJECT_FOR_LOCATION)
-                == e.call(REFERENCE_GET_BASE_FORM, &args![reference]).u32());
+                == typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference)));
     if takes {
         if !e.vcall(reference, ACTOR_SLOT_22C, &args![0u32]).bool() {
             add_temp_location(e, process, reference);
@@ -7629,7 +7734,7 @@ pub fn fn_0090e660(e: &mut Engine, reference: u32, actor: u32) -> bool {
             if !e.call(ITEM_GET_WORN, &args![item, 0u32]).bool() {
                 let wanted_type = e.mem.u32(process + FORM_TYPE_FOR_LOCATION);
                 let matches_type = wanted_type != 0 && {
-                    let object = e.call(WORD_08_0044DDC0, &args![item]).u32();
+                    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                     e.call(
                         FORM_MATCHES_PACKAGE_OBJECT_TYPE,
                         &args![object, wanted_type],
@@ -7637,7 +7742,7 @@ pub fn fn_0090e660(e: &mut Engine, reference: u32, actor: u32) -> bool {
                     .bool()
                 };
                 let matched = matches_type
-                    || e.call(WORD_08_0044DDC0, &args![item]).u32()
+                    || typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
                         == e.mem.u32(process + OBJECT_FOR_LOCATION)
                     || (e.mem.u32(process + FORM_TYPE_FOR_LOCATION) == 0
                         && e.mem.u32(process + OBJECT_TO_ACQUIRE) == 0
@@ -7688,10 +7793,10 @@ fn location_reference(e: &mut Engine, package: u32) -> u32 {
 
 /// The actor's process's slot `+0x514`, 0 without a process.
 fn process_slot_514(e: &mut Engine, actor: u32) -> u32 {
-    if e.call(ACTOR_GET_PROCESS, &args![actor]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) == 0 {
         return 0;
     }
-    let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(process, PROCESS_SLOT_514, &args![]).u32()
 }
 
@@ -7781,7 +7886,7 @@ pub fn low_process_get_current_destination_reference(
                 let location = e.call(PACKAGE_LOCATION_0055B980, &args![package]).u32();
                 target = e.call(LOCATION_GET_REFERENCE, &args![location]).u32();
             } else {
-                let process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 if process != 0 {
                     target = e.vcall(process, GET_TARGET_SLOT, &args![]).u32();
                     if target == 0 {
@@ -7878,7 +7983,7 @@ pub fn low_process_get_current_destination_radius(
         }
         1 | 2 => {
             let package = current(e);
-            if e.call(PACKAGE_GET_TARGET, &args![package]).u32() != 0 {
+            if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package)) != 0 {
                 let package = current(e);
                 let value = e
                     .call(
@@ -7891,7 +7996,7 @@ pub fn low_process_get_current_destination_radius(
         }
         3 => {
             let package = current(e);
-            let target = e.call(PACKAGE_GET_TARGET, &args![package]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
             let package = current(e);
             let uses_location = e.call(PACKAGE_TEST_00901C50, &args![package]).bool() && {
                 let package = current(e);
@@ -7903,7 +8008,9 @@ pub fn low_process_get_current_destination_radius(
                 let value = e.call(PACKAGE_GET_00676280, &args![package, actor]).u32();
                 x87_store32(f64::from(value))
             } else if target != 0 {
-                let word = e.call(WORD_08_0044DDC0, &args![target]).i32();
+                let word = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, target))
+                    .into_ret()
+                    .i32();
                 x87_store32(f64::from(word))
             } else {
                 x87_quiet_bits(e.global::<u32>(DEFAULT_TARGET_RADIUS))
@@ -7977,7 +8084,7 @@ pub fn low_process_update_followers(
     time: f32,
 ) {
     let dead = e.vcall(actor, ACTOR_SLOT_22C, &args![0u32]).bool()
-        || e.call(REFERENCE_TEST_00440DA0, &args![actor]).bool();
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor));
     let extra = e.call(REFERENCE_GET_EXTRA_LIST, &args![actor]).u32();
     let followers = e.call(EXTRA_GET_FOLLOWERS, &args![extra]).u32();
     if followers == 0 {
@@ -7987,22 +8094,22 @@ pub fn low_process_update_followers(
     let copy = new_list(e);
     let mut node = e.mem.u32(followers + FOLLOWER_LIST);
     while node != 0 {
-        let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             break;
         }
-        let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.call(OBJECT_LIST_ADD_00905820, &args![copy, item_address]);
-        node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.with_stack(4, |e, follower_slot| {
         let mut node = copy;
         while node != 0 {
-            let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item_address) == 0 {
                 break;
             }
-            let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let follower = e.mem.u32(item_address);
             e.mem.set_u32(follower_slot.addr(), follower);
             if dead {
@@ -8045,25 +8152,25 @@ pub fn low_process_update_followers(
                     e.call(REFERENCE_RUN_SCRIPT, &args![follower]);
                 }
             }
-            node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
     let mut node = removed;
     while node != 0 {
-        let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item_address) == 0 {
             break;
         }
-        let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let follower = e.mem.u32(item_address);
         let extra = e.call(REFERENCE_GET_EXTRA_LIST, &args![actor]).u32();
         e.call(EXTRA_REMOVE_FOLLOWER, &args![extra, follower]);
-        node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     delete_list(e, copy);
     delete_list(e, removed);
     let list = e.mem.u32(followers + FOLLOWER_LIST);
-    if e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         let extra = e.call(REFERENCE_GET_EXTRA_LIST, &args![actor]).u32();
         e.call(EXTRA_REMOVE_FOLLOWER_EXTRA, &args![extra]);
     }
@@ -8134,13 +8241,13 @@ pub fn low_process_process_guard_start_travel_to_location(
     e.with_stack(0x18, |e, locals| {
         let point = locals.addr();
         let temp = locals.addr() + 0xc;
-        e.call(LIST_HEAD_ITEM, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         let mut reference = 0u32;
         let mut first = 0u32;
         let mut second = 0u32;
         let running = e.vcall(base, GET_PACKAGE_RUNNING_SLOT, &args![]).u32();
         let location = e.call(PACKAGE_LOCATION_0055B980, &args![running]).u32();
-        let target = e.call(PACKAGE_GET_TARGET, &args![running]).u32();
+        let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, running));
         let mut use_target = true;
         if location != 0 {
             if e.call(PACKAGE_LOCATION_GET_TYPE, &args![location]).u32() == 3 {
@@ -8170,7 +8277,9 @@ pub fn low_process_process_guard_start_travel_to_location(
             let value = e.call(PACKAGE_GET_00676280, &args![running, actor]).u32();
             x87_store32(f64::from(value))
         } else if target != 0 {
-            let word = e.call(WORD_08_0044DDC0, &args![target]).i32();
+            let word = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, target))
+                .into_ret()
+                .i32();
             x87_store32(f64::from(word))
         } else {
             x87_quiet_bits(e.global::<u32>(DEFAULT_TARGET_RADIUS))
@@ -8230,17 +8339,17 @@ fn target_is_actor_or_known(e: &mut Engine, base: u32, actor: u32) -> bool {
         return true;
     }
     let target = e.mem.u32(base + TARGET);
-    let id = e.call(GET_WORD_0C, &args![target]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, target));
     e.call(ACTOR_TEST_00575450, &args![actor, id]).bool()
 }
 
 /// The first word of the item's extra list (`00559450`, `006815c0`), `fallback` without one.
 fn item_extra(e: &mut Engine, item: u32, fallback: u32) -> u32 {
-    if e.call(WORD_AT_00559450, &args![item]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) == 0 {
         return fallback;
     }
-    let list = e.call(WORD_AT_00559450, &args![item]).u32();
-    let head = e.call(LIST_HEAD_ITEM, &args![list]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+    let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     e.mem.u32(head)
 }
 
@@ -8298,7 +8407,7 @@ fn escort_give_item(e: &mut Engine, base: u32, actor: u32, running: u32, item: u
     let mut id = 0u32;
     if extra != 0 && e.call(EXTRA_GET_REFERENCE_POINTER, &args![extra]).u32() != 0 {
         let pointer = e.call(EXTRA_GET_REFERENCE_POINTER, &args![extra]).u32();
-        id = e.call(GET_WORD_0C, &args![pointer]).u32();
+        id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, pointer));
     }
     let location = e.call(PACKAGE_LOCATION_0055B980, &args![running]).u32();
     let mut destination = e.call(LOCATION_GET_REFERENCE, &args![location]).u32();
@@ -8309,7 +8418,7 @@ fn escort_give_item(e: &mut Engine, base: u32, actor: u32, running: u32, item: u
         let count = e
             .call(PACKAGE_GET_INITIAL_TARGET_COUNT, &args![running])
             .u32();
-        let object = e.call(WORD_08_0044DDC0, &args![item]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         e.call(
             ACTOR_GIVE_ITEM_00892E90,
             &args![actor, object, extra, destination, count, id],
@@ -8319,16 +8428,16 @@ fn escort_give_item(e: &mut Engine, base: u32, actor: u32, running: u32, item: u
     extra = item_extra(e, item, extra);
     let mut position = 0u32;
     let location = e.call(PACKAGE_LOCATION_0055B980, &args![running]).u32();
-    let target = e.call(PACKAGE_GET_TARGET, &args![running]).u32();
+    let target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, running));
     if location != 0 {
         let mut reference = e.call(LOCATION_GET_REFERENCE, &args![location]).u32();
         if reference == 0 {
             reference = e.mem.u32(base + GENERIC_LOCATION);
         }
         if reference != 0 {
-            let marker = e.call(REFERENCE_GET_BASE_FORM, &args![reference]).u32()
+            let marker = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
                 == e.global::<u32>(ACTIVATE_DONE_FORM)
-                || e.call(REFERENCE_GET_BASE_FORM, &args![reference]).u32()
+                || typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference))
                     == e.global::<u32>(ANGLED_FORM);
             if marker {
                 position = e.vcall(reference, ACTOR_GET_LOCATION_SLOT, &args![]).u32();
@@ -8341,7 +8450,7 @@ fn escort_give_item(e: &mut Engine, base: u32, actor: u32, running: u32, item: u
             .call(PACKAGE_GET_INITIAL_TARGET_COUNT, &args![running])
             .u32();
     }
-    let object = e.call(WORD_08_0044DDC0, &args![item]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     e.vcall(
         actor,
         ACTOR_SLOT_3CC,
@@ -8394,7 +8503,7 @@ pub fn low_process_process_escort(e: &mut Engine, this: Ptr<LowProcess>, actor: 
         }
     }
     let package = e.vcall(base, GET_CURRENT_PACKAGE_SLOT, &args![]).u32();
-    if e.call(PACKAGE_GET_TARGET, &args![package]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package)) != 0 {
         let package = e.vcall(base, GET_CURRENT_PACKAGE_SLOT, &args![]).u32();
         count = e
             .call(PACKAGE_GET_INITIAL_TARGET_COUNT, &args![package])
@@ -8626,9 +8735,9 @@ fn acquire_searches_type(kind: u32) -> bool {
 pub fn fn_0090dd80(e: &mut Engine, reference: u32, actor: u32) -> bool {
     if reference == 0
         || reference == actor
-        || e.call(REFERENCE_TEST_00440D80, &args![reference]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, reference))
         || e.call(REFERENCE_TEST_004077C0, &args![reference]).bool()
-        || e.call(REFERENCE_TEST_00440DA0, &args![reference]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
     {
         return false;
     }
@@ -8638,13 +8747,15 @@ pub fn fn_0090dd80(e: &mut Engine, reference: u32, actor: u32) -> bool {
     let mut wanted = false;
     let mut process = 0u32;
     let is_actor = e.vcall(reference, REFERENCE_SLOT_100, &args![]).bool();
-    let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![reference]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let form_type = e.call(FORM_GET_TYPE, &args![base_form]).u32();
-    if e.call(ACTOR_GET_PROCESS, &args![actor]).u32() != 0 {
-        let candidate = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
-        let state = e.call(PROCESS_GET_0045CD60, &args![candidate]).i32();
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+        let candidate = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+        let state = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, candidate))
+            .into_ret()
+            .i32();
         if (0..=3).contains(&state) {
-            process = e.call(ACTOR_GET_PROCESS, &args![actor]).u32();
+            process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         }
     }
     if process == 0 {
@@ -8714,7 +8825,7 @@ pub fn fn_0090dd80(e: &mut Engine, reference: u32, actor: u32) -> bool {
     }
     if wanted {
         let entry = new_acquire_entry(e);
-        let base_form = e.call(REFERENCE_GET_BASE_FORM, &args![reference]).u32();
+        let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         e.mem.set_u32(entry + ACQUIRE_FORM, base_form);
         e.mem.set_u32(entry + ACQUIRE_REFERENCE, reference);
         let extra = e.call(REFERENCE_GET_EXTRA_LIST, &args![reference]).u32();
@@ -8741,11 +8852,11 @@ pub fn fn_0090dd80(e: &mut Engine, reference: u32, actor: u32) -> bool {
             0
         };
         while node != 0 {
-            let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item_address) == 0 {
                 break;
             }
-            let item_address = e.call(LIST_HEAD_ITEM, &args![node]).u32();
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let change = e.mem.u32(item_address);
             if change != 0 {
                 let object = e.mem.u32(change + 4);
@@ -8766,7 +8877,7 @@ pub fn fn_0090dd80(e: &mut Engine, reference: u32, actor: u32) -> bool {
                     e.call(ITEM_DELETE, &args![held, 1u32]);
                 }
             }
-            node = e.call(LIST_NEXT_NODE, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     let count = e
@@ -8788,7 +8899,7 @@ pub fn fn_0090dd80(e: &mut Engine, reference: u32, actor: u32) -> bool {
                     }
                 }
                 let matched = !skip && {
-                    let object = e.call(WORD_08_0044DDC0, &args![item]).u32();
+                    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                     let wanted_type = e.mem.u32(process + FORM_TYPE_FOR_LOCATION);
                     (wanted_type != 0
                         && e.call(
@@ -8798,7 +8909,7 @@ pub fn fn_0090dd80(e: &mut Engine, reference: u32, actor: u32) -> bool {
                         .bool())
                         || (e.mem.u32(process + OBJECT_TO_ACQUIRE) != 0
                             && e.mem.u32(process + OBJECT_TO_ACQUIRE)
-                                == e.call(WORD_08_0044DDC0, &args![item]).u32())
+                                == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item)))
                         || (e.mem.u32(process + FORM_TYPE_FOR_LOCATION) == 0
                             && e.mem.u32(process + OBJECT_TO_ACQUIRE) == 0)
                 };
@@ -8806,12 +8917,12 @@ pub fn fn_0090dd80(e: &mut Engine, reference: u32, actor: u32) -> bool {
                     && e.call(REFERENCE_GET_SPACE, &args![reference]).u32()
                         == e.call(REFERENCE_GET_SPACE, &args![actor]).u32()
                 {
-                    let object = e.call(WORD_08_0044DDC0, &args![item]).u32();
+                    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                     let entry = new_inventory_entry(e, reference, object);
                     add_temp_object(e, process, entry);
-                    if e.call(WORD_AT_00559450, &args![item]).u32() != 0 {
-                        let list = e.call(WORD_AT_00559450, &args![item]).u32();
-                        let head = e.call(LIST_HEAD_ITEM, &args![list]).u32();
+                    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) != 0 {
+                        let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+                        let head = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
                         let first = e.mem.u32(head);
                         e.mem.set_u32(entry + ACQUIRE_EXTRA, first);
                     }
@@ -8842,7 +8953,7 @@ const INVALID_SEARCH_LOCATION_FORMAT: u32 = 0x0108_8f90;
 
 /// The item's object cast from `TESBoundObject` to `to`.
 fn item_object_as(e: &mut Engine, item: u32, to: u32) -> u32 {
-    let object = e.call(WORD_08_0044DDC0, &args![item]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     e.call(
         DYNAMIC_CAST,
         &args![object, 0u32, BOUND_OBJECT_TYPE_DESCRIPTOR, to, 0u32],
@@ -8867,9 +8978,9 @@ fn collect_container_items(
         if item != 0 {
             if wanted(e, item) {
                 let entry = new_acquire_entry(e);
-                let object = e.call(WORD_08_0044DDC0, &args![item]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                 e.mem.set_u32(entry + ACQUIRE_FORM, object);
-                let item_count = e.call(LIST_NEXT_NODE, &args![item]).u32();
+                let item_count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
                 e.mem.set_u32(entry + ACQUIRE_COUNT, item_count);
                 e.mem.set_u32(entry + ACQUIRE_REFERENCE, container);
                 e.mem.set_u32(entry + ACQUIRE_STATE, 1);

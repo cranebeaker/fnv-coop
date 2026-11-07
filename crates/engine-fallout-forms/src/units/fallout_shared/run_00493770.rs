@@ -11,6 +11,7 @@ use crate::prelude::*;
 /// `cdecl (group)`).
 const FIRST_VALUE: u32 = 0x0063_9aa0;
 const SECOND_VALUE: u32 = 0x0075_9450;
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 const IS_AIM_ACTION: u32 = 0x005f_2630;
 
@@ -29,7 +30,7 @@ pub fn fn_00493770(e: &mut Engine, this: Ptr) -> f32 {
 /// engine map has no name), through `00559450`.
 pub fn fn_004937a0(e: &mut Engine, this: Ptr, index: u32) -> u32 {
     let element = (index << 4).wrapping_add(e.mem.u32(this.addr() + 0x14));
-    e.call(FIRST_WORD, &args![element]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, element))
 }
 
 // Translated from 004937c0 (decompiled, FalloutNV.exe 1.4.0.525)

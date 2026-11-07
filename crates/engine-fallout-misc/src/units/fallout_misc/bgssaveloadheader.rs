@@ -80,6 +80,7 @@ const FULL_HEADER_SIZE: u32 = 0x30;
 /// is taken.
 const NO_SCREENSHOT_FLAG: u32 = 0x0042_4940;
 /// `0044ddc0` (on the manager): a word that is saved.
+#[cfg(test)]
 const MANAGER_WORD: u32 = 0x0044_ddc0;
 /// `004dc200` / `004dc1f0`: two integers whose ratio decides the size of
 /// the screenshot.
@@ -105,6 +106,7 @@ const SCREENSHOT_ENABLED_SETTING: u32 = 0x011d_e2fc;
 /// The string appended after the file name in the screenshot path.
 const SCREENSHOT_EXTENSION: u32 = 0x0107_f794;
 /// `006815c0` (on the file): the file's name.
+#[cfg(test)]
 const FILE_NAME: u32 = 0x0068_15c0;
 /// `00878f60` (`TakeSaveGameScreenShot`, in `screenshot.rs`): `(width
 /// pointer, height pointer, path)`; returns the pixel data object.
@@ -200,7 +202,7 @@ pub fn bgssaveloadheader_save_header(e: &mut Engine, file: Ptr<BGSSaveLoadFile>)
                 .call(SETTING_STRING, &args![SCREENSHOT_DIRECTORY_SETTING])
                 .u32();
             e.call(STRING_COPY, &args![path, TEXT_SIZE, directory]);
-            let name = e.call(FILE_NAME, &args![file]).u32();
+            let name = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, file));
             e.call(STRING_APPEND, &args![path, TEXT_SIZE, name]);
             e.call(STRING_APPEND, &args![path, TEXT_SIZE, SCREENSHOT_EXTENSION]);
         }
@@ -224,7 +226,7 @@ pub fn bgssaveloadheader_save_header(e: &mut Engine, file: Ptr<BGSSaveLoadFile>)
         save_data(e, base + FRAME_WIDTH, 4);
         save_data(e, base + FRAME_HEIGHT, 4);
 
-        let manager_word = e.call(MANAGER_WORD, &args![manager]).u32();
+        let manager_word = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, manager));
         e.mem.set_u32(base + FRAME_MANAGER_WORD, manager_word);
         save_data(e, base + FRAME_MANAGER_WORD, 4);
 

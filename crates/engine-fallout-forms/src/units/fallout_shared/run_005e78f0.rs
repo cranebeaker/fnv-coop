@@ -249,8 +249,11 @@ const CAST_TARGET: u32 = 0x0118_63b8;
 /// (`006815c0`) and the next node (`00726070`).
 const FORM_LIST: u32 = 0x0062_4700;
 const LIST_CLEAR: u32 = 0x0047_0470;
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 
 // Translated from 005e78f0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -277,10 +280,10 @@ pub fn fn_005e78f0(e: &mut Engine, this: Ptr, source: u32) {
     let list = e.call(FORM_LIST, &args![this]).u32();
     e.call(LIST_CLEAR, &args![list]);
     let mut node = e.call(FORM_LIST, &args![other]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(LIST_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         e.call(0x005e_7790, &args![this, item]);
     }
 }
@@ -310,10 +313,10 @@ pub fn fn_005e79a0(e: &mut Engine, this: Ptr, form: u32) -> bool {
         return true;
     }
     let mut node = e.call(FORM_LIST, &args![other]).u32();
-    while node != 0 && !e.call(LIST_IS_EMPTY, &args![node]).bool() {
-        let slot = e.call(LIST_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
-        node = e.call(LIST_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         let held = e.with_stack(4, |e, local| {
             e.mem.set_u32(local.addr(), item);
             let list = e.call(FORM_LIST, &args![this]).u32();

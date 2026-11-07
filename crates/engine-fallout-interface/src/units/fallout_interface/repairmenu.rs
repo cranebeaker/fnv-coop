@@ -71,6 +71,7 @@ const TILE_POKE: u32 = 0x00a0_1290;
 /// `Menu::PrepForVisibility` (`this`, flag).
 const MENU_PREP_FOR_VISIBILITY: u32 = 0x00a1_dc20;
 /// The word at +4 of an object (a menu's `pMenu` tile).
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 
 /// The menu file name, the missing-tile message and the list template.
@@ -168,7 +169,7 @@ pub fn repair_menu_create(e: &mut Engine) -> u32 {
             return finish_create(e, root);
         }
     }
-    if me(e) != 0 && e.call(WORD_AT_FOUR, &args![me(e)]).u32() != 0 {
+    if me(e) != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e))) != 0 {
         let menu = me(e);
         e.vcall(menu, 0, &args![1u32]);
     }
@@ -278,11 +279,14 @@ const GET_WORN: u32 = 0x004b_ddd0;
 const HAS_MOD_EFFECT_ACTIVE: u32 = 0x004b_da70;
 const GET_ICON_ONE: u32 = 0x004b_e200;
 const GET_FULL_NAME: u32 = 0x004b_e2d0;
+#[cfg(test)]
 const ITEM_FORM: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const WORD_AT_ZERO: u32 = 0x0055_9450;
 const ITEM_CHANGE_CONSTRUCT: u32 = 0x004b_c550;
 /// The list node's item slot (`006815c0`), `006317a0` (`RET 4`: a tile list's element),
 /// `005ae3d0` (`RET 4`: a list append), `00905330` (`RET 4`: a list removal).
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
 const LIST_ELEMENT_006317A0: u32 = 0x0063_17a0;
 const LIST_APPEND_005AE3D0: u32 = 0x005a_e3d0;
@@ -436,11 +440,11 @@ fn menu_tile(e: &Engine, offset: u32) -> u32 {
 
 /// An `ItemChange`'s first extra data list: 0 without a list, else the first node's item.
 fn first_extra_list(e: &mut Engine, item: u32) -> u32 {
-    if e.call(WORD_AT_ZERO, &args![item]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) == 0 {
         return 0;
     }
-    let list = e.call(WORD_AT_ZERO, &args![item]).u32();
-    let slot = e.call(NODE_SELF, &args![list]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     e.mem.u32(slot)
 }
 
@@ -448,18 +452,18 @@ fn first_extra_list(e: &mut Engine, item: u32) -> u32 {
 /// time as the code does.
 fn first_extra_list_of_node(e: &mut Engine, node: u32) -> u32 {
     let item = node_item(e, node);
-    if e.call(WORD_AT_ZERO, &args![item]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item)) == 0 {
         return 0;
     }
     let item = node_item(e, node);
-    let list = e.call(WORD_AT_ZERO, &args![item]).u32();
-    let slot = e.call(NODE_SELF, &args![list]).u32();
+    let list = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     e.mem.u32(slot)
 }
 
 /// The item word of a list node, reached through `006815c0`.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_SELF, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -550,7 +554,7 @@ pub fn repair_menu_init_func(e: &mut Engine, tile: u32, item: u32) {
         &args![child, 0xfb1u32, x87_quiet_bits(bar), 1u32],
     );
     if e.call(GET_WORN, &args![item, 0u32]).bool() {
-        let index = e.call(WORD_AT_ZERO, &args![tile + 4]).u32();
+        let index = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, tile + 4));
         let slot = e.call(LIST_ELEMENT_006317A0, &args![tile + 4, index]).u32();
         let worn = e.mem.u32(slot);
         e.call(TILE_SET_INT, &args![worn, 0xfa3u32, 1u32]);
@@ -703,7 +707,7 @@ pub fn repair_menu_do_click(e: &mut Engine, this: Ptr, id: i32, tile: u32) {
         .u32();
     let extra = first_extra_list(e, item);
     repair_menu_repair_item(e, this, item);
-    let form = e.call(ITEM_FORM, &args![item]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     let player = e.global::<u32>(PLAYER);
     e.vcall(
         player,
@@ -754,7 +758,7 @@ pub fn repair_menu_do_click(e: &mut Engine, this: Ptr, id: i32, tile: u32) {
 pub fn repair_menu_repair_item(e: &mut Engine, _this: Ptr, item: u32) {
     let mut fraction = repaired_fraction(e, item, 0);
     let broken = broken_item(e);
-    let form = e.call(ITEM_FORM, &args![broken]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, broken));
     let weapon = weapon_of(e, form);
     if weapon != 0 {
         let broken = broken_item(e);
@@ -765,12 +769,12 @@ pub fn repair_menu_repair_item(e: &mut Engine, _this: Ptr, item: u32) {
         fraction = x87_store32(x87_mul(f64::from(health), x87_m32(fraction)));
     } else {
         let broken = broken_item(e);
-        let form = e.call(ITEM_FORM, &args![broken]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, broken));
         let health = e.call(HEALTH_FORM_GET_FORM_HEALTH, &args![form]).u32();
         fraction = x87_store32(x87_mul(f64::from(health), x87_m32(fraction)));
     }
     let broken = broken_item(e);
-    let form = e.call(ITEM_FORM, &args![broken]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, broken));
     let player = e.global::<u32>(PLAYER);
     let changes = e.call(GET_INVENTORY_CHANGES, &args![player]).u32();
     let entry = e
@@ -795,13 +799,13 @@ pub fn repair_menu_repair_item(e: &mut Engine, _this: Ptr, item: u32) {
         e.call(EXTRA_SET_HEALTH, &args![list, x87_quiet_bits(fraction)]);
         e.call(MISC_STAT_INCREMENT, &args![0x22u32]);
         let broken = broken_item(e);
-        let lists = e.call(WORD_AT_ZERO, &args![broken]).u32();
+        let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, broken));
         e.call(ITEM_0063F7B0, &args![lists]);
         if count > 1 {
             e.call(EXTRA_SET_COUNT, &args![old, count - 1]);
         }
         let mut stacked = false;
-        let mut node = e.call(WORD_AT_ZERO, &args![entry]).u32();
+        let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
         while node != 0 && node_item(e, node) != 0 {
             let other = node_item(e, node);
             if !e
@@ -818,31 +822,31 @@ pub fn repair_menu_repair_item(e: &mut Engine, _this: Ptr, item: u32) {
                         i32::from(e.call(EXTRA_GET_COUNT, &args![other]).u32() as u16 as i16);
                     let other = node_item(e, node);
                     e.call(EXTRA_SET_COUNT, &args![other, other_count + 1]);
-                    let slot = e.call(NODE_SELF, &args![node]).u32();
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let broken = broken_item(e);
-                    let lists = e.call(WORD_AT_ZERO, &args![broken]).u32();
+                    let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, broken));
                     e.call(LIST_APPEND_005AE3D0, &args![lists, slot]);
                     stacked = true;
                 }
             }
-            node = e.call(WORD_AT_FOUR, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         if !stacked {
             if count > 1 {
-                let lists = e.call(WORD_AT_ZERO, &args![entry]).u32();
+                let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
                 e.call(LIST_APPEND_005AE3D0, &args![lists, new_slot]);
                 let broken = broken_item(e);
-                let lists = e.call(WORD_AT_ZERO, &args![broken]).u32();
+                let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, broken));
                 e.call(LIST_APPEND_005AE3D0, &args![lists, new_slot]);
             } else {
                 let old = e.mem.u32(old_slot);
                 e.call(EXTRA_SET_HEALTH, &args![old, x87_quiet_bits(fraction)]);
                 let broken = broken_item(e);
-                let lists = e.call(WORD_AT_ZERO, &args![broken]).u32();
+                let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, broken));
                 e.call(LIST_APPEND_005AE3D0, &args![lists, old_slot]);
             }
         } else if count == 1 {
-            let lists = e.call(WORD_AT_ZERO, &args![entry]).u32();
+            let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
             e.call(LIST_REMOVE_00905330, &args![lists, old_slot]);
         }
         if stacked || count == 1 {
@@ -1027,7 +1031,7 @@ pub fn repair_menu_do_enter(e: &mut Engine, this: Ptr, id: i32, tile: u32) {
         return;
     }
     let mut threshold = x87_quiet_bits(e.global::<u32>(SEVENTY_FIVE_FLOAT));
-    let form = e.call(ITEM_FORM, &args![current]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, current));
     if e.call(FORM_TYPE, &args![form]).u32() == 0x18 {
         threshold = x87_quiet_bits(e.global::<u32>(FIFTY_FLOAT));
     }
@@ -1096,23 +1100,23 @@ pub fn repair_menu_do_enter(e: &mut Engine, this: Ptr, id: i32, tile: u32) {
     let tile48 = e.mem.u32(base + 0x48);
     e.call(TILE_SET_INT, &args![tile48, 0xfa3u32, 0u32]);
     let broken = broken_item(e);
-    let broken_form = e.call(ITEM_FORM, &args![broken]).u32();
+    let broken_form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, broken));
     if e.call(FORM_TYPE, &args![broken_form]).u32() == 0x28 {
         let text = e.call(SETTING_STRING, &args![SETTING_011D2C7C]).u32();
         let title = e.global::<u32>(TRAIT_FROM_NAME_0106ED20);
         let tile50 = e.mem.u32(base + 0x50);
         e.call(TILE_SET_STRING, &args![tile50, title, text, 1u32]);
         let broken = broken_item(e);
-        let form = e.call(ITEM_FORM, &args![broken]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, broken));
         let damage = weapon_damage(e, form, condition, broken);
         let value_trait = e.global::<u32>(TRAIT_FROM_NAME_0106ED18);
         let tile50 = e.mem.u32(base + 0x50);
         e.call(TILE_SET_INT, &args![tile50, value_trait, damage]);
     } else {
-        let form = e.call(ITEM_FORM, &args![current]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, current));
         if e.call(FORM_TYPE, &args![form]).u32() == 0x18 {
             let broken = broken_item(e);
-            let form = e.call(ITEM_FORM, &args![broken]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, broken));
             let broken = broken_item(e);
             let health = e.call(GET_ITEM_HEALTH, &args![broken, 1u32]).f64();
             let hundred: f64 = e.global(HUNDRED_DOUBLE);
@@ -1263,12 +1267,12 @@ pub fn repair_menu_update(e: &mut Engine) {
         let player = e.global::<u32>(PLAYER);
         let changes = e.call(GET_INVENTORY_CHANGES, &args![player]).u32();
         let broken = broken_item(e);
-        let form = e.call(ITEM_FORM, &args![broken]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, broken));
         e.call(GET_REPAIR_ITEM_GROUP, &args![changes, form, list]);
         let mut node = list.addr();
         while node != 0 && node_item(e, node) != 0 {
             update_entry(e, node);
-            node = e.call(WORD_AT_FOUR, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let language = e.call(SETTING_STRING, &args![SETTING_011C3CB4]).u32();
         if e.call(STRINGS_00408B20, &args![language, ENGLISH_TEXT])
@@ -1276,7 +1280,7 @@ pub fn repair_menu_update(e: &mut Engine) {
             != 0
         {
             let text = e.call(SETTING_STRING, &args![SETTING_011D4378]).u32();
-            let root = e.call(WORD_AT_FOUR, &args![me(e)]).u32();
+            let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me(e)));
             let headline = e
                 .call(TILE_GET_CHILD_BY_NAME, &args![root, HEADLINE_TITLE_TEXT])
                 .u32();
@@ -1301,7 +1305,9 @@ fn update_entry(e: &mut Engine, node: u32) {
     let mut index = 0i32;
     loop {
         let entry = node_item(e, node);
-        let count = e.call(WORD_AT_FOUR, &args![entry]).i32();
+        let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry))
+            .into_ret()
+            .i32();
         if index >= count {
             return;
         }
@@ -1316,9 +1322,9 @@ fn update_entry(e: &mut Engine, node: u32) {
         let hundred: f64 = e.global(HUNDRED_DOUBLE);
         let skip = !(x87_load32(rounded) < hundred) && {
             let entry = node_item(e, node);
-            let form = e.call(ITEM_FORM, &args![entry]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
             let broken = broken_item(e);
-            form == e.call(ITEM_FORM, &args![broken]).u32()
+            form == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, broken))
         };
         if !skip {
             if index == 0 {
@@ -1329,9 +1335,9 @@ fn update_entry(e: &mut Engine, node: u32) {
                     .call(LIST_BOX_ADD_ITEM, &args![list, item, name, 0u32, 0u32])
                     .u32();
                 if tile != 0 {
-                    let form = e.call(ITEM_FORM, &args![item]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
                     let broken = broken_item(e);
-                    if form == e.call(ITEM_FORM, &args![broken]).u32() {
+                    if form == typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, broken)) {
                         let own = first_extra_list(e, item);
                         let broken = broken_item(e);
                         let broken_extra = first_extra_list(e, broken);
@@ -1369,19 +1375,22 @@ fn update_entry(e: &mut Engine, node: u32) {
                 let block = e.call(ALLOCATE, &args![0xcu32]).u32();
                 let item = if block != 0 {
                     let entry = node_item(e, node);
-                    let form = e.call(ITEM_FORM, &args![entry]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
                     e.call(ITEM_CHANGE_CONSTRUCT, &args![block, form, 1u32])
                         .u32()
                 } else {
                     0
                 };
                 let entry = node_item(e, node);
-                let mut extra_node = e.call(WORD_AT_ZERO, &args![entry]).u32();
+                let mut extra_node =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
                 while extra_node != 0 && node_item(e, extra_node) != 0 {
-                    let slot = e.call(NODE_SELF, &args![extra_node]).u32();
-                    let lists = e.call(WORD_AT_ZERO, &args![item]).u32();
+                    let slot =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, extra_node));
+                    let lists = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
                     e.call(LIST_APPEND_005AE3D0, &args![lists, slot]);
-                    extra_node = e.call(WORD_AT_FOUR, &args![extra_node]).u32();
+                    extra_node =
+                        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, extra_node));
                 }
                 let name = e.call(GET_FULL_NAME, &args![item]).u32();
                 let list = me(e) + REPAIR_LIST;
@@ -1441,7 +1450,7 @@ pub fn repair_menu_init_repair_menu(e: &mut Engine, item: u32) {
     let tile = menu_tile(e, 0x38);
     e.call(TILE_SET_INT, &args![tile, 0xfa3u32, 1u32]);
     let broken = broken_item(e);
-    let form = e.call(ITEM_FORM, &args![broken]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, broken));
     let kind = e.call(FORM_TYPE, &args![form]).u32();
     if kind == 0x28 {
         let title = e.global::<u32>(TRAIT_FROM_NAME_0106ED20);

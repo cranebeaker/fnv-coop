@@ -17,6 +17,7 @@ use crate::prelude::*;
 const TUTORIAL_MENU: u32 = 0x011d_b088;
 /// Returns the word at +4 of its argument (`Menu::pMenu`, or a list node's
 /// next pointer).
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 /// Sets a float trait from an integer: `FILD`, then `00a012d0` with the
 /// flag set. Arguments: tile, trait id, integer.
@@ -67,10 +68,12 @@ const LOOKUP_FORM: u32 = 0x0048_39c0;
 const FORM_LIST_OF: u32 = 0x0050_0940;
 /// Returns its `this` (the address of the first member); the item of a list
 /// node is read through it.
+#[cfg(test)]
 const THIS_ITEM: u32 = 0x0068_15c0;
 /// An empty member function (`RET`).
 const EMPTY_MEMBER: u32 = 0x0048_3710;
 /// Returns the word at +0x28 of its object.
+#[cfg(test)]
 const WORD_AT_0X28: u32 = 0x0045_cd60;
 /// Returns the word at +4 of the object at its `this`, 0 for a null object
 /// (the value of a game setting in the calls below).
@@ -82,6 +85,7 @@ const STRING_DESTROY: u32 = 0x0040_37d0;
 /// `sprintf` into a `BSStringT` (string, format, arguments...), cdecl.
 const STRING_FORMAT: u32 = 0x0040_6f60;
 /// The character data of a `BSStringT` (its first word).
+#[cfg(test)]
 const STRING_C_STR: u32 = 0x0055_9450;
 /// Prints a message (level, format, arguments...), cdecl.
 const PRINT_MESSAGE: u32 = 0x005b_5e40;
@@ -187,7 +191,7 @@ pub fn tutorial_menu_close(e: &mut Engine) {
         return;
     }
     let this = menu(e);
-    let tile = e.call(WORD_AT_FOUR, &args![this]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     set_trait_from_int(e, tile, TRAIT_0X1772, 1);
     if e.call(GET_CURRENT_RENDERED_MENU, &args![]).u32() != 0 {
         let this = menu(e);
@@ -297,7 +301,7 @@ pub fn tutorial_menu_set_page(e: &mut Engine, this: Ptr<TutorialMenu>, mut page:
             STRING_FORMAT,
             &args![text, PAGE_FORMAT, page.wrapping_add(1), page_count],
         );
-        let c_str = e.call(STRING_C_STR, &args![text]).u32();
+        let c_str = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
         let tile = tile_at(e, this, 0x3c);
         set_string(e, tile, TRAIT_STRING, c_str);
 
@@ -308,12 +312,12 @@ pub fn tutorial_menu_set_page(e: &mut Engine, this: Ptr<TutorialMenu>, mut page:
             if steps_left == 0 {
                 break;
             }
-            node = e.call(WORD_AT_FOUR, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         if node == 0 {
             e.call(PRINT_MESSAGE, &args![0x12u32, END_OF_MANUAL, page]);
         } else {
-            let item = e.call(THIS_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let form = e.mem.u32(item);
             let message = e
                 .call(
@@ -425,7 +429,7 @@ pub fn tutorial_menu_create(e: &mut Engine, mut start_message: u32, with_buttons
     }
     // Not a menu of this class (or none): delete the object, if any.
     let me = menu(e);
-    if !me.is_null() && e.call(WORD_AT_FOUR, &args![me]).u32() != 0 {
+    if !me.is_null() && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, me)) != 0 {
         let me = menu(e);
         e.vcall(me.addr(), 0, &args![1u32]);
     }
@@ -479,7 +483,7 @@ fn finish_create(e: &mut Engine, root: u32, start_message: &mut u32, with_button
             e.set(me, TutorialMenu::pHelpManual, manual);
             if *start_message == 0 {
                 let node = e.get(menu(e), TutorialMenu::pHelpManual);
-                let item = e.call(THIS_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let first = e.mem.u32(item);
                 *start_message = e
                     .call(
@@ -515,12 +519,12 @@ fn finish_create(e: &mut Engine, root: u32, start_message: &mut u32, with_button
     let mut found = false;
     let mut node = e.get(me, TutorialMenu::pHelpManual);
     while node != 0 {
-        let item = e.call(THIS_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             break;
         }
         if !found {
-            let item = e.call(THIS_ITEM, &args![node]).u32();
+            let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(item) == *start_message {
                 let me = menu(e);
                 let count = e.get(me, TutorialMenu::iNumPages);
@@ -531,7 +535,7 @@ fn finish_create(e: &mut Engine, root: u32, start_message: &mut u32, with_button
         let me = menu(e);
         let count = e.get(me, TutorialMenu::iNumPages);
         e.set(me, TutorialMenu::iNumPages, count.wrapping_add(1));
-        node = e.call(WORD_AT_FOUR, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 
     if found {
@@ -547,7 +551,7 @@ fn finish_create(e: &mut Engine, root: u32, start_message: &mut u32, with_button
                 STRING_FORMAT,
                 &args![text, PAGE_FORMAT, current.wrapping_add(1), count],
             );
-            let c_str = e.call(STRING_C_STR, &args![text]).u32();
+            let c_str = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let tile = tile_at(e, menu(e), 0x3c);
             set_string(e, tile, TRAIT_STRING, c_str);
             e.call(STRING_DESTROY, &args![text]);
@@ -574,7 +578,7 @@ fn finish_create(e: &mut Engine, root: u32, start_message: &mut u32, with_button
     e.call(EMPTY_MEMBER, &args![me]);
     let alpha = through_x87(e.global::<f32>(FULL_ALPHA));
     let hud = e.call(INTERFACE_SINGLETON, &args![]).u32();
-    let hud_tile = e.call(WORD_AT_0X28, &args![hud]).u32();
+    let hud_tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, hud));
     e.call(SET_FLOAT_TRAIT, &args![hud_tile, TRAIT_ALPHA, alpha, true]);
     let me = menu(e);
     e.call(MENU_PREP_FOR_VISIBILITY, &args![me, 0u32]);

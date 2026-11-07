@@ -121,6 +121,7 @@ const TEXT_EDITOR_DESTRUCT: u32 = 0x0071_6a10;
 const STRING_SET: u32 = 0x0040_37f0;
 /// Thiscall: returns `this` and writes nothing (an empty constructor; the
 /// list box code calls it on a list node to reach the node's item word).
+#[cfg(test)]
 const RETURN_THIS: u32 = 0x0068_15c0;
 /// Sound handle constructor, thiscall.
 const SOUND_HANDLE_CONSTRUCT: u32 = 0x0041_a250;
@@ -243,7 +244,9 @@ const CONTAINER_MENU_CREATE: u32 = 0x0075_b310;
 const BOOK_MENU_CREATE: u32 = 0x0073_ad50;
 /// Thiscall getters (unnamed): the word at +0x74, +0x30 and +0x20.
 const WORD_AT_74: u32 = 0x004f_d3a0;
+#[cfg(test)]
 const WORD_AT_30: u32 = 0x0067_1d10;
+#[cfg(test)]
 const WORD_AT_20: u32 = 0x007a_f430;
 /// `InterfaceManager::NewTimer` (engine map), cdecl (menu, float).
 const NEW_TIMER: u32 = 0x0071_64c0;
@@ -259,6 +262,7 @@ const WORD_AT_24: u32 = 0x0059_bb30;
 const LIST_OWNER: u32 = 0x004b_7210;
 const LIST_HOLDER: u32 = 0x0058_6150;
 /// Thiscall on the list: its first node (the word at +0).
+#[cfg(test)]
 const LIST_HEAD: u32 = 0x0055_9450;
 /// Thiscall on the list (node): the node's data slot (`node + 8`).
 const LIST_NODE_DATA: u32 = 0x0063_17a0;
@@ -630,7 +634,7 @@ fn tile_enabled(e: &mut Engine, tile: u32) -> bool {
 /// The item word of a list node, reached through `006815c0` as the code
 /// does.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let node = e.call(RETURN_THIS, &args![node]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(node)
 }
 
@@ -1558,15 +1562,15 @@ pub fn fn_0071fbf0(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
     e.call(MENU_CONSTRUCT, &args![this]);
     set_vtable(e, this, SURGERY_MENU_VTABLE);
-    e.call(RETURN_THIS, &args![base + 0x74]);
-    e.call(RETURN_THIS, &args![base + 0x7c]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x74));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x7c));
     e.call(SOUND_HANDLE_CONSTRUCT, &args![base + 0x94]);
     e.call(SOUND_HANDLE_CONSTRUCT, &args![base + 0xa0]);
     construct_pointer_array(e, this, 0xc8, 6);
     e.call(POINTER_CONSTRUCT, &args![base + 0xf0, 0u32]);
     e.call(POINTER_CONSTRUCT, &args![base + 0xf4, 0u32]);
     for offset in [0xf8, 0x104, 0x128, 0x150] {
-        e.call(RETURN_THIS, &args![base + offset]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + offset));
     }
     memset(e, base + 0x2c, 0x48);
     for global in SURGERY_STATIC_POINTERS {
@@ -2024,8 +2028,8 @@ pub fn menu_manager_reload_menu(e: &mut Engine, _this: Ptr, class: u32) -> u32 {
             if book_menu == 0 {
                 return 0;
             }
-            let reference = e.call(WORD_AT_30, &args![book_menu]).u32();
-            let object = e.call(WORD_AT_20, &args![reference]).u32();
+            let reference = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, book_menu));
+            let object = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             let book = e
                 .call(
                     DYNAMIC_CAST,
@@ -2071,7 +2075,7 @@ pub fn menu_manager_get_frontmost_menu(e: &mut Engine, _this: Ptr) -> u32 {
     let mut frontmost = 0;
     let mut depth = f32::from_bits(x87_quiet_bits(e.global::<u32>(FRONTMOST_START_VALUE)));
     let list = tile_list(e);
-    let mut node = e.call(LIST_HEAD, &args![list]).u32();
+    let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     while node != 0 {
         let list = tile_list(e);
         let slot = e.call(LIST_NODE_DATA, &args![list, node]).u32();
@@ -2112,7 +2116,7 @@ pub fn menu_manager_get_frontmost_menu(e: &mut Engine, _this: Ptr) -> u32 {
 /// is not read.
 pub fn menu_manager_is_menu_open(e: &mut Engine, _this: Ptr, class: u32) -> bool {
     let list = tile_list(e);
-    let first = e.call(LIST_HEAD, &args![list]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, list));
     e.with_stack(4, |e, cursor| {
         e.mem.set_u32(cursor.addr(), first);
         while e.mem.u32(cursor.addr()) != 0 {

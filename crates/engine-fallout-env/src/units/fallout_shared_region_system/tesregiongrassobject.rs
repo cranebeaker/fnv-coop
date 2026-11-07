@@ -44,6 +44,7 @@ const LOOKUP_FORM_004839C0: u32 = 0x0048_39c0;
 const FORM_TYPE_00401170: u32 = 0x0040_1170;
 /// `0084e3a0` (unnamed in the engine map; no stack word): the word at +0xC
 /// of a form (`TESForm`'s form id on PC).
+#[cfg(test)]
 const FORM_ID_0084E3A0: u32 = 0x0084_e3a0;
 /// `005b5e40` (unnamed in the engine map; cdecl, format and arguments): prints a warning.
 const PRINT_WARNING_005B5E40: u32 = 0x005b_5e40;
@@ -99,6 +100,7 @@ const LAND_GET_HEIGHT: u32 = 0x0053_f180;
 const FLOAT_HELPER_00408860: u32 = 0x0040_8860;
 /// `006815c0` (unnamed in the engine map; no stack word): run on each of
 /// the two 12-byte locals before the land fills them.
+#[cfg(test)]
 const LOCAL_INIT_006815C0: u32 = 0x0068_15c0;
 /// `0053d2e0` (unnamed in the engine map; `RET 0xC`: the point and two
 /// 12-byte results): byte answer.
@@ -164,7 +166,7 @@ fn warn_object(e: &mut Engine, in_region: u32, plain: u32) {
         e.vcall(region, SLOT_FORM_TEXT, &args![]).u32()
     };
     let region = loading_region(e);
-    let id = e.call(FORM_ID_0084E3A0, &args![region]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, region));
     e.call(PRINT_WARNING_005B5E40, &args![in_region, text, id]);
 }
 
@@ -336,11 +338,11 @@ pub fn tes_region_grass_object_get_generate_chance(
             if texture == 0 {
                 return 0.0;
             }
-            let texture_id = e.call(FORM_ID_0084E3A0, &args![texture]).u32();
+            let texture_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, texture));
             let parent = e
                 .vcall(this.addr(), SLOT_GET_PARENT_TEXTURE, &args![])
                 .u32();
-            if texture_id != e.call(FORM_ID_0084E3A0, &args![parent]).u32() {
+            if texture_id != typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, parent)) {
                 return 0.0;
             }
         }
@@ -378,8 +380,8 @@ pub fn tes_region_grass_object_get_generate_chance(
         if !passes {
             return 0.0;
         }
-        e.call(LOCAL_INIT_006815C0, &args![vector_a]);
-        e.call(LOCAL_INIT_006815C0, &args![vector_b]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector_a));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector_b));
         let land = e.call(CELL_GET_LAND, &args![cell]).u32();
         if e.call(
             LAND_VECTORS_AT_0053D2E0,

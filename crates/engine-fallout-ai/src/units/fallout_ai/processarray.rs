@@ -29,6 +29,7 @@ const TAILS: u32 = 0x20;
 const NEXT_UPDATE: u32 = 0x30;
 
 /// The array's element address: `(this, index)`.
+#[cfg(test)]
 const ELEMENT_ADDRESS: u32 = 0x0087_7a30;
 /// The array's element count (`this`).
 const ELEMENT_COUNT: u32 = 0x0065_8930;
@@ -68,7 +69,11 @@ pub fn process_array_add_actor(e: &mut Engine, this: Ptr<ProcessArray>, actor: u
             let end_plus_one = tail(e, this, level).wrapping_add(1);
             let next_head = head(e, this, next);
             if end_plus_one > next_head {
-                let element = e.call(ELEMENT_ADDRESS, &args![this, next_head]).u32();
+                let element = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, this, next_head)
+                );
                 let moved = e.mem.u32(element);
                 process_array_add_actor(e, this, moved, next);
                 let new_head = tail(e, this, level).wrapping_add(1);
@@ -106,7 +111,11 @@ pub fn fn_0096aa40(e: &mut Engine, this: Ptr<ProcessArray>, index: u32) {
     }
     if index != tail(e, this, level) {
         let last = tail(e, this, level);
-        let element = e.call(ELEMENT_ADDRESS, &args![this, last]).u32();
+        let element = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, this, last)
+        );
         e.call(SET_ELEMENT, &args![this, index, element]);
     }
     let last = tail(e, this, level);
@@ -145,7 +154,11 @@ pub fn fn_0096abc0(e: &mut Engine, this: Ptr<ProcessArray>, actor: u32, level: i
         let end = e.mem.u32(this.addr() + 0x2c);
         let mut index = head(e, this, level);
         while index < end {
-            let element = e.call(ELEMENT_ADDRESS, &args![this, index]).u32();
+            let element = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, this, index)
+            );
             if actor == e.mem.u32(element) {
                 return index;
             }

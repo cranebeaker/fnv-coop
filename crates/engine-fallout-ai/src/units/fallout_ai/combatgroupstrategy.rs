@@ -77,6 +77,7 @@ const ADVANCE_DISTANCE: u32 = 0x0101_ece0;
 const FLANK_UPDATE_DISTANCE: u32 = 0x0105_0b98;
 
 /// `0044ddc0`: size of a `BSSimpleArray` (thiscall).
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `00844160`: address of element `i` of a `BSSimpleArray<GroupMemberData>`.
 const ARRAY_ELEMENT: u32 = 0x0084_4160;
@@ -91,6 +92,7 @@ const MEMBER_DATA_INIT: u32 = 0x004b_0680;
 /// `009863b0`: `CombatGroupData` destructor.
 const DATA_DESTROY: u32 = 0x0098_63b0;
 /// `00726070`: `CombatGroupData` member count (thiscall, `int`).
+#[cfg(test)]
 const DATA_MEMBER_COUNT_GET: u32 = 0x0072_6070;
 /// `00990500` (`CombatGroup::ComputeMemberHealthPercentage` in the map, a
 /// `CombatGroupData` method): the members' health share in ST0.
@@ -112,6 +114,7 @@ const GROUP_STRATEGY_ALLOWED: u32 = 0x0098_a470;
 /// `0098a3c0`: called on the group before a newly chosen strategy runs.
 const GROUP_BEFORE_EXECUTE: u32 = 0x0098_a3c0;
 /// `0045cd60`: the group's current strategy.
+#[cfg(test)]
 const GROUP_CURRENT_STRATEGY: u32 = 0x0045_cd60;
 /// `00989700`: group check on a position (position, `float`, 0).
 const GROUP_POSITION_CHECK: u32 = 0x0098_9700;
@@ -314,8 +317,12 @@ pub fn fn_009900f0(e: &mut Engine, group: Ptr<CombatGroup>) -> Ptr<CombatGroupSt
     e.with_stack(CombatGroupData::SIZE, |e, block| {
         let data = block.cast::<CombatGroupData>();
         fn_00990320(e, data, group);
-        let current = e.call(GROUP_CURRENT_STRATEGY, &args![group]).u32();
-        let result = if e.call(DATA_MEMBER_COUNT_GET, &args![data]).i32() < 2 {
+        let current = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, group));
+        let result = if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, data))
+            .into_ret()
+            .i32()
+            < 2
+        {
             0
         } else {
             let mut chosen = 0;
@@ -587,7 +594,11 @@ pub fn combat_group_data_sort_ranged_members(e: &mut Engine, this: Ptr<CombatGro
 /// members, or a `CombatGroupData`'s `RangedMembers`; both kinds of caller
 /// use it.
 pub fn fn_00990890(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(ARRAY_SIZE, &args![this.addr() + 0x18]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + 0x18)
+    )
 }
 
 // Translated from 009908b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -601,7 +612,11 @@ pub fn combat_group_strategy_flank_can_execute(
     group: Ptr<CombatGroup>,
     data: Ptr<CombatGroupData>,
 ) -> bool {
-    if e.call(DATA_MEMBER_COUNT_GET, &args![data]).i32() < 3 {
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, data))
+        .into_ret()
+        .i32()
+        < 3
+    {
         return false;
     }
     if (fn_00990890(e, data.cast()) as i32) < 1 {
@@ -638,7 +653,7 @@ pub fn combat_group_strategy_flank_execute(
         e.call(GROUP_SET_ASSIGNMENT, &args![group, member, 1u32]);
     }
     let ranged = fn_00990890(e, data.cast());
-    let total = e.call(DATA_MEMBER_COUNT_GET, &args![data]).u32();
+    let total = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, data));
     let share = (ranged as f64 / total as f64) as f32;
     let limit: f64 = e.global(FLANK_RANGED_SHARE);
     let mut flankers = 0u32;
@@ -660,8 +675,11 @@ pub fn combat_group_strategy_flank_execute(
 // Translated from 00990a60 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Size of `CombatGroupData::MeleeMembers` (`0044ddc0`).
 pub fn fn_00990a60(e: &mut Engine, this: Ptr<CombatGroupData>) -> u32 {
-    e.call(ARRAY_SIZE, &args![this.addr() + DATA_MELEE_MEMBERS])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.addr() + DATA_MELEE_MEMBERS)
+    )
 }
 
 // Translated from 00990a80 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -730,7 +748,11 @@ pub fn combat_group_strategy_fall_back_can_execute(
     group: Ptr<CombatGroup>,
     data: Ptr<CombatGroupData>,
 ) -> bool {
-    if e.call(DATA_MEMBER_COUNT_GET, &args![data]).i32() < 2 {
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, data))
+        .into_ret()
+        .i32()
+        < 2
+    {
         return false;
     }
     let time = pushed_float(e, TIME_FLANK_FALL_BACK);
@@ -782,7 +804,11 @@ pub fn combat_group_strategy_ambush_can_execute(
     group: Ptr<CombatGroup>,
     data: Ptr<CombatGroupData>,
 ) -> bool {
-    if e.call(DATA_MEMBER_COUNT_GET, &args![data]).i32() < 2 {
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, data))
+        .into_ret()
+        .i32()
+        < 2
+    {
         return false;
     }
     let time = pushed_float(e, TIME_AMBUSH_ADVANCE);

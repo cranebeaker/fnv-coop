@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// `00559450` (`thiscall`): the word at `this`.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `0043b4f0` (`thiscall`, one word: an out word): stores a value found for `this` into the
 /// out word and returns its address.
@@ -19,11 +20,11 @@ const HIGH_HALF: u32 = 0x004a_3a20;
 /// `0043b4f0` returns); otherwise 0.
 pub fn fn_00819250(e: &mut Engine, this: Ptr) -> u32 {
     let member = this.addr() + 0x594;
-    if e.call(FIRST_WORD, &args![member]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member)) == 0 {
         return 0;
     }
     e.with_stack(4, |e, out| {
-        let first = e.call(FIRST_WORD, &args![member]).u32();
+        let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member));
         let found = e.call(LOOKUP_0043B4F0, &args![first, out]).u32();
         e.call(HIGH_HALF, &args![found]).u32()
     })

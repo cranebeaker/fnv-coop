@@ -49,10 +49,13 @@ pub fn fn_0061f420(_e: &mut Engine, a: u32, b: u32) -> bool {
 /// (`thiscall`, one word: the address of the value), `006815c0`
 /// (`thiscall`: the address of the node's item) and `00726070` (`thiscall`:
 /// the next node), as `0061f360` uses them.
+#[cfg(test)]
 const NODE_TEST: u32 = 0x0082_56d0;
 const NODE_PUT_BEFORE: u32 = 0x005a_e3d0;
 const NODE_APPEND: u32 = 0x0090_5820;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 
 // Translated from 0061f360 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -70,16 +73,16 @@ pub fn fn_0061f360(e: &mut Engine, value: u32, list: Ptr) {
     }
     e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), value);
-        if e.call(NODE_TEST, &args![list]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
             e.call(NODE_PUT_BEFORE, &args![list, slot]);
             return;
         }
         let mut node = list.addr();
         while node != 0 {
-            if e.call(NODE_TEST, &args![node]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
                 return;
             }
-            let item_slot = e.call(NODE_ITEM, &args![node]).u32();
+            let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_slot);
             let value = e.mem.u32(slot.addr());
             if item == value {
@@ -89,11 +92,11 @@ pub fn fn_0061f360(e: &mut Engine, value: u32, list: Ptr) {
                 e.call(NODE_PUT_BEFORE, &args![node, slot]);
                 return;
             }
-            if e.call(NODE_NEXT, &args![node]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node)) == 0 {
                 e.call(NODE_APPEND, &args![node, slot]);
                 return;
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 }

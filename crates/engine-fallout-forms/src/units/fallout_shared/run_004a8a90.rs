@@ -5,14 +5,18 @@
 use crate::prelude::*;
 
 /// `00559450` (`thiscall`): answers the word at `this`.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 
 // Translated from 004a8a90 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed in the engine map: `00559450` on `this + 0x30`, answering what
 /// it answers (the word there).
 pub fn fn_004a8a90(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(FIRST_WORD, &args![this.addr().wrapping_add(0x30)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(0x30))
+    )
 }
 
 /// This unit's translated functions, by exe address.

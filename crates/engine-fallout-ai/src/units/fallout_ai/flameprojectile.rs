@@ -38,7 +38,7 @@ const SET_3D_BYTE: u32 = 0x0045_0f90;
 /// answers true or the byte at +0x90 is set.
 pub fn flame_projectile_update_projectile(e: &mut Engine, this: Ptr, time: f32) {
     let base = this.addr();
-    if e.call(0x0044_0d80, &args![this]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
         return;
     }
     e.with_stack(0x64, |e, frame| {
@@ -90,7 +90,11 @@ pub fn flame_projectile_update_projectile(e: &mut Engine, this: Ptr, time: f32) 
         let age = x87_add(x87_load32(e.mem.u32(base + 0x150)), x87_m32(time.to_bits()));
         e.mem.set_u32(base + 0x150, x87_store32(age));
         if x87_load32(e.mem.u32(base + 0x150)) > e.global::<f64>(END_AGE)
-            && (e.call(0x0082_56d0, &args![base + 0x88]).bool() || e.mem.u8(base + 0x90) != 0)
+            && (typed_call!(
+                leaf::FAMILY,
+                0x0082_56d0,
+                leaf::both_words_zero(e, base + 0x88)
+            ) || e.mem.u8(base + 0x90) != 0)
         {
             e.call(0x009b_c8f0, &args![this]);
         }

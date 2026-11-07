@@ -63,6 +63,7 @@ const GET_TES_CHUNK: u32 = 0x0047_26b0;
 const TEXTURE_HAS_NAME: u32 = 0x0048_cee0;
 /// Returns the first word of the object (thiscall): a string's text, a
 /// `NiPointer`'s object.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// Case-insensitive string comparison (cdecl `(a, b)`, zero when equal).
 const COMPARE_NO_CASE: u32 = 0x0040_4dc0;
@@ -290,14 +291,14 @@ pub fn tes_region_data_landscape_set_canopy_shadow_texture(
         return false;
     }
     if e.call(TEXTURE_HAS_NAME, &args![texture]).u32() != 0 {
-        let new_text = e.call(FIRST_WORD, &args![name]).u32();
+        let new_text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
         let texture = e.get(this, TESRegionDataLandscape::pCanopyShadowTexture);
         let old_text = e.call(GET_FILE_NAME, &args![texture]).u32();
         if e.call(COMPARE_NO_CASE, &args![old_text, new_text]).u32() == 0 {
             return false;
         }
     }
-    let new_text = e.call(FIRST_WORD, &args![name]).u32();
+    let new_text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name));
     let texture = e.get(this, TESRegionDataLandscape::pCanopyShadowTexture);
     e.call(SET_FILE_NAME, &args![texture, new_text]);
     true
@@ -452,8 +453,19 @@ fn random_byte(e: &mut Engine) -> u8 {
 /// property.
 // Translation incomplete: 004f2ee0 - C++ exception unwinding (FS:[0] frame) is not translated.
 pub fn tes_region_data_landscape_get_default_full_mask_texture_prop(e: &mut Engine) -> Ptr {
-    if e.call(FIRST_WORD, &args![DEFAULT_FULL_MASK_PROP]).u32() != 0 {
-        return e.call(FIRST_WORD, &args![DEFAULT_FULL_MASK_PROP]).ptr();
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, DEFAULT_FULL_MASK_PROP)
+    ) != 0
+    {
+        return typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, DEFAULT_FULL_MASK_PROP)
+        )
+        .into_ret()
+        .ptr();
     }
     let block = e.call(NI_ALLOCATE, &args![0x74u32]).u32();
     let pixels: Ptr = if block == 0 {
@@ -493,9 +505,19 @@ pub fn tes_region_data_landscape_get_default_full_mask_texture_prop(e: &mut Engi
             e.call(0x0043_81b0, &args![name]);
         }
     });
-    let property = e.call(FIRST_WORD, &args![DEFAULT_FULL_MASK_PROP]).u32();
+    let property = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, DEFAULT_FULL_MASK_PROP)
+    );
     e.call(0x004f_3200, &args![property, 0u32]);
-    e.call(FIRST_WORD, &args![DEFAULT_FULL_MASK_PROP]).ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, DEFAULT_FULL_MASK_PROP)
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 004f31b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -524,7 +546,11 @@ pub fn fn_004f31d0(e: &mut Engine, this: Ptr<ThreeWordPrefs>) -> Ptr<ThreeWordPr
 pub fn ni_texturing_property_set_base_clamp_mode(e: &mut Engine, this: Ptr, mode: u32) {
     let maps = this.addr() + 0x1c;
     e.with_stack(4, |e, slot| {
-        let entry = e.call(0x0087_7a30, &args![maps, 0u32]).u32();
+        let entry = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, maps, 0u32)
+        );
         let mut map = e.mem.u32(entry);
         e.mem.set_u32(slot.addr(), map);
         if map == 0 {

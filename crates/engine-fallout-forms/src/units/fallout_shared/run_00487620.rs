@@ -66,10 +66,13 @@ const SIMPLE_LIST_REMOVE_ALL: u32 = 0x0047_0470;
 /// `leveledList` (folded body; the engine map names it after another class).
 const LEVELED_LIST_HEAD: u32 = 0x0071_7e50;
 /// `006815c0` (`fastcall`): answers the node itself (the item's address).
+#[cfg(test)]
 const NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
 /// `00726070` (`fastcall`): the node's next (`+4`).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `008256d0` (`fastcall`): whether a node is empty (item and next null).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `0063f7b0` (`fastcall`): removes the list's head item.
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -180,13 +183,13 @@ pub fn fn_00487650(e: &mut Engine, this: Ptr<TESLeveledList>) -> Ptr<TESLeveledL
 pub fn fn_00487900(e: &mut Engine, this: Ptr<TESLeveledList>) {
     let mut node = e.call(LEVELED_LIST_HEAD, &args![this]).u32();
     while node != 0 {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         if item != 0 {
             e.call(LEVELED_OBJECT_DELETE, &args![item, 1u32]);
             e.call(LIST_REMOVE_HEAD, &args![node]);
         } else {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     e.call(
@@ -278,7 +281,7 @@ pub fn fn_00487a60(
     let mut node = e.call(LEVELED_LIST_HEAD, &args![this]).u32();
     let mut last = 0;
     while node != 0 {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         if item != 0 {
             if e.get(Ptr::<LeveledObject>::new(item), LeveledObject::sLevel) > level {
@@ -286,7 +289,7 @@ pub fn fn_00487a60(
             }
             last = node;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let block = e.call(ALLOCATE, &args![0xcu32]).u32();
     let object = if block != 0 {
@@ -415,7 +418,7 @@ pub fn fn_00487d00(
     let mut reached = false;
     let mut node = e.call(LEVELED_LIST_HEAD, &args![this]).u32();
     while node != 0 {
-        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         if item != 0 {
             let item_level =
@@ -434,7 +437,7 @@ pub fn fn_00487d00(
                 same_count = same_count.wrapping_add(1);
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if best_node == 0 {
         return;
@@ -442,13 +445,13 @@ pub fn fn_00487d00(
     let mut steps = e.call(RANDOM, &args![]).u32() % same_count;
     let mut node = best_node;
     while steps != 0 {
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         steps = steps.wrapping_sub(1);
         if node == 0 {
             return;
         }
     }
-    let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+    let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     let item = Ptr::<LeveledObject>::new(e.mem.u32(item_address));
     let mut form = e.get(item, LeveledObject::pForm);
     let mut count = e.get(item, LeveledObject::sCount);
@@ -550,14 +553,14 @@ pub fn fn_00487f70(
     if (fn_004877e0(e, this) && mode == 0) || mode > 0 {
         let mut highest: u16 = 0;
         let mut node = e.call(LEVELED_LIST_HEAD, &args![this]).u32();
-        while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-            let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = Ptr::<LeveledObject>::new(e.mem.u32(item_address));
             let item_level = e.get(item, LeveledObject::sLevel);
             if item_level > highest {
                 highest = item_level;
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         if u32::from(highest) < pick_level {
             pick_level = u32::from(highest);
@@ -580,10 +583,13 @@ pub fn fn_00487f70(
                 let roll = e.call(RANDOM, &args![]).u32() % 100;
                 if roll as i32 >= i32::from(chance_none) {
                     let mut node = e.call(LEVELED_LIST_HEAD, &args![this]).u32();
-                    while node != 0 && !e.call(NODE_IS_EMPTY, &args![node]).bool() {
-                        let item_address = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+                    while node != 0
+                        && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+                    {
+                        let item_address =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                         let item = Ptr::<LeveledObject>::new(e.mem.u32(item_address));
-                        node = e.call(NODE_NEXT, &args![node]).u32();
+                        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                         let entry = (
                             e.get(item, LeveledObject::pForm),
                             e.get(item, LeveledObject::sCount),
@@ -646,6 +652,7 @@ const ADD_CHUNK_WORD: u32 = 0x0048_5910;
 /// size).
 const ADD_CHUNK_DATA: u32 = 0x0048_5990;
 /// `0084e3a0` (`thiscall`, no stack word): a form's id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `00401500` (no parameters): whether saved data is byte-swapped (`AL`).
 const NEEDS_SWAP: u32 = 0x0040_1500;
@@ -699,10 +706,10 @@ pub fn fn_004878c0(e: &mut Engine, this: Ptr<TESLeveledList>, value: u32) {
 pub fn fn_00487980(e: &mut Engine, this: Ptr<TESLeveledList>) {
     let added = this.addr() + 0x14;
     e.with_stack(4, |e, slot| loop {
-        if e.call(NODE_IS_EMPTY, &args![added]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, added)) {
             break;
         }
-        let item_at = e.call(NODE_ITEM_ADDRESS, &args![added]).u32();
+        let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, added));
         let item = e.mem.u32(item_at);
         e.mem.set_u32(slot.addr(), item);
         e.call(LIST_REMOVE_HEAD, &args![added]);
@@ -732,20 +739,20 @@ pub fn fn_00488400(e: &mut Engine, this: Ptr<TESLeveledList>) {
     e.call(ADD_CHUNK_BYTE, &args![0x464c_564cu32, u32::from(flags)]);
     let global = e.get(this, TESLeveledList::pChanceGlobal);
     if global != 0 {
-        let id = e.call(FORM_ID, &args![global]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, global));
         e.call(ADD_CHUNK_WORD, &args![0x474c_564cu32, id]);
     }
     let mut node = e.call(LEVELED_LIST_HEAD, &args![this]).u32();
     e.with_stack(0xc, |e, record| {
         let record = record.addr();
         while node != 0 {
-            let item_at = e.call(NODE_ITEM_ADDRESS, &args![node]).u32();
+            let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_at);
             if item == 0 {
                 break;
             }
             let form = e.mem.u32(item);
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.mem.set_u32(record + 4, id);
             let level = e.mem.u16(item + 6);
             e.mem.set_u16(record, level);
@@ -762,7 +769,7 @@ pub fn fn_00488400(e: &mut Engine, this: Ptr<TESLeveledList>) {
             if extra != 0 {
                 e.call(ITEM_EXTRA_SAVE, &args![extra]);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 }

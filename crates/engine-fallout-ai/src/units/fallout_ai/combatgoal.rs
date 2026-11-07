@@ -294,10 +294,13 @@ pub fn fn_00985390(e: &mut Engine, this: Ptr, kind: u32) -> Ptr {
 /// (`thiscall` on a node): the address of the node's item; `0062d990` (`thiscall` on a node):
 /// the next node.
 const LIST_FIRST: u32 = 0x0071_7e50;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 const NODE_NEXT: u32 = 0x0062_d990;
 /// `00559450` and `00726070` (`thiscall` on an item): its kind and its value.
+#[cfg(test)]
 const ITEM_KIND: u32 = 0x0055_9450;
+#[cfg(test)]
 const ITEM_VALUE: u32 = 0x0072_6070;
 /// `CombatWorldStateArray::IsTrue` (engine-map name of `009aadc0`; `thiscall`, `RET 8`).
 const WORLD_STATE_IS_TRUE: u32 = 0x009a_adc0;
@@ -322,14 +325,14 @@ pub fn fn_00984470(e: &mut Engine, this: Ptr, index: u32) -> u32 {
 pub fn combat_goal_is_active(e: &mut Engine, this: Ptr, state: Ptr) -> bool {
     let mut node = e.call(LIST_FIRST, &args![this]).u32();
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
-        let kind = e.call(ITEM_KIND, &args![item]).u32();
-        let value = e.call(ITEM_VALUE, &args![item]).u32();
+        let kind = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, item));
+        let value = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
         if kind == 0x15 {
             if fn_00984470(e, state, value) != 0 {
                 return false;

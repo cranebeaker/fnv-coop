@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// The text of a string object (`00559450`: the word at its `+0`).
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 /// The empty string the exe answers for a string without text
 /// (`01011584`).
@@ -20,10 +21,10 @@ const EMPTY_TEXT: u32 = 0x0101_1584;
 /// `MapMarkerData`.
 pub fn fn_00408da0(e: &mut Engine, this: Ptr) -> u32 {
     let string = this.addr() + 4;
-    if e.call(STRING_TEXT, &args![string]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string)) == 0 {
         EMPTY_TEXT
     } else {
-        e.call(STRING_TEXT, &args![string]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string))
     }
 }
 

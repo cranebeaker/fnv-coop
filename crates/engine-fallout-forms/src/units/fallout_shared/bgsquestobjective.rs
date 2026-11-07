@@ -44,16 +44,20 @@ const STRING_CONSTRUCT_FROM: u32 = 0x0043_8390;
 /// `004048e0` (`ECX` = string): the string's length.
 const STRING_LENGTH: u32 = 0x0040_48e0;
 /// `00559450` (`ECX` = string): the word at `+0`, the text pointer.
+#[cfg(test)]
 const STRING_TEXT: u32 = 0x0055_9450;
 /// `00726070` (`ECX` = object): the word at `+4` (here `iIndex`; on a list
 /// node, the next node).
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// `007d6bb0` (`ECX` = object): `this + 0x14`, the target list.
 const TARGET_LIST: u32 = 0x007d_6bb0;
 /// `008256d0` (`ECX` = node): true for the empty end node.
+#[cfg(test)]
 const NODE_IS_END: u32 = 0x0082_56d0;
 /// `006815c0` (`ECX` = node): returns `this`, the address of the node's
 /// item word.
+#[cfg(test)]
 const NODE_ITEM_SLOT: u32 = 0x0068_15c0;
 /// `TESQuestTarget::InitItem` (`00610040`, `ECX` = target, one stack word:
 /// the quest).
@@ -105,11 +109,11 @@ pub fn fn_005ec210(e: &mut Engine, this: Ptr<BGSQuestObjective>, quest: u32) {
     }
     e.set(this, BGSQuestObjective::pOwnerQuest, quest);
     let mut node = e.call(TARGET_LIST, &args![this]).u32();
-    while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let target = e.mem.u32(slot);
         e.call(TARGET_INIT_ITEM, &args![target, quest]);
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.set(this, BGSQuestObjective::bInitialized, 1);
 }
@@ -120,7 +124,7 @@ pub fn fn_005ec210(e: &mut Engine, this: Ptr<BGSQuestObjective>, quest: u32) {
 /// the display text and its terminating zero (length + 1 bytes), then calls
 /// `00483710` on every target.
 pub fn bgs_quest_objective_save(e: &mut Engine, this: Ptr<BGSQuestObjective>) {
-    let index = e.call(WORD_AT_4, &args![this]).u32();
+    let index = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     e.call(ADD_CHUNK_WORD, &args![CHUNK_QOBJ, index]);
     let length = fn_005ec310(e, this);
     let text = fn_005ec330(e, this);
@@ -129,11 +133,11 @@ pub fn bgs_quest_objective_save(e: &mut Engine, this: Ptr<BGSQuestObjective>) {
         &args![CHUNK_NNAM, text, length.wrapping_add(1)],
     );
     let mut node = e.call(TARGET_LIST, &args![this]).u32();
-    while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
-        let slot = e.call(NODE_ITEM_SLOT, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let target = e.mem.u32(slot);
         e.call(TARGET_SAVE, &args![target]);
-        node = e.call(WORD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -151,10 +155,10 @@ pub fn fn_005ec310(e: &mut Engine, this: Ptr<BGSQuestObjective>) -> u32 {
 /// game's empty string (`01011584`) when it is null.
 pub fn fn_005ec330(e: &mut Engine, this: Ptr<BGSQuestObjective>) -> u32 {
     let text = this.at(BGSQuestObjective::cDisplayText);
-    if e.call(STRING_TEXT, &args![text]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text)) == 0 {
         EMPTY_STRING
     } else {
-        e.call(STRING_TEXT, &args![text]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text))
     }
 }
 
@@ -261,8 +265,8 @@ pub fn fn_005ec140(e: &mut Engine, this: Ptr<BGSQuestObjective>) {
 /// (`005ec4d0(1)`, skipped for null) and `0063f7b0` runs on the list.
 pub fn fn_005ec460(e: &mut Engine, this: Ptr<BGSQuestObjective>) {
     let list = e.call(TARGET_LIST, &args![this]).u32();
-    while list != 0 && !e.call(NODE_IS_END, &args![list]).bool() {
-        let slot = e.call(NODE_ITEM_SLOT, &args![list]).u32();
+    while list != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let target = e.mem.u32(slot);
         if target != 0 {
             e.call(TARGET_DELETE, &args![target, 1u32]);

@@ -51,6 +51,7 @@ const GET_CHUNK_DATA_OV2: u32 = 0x0047_2840;
 /// (0: the whole chunk).
 const GET_CHUNK_DATA: u32 = 0x0047_2890;
 /// `0084e3a0`: the form's id.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The number of function arguments of each entry point function type
 /// (`uint32[]`, read by `CheckFunctionArguments`).
@@ -357,7 +358,7 @@ pub fn bgs_entry_point_function_data_leveled_list_init_item(e: &mut Engine, this
         let editor_id = e.vcall(owner.addr(), 0x130, &args![]).u32();
         e.call(PRINT_WARNING, &args![NO_LEVELED_LIST_NAMED, id, editor_id]);
     } else {
-        let owner_id = e.call(FORM_ID, &args![owner]).u32();
+        let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
         e.call(PRINT_WARNING, &args![NO_LEVELED_LIST_ID, id, owner_id]);
     }
 }
@@ -512,7 +513,7 @@ pub fn bgs_entry_point_function_data_activate_choice_init_item(
     let errors = e.call(0x0046_e8a0, &args![]).u32();
     e.call(0x004f_ffe0, &args![saved]);
     if errors != 0 {
-        let owner_id = e.call(FORM_ID, &args![owner]).u32();
+        let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
         let editor_id = e.vcall(owner.addr(), 0x130, &args![]).u32();
         e.call(
             PRINT_WARNING,
@@ -785,7 +786,7 @@ pub fn fn_005e5f50(
     let target = e.mem.u32(arguments.addr());
     e.with_stack(0xc, |e, container| {
         e.call(0x0048_1610, &args![container]);
-        let holder = e.call(0x0072_6070, &args![data]).u32();
+        let holder = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, data));
         e.call(
             0x0048_8350,
             &args![holder.wrapping_add(0x30), subject, container],
@@ -794,14 +795,14 @@ pub fn fn_005e5f50(
         let mut node = e.call(0x0071_7e50, &args![container]).u32();
         if changes != 0 {
             while node != 0 {
-                if e.call(0x0082_56d0, &args![node]).bool() {
+                if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
                     break;
                 }
-                let slot = e.call(0x0068_15c0, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.mem.u32(slot) == 0 {
                     break;
                 }
-                let slot = e.call(0x0068_15c0, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let entry = e.mem.u32(slot);
                 let mut form = 0;
                 let item = e.mem.u32(entry.wrapping_add(4));
@@ -836,7 +837,7 @@ pub fn fn_005e5f50(
                         e.vcall(target, 0x190, &args![form, 0u32, count]);
                     }
                 }
-                node = e.call(0x0072_6070, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
         e.call(0x0048_1680, &args![container]);
@@ -1099,7 +1100,7 @@ pub fn bgs_entry_point_function_data_leveled_list_save(e: &mut Engine, this: Ptr
     fn_005e6250(e, this);
     let list = e.mem.u32(this.addr() + 4);
     if list != 0 {
-        let id = e.call(FORM_ID, &args![list]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, list));
         e.call(ADD_WORD_CHUNK, &args![CHUNK_EPFD, id]);
     }
 }

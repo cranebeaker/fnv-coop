@@ -5,6 +5,7 @@
 use crate::prelude::*;
 
 /// `00559450` (`thiscall`): the word at `this`.
+#[cfg(test)]
 const FIRST_VALUE_00559450: u32 = 0x0055_9450;
 /// `006e1610` (`thiscall`, `RET 4`): a byte map of the object, 0 when there
 /// is none.
@@ -23,6 +24,7 @@ const INDEX_ARRAY_006911F0: u32 = 0x0069_11f0;
 /// `0076b610` (`thiscall` on the array at `+4`): a byte.
 const ARRAY_CHECK_0076B610: u32 = 0x0076_b610;
 /// `0044ddc0` (`thiscall`): an array's element count.
+#[cfg(test)]
 const COUNT_0044DDC0: u32 = 0x0044_ddc0;
 /// `0042f5a0` (cdecl: two words): the smaller, unsigned.
 const SMALLER_0042F5A0: u32 = 0x0042_f5a0;
@@ -71,7 +73,7 @@ fn with_index_array(
             return false;
         }
         let key = e.mem.u32(this + 0x18);
-        let object = e.call(FIRST_VALUE_00559450, &args![local]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local));
         let indices = e.call(INDEX_ARRAY_006911F0, &args![object, key]).u32();
         if check && indices == 0 {
             e.call(LOCAL_DESTRUCT_0042FA40, &args![local]);
@@ -87,8 +89,8 @@ fn with_index_array(
 /// word of the object at `+0x14`.
 fn byte_map(e: &mut Engine, this: u32, other: Ptr) -> u32 {
     let source = e.mem.u32(this + 0x14);
-    let key = e.call(FIRST_VALUE_00559450, &args![source]).u32();
-    let object = e.call(FIRST_VALUE_00559450, &args![other]).u32();
+    let key = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, source));
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
     e.call(BYTE_MAP_006E1610, &args![object, key]).u32()
 }
 
@@ -121,8 +123,8 @@ pub fn fn_006df230(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
     }
     with_index_array(e, base, true, |e, indices| {
         if !e.call(ARRAY_CHECK_0076B610, &args![base + 4]).bool() {
-            let theirs = e.call(COUNT_0044DDC0, &args![indices]).u32();
-            let ours = e.call(COUNT_0044DDC0, &args![base + 4]).u32();
+            let theirs = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, indices));
+            let ours = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + 4));
             let count = e.call(SMALLER_0042F5A0, &args![ours, theirs]).u32();
             let mut index = 0u32;
             while index < count {
@@ -134,14 +136,14 @@ pub fn fn_006df230(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
             }
         } else if e.mem.u8(base) != 0 {
             let mut index = 0u32;
-            while index < e.call(COUNT_0044DDC0, &args![indices]).u32() {
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, indices)) {
                 let at = index_at(e, indices, index);
                 e.mem.set_u8(map.wrapping_add(at), 3);
                 index += 1;
             }
         } else {
             let mut index = 0u32;
-            while index < e.call(COUNT_0044DDC0, &args![indices]).u32() {
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, indices)) {
                 let at = index_at(e, indices, index);
                 if e.mem.i8(map.wrapping_add(at)) == 0x7f {
                     let at = index_at(e, indices, index);
@@ -171,11 +173,11 @@ pub fn fn_006df440(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
     }
     with_index_array(e, base, true, |e, indices| {
         e.call(ARRAY_RESET_008454F0, &args![base + 4, 0u32]);
-        let count = e.call(COUNT_0044DDC0, &args![indices]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, indices));
         e.call(ARRAY_SIZE_006E10C0, &args![base + 4, count, 1u32]);
         e.mem.set_u8(base, 1);
         let mut index = 0u32;
-        while index < e.call(COUNT_0044DDC0, &args![indices]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, indices)) {
             let at = index_at(e, indices, index);
             let target = byte_at(e, base, index);
             let value = e.mem.u8(map.wrapping_add(at));
@@ -212,13 +214,13 @@ pub fn fn_006df5f0(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
         return true;
     }
     with_index_array(e, base, false, |e, indices| {
-        let theirs = e.call(COUNT_0044DDC0, &args![indices]).u32();
-        let ours = e.call(COUNT_0044DDC0, &args![base + 4]).u32();
+        let theirs = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, indices));
+        let ours = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + 4));
         if theirs != ours {
             return false;
         }
         let mut index = 0u32;
-        while index < e.call(COUNT_0044DDC0, &args![indices]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, indices)) {
             let at = index_at(e, indices, index);
             if at == u32::from(fn_006df760(e, other)) {
                 let value = byte_at(e, base, index);
@@ -256,10 +258,10 @@ pub fn fn_006df780(e: &mut Engine, this: Ptr, other: Ptr, on: u8) -> bool {
                 return true;
             }
             e.mem.set_u8(base, 0);
-            let count = e.call(COUNT_0044DDC0, &args![indices]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, indices));
             e.call(ARRAY_SIZE_006E10C0, &args![base + 4, count, 1u32]);
             let mut index = 0u32;
-            while index < e.call(COUNT_0044DDC0, &args![indices]).u32() {
+            while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, indices)) {
                 let at = index_at(e, indices, index);
                 let value = if at == u32::from(fn_006df760(e, other)) {
                     0xff
@@ -272,13 +274,13 @@ pub fn fn_006df780(e: &mut Engine, this: Ptr, other: Ptr, on: u8) -> bool {
             }
             return true;
         }
-        let theirs = e.call(COUNT_0044DDC0, &args![indices]).u32();
-        let ours = e.call(COUNT_0044DDC0, &args![base + 4]).u32();
+        let theirs = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, indices));
+        let ours = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + 4));
         if theirs != ours {
             return false;
         }
         let mut index = 0u32;
-        while index < e.call(COUNT_0044DDC0, &args![indices]).u32() {
+        while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, indices)) {
             let at = index_at(e, indices, index);
             if at == u32::from(fn_006df760(e, other)) {
                 // `NEG; SBB; AND 2; ADD -1`: 1 when set, 0xFF when clear.

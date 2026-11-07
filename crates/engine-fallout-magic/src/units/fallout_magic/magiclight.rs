@@ -31,6 +31,7 @@ const LIGHT_DATA: u32 = 0x08;
 /// `thiscall`, one word), get `00559450` and destructor `0045cec0`.
 const POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const POINTER_DESTRUCT: u32 = 0x0045_cec0;
 /// The `REFR_LIGHT` constructor `005726c0` and destructor `00418f40`
@@ -55,6 +56,7 @@ const LIGHT_COLOUR_005E3FC0: u32 = 0x005e_3fc0;
 const LIGHT_VALUE_006D2C40: u32 = 0x006d_2c40;
 /// `00416870` (`thiscall`, three floats: fills a point), `0080ed20` and
 /// `00439180` (`thiscall`, one `float`: divide the point by it / scale it).
+#[cfg(test)]
 const SET_POINT_00416870: u32 = 0x0041_6870;
 const POINT_DIVIDE_0080ED20: u32 = 0x0080_ed20;
 const POINT_SCALE_00439180: u32 = 0x0043_9180;
@@ -86,13 +88,20 @@ fn colour_point(e: &mut Engine, light: u32, point: u32) {
     let blue = x87_store32(f64::from((colour >> 16) & 0xff));
     let green = x87_store32(f64::from(((colour & 0xffff) >> 8) & 0xff));
     let red = x87_store32(f64::from(colour & 0xff));
-    e.call(SET_POINT_00416870, &args![point, red, green, blue]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, point, red, green, blue)
+    );
 }
 
 /// The light (`LightData`'s pointer).
 fn light(e: &mut Engine, this: Ptr<MagicLight>) -> u32 {
-    e.call(POINTER_GET, &args![this.addr().wrapping_add(LIGHT_DATA)])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr().wrapping_add(LIGHT_DATA))
+    )
 }
 
 // Translated from 0081bf80 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -166,7 +175,11 @@ pub fn magic_light_init(e: &mut Engine, this: Ptr<MagicLight>, form: u32, parent
         let light_object = light(e, this);
         e.call(LIGHT_SET_COLOUR_004BC2E0, &args![light_object, colour]);
         let x = x87_quiet_bits(e.global::<u32>(LIGHT_POINT_X));
-        e.call(SET_POINT_00416870, &args![point, x, 0u32, 0u32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, point, x, 0u32, 0u32)
+        );
         let light_object = light(e, this);
         e.call(LIGHT_SET_POINT_0050DD50, &args![light_object, point]);
     });
@@ -181,7 +194,7 @@ pub fn magic_light_init(e: &mut Engine, this: Ptr<MagicLight>, form: u32, parent
         e.call(ADD_LIGHT, &args![shadow, light_object, 1u32]);
     }
     e.call(POINTER_ASSIGN, &args![base, parent]);
-    let node = e.call(POINTER_GET, &args![base]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base));
     let light_object = light(e, this);
     e.vcall(node, 0xdc, &args![light_object, 1u32]);
 }
@@ -194,8 +207,8 @@ pub fn magic_light_init(e: &mut Engine, this: Ptr<MagicLight>, form: u32, parent
 // Translation incomplete: 0081c240 - the FS:[0] exception frame (unwinding the members on a throw) is not translated
 pub fn fn_0081c240(e: &mut Engine, this: Ptr<MagicLight>) {
     let base = this.addr();
-    if e.call(POINTER_GET, &args![base]).u32() != 0 {
-        let node = e.call(POINTER_GET, &args![base]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base)) != 0 {
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base));
         let light_object = light(e, this);
         e.vcall(node, 0xe8, &args![light_object]);
     }
@@ -298,7 +311,7 @@ pub fn fn_0081c4e0(e: &mut Engine, this: Ptr<MagicLight>, node: u32) {
     }
     let base = this.addr();
     e.call(POINTER_ASSIGN, &args![base, node]);
-    let parent = e.call(POINTER_GET, &args![base]).u32();
+    let parent = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, base));
     let light_object = light(e, this);
     e.vcall(parent, 0xdc, &args![light_object, 1u32]);
 }

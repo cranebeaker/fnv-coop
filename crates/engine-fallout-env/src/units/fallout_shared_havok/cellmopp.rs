@@ -70,6 +70,7 @@ const FREE: u32 = 0x00aa_1460;
 const SMART_POINTER_SET: u32 = 0x0063_3c90;
 const SMART_POINTER_RELEASE: u32 = 0x0045_cec0;
 /// `*this` (`MOV EAX,[ECX]`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// The `float` at `011c582c` times a `float` argument, result in `ST0`.
 const SCALE_FLOAT: u32 = 0x004a_3e90;
@@ -91,6 +92,7 @@ const HAS_ENTRIES: u32 = 0x0062_2470;
 /// an index (`00877a30`), the owner's body remover (`005380d0`) and the
 /// array's `RemoveAll` (engine map `NiTArray<...>::RemoveAll`).
 const LIST_COUNT: u32 = 0x0099_38b0;
+#[cfg(test)]
 const LIST_AT: u32 = 0x0087_7a30;
 const REMOVE_BODY: u32 = 0x0053_80d0;
 const LIST_REMOVE_ALL: u32 = 0x004d_ffa0;
@@ -168,8 +170,12 @@ pub fn fn_00621e80(e: &mut Engine, this: Ptr) {
         if index >= count {
             break;
         }
-        let entry = e.call(LIST_AT, &args![list, index]).u32();
-        let body = e.call(POINTER_GET, &args![entry]).u32();
+        let entry = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, list, index)
+        );
+        let body = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, entry));
         if body != 0 {
             e.call(REMOVE_BODY, &args![owner, body]);
         }
@@ -186,12 +192,20 @@ pub fn fn_00621ef0(e: &mut Engine, this: Ptr) -> u32 {
     if e.call(LIST_COUNT, &args![list]).u32() == 0 {
         return 0;
     }
-    let first = e.call(LIST_AT, &args![list, 0u32]).u32();
-    if e.call(POINTER_GET, &args![first]).u32() == 0 {
+    let first = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, list, 0u32)
+    );
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first)) == 0 {
         return 0;
     }
-    let first = e.call(LIST_AT, &args![list, 0u32]).u32();
-    let body = e.call(POINTER_GET, &args![first]).u32();
+    let first = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, list, 0u32)
+    );
+    let body = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
     let value = e.vcall(body, 0x94, &args![]).u32();
     e.call(OWNER_LOOKUP, &args![value]).u32()
 }
@@ -238,7 +252,7 @@ pub fn cell_mopp_create(
         let lookup_value = x87_quiet_bits(e.mem.u32(lookup));
         e.call(CINFO_SET_SECOND_FLOAT, &args![cinfo, lookup_value]);
         fn_00622290(e, Ptr::new(color_word), 0x11, 1, 0);
-        let color = e.call(POINTER_GET, &args![color_word]).u32();
+        let color = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, color_word));
         e.call(CINFO_SET_PACKED_WORD, &args![cinfo, color]);
 
         for index in 0..count {
@@ -271,7 +285,7 @@ pub fn cell_mopp_create(
                 .addr()
             };
             e.call(SMART_POINTER_SET, &args![shape_pointer, shape]);
-            let held_shape = e.call(POINTER_GET, &args![shape_pointer]).u32();
+            let held_shape = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, shape_pointer));
             let shape_id = e.call(GET_SHAPE_WORD, &args![held_shape]).u32();
             fn_006222f0(e, Ptr::new(cinfo), shape_id);
 

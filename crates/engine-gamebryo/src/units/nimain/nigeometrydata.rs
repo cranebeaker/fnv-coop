@@ -947,6 +947,7 @@ const NI_OBJECT_IS_EQUAL: u32 = 0x00a5_d470;
 const NI_OBJECT_GET_VIEWER_STRINGS: u32 = 0x00a5_d6e0;
 /// `00e7cd40` (`thiscall`, no stack words; named `NiGPUProgramCache::IsNode` in the engine
 /// map, a folded body that answers 0): the base size `GetBlockAllocationSize` adds.
+#[cfg(test)]
 const BASE_BLOCK_SIZE_00E7CD40: u32 = 0x00e7_cd40;
 /// The comparisons `IsEqual` runs per element, all `thiscall` on this side's element with
 /// the other's, nonzero when they differ: `00439090` (three floats; unit
@@ -1285,7 +1286,7 @@ pub fn ni_geometry_data_get_block_allocation_size(e: &mut Engine, this: Ptr) -> 
     if e.mem.u32(base + TEXTURES) != 0 {
         size = size.wrapping_add((flags & 1) * count * 8);
     }
-    let rest = e.call(BASE_BLOCK_SIZE_00E7CD40, &args![this]).u32();
+    let rest = typed_call!(leaf::FAMILY, 0x00e7_cd40, leaf::zero(e, this));
     rest.wrapping_add(size)
 }
 

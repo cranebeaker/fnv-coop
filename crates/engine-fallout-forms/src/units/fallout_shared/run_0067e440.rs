@@ -7,15 +7,18 @@ use crate::prelude::*;
 /// `PackageList::FreePackageList` (`0067e400`, engine map; `thiscall`).
 const FREE_PACKAGE_LIST: u32 = 0x0067_e400;
 /// `006815c0` (`thiscall`): returns `this`; here a node's item word.
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `008256d0` (`thiscall`): whether a list node is empty (no item and no
 /// next node).
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `0067e420` (`thiscall`, one word; engine map
 /// `BSSimpleList<TESConditionItem_P>::AddTail`, a shared body): appends the
 /// word to the list.
 const ADD_TAIL: u32 = 0x0067_e420;
 /// `00726070` (`thiscall`): the word at +4; here the next node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 
 // Translated from 0067e440 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -25,15 +28,15 @@ const NODE_NEXT: u32 = 0x0072_6070;
 /// pointer is null.
 pub fn fn_0067e440(e: &mut Engine, this: Ptr, other: Ptr) {
     e.call(FREE_PACKAGE_LIST, &args![this]);
-    let mut node = e.call(NODE_ITEM, &args![other]).u32();
-    if e.call(NODE_IS_EMPTY, &args![node]).bool() {
+    let mut node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         return;
     }
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         e.call(ADD_TAIL, &args![this, item]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -45,13 +48,13 @@ pub fn fn_0067e440(e: &mut Engine, this: Ptr, other: Ptr) {
 /// an item, a different pair making them differ, and they differ when
 /// either list has a node left.
 pub fn fn_0067e4a0(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
-    let mut mine = e.call(NODE_ITEM, &args![this]).u32();
-    let mut theirs = e.call(NODE_ITEM, &args![other]).u32();
-    if e.call(NODE_IS_EMPTY, &args![mine]).bool() {
-        return !e.call(NODE_IS_EMPTY, &args![theirs]).bool();
+    let mut mine = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    let mut theirs = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, other));
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, mine)) {
+        return !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, theirs));
     }
     let item = |e: &mut Engine, node: u32| {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.mem.u32(slot)
     };
     while mine != 0 && item(e, mine) != 0 && theirs != 0 && item(e, theirs) != 0 {
@@ -60,8 +63,8 @@ pub fn fn_0067e4a0(e: &mut Engine, this: Ptr, other: Ptr) -> bool {
         if my_item != their_item {
             return true;
         }
-        mine = e.call(NODE_NEXT, &args![mine]).u32();
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
     }
     mine != 0 || theirs != 0
 }

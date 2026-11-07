@@ -232,9 +232,13 @@ pub fn combat_world_state_array_update(
                     flags = with_bit(flags, e.mem.u32(cover.wrapping_add(4)));
                 }
             } else {
-                e.call(0x0068_15c0, &args![cover_point]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, cover_point));
                 e.call(0x009a_9370, &args![controller, cover, cover_point, 0u32]);
-                let point = e.call(0x0068_15c0, &args![attacker_location]).u32();
+                let point = typed_call!(
+                    leaf::FAMILY,
+                    0x0068_15c0,
+                    leaf::same_word(e, attacker_location)
+                );
                 e.call(0x0043_9ef0, &args![cover_point, offset, point]);
                 let height = e.mem.u32(offset + 8);
                 let scale = e.global::<f64>(COVER_HEIGHT_SCALE);
@@ -346,7 +350,7 @@ pub fn combat_world_state_array_update(
         }
         fn_009aad00(e, this, 0xb, weapon_type);
         fn_009aad20(e, this, 0xffff_0018, weapon_type);
-        let process = e.call(0x008d_8520, &args![attacker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
         let value = if e.vcall(process, 0x454, &args![]).bool() {
             weapon_type
         } else {
@@ -396,7 +400,7 @@ pub fn combat_world_state_array_update(
         }
         let value = e.call(0x009a_1380, &args![state]).u8();
         fn_009aad00(e, this, 0xf, u32::from(value));
-        if e.call(0x0045_cd60, &args![group]).u32() != 0 {
+        if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, group)) != 0 {
             let value = e.call(0x0098_a310, &args![group, attacker]).u32();
             fn_009aad00(e, this, 0x13, value);
         }

@@ -39,6 +39,7 @@ const PROCEDURE_LOAD_GAME: u32 = 0x0099_6ef0;
 /// `CombatProcedure::GetAttacker` (`00996de0`).
 const GET_ATTACKER: u32 = 0x0099_6de0;
 /// `007af430` (`thiscall` on a reference; engine map `BGSSaveFormBuffer::GetForm`): its form.
+#[cfg(test)]
 const REFERENCE_FORM: u32 = 0x007a_f430;
 
 // Translated from 009ca680 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -165,9 +166,11 @@ pub fn combat_procedure_activate_object_update(e: &mut Engine, this: Ptr) {
     }
     let attacker = e.call(GET_ATTACKER, &args![this]).u32();
     let animation = e.vcall(attacker, 0x1e4, &[]).u32();
-    let process = e.call(0x008d_8520, &args![attacker]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
     'activate: {
-        if e.call(0x0045_cd60, &args![process]).u32() != 0 || animation == 0 {
+        if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) != 0
+            || animation == 0
+        {
             break 'activate;
         }
         if state_of(e) == 0 {
@@ -179,9 +182,9 @@ pub fn combat_procedure_activate_object_update(e: &mut Engine, this: Ptr) {
                     return;
                 }
             }
-            let process = e.call(0x008d_8520, &args![attacker]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, attacker));
             let reference = e.mem.u32(me.wrapping_add(0x10));
-            let form = e.call(REFERENCE_FORM, &args![reference]).u32();
+            let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             let reference = e.mem.u32(me.wrapping_add(0x10));
             if e.call(0x008f_f0b0, &args![process, attacker, form, reference])
                 .bool()
@@ -237,7 +240,7 @@ pub fn combat_procedure_activate_object_update(e: &mut Engine, this: Ptr) {
         let controller = e.mem.u32(me.wrapping_add(4));
         let combat_state = e.call(0x0058_6150, &args![controller]).u32();
         let reference = e.mem.u32(me.wrapping_add(0x10));
-        let form = e.call(REFERENCE_FORM, &args![reference]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         if form != e.mem.u32(me.wrapping_add(0x14)) {
             // The frame: up to 5 items at +0.
             e.with_stack(0x14, |e, items| {
@@ -337,7 +340,7 @@ pub fn combat_procedure_activate_object_display_debug_text(
         e.call(0x0055_d520, &args![reference]).u32()
     };
     let reference = e.mem.u32(me.wrapping_add(0x10));
-    let id = e.call(0x0084_e3a0, &args![reference]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
     e.vcall(
         p,
         0x14,

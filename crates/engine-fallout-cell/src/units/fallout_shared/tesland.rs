@@ -206,6 +206,7 @@ const NI_COLOR_CONSTRUCT: u32 = 0x0041_4430;
 const NI_POINT3_DEFAULT_CONSTRUCT: u32 = 0x0068_15c0;
 const NI_COLOR_DEFAULT_CONSTRUCT: u32 = 0x004a_7800;
 /// Reads the smart-pointer slot at `this` (`*this`).
+#[cfg(test)]
 const SMART_POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer<NiTexturingProperty>::operator=(pointer)`, and the
 /// `NiPointer<QueuedFile>` assignment.
@@ -223,6 +224,7 @@ const TEXTURE_SET_CONSTRUCT: u32 = 0x0059_22e0;
 const TEXTURE_SET_SET_PATH: u32 = 0x0059_2cc0;
 const LAND_TEXTURE_CONSTRUCT: u32 = 0x0054_0c50;
 const LAND_TEXTURE_SET_TEXTURE_SET: u32 = 0x0098_4f60;
+#[cfg(test)]
 const DATA_HANDLER_WORD_AT_4: u32 = 0x0072_6070;
 const DATA_HANDLER_ADD_TEXTURE_SET: u32 = 0x0051_0130;
 /// The string value of a string setting, and the address of the value of a
@@ -237,6 +239,7 @@ const SETTING_GET_FLOAT_ADDRESS: u32 = 0x0040_3e20;
 const TEXTURE_MAP_CONSTRUCT: u32 = 0x00a6_9e00;
 const TEXTURING_PROPERTY_CONSTRUCT: u32 = 0x00a6_aa40;
 const ARRAY_SET_AT: u32 = 0x0096_ae90;
+#[cfg(test)]
 const ARRAY_ELEMENT_ADDRESS: u32 = 0x0087_7a30;
 const PROPERTY_SET_MODE: u32 = 0x0043_9360;
 /// The form's constructor and destructors, `SetFormType`, `LoadForm`, the
@@ -245,6 +248,7 @@ const FORM_CONSTRUCT: u32 = 0x0048_3370;
 const FORM_DESTRUCT: u32 = 0x0048_3630;
 const FORM_BASE_DESTRUCT: u32 = 0x0048_3710;
 const FORM_SET_FORM_TYPE: u32 = 0x004f_15a0;
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 const FORM_LOAD: u32 = 0x0048_5110;
 const FORM_LOOKUP_BY_ID: u32 = 0x0048_39c0;
@@ -253,6 +257,7 @@ const FORM_GET_FILE: u32 = 0x0048_4e60;
 const NI_POINTER_SLOT_CONSTRUCT: u32 = 0x0052_8cb0;
 const QUEUED_FILE_POINTER_DESTRUCT: u32 = 0x0044_cbf0;
 /// The parent cell getter (`+0x20`) and the cell's accessors.
+#[cfg(test)]
 const PARENT_CELL: u32 = 0x007a_f430;
 const CELL_GET_DATA_X: u32 = 0x0054_4c30;
 const CELL_GET_DATA_Y: u32 = 0x0054_4c60;
@@ -380,6 +385,7 @@ const FIXED_STRING_DESTRUCT: u32 = 0x0043_81b0;
 const CELL_MOPP_CREATE: u32 = 0x0062_1f60;
 const CELL_MOPP_PREPARE: u32 = 0x0062_1e60;
 const GEOMETRY_GET_SCHEDULER: u32 = 0x0040_30b0;
+#[cfg(test)]
 const SCHEDULER_GET_SAVED_ACQUIRE: u32 = 0x008d_8520;
 const RENDERER_QUEUE_SLOT: u32 = 0xec;
 const RENDERER_AFTER_QUEUE: u32 = 0x00e7_4120;
@@ -476,6 +482,7 @@ const BORDER_OWNER_SLOT: u32 = 0xe8;
 /// `008256d0` and `004b5020`.
 const GETTER_00460140: u32 = 0x0046_0140;
 const GETTER_0041BB10: u32 = 0x0041_bb10;
+#[cfg(test)]
 const LIST_CHECK: u32 = 0x0082_56d0;
 const BASE_CONSTRUCT_004B5020: u32 = 0x004b_5020;
 
@@ -789,7 +796,9 @@ pub fn tes_object_land_tes_object_land(
 /// parent cell.
 pub fn fn_005331f0(e: &mut Engine, this: Ptr) -> Ptr {
     let land = this.addr().wrapping_sub(CHILD_CELL_OFFSET);
-    e.call(PARENT_CELL, &args![land]).ptr()
+    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, land))
+        .into_ret()
+        .ptr()
 }
 
 // Translated from 00533210 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -903,7 +912,7 @@ pub fn tes_object_land_initialize_statics(e: &mut Engine) {
         });
         let texture_set = e.global::<u32>(DEFAULT_TEXTURE_SET);
         let handler = e.global::<u32>(DATA_HANDLER);
-        let word = e.call(DATA_HANDLER_WORD_AT_4, &args![handler]).u32();
+        let word = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, handler));
         e.call(DATA_HANDLER_ADD_TEXTURE_SET, &args![word, texture_set]);
 
         // The default land texture.
@@ -930,7 +939,7 @@ pub fn tes_object_land_initialize_statics(e: &mut Engine) {
         let map = if memory == 0 {
             0
         } else {
-            let texture = e.call(SMART_POINTER_GET, &args![diffuse]).u32();
+            let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, diffuse));
             e.call(
                 TEXTURE_MAP_CONSTRUCT,
                 &args![memory, texture, 0u32, 3u32, 5u32, 0u32],
@@ -947,13 +956,17 @@ pub fn tes_object_land_initialize_statics(e: &mut Engine) {
             TEXTURING_PROPERTY_SET,
             &args![DEFAULT_TEXTURING_PROPERTY, property],
         );
-        let property = e
-            .call(SMART_POINTER_GET, &args![DEFAULT_TEXTURING_PROPERTY])
-            .u32();
+        let property = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, DEFAULT_TEXTURING_PROPERTY)
+        );
         fn_00533fb0(e, Ptr::new(property), 2);
-        let property = e
-            .call(SMART_POINTER_GET, &args![DEFAULT_TEXTURING_PROPERTY])
-            .u32();
+        let property = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, DEFAULT_TEXTURING_PROPERTY)
+        );
         fn_00533f40(e, Ptr::new(property), Ptr::new(map));
 
         // The triangle list of a quadrant: 16 x 16 cells, six indices each.
@@ -1072,7 +1085,11 @@ pub fn tes_object_land_initialize_statics(e: &mut Engine) {
 /// destructor, slot 0) and stores the new one.
 pub fn fn_00533f40(e: &mut Engine, this: Ptr, map: Ptr) {
     let table = this.byte_add(0x1c);
-    let slot = e.call(ARRAY_ELEMENT_ADDRESS, &args![table, 0u32]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, table, 0u32)
+    );
     let current = e.mem.u32(slot);
     if map.addr() != current {
         if current != 0 {
@@ -1474,7 +1491,9 @@ pub fn fn_005348c0(e: &mut Engine, this: Ptr<TESObjectLAND>, form: Ptr) {
     if !was_loaded {
         tes_object_land_load_vertices(e, source, false);
     }
-    let cell = e.call(PARENT_CELL, &args![source]).ptr::<()>();
+    let cell = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, source))
+        .into_ret()
+        .ptr::<()>();
     e.set(this, TESObjectLAND::pParentCell, cell);
     e.call(LAND_ALLOCATE_DATA, &args![this, source]);
     let to = loaded_data(e, this);
@@ -1725,7 +1744,7 @@ fn read_color_chunk(e: &mut Engine, this: Ptr<TESObjectLAND>, buffer: u32) {
 /// when it has none.
 fn queue_texture(e: &mut Engine, this: Ptr<TESObjectLAND>, texture: u32) {
     let slot = this.byte_add(TESObjectLAND::spQueuedTextures.off);
-    if e.call(SMART_POINTER_GET, &args![slot]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) == 0 {
         let memory = e.call(ALLOCATE, &args![0x28u32]).u32();
         let queued = if memory == 0 {
             0
@@ -1735,7 +1754,7 @@ fn queue_texture(e: &mut Engine, this: Ptr<TESObjectLAND>, texture: u32) {
         };
         e.call(QUEUED_FILE_POINTER_SET, &args![slot, queued]);
     }
-    let queued = e.call(SMART_POINTER_GET, &args![slot]).u32();
+    let queued = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
     e.call(LAND_TEXTURE_QUEUE, &args![texture, QUEUE_PRIORITY, queued]);
 }
 
@@ -1947,7 +1966,7 @@ pub fn tes_object_land_load(e: &mut Engine, this: Ptr<TESObjectLAND>, file: Ptr)
         if e.call(FILE_GET_TES_FORM, &args![file]).u8() != b'B' {
             return false;
         }
-        e.call(FORM_ID, &args![this]);
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         e.call(FORM_LOAD, &args![this, file]);
         let mut state = ChunkState::new();
         let active = e.call(FILE_GET_ACTIVE, &args![file]).bool();
@@ -2088,7 +2107,7 @@ pub fn tes_object_land_get_world_offset_for_block(
     _unused_2: u32,
 ) -> Ptr {
     e.with_stack(12, |e, local| {
-        e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![local]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
         let offset: f64 = e.global(F64_2048);
         let x = (fn_00534050(e, this) + offset) as f32;
         e.mem.set_f32(local.addr(), x);
@@ -2222,11 +2241,11 @@ pub fn tes_object_land_load_vertices_into_arrays(e: &mut Engine, this: Ptr<TESOb
         } else {
             e.call(FILE_GET_NAME, &args![file]).u32()
         };
-        let cell = e.call(PARENT_CELL, &args![this]).u32();
+        let cell = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
         let y = e.call(CELL_GET_DATA_Y, &args![cell]).u32();
-        let cell = e.call(PARENT_CELL, &args![this]).u32();
+        let cell = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
         let x = e.call(CELL_GET_DATA_X, &args![cell]).u32();
-        let id = e.call(FORM_ID, &args![this]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         e.call(LOG_MESSAGE, &args![LAND_LOAD_FAILED, id, x, y, name]);
         e.call(DISABLE_WARNINGS, &args![1u32]);
         return false;
@@ -2368,7 +2387,7 @@ pub fn tes_object_land_un_load_vertices(e: &mut Engine, this: Ptr<TESObjectLAND>
                     }
                 }
                 let map = at + GRASS_MAP_OFFSET + 0x10 * quadrant;
-                if e.call(FORM_ID, &args![map]).u32() > 0 {
+                if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, map)) > 0 {
                     let first = e.call(MAP_FIRST_POSITION, &args![map]).u32();
                     e.mem.set_u32(position_cell, first);
                     while e.mem.u32(position_cell) != 0 {
@@ -2582,9 +2601,11 @@ pub fn fn_005374f0(e: &mut Engine, this: Ptr<TESObjectLAND>) {
                 e.mem.set_u8(hidden + quadrant, was_hidden);
                 let node = element(e, meshes, quadrant);
                 e.call(NODE_SET_CULLED, &args![node, 1u32]);
-                let property = e
-                    .call(SMART_POINTER_GET, &args![DEFAULT_TEXTURING_PROPERTY])
-                    .u32();
+                let property = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, DEFAULT_TEXTURING_PROPERTY)
+                );
                 let node = element(e, meshes, quadrant);
                 e.call(NODE_ATTACH_PROPERTY, &args![node, property]);
                 let tri_strips =
@@ -2611,9 +2632,11 @@ pub fn fn_005374f0(e: &mut Engine, this: Ptr<TESObjectLAND>) {
                 let half_height = ((high as f64 - low as f64) / e.global::<f64>(F64_TWO)) as f32;
                 let size: f32 = e.global(F32_1024);
                 e.with_stack(12, |e, local| {
-                    let point = e
-                        .call(NI_POINT3_CONSTRUCT, &args![local, size, size, half_height])
-                        .u32();
+                    let point = typed_call!(
+                        leaf::FAMILY,
+                        0x0041_6870,
+                        leaf::point3_new(e, local, size, size, half_height)
+                    );
                     e.call(ROOT_SET_LOCAL_TRANSLATE, &args![root, point]);
                 });
                 let corner_x = fn_00534050(e, this) + e.global::<f64>(F64_1024);
@@ -2666,8 +2689,14 @@ pub fn fn_005374f0(e: &mut Engine, this: Ptr<TESObjectLAND>) {
                     // Only a scheduler whose saved acquire object (asked twice, as the
                     // code does) is 1 to 5 gets the geometry queued.
                     let accepted = scheduler != 0
-                        && e.call(SCHEDULER_GET_SAVED_ACQUIRE, &args![scheduler]).i32() >= 1
-                        && e.call(SCHEDULER_GET_SAVED_ACQUIRE, &args![scheduler]).i32() <= 5;
+                        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, scheduler))
+                            .into_ret()
+                            .i32()
+                            >= 1
+                        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, scheduler))
+                            .into_ret()
+                            .i32()
+                            <= 5;
                     if accepted {
                         let renderer = e.call(RENDERER_GET, &[]).u32();
                         let task = e.call(LAND_RENDER_TASK, &args![scheduler]).u32();
@@ -2696,19 +2725,19 @@ pub fn fn_005374f0(e: &mut Engine, this: Ptr<TESObjectLAND>) {
     if meshes.is_null() {
         return;
     }
-    if e.call(PARENT_CELL, &args![this]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this)) == 0 {
         return;
     }
     let mut hide_all = false;
     if fn_00534140(e, this) {
-        let cell = e.call(PARENT_CELL, &args![this]).u32();
+        let cell = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
         hide_all = !e.call(CELL_REFERENCE_LIST_CHECK, &args![cell]).bool();
     }
     for quadrant in 0..QUADRANTS {
         let hide = if hide_all {
             true
         } else {
-            let cell = e.call(PARENT_CELL, &args![this]).u32();
+            let cell = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
             e.call(CELL_QUADRANT_TEST, &args![cell, quadrant]).bool()
         };
         let node = element(e, meshes, quadrant);
@@ -2738,7 +2767,11 @@ fn is_big_endian(e: &mut Engine) -> bool {
 /// The object `00460140` gives for the smart pointer at `this + 0xb8` (the
 /// strips' bound, see `fn_005374f0`).
 pub fn fn_00537b10(e: &mut Engine, this: Ptr) -> Ptr {
-    let held = e.call(SMART_POINTER_GET, &args![this.byte_add(0xb8)]).u32();
+    let held = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0xb8))
+    );
     e.call(GETTER_00460140, &args![held]).ptr()
 }
 
@@ -2753,7 +2786,11 @@ pub fn fn_00537b30(e: &mut Engine, this: Ptr) -> Ptr {
 /// Whether `008256d0` returns 0 for the member at `this + 0xac` of a cell
 /// (the check on the cell's reference list, see `fn_005374f0`).
 pub fn fn_00537b50(e: &mut Engine, this: Ptr) -> bool {
-    !e.call(LIST_CHECK, &args![this.byte_add(0xac)]).bool()
+    !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.byte_add(0xac))
+    )
 }
 
 // Translated from 00537b80 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2778,7 +2815,13 @@ pub fn fn_00537bb0(e: &mut Engine, this: Ptr) -> Ptr {
 /// The value of the smart pointer at `this + 0x78` (the render task of a
 /// scheduler, see `fn_005374f0`).
 pub fn fn_00537bd0(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(SMART_POINTER_GET, &args![this.byte_add(0x78)]).ptr()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0x78))
+    )
+    .into_ret()
+    .ptr()
 }
 
 // Translated from 00537bf0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2896,7 +2939,7 @@ pub fn fn_00537eb0(e: &mut Engine, this: Ptr<TESObjectLAND>) {
             && e.call(SLOT_HOLDS_OTHER_THAN, &args![body_slot, 0u32])
                 .bool()
         {
-            let body = e.call(SMART_POINTER_GET, &args![body_slot]).u32();
+            let body = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, body_slot));
             e.call(PHYSICS_OBJECT_ADD_BODY, &args![physics, body]);
         }
         e.call(TEXTURING_PROPERTY_SET, &args![body_slot, 0u32]);
@@ -2921,11 +2964,11 @@ pub fn fn_00537eb0(e: &mut Engine, this: Ptr<TESObjectLAND>) {
         e.set(data, LoadedLandData::ppMesh, Ptr::NULL);
     }
     let border_slot = data.byte_add(LoadedLandData::spBorder.off);
-    if e.call(SMART_POINTER_GET, &args![border_slot]).u32() != 0 {
-        let border = e.call(SMART_POINTER_GET, &args![border_slot]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, border_slot)) != 0 {
+        let border = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, border_slot));
         let owner = e.call(OBJECT_FIELD_0X18, &args![border]).u32();
         if owner != 0 {
-            let border = e.call(SMART_POINTER_GET, &args![border_slot]).u32();
+            let border = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, border_slot));
             e.vcall(owner, BORDER_OWNER_SLOT, &args![border]);
         }
         e.call(TEXTURING_PROPERTY_SET, &args![border_slot, 0u32]);
@@ -3143,7 +3186,7 @@ fn save_textures(e: &mut Engine, this: Ptr<TESObjectLAND>) {
         if texture != 0 {
             let default_texture = fn_00535ae0(e).addr();
             if texture != default_texture {
-                let form_id = e.call(FORM_ID, &args![texture]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, texture));
                 save_texture_record(e, CHUNK_BASE_TEXTURE, form_id, quadrant, 0xffff);
             }
         }
@@ -3160,7 +3203,7 @@ fn save_textures(e: &mut Engine, this: Ptr<TESObjectLAND>) {
             let form_id = if texture == default_texture {
                 0
             } else {
-                e.call(FORM_ID, &args![texture]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, texture))
             };
             save_texture_record(e, CHUNK_ADDITIONAL_TEXTURE, form_id, quadrant, layer as u16);
             let mut entries: Vec<(u16, f32)> = Vec::new();
@@ -3226,7 +3269,8 @@ pub fn fn_00538c00(e: &mut Engine, _unused_0: Ptr, data: u32, size: u32, out: Pt
             let remaining = size - 0x10;
             if remaining != 0 {
                 e.call(MOPP_ARRAY_SET_SIZE, &args![object + 0x20, remaining]);
-                let buffer = e.call(SMART_POINTER_GET, &args![object + 0x20]).u32();
+                let buffer =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object + 0x20));
                 e.call(MEMORY_COPY, &args![buffer, data + 0x10, remaining]);
                 built = true;
             }
@@ -3255,7 +3299,11 @@ pub fn fn_00538d70(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(MOPP_MEMBER_CONSTRUCT_B, &args![this.byte_add(0x20)]);
     // `006815c0` is also the `NiPoint3` default constructor of the vector
     // constructor iterator (identical code folded).
-    e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![this.byte_add(0x2c)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(0x2c))
+    );
     fn_00538f40(e, this.byte_add(0x10));
     e.call(MOPP_MEMBER_FINISH, &args![this.byte_add(0x2c), 2u32]);
     this
@@ -3429,11 +3477,11 @@ pub fn fn_005391d0(e: &mut Engine, this: Ptr<TESObjectLAND>, reference: Ptr) -> 
         let form = e.call(FORM_LOOKUP_BY_ID, &args![id]).u32();
         let cell = form_cast(e, form, RTTI_TES_OBJECT_CELL);
         if cell != 0 {
-            let _same = e.call(PARENT_CELL, &args![this]).u32() == cell;
+            let _same = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this)) == cell;
         }
         0
     } else {
-        let cell = e.call(PARENT_CELL, &args![this]).u32();
+        let cell = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
         e.vcall(cell, CELL_SLOT_REFERENCE_OWNED, &args![reference])
             .u8()
     }
@@ -3457,7 +3505,7 @@ pub fn fn_00539280(
     {
         return 0;
     }
-    let cell = e.call(PARENT_CELL, &args![this]).u32();
+    let cell = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
     let kind = e.mem.u32(reference.addr() + 0xc);
     match kind {
         6 => {
@@ -3508,9 +3556,9 @@ pub fn fn_00539360(e: &mut Engine, this: Ptr<TESObjectLAND>, out: Ptr, reference
     if reference.is_null() {
         return;
     }
-    let cell = e.call(PARENT_CELL, &args![this]).u32();
-    let parent = e.call(PARENT_CELL, &args![this]).u32();
-    let form_id = e.call(FORM_ID, &args![parent]).u32();
+    let cell = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
+    let parent = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, parent));
     let kind = e.mem.u32(reference.addr() + 0xc);
     match kind {
         3 | 5 => {
@@ -3528,8 +3576,8 @@ pub fn fn_00539360(e: &mut Engine, this: Ptr<TESObjectLAND>, out: Ptr, reference
             let marker = e.global::<u32>(SAVE_REFERENCE_MARKER);
             e.mem.set_u32(out.addr(), marker);
             e.mem.set_u32(out.addr() + 0xc, 9);
-            let parent = e.call(PARENT_CELL, &args![this]).u32();
-            let form_id = e.call(FORM_ID, &args![parent]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, parent));
             e.mem.set_u32(out.addr() + 8, form_id);
             e.mem.set_u32(out.addr() + 4, 0);
             e.mem.set_u32(out.addr() + 0x10, 0);
@@ -3823,7 +3871,11 @@ fn build_quadrant_material(e: &mut Engine, data: Ptr<LoadedLandData>, meshes: Pt
 /// Hands `value` to `00a67260` on the object held by the smart pointer at
 /// `this + 0xb8`.
 pub fn fn_00539ef0(e: &mut Engine, this: Ptr, value: u32) {
-    let held = e.call(SMART_POINTER_GET, &args![this.byte_add(0xb8)]).u32();
+    let held = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0xb8))
+    );
     e.call(GEOMETRY_DATA_SET_SHARED, &args![held, value]);
 }
 
@@ -3922,7 +3974,7 @@ const GRASS_DENSITY_SETTING: u32 = 0x011c_8dcc;
 /// `006815c0` returns the position it is given (the element is read
 /// there) and `00726070` gives the next position.
 const LIST_FIRST_POSITION: u32 = 0x0089_1170;
-const LIST_ELEMENT: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NEXT_POSITION: u32 = 0x0072_6070;
 /// A grass parameter record is 0x44 bytes; `00b600e0` constructs it;
 /// `SetAt(map, key, record table)` and `GetAt(map, key, &value)` of the
@@ -4087,7 +4139,7 @@ fn with_cell_centre<R>(
     body: impl FnOnce(&mut Engine, Ptr) -> R,
 ) -> R {
     e.with_stack(12, |e, vector| {
-        e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![vector]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
         let words = cell_centre_vector(e, this);
         write_words(e, vector.addr(), &words);
         body(e, vector)
@@ -4129,6 +4181,7 @@ const RELEASE_TABLE: u32 = 0x004e_de70;
 const HK_ARRAY_ALLOCATOR: u32 = 0x004a_4840;
 const HK_ARRAY_CAPACITY: u32 = 0x0062_a100;
 const HK_ARRAY_RESERVE: u32 = 0x00c9_08c0;
+#[cfg(test)]
 const BYTE_RANGE_NOTHING: u32 = 0x0040_fbe0;
 const HK_ARRAY_CLEAR: u32 = 0x0054_0b70;
 /// The block allocator of `NiTArray` (`0096afc0`, `(count)`).
@@ -4436,7 +4489,11 @@ fn update_mesh_materials(e: &mut Engine, data: Ptr<LoadedLandData>, mesh: u32, q
 /// +0x30. Returns `this`.
 pub fn fn_0053a510(e: &mut Engine, this: Ptr) -> Ptr {
     for offset in [0u32, 0x8, 0x1c, 0x30] {
-        e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![this.byte_add(offset)]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.byte_add(offset))
+        );
     }
     this
 }
@@ -4446,7 +4503,7 @@ pub fn fn_0053a510(e: &mut Engine, this: Ptr) -> Ptr {
 /// space, else the world space's value (`009a1260`).
 pub fn fn_0053a550(e: &mut Engine, this: Ptr<TESObjectLAND>) -> f32 {
     let mut height = e.global::<f32>(F32_MINUS_2048);
-    let cell = e.call(PARENT_CELL, &args![this]).u32();
+    let cell = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
     if cell != 0 {
         let world_space = e.call(CELL_GET_WORLD_SPACE, &args![cell]).u32();
         if world_space != 0 {
@@ -4892,7 +4949,7 @@ pub fn fn_0053b450(
     cell_y: Ptr,
 ) -> Ptr {
     e.with_stack(12, |e, local| {
-        e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![local]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
         let mut x: f32 = e.global(F32_4096);
         let mut y: f32 = e.global(F32_4096);
         let column = if cell_x.is_null() {
@@ -5061,7 +5118,7 @@ pub fn tes_object_land_get_coord_data(
                         .mem
                         .i32(out.addr() + CoordData::TriangleVertex2.off + 4 * candidate);
                     let distance = e.with_stack(12, |e, vertex| {
-                        e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![vertex]);
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vertex));
                         fn_00534240(e, this, quadrant as u32, index, vertex);
                         let vertex_x = e.mem.f32(vertex.addr());
                         let vertex_y = e.mem.f32(vertex.addr() + 4);
@@ -5090,7 +5147,7 @@ pub fn tes_object_land_get_coord_data(
         }
         let nearest_vertex = e.get(out, CoordData::NearestVertex);
         e.with_stack(12, |e, vertex| {
-            e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![vertex]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vertex));
             fn_00534240(e, this, quadrant as u32, nearest_vertex, vertex);
             e.with_stack(12, |e, sum| {
                 let result = e.call(NI_POINT3_ADD, &args![centre, sum, vertex]).u32();
@@ -5122,7 +5179,7 @@ const GRASS_SAMPLE_OFFSETS: [i32; 9] = [-0x12, -0x11, -0x10, -1, 0, 1, 0x10, 0x1
 fn fill_grass_record(e: &mut Engine, record: u32, form: u32) -> f32 {
     let name = e.call(GRASS_FORM_NAME, &args![form]).u32();
     e.mem.set_u32(record, name);
-    let id = e.call(FORM_ID, &args![form]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     e.mem.set_u32(record + 4, id);
     let setting = fn_0053ca40(e);
     e.mem.set_f32(record + 0x14, setting);
@@ -5245,7 +5302,7 @@ fn grass_vertex(
         let mut position = e.call(LIST_FIRST_POSITION, &args![default_texture]).u32();
         let mut used = 0i32;
         while position != 0 && count < table_size && used <= maximum {
-            let element = e.call(LIST_ELEMENT, &args![position]).u32();
+            let element = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
             let form = e.mem.u32(element);
             if form != 0 {
                 used += 1;
@@ -5264,7 +5321,7 @@ fn grass_vertex(
                 clear_weak_samples(e, record, threshold);
                 count += 1;
             }
-            position = e.call(LIST_NEXT_POSITION, &args![position]).u32();
+            position = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, position));
         }
     }
     for layer in 0..6u32 {
@@ -5291,7 +5348,7 @@ fn grass_vertex(
         let mut used = 0i32;
         let mut position = e.call(LIST_FIRST_POSITION, &args![layer_texture]).u32();
         while position != 0 && count < table_size && used <= maximum {
-            let element = e.call(LIST_ELEMENT, &args![position]).u32();
+            let element = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, position));
             let form = e.mem.u32(element);
             if form != 0 {
                 let record = new_grass_record(e);
@@ -5312,7 +5369,7 @@ fn grass_vertex(
                 clear_weak_samples(e, record, threshold);
                 count += 1;
             }
-            position = e.call(LIST_NEXT_POSITION, &args![position]).u32();
+            position = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, position));
         }
     }
     if e.mem.u32(table) != 0 {
@@ -5400,7 +5457,7 @@ pub fn fn_0053caf0(
     let quadrant = e.get(info, CoordData::Quadrant);
     let nearest = e.get(info, CoordData::NearestVertex);
     e.with_stack(12, |e, vertex| {
-        e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![vertex]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vertex));
         e.with_stack(12, |e, grid| {
             fn_0053b450(
                 e,
@@ -5413,7 +5470,7 @@ pub fn fn_0053caf0(
             );
             fn_00534240(e, this, quadrant as u32, nearest, vertex);
             e.with_stack(12, |e, centre| {
-                e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![centre]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, centre));
                 let words = cell_centre_vector(e, this);
                 write_words(e, centre.addr(), &words);
                 e.with_stack(12, |e, position| {
@@ -5468,7 +5525,7 @@ fn triangle_normal(
         let slot = |index: u32| scratch.addr() + 12 * index;
         let (a, b, c) = (slot(0), slot(1), slot(2));
         for vector in [a, b, c] {
-            e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![vector]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
         }
         for (vector, index) in [a, b, c].into_iter().zip(indices) {
             fn_00534390(e, this, quadrant as u32, index, Ptr::new(vector));
@@ -5516,7 +5573,7 @@ fn triangle_normal(
         // The face normal from two edges of the triangle.
         let (edge_a, other_a, edge_b, other_b) = (slot(9), slot(10), slot(11), slot(12));
         for vector in [edge_a, other_a, edge_b, other_b] {
-            e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![vector]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
         }
         fn_00534240(e, this, quadrant as u32, indices[0], Ptr::new(edge_a));
         fn_00534240(e, this, quadrant as u32, indices[1], Ptr::new(other_a));
@@ -5565,12 +5622,20 @@ pub fn ni_point3_unit_cross(e: &mut Engine, this: Ptr, out: Ptr, other: Ptr) -> 
     let y = (a[2] as f64 * b[0] as f64 - a[0] as f64 * b[2] as f64) as f32;
     let x = (a[1] as f64 * b[2] as f64 - a[2] as f64 * b[1] as f64) as f32;
     e.with_stack(12, |e, cross| {
-        e.call(NI_POINT3_CONSTRUCT, &args![cross, x, y, z]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, cross, x, y, z)
+        );
         let length = e.call(NI_POINT3_LENGTH, &args![cross]).f32();
         if (length as f64) > e.global::<f64>(F64_MILLIONTH) {
             fn_0053d280(e, cross, out, length);
         } else {
-            e.call(NI_POINT3_CONSTRUCT, &args![out, 0.0f32, 0.0f32, 0.0f32]);
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, out, 0.0f32, 0.0f32, 0.0f32)
+            );
         }
     });
     out
@@ -5583,7 +5648,7 @@ pub fn fn_0053d280(e: &mut Engine, this: Ptr, out: Ptr, length: f32) -> Ptr {
     let x = (inverse as f64 * e.mem.f32(this.addr()) as f64) as f32;
     let y = (inverse as f64 * e.mem.f32(this.addr() + 4) as f64) as f32;
     let z = (inverse as f64 * e.mem.f32(this.addr() + 8) as f64) as f32;
-    e.call(NI_POINT3_CONSTRUCT, &args![out, x, y, z]);
+    typed_call!(leaf::FAMILY, 0x0041_6870, leaf::point3_new(e, out, x, y, z));
     out
 }
 
@@ -5680,7 +5745,7 @@ pub fn fn_0053d8f0(e: &mut Engine, this: Ptr<TESObjectLAND>, lands: Ptr, bounds:
             lands
         };
         e.with_stack(12, |e, scratch| {
-            e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![scratch]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, scratch));
             let data = loaded_data(e, this);
             for quadrant in 0..QUADRANTS {
                 for vertex in 0..QUADRANT_VERTICES {
@@ -5957,7 +6022,7 @@ fn blend_land(
     out: Ptr,
 ) -> bool {
     e.with_stack(12, |e, normal| {
-        e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![normal]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, normal));
         let known =
             land != 0 && fn_0053d2e0(e, Ptr::new(land), blend.position, blend.candidate, normal);
         if !known {
@@ -6036,7 +6101,7 @@ pub fn fn_0053e290(
     e.with_stack(12 * 5, |e, scratch| {
         let slot = |index: u32| scratch.addr() + 12 * index;
         let centre = slot(0);
-        e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![centre]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, centre));
         let words = cell_centre_vector(e, this);
         write_words(e, centre, &words);
         let vertices = e.get(data, LoadedLandData::ppVertices);
@@ -6048,8 +6113,12 @@ pub fn fn_0053e290(
             scale: 1.0,
         };
         e.call(NI_POINT3_ADD, &args![own_vertex, blend.position, centre]);
-        e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![blend.candidate]);
-        e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![blend.sum]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, blend.candidate)
+        );
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, blend.sum));
         let normals = e.get(data, LoadedLandData::ppNormals);
         let own_normal = element(e, normals, quadrant as u32) + (vertex as u32).wrapping_mul(12);
         copy_words(e, own_normal, blend.sum.addr(), 3);
@@ -6279,7 +6348,7 @@ pub fn fn_0053f1e0(
         let second = frame.byte_add(0x0c);
         let third = frame.byte_add(0x18);
         for vector in [first, second, third] {
-            e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![vector]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
         }
         let quadrant = e.get(info, CoordData::Quadrant) as u32;
         let vertex_a = e.get(info, CoordData::TriangleVertex2);
@@ -6347,7 +6416,7 @@ pub fn fn_0053f390(e: &mut Engine, this: Ptr<TESObjectLAND>, out: Ptr, quadrant:
     let mut low = f32::from_bits(extents[0]);
     let mut high = f32::from_bits(extents[1]);
     e.with_stack(12, |e, vertex| {
-        e.call(NI_POINT3_DEFAULT_CONSTRUCT, &args![vertex]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vertex));
         if quadrant < 0x10 {
             for index in 0..QUADRANT_VERTICES as i32 {
                 fn_00534240(e, this, quadrant as u32, index, vertex);
@@ -6548,8 +6617,8 @@ pub fn fn_0053fa40(e: &mut Engine, this: Ptr<TESObjectLAND>, build: bool) {
     }
     let data = loaded_data(e, this);
     let slot = data.byte_add(LoadedLandData::spBorder.off);
-    if e.call(SMART_POINTER_GET, &args![slot]).u32() != 0 {
-        let border = e.call(SMART_POINTER_GET, &args![slot]).u32();
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot)) != 0 {
+        let border = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         e.vcall(node, BORDER_OWNER_SLOT, &args![border]);
         e.call(TEXTURING_PROPERTY_SET, &args![slot, 0u32]);
     }
@@ -6570,9 +6639,10 @@ pub fn fn_0053fa40(e: &mut Engine, this: Ptr<TESObjectLAND>, build: bool) {
         let update_data = frame.byte_add(0x50);
         let corner_y = fn_00534080(e, this) as f32;
         let corner_x = fn_00534050(e, this) as f32;
-        e.call(
-            NI_POINT3_CONSTRUCT,
-            &args![origin, corner_x, corner_y, 0.0f32],
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, origin, corner_x, corner_y, 0.0f32)
         );
         let step_size = e.global::<f64>(F64_128);
         let height_offset = e.global::<f64>(F64_FIVE);
@@ -6607,9 +6677,11 @@ pub fn fn_0053fa40(e: &mut Engine, this: Ptr<TESObjectLAND>, build: bool) {
                 e.mem.set_u8(flags + index, 1);
                 let step_x = (column as i32 as f64 * step_size) as f32;
                 let step_y = (row as i32 as f64 * step_size) as f32;
-                let offset = e
-                    .call(NI_POINT3_CONSTRUCT, &args![step, step_x, step_y, 0.0f32])
-                    .u32();
+                let offset = typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, step, step_x, step_y, 0.0f32)
+                );
                 e.call(NI_POINT3_ADD, &args![origin, sum, offset]);
                 tes_object_land_get_land_height(e, this, sum, height);
                 let lifted = (e.mem.f32(height.addr()) as f64 + height_offset) as f32;
@@ -6640,7 +6712,7 @@ pub fn fn_0053fa40(e: &mut Engine, this: Ptr<TESObjectLAND>, build: bool) {
             .u32()
         };
         e.call(TEXTURING_PROPERTY_SET, &args![slot, lines]);
-        let border = e.call(SMART_POINTER_GET, &args![slot]).u32();
+        let border = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         e.call(NODE_SET_TRANSLATE, &args![border, origin]);
         let memory = e.call(NI_ALLOCATE_OBJECT, &args![0x30u32]).u32();
         let texturing = if memory == 0 {
@@ -6650,7 +6722,7 @@ pub fn fn_0053fa40(e: &mut Engine, this: Ptr<TESObjectLAND>, build: bool) {
         };
         fn_00533f40(e, Ptr::new(texturing), Ptr::NULL);
         e.call(TEXTURING_PROPERTY_AFTER_MAP, &args![texturing, 0u32, 0u32]);
-        let border = e.call(SMART_POINTER_GET, &args![slot]).u32();
+        let border = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         e.call(NODE_ATTACH_PROPERTY, &args![border, texturing]);
         let memory = e.call(NI_ALLOCATE_OBJECT, &args![0x80u32]).u32();
         let shader = if memory == 0 {
@@ -6662,19 +6734,19 @@ pub fn fn_0053fa40(e: &mut Engine, this: Ptr<TESObjectLAND>, build: bool) {
             SHADER_PROPERTY_SET_WORD_0X58,
             &args![shader, BORDER_SHADER_WORD],
         );
-        let border = e.call(SMART_POINTER_GET, &args![slot]).u32();
+        let border = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         e.call(NODE_ATTACH_PROPERTY, &args![border, shader]);
-        let border = e.call(SMART_POINTER_GET, &args![slot]).u32();
+        let border = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         e.call(PREPARE_OBJECT, &args![border, 0u32, 0u32]);
-        let border = e.call(SMART_POINTER_GET, &args![slot]).u32();
+        let border = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         e.vcall(node, NODE_ATTACH_BORDER_SLOT, &args![border, 1u32]);
-        let border = e.call(SMART_POINTER_GET, &args![slot]).u32();
+        let border = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         e.call(NODE_UPDATE_PROPERTIES, &args![border]);
         e.call(
             UPDATE_DATA_CONSTRUCT,
             &args![update_data, 0.0f32, 0u32, 0u32],
         );
-        let border = e.call(SMART_POINTER_GET, &args![slot]).u32();
+        let border = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot));
         e.call(NODE_UPDATE, &args![border, update_data]);
     });
 }
@@ -6787,12 +6859,12 @@ pub fn tes_object_land_init_distant_texture_blending(e: &mut Engine, this: Ptr<T
             if object == 0 {
                 continue;
             }
-            let target = e.call(SMART_POINTER_GET, &args![object]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
             let first_short = e.call(TERRAIN_OBJECT_SHORT_FIRST, &args![target]).u16() as i16;
-            let target = e.call(SMART_POINTER_GET, &args![object]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
             let second_short = e.call(TERRAIN_OBJECT_SHORT_SECOND, &args![target]).u16() as i16;
-            let target = e.call(SMART_POINTER_GET, &args![object]).u32();
-            e.call(DATA_HANDLER_WORD_AT_4, &args![target]);
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
+            typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, target));
             let data = loaded_data(e, this);
             let cell_x = e.get(data, LoadedLandData::iCellX);
             let cell_y = e.get(data, LoadedLandData::iCellY);
@@ -6802,13 +6874,13 @@ pub fn tes_object_land_init_distant_texture_blending(e: &mut Engine, this: Ptr<T
             // (`FILD qword`, zero-extended) divides it (`FDIVR qword`), each
             // rounded to the control word's precision; `FSTP dword`.
             let sum_x = x87_add(f64::from(along_x), x87_m32(offset[0].to_bits()));
-            let target = e.call(SMART_POINTER_GET, &args![object]).u32();
-            let divisor_x = e.call(DATA_HANDLER_WORD_AT_4, &args![target]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
+            let divisor_x = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, target));
             let quotient_x = x87_div(sum_x, f64::from(divisor_x));
             let mut fraction_x = f32::from_bits(x87_store32(quotient_x));
             let sum_y = x87_add(f64::from(along_y), x87_m32(offset[1].to_bits()));
-            let target = e.call(SMART_POINTER_GET, &args![object]).u32();
-            let divisor_y = e.call(DATA_HANDLER_WORD_AT_4, &args![target]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, object));
+            let divisor_y = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, target));
             let quotient_y = x87_div(sum_y, f64::from(divisor_y));
             let mut fraction_y = f32::from_bits(x87_store32(quotient_y));
             let one = e.global::<f64>(F64_ONE);
@@ -6838,7 +6910,7 @@ pub fn tes_object_land_init_distant_texture_blending(e: &mut Engine, this: Ptr<T
 pub fn fn_00540540(e: &mut Engine, this: Ptr, index: i32) -> u32 {
     let table = e.mem.u32(this.addr() + 0xac);
     let slot = table.wrapping_add((index as u32).wrapping_mul(4));
-    e.call(SMART_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 // Translated from 00540570 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -6847,7 +6919,7 @@ pub fn fn_00540540(e: &mut Engine, this: Ptr, index: i32) -> u32 {
 pub fn fn_00540570(e: &mut Engine, this: Ptr, index: i32) -> u32 {
     let table = e.mem.u32(this.addr() + 0xb0);
     let slot = table.wrapping_add((index as u32).wrapping_mul(4));
-    e.call(SMART_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 // Translated from 005405a0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -6868,9 +6940,10 @@ pub fn loaded_land_data_loaded_land_data(
         SMART_POINTER_CONSTRUCT,
         &args![this.byte_add(LoadedLandData::spBorder.off), 0u32],
     );
-    e.call(
-        NI_POINT3_DEFAULT_CONSTRUCT,
-        &args![this.byte_add(LoadedLandData::HeightExtentsMin.off)],
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(LoadedLandData::HeightExtentsMin.off))
     );
     e.call(
         EH_VECTOR_CONSTRUCT,
@@ -7009,24 +7082,10 @@ pub fn fn_00540860(e: &mut Engine, this: Ptr, allocator: u32, new_size: i32) {
     fn_00540bc0(e, this, allocator, new_size);
     let data = e.mem.u32(this.addr());
     let size = e.mem.i32(this.addr() + 4);
-    e.call(
-        BYTE_RANGE_NOTHING,
-        &args![
-            data.wrapping_add(new_size as u32),
-            size.wrapping_sub(new_size),
-            0u32
-        ],
-    );
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words data.wrapping_add(new_size as u32), size.wrapping_sub(new_size), 0u32);
     let data = e.mem.u32(this.addr());
     let size = e.mem.i32(this.addr() + 4);
-    e.call(
-        BYTE_RANGE_NOTHING,
-        &args![
-            data.wrapping_add(size as u32),
-            new_size.wrapping_sub(size),
-            0u32
-        ],
-    );
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words data.wrapping_add(size as u32), new_size.wrapping_sub(size), 0u32);
     e.mem.set_i32(this.addr() + 4, new_size);
 }
 

@@ -17,6 +17,7 @@ pub fn fn_0058cba0(e: &mut Engine, this: Ptr, mask: u32) -> bool {
 /// `NiNew`'s allocator (`00aa13e0`, `cdecl`: size) and the node constructor
 /// `00a5ecb0` (`ninode.cpp`, `thiscall`, one word).
 const POINTER_SET: u32 = 0x0066_b0d0;
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 const NI_ALLOCATE: u32 = 0x00aa_13e0;
 const NODE_CONSTRUCT: u32 = 0x00a5_ecb0;
@@ -65,12 +66,12 @@ pub fn fn_0058cbc0(e: &mut Engine, this: Ptr, target: u32) {
         if reference != 0 {
             e.with_stack(0x24, |e, block| {
                 let orientation = e.call(GET_ORIENTATION, &args![reference, block]).u32();
-                let node = e.call(POINTER_GET, &args![at + 0x60]).u32();
+                let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0x60));
                 e.call(NODE_SET_ROTATE, &args![node, orientation]);
             });
         }
         let position = e.call(REFERENCE_POSITION, &args![target]).u32();
-        let node = e.call(POINTER_GET, &args![at + 0x60]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0x60));
         e.call(NODE_SET_TRANSLATE, &args![node, position]);
     }
     e.mem.set_u8(TARGET_CHANGED, 1);
@@ -105,7 +106,7 @@ pub fn fn_0058ccf0(e: &mut Engine, this: Ptr, target: u32) {
         let node = new_node(e);
         e.call(POINTER_SET, &args![at + 0x64, node]);
         let position = e.call(REFERENCE_POSITION, &args![target]).u32();
-        let node = e.call(POINTER_GET, &args![at + 0x64]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, at + 0x64));
         e.call(NODE_SET_TRANSLATE, &args![node, position]);
     }
     let mut object = target;

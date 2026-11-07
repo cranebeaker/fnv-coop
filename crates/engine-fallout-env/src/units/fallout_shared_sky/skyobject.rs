@@ -16,6 +16,7 @@ pub(crate) const SKY_OBJECT_VTABLE: u32 = 0x0104_f0f8;
 /// (`0066b0d0`, `thiscall`, one word), the `NiPointer` constructor from a raw pointer
 /// (`00633c90`, `thiscall`, one word) and the `NiPointer` destructor (`0045cec0`,
 /// `thiscall`).
+#[cfg(test)]
 pub(crate) const NI_POINTER_GET: u32 = 0x0055_9450;
 pub(crate) const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 pub(crate) const NI_POINTER_FROM_RAW: u32 = 0x0063_3c90;
@@ -39,7 +40,7 @@ layout! {
 
 /// `NiPointer<T>::get` on the pointer at `slot`.
 pub(crate) fn pointer_get(e: &mut Engine, slot: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// `NiPointer<T>::operator=` on the pointer at `slot`.

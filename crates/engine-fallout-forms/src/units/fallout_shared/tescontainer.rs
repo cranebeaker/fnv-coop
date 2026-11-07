@@ -34,12 +34,15 @@ const TYPE_ACTOR: u32 = 0x0118_46d4;
 
 /// `00726070` (`ECX` = object): the word at `+4`; on a
 /// `TESScriptableForm`, its script; on a list node, the next node.
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// `00717e50` (`ECX` = object): the address `this + 4`.
 const ADDRESS_OF_4: u32 = 0x0071_7e50;
 /// `006815c0` (`ECX` = object): returns `this`.
+#[cfg(test)]
 const SAME_ADDRESS: u32 = 0x0068_15c0;
 /// `008256d0` (`ECX` = node): true when the node's item and next are 0.
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
 /// `005ae3d0` (`ECX` = first node, pointer to the item): adds the item.
 const LIST_ADD: u32 = 0x005a_e3d0;
@@ -86,9 +89,11 @@ const FORM_BY_ID: u32 = 0x0048_39c0;
 /// virtual slot `0x130`, or 0.
 const FORM_NAME_LENGTH: u32 = 0x0047_4cb0;
 /// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
+#[cfg(test)]
 const WORD_AT_C: u32 = 0x0084_e3a0;
 /// `00440d80` (`ECX` = form): whether bit 0x20 of the word at +8
 /// (`TESForm::iFormFlags`) is set.
+#[cfg(test)]
 const FORM_FLAG_20: u32 = 0x0044_0d80;
 /// `00401170` (`ECX` = form): the byte at +4 (`TESForm::cFormType`).
 const FORM_TYPE: u32 = 0x0040_1170;
@@ -173,6 +178,7 @@ const BS_STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// `00406f60` (`cdecl` string, format, ...): formats into the string.
 const BS_STRING_FORMAT: u32 = 0x0040_6f60;
 /// `00559450` (`ECX` = string): its character pointer (the word at +0).
+#[cfg(test)]
 const BS_STRING_TEXT: u32 = 0x0055_9450;
 /// `00403df0` (`ECX` = setting): its string value (the word at +4), or 0.
 const SETTING_STRING: u32 = 0x0040_3df0;
@@ -239,16 +245,16 @@ fn list_head(e: &mut Engine, container: u32) -> u32 {
 
 /// The item of a node (`006815c0`, then the word there).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(SAME_ADDRESS, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
 fn node_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(WORD_AT_4, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 fn node_is_empty(e: &mut Engine, node: u32) -> bool {
-    e.call(NODE_IS_EMPTY, &args![node]).bool()
+    typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
 }
 
 /// `new ContainerObject` (0x0C bytes, `004818b0`), or 0 when the
@@ -325,7 +331,7 @@ pub fn container_object_init_item(e: &mut Engine, this: Ptr<ContainerObject>, ow
                 let adjusted = e.mem.u32(id.addr());
                 e.call(PRINT_ERROR, &args![MESSAGE_OWNER_NAME, adjusted, name]);
             } else {
-                let owner_id = e.call(WORD_AT_C, &args![owner]).u32();
+                let owner_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
                 let adjusted = e.mem.u32(id.addr());
                 e.call(PRINT_ERROR, &args![MESSAGE_OWNER_ID, adjusted, owner_id]);
             }
@@ -573,7 +579,7 @@ pub fn tes_container_save(e: &mut Engine, this: Ptr<TESContainer>) {
     while node != 0 {
         let item = node_item(e, node);
         let object = e.mem.u32(item + 4);
-        if !e.call(FORM_FLAG_20, &args![object]).bool() {
+        if !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, object)) {
             e.call(CONTAINER_OBJECT_SAVE, &args![item]);
         }
         node = node_next(e, node);
@@ -705,7 +711,7 @@ pub fn fn_00481e10(e: &mut Engine, this: Ptr<TESContainer>, flag: u8) -> f32 {
         let item = node_item(e, node);
         node = node_next(e, node);
         let object = e.mem.u32(item + 4);
-        if e.call(FORM_FLAG_20, &args![object]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, object)) {
             continue;
         }
         let count = e.mem.u32(item);
@@ -738,7 +744,7 @@ pub fn fn_00481eb0(e: &mut Engine, this: Ptr<TESContainer>, object: u32) -> bool
 /// `TESContainer::IsGold` (Xbox PDB; `cdecl`): whether the form's id
 /// (`0084e3a0`) is 0xF.
 pub fn tes_container_is_gold(e: &mut Engine, form: Ptr) -> bool {
-    !form.is_null() && e.call(WORD_AT_C, &args![form]).u32() == 0xf
+    !form.is_null() && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form)) == 0xf
 }
 
 // Translated from 00481f30 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -937,7 +943,7 @@ pub fn fn_004821a0(e: &mut Engine, this: Ptr<TESContainer>, target: Ptr, quiet: 
                 e.call(GET_PICK_UP_SOUND_NAME, &args![player, object, 1u32, 0u32])
                     .u32()
             };
-            let message = e.call(BS_STRING_TEXT, &args![text]).u32();
+            let message = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             let time = x87_quiet_bits(e.global::<u32>(MESSAGE_TIME));
             e.call(
                 SHOW_MESSAGE,
@@ -1009,7 +1015,9 @@ pub fn tes_scriptable_form_get_form_script(e: &mut Engine, form: Ptr) -> Ptr {
     if scriptable == 0 {
         Ptr::new(0)
     } else {
-        e.call(WORD_AT_4, &args![scriptable]).ptr()
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, scriptable))
+            .into_ret()
+            .ptr()
     }
 }
 
@@ -1065,7 +1073,7 @@ pub fn fn_00482770(e: &mut Engine, this: Ptr<TESContainer>, source: u32, changes
         }
         node = node_next(e, node);
     }
-    if !added || e.call(WORD_AT_4, &args![changes]).u32() == 0 {
+    if !added || typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, changes)) == 0 {
         return;
     }
     let first = e.global::<u32>(SINGLETON_011DEA0C);
@@ -1079,7 +1087,7 @@ pub fn fn_00482770(e: &mut Engine, this: Ptr<TESContainer>, source: u32, changes
             return;
         }
     }
-    let form = e.call(WORD_AT_4, &args![changes]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, changes));
     e.call(TES_FORM_FORCE_CHANGE, &args![form, CHANGE_FLAG_INVENTORY]);
 }
 

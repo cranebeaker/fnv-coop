@@ -5,12 +5,17 @@
 use crate::prelude::*;
 
 /// The function `fn_006546e0` calls on the member (`00559450`).
+#[cfg(test)]
 const CALLEE_00559450: u32 = 0x0055_9450;
 
 // Translated from 006546e0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Thin wrapper: calls `00559450` with `ECX` = `this + 0xd0` and passes on its result.
 pub fn fn_006546e0(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(CALLEE_00559450, &args![this.byte_add(0xd0)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0xd0))
+    )
 }
 
 /// The `NiPointer` temporary's constructor (`00633c90`; `thiscall`: object) and destructor
@@ -44,13 +49,15 @@ pub fn fn_00656fd0(e: &mut Engine, this: Ptr, output: Ptr) {
 pub fn fn_00655270(e: &mut Engine) -> u32 {
     let global = e.global::<u32>(FACE_GEN_GLOBAL);
     if global != 0 {
-        return e
-            .call(CALLEE_00559450, &args![global.wrapping_add(GLOBAL_MEMBER)])
-            .u32();
+        return typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, global.wrapping_add(GLOBAL_MEMBER))
+        );
     }
     e.with_stack(4, |e, temporary| {
         let holder = e.call(POINTER_CONSTRUCTOR, &args![temporary, 0u32]).u32();
-        let answer = e.call(CALLEE_00559450, &args![holder]).u32();
+        let answer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder));
         e.call(POINTER_DESTRUCTOR, &args![temporary]);
         answer
     })
@@ -85,6 +92,7 @@ const TEXTURES_FORMAT: u32 = 0x0106_57f8;
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 /// Answers `this` (`MOV EAX,ECX`): the exe calls it as the empty constructor of stack
 /// objects and to read a list iterator's node.
+#[cfg(test)]
 const IDENTITY: u32 = 0x0068_15c0;
 /// The matrix setup (`0043f850`, `NiMatrix3::MakeYRotation` in the engine map; `thiscall`:
 /// the angle) and the angle it gets (the float at `01016b78`).
@@ -163,7 +171,7 @@ impl Frame {
 
 /// `00559450` on `holder`: the word it holds.
 fn held(e: &mut Engine, holder: u32) -> u32 {
-    e.call(CALLEE_00559450, &args![holder]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder))
 }
 
 /// The shader texture step: with a texture (`held(texture) != 0`) the geometry's shader
@@ -265,7 +273,7 @@ pub fn fn_00655320(e: &mut Engine, head: u32, skinned: u32, data: u32, reset: u8
         }
         e.call(POINTER_CONSTRUCTOR, &args![texture, 0u32]);
         e.call(POINTER_CONSTRUCTOR, &args![geometry, 0u32]);
-        e.call(IDENTITY, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         let angle = x87_quiet_bits(e.global::<u32>(HEAD_ROTATION_ANGLE));
         e.call(MATRIX_ROTATION, &args![matrix, angle]);
         // FaceGen data +0x80: the head part.
@@ -286,8 +294,8 @@ pub fn fn_00655320(e: &mut Engine, head: u32, skinned: u32, data: u32, reset: u8
                 let mut model = 0u32;
                 let first = frame.at(0x7c);
                 let second = frame.at(0x70);
-                e.call(IDENTITY, &args![first]);
-                e.call(IDENTITY, &args![second]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first));
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
                 e.call(ARCHIVE_SPLIT_PATH, &args![egm, first, second]);
                 let found = e.call(ARCHIVE_FIND, &args![0u32, first, second, egm]).u32();
                 if found == 0 {
@@ -455,7 +463,7 @@ pub fn fn_006558b0(e: &mut Engine, head: u32, skinned: u32, data: u32, reset: u8
         }
         e.call(POINTER_CONSTRUCTOR, &args![texture, 0u32]);
         e.call(POINTER_CONSTRUCTOR, &args![geometry, 0u32]);
-        e.call(IDENTITY, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         let angle = x87_quiet_bits(e.global::<u32>(HEAD_ROTATION_ANGLE));
         e.call(MATRIX_ROTATION, &args![matrix, angle]);
         let targets = (head, skinned, reset);
@@ -491,6 +499,7 @@ pub fn fn_006558b0(e: &mut Engine, head: u32, skinned: u32, data: u32, reset: u8
 /// answers the address of the element), and the form's validity test (`0048cee0`;
 /// `thiscall`).
 const PART_LIST_COUNT: u32 = 0x0065_8930;
+#[cfg(test)]
 const PART_LIST_AT: u32 = 0x0087_7a30;
 const FORM_IS_VALID: u32 = 0x0048_cee0;
 /// The setting `00654720` reads for the first part (`011d5adc`; its byte through
@@ -519,6 +528,7 @@ const EYE_LINK_VALUE: u32 = 0x0101_e2bc;
 /// The accessory list walk (`00726070`: next iterator), the texture swap (`0048afe0`;
 /// `thiscall` on the accessory's model part: the geometry) and `"FaceGenAccessory"`
 /// (`010657e4`).
+#[cfg(test)]
 const LIST_NEXT: u32 = 0x0072_6070;
 const SWAP_TEXTURES: u32 = 0x0048_afe0;
 const ACCESSORY_NAME: u32 = 0x0106_57e4;
@@ -570,7 +580,7 @@ pub fn fn_00654720(e: &mut Engine, head: u32, skinned: u32, data: u32, reset: u8
         e.call(POINTER_CONSTRUCTOR, &args![geometry, 0u32]);
         let mut first_eye = 0u32;
         let mut second_eye = 0u32;
-        e.call(IDENTITY, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         for string in strings {
             e.call(STRING_CONSTRUCTOR, &args![string]);
         }
@@ -583,18 +593,30 @@ pub fn fn_00654720(e: &mut Engine, head: u32, skinned: u32, data: u32, reset: u8
                 if e.call(PART_LIST_COUNT, &args![list]).u32() == 0 {
                     return false;
                 }
-                let at = e.call(PART_LIST_AT, &args![list, part]).u32();
+                let at = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, list, part)
+                );
                 if e.mem.u32(at) == 0 {
                     return false;
                 }
-                let at = e.call(PART_LIST_AT, &args![list, part]).u32();
+                let at = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, list, part)
+                );
                 let form = e.mem.u32(at);
                 e.call(FORM_IS_VALID, &args![form]).u32() != 0
             };
             if !valid(e, models) || !valid(e, textures) {
                 continue;
             }
-            let at = e.call(PART_LIST_AT, &args![models, part]).u32();
+            let at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, models, part)
+            );
             let form = e.mem.u32(at);
             let model_name = e.vcall(form, 0x14, &args![]).u32();
             e.call(STRING_FORMAT, &args![path, MESHES_FORMAT, model_name]);
@@ -606,8 +628,8 @@ pub fn fn_00654720(e: &mut Engine, head: u32, skinned: u32, data: u32, reset: u8
                 if held(e, low_lod_name) != 0 {
                     let first = frame.at(0xa4);
                     let second = frame.at(0x9c);
-                    e.call(IDENTITY, &args![first]);
-                    e.call(IDENTITY, &args![second]);
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first));
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
                     let text = held(e, low_lod_name);
                     e.call(ARCHIVE_SPLIT_PATH, &args![text, first, second]);
                     let text = held(e, low_lod_name);
@@ -661,7 +683,11 @@ pub fn fn_00654720(e: &mut Engine, head: u32, skinned: u32, data: u32, reset: u8
             if held(e, geometry) == 0 {
                 continue;
             }
-            let at = e.call(PART_LIST_AT, &args![data + 0xb4, part]).u32();
+            let at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, data + 0xb4, part)
+            );
             let name = e.mem.u32(at);
             name_geometry(e, frame.at(0xc0), name, geometry);
             if part == 0 {
@@ -670,7 +696,11 @@ pub fn fn_00654720(e: &mut Engine, head: u32, skinned: u32, data: u32, reset: u8
             if part == 1 {
                 second_eye = held(e, geometry);
             }
-            let at = e.call(PART_LIST_AT, &args![textures, part]).u32();
+            let at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, textures, part)
+            );
             let form = e.mem.u32(at);
             let texture_name = e.call(TEXTURE_PATH, &args![form]).u32();
             e.call(STRING_FORMAT, &args![path, TEXTURES_FORMAT, texture_name]);
@@ -757,11 +787,11 @@ pub fn fn_00654720(e: &mut Engine, head: u32, skinned: u32, data: u32, reset: u8
         // FaceGen data +0xE4: the accessory list.
         let mut iterator = data + 0xe4;
         while iterator != 0 {
-            let node = e.call(IDENTITY, &args![iterator]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, iterator));
             if e.mem.u32(node) == 0 {
                 break;
             }
-            let node = e.call(IDENTITY, &args![iterator]).u32();
+            let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, iterator));
             let accessory = e.mem.u32(node).wrapping_add(0x24);
             let model_name = e.vcall(accessory, 0x14, &args![]).u32();
             e.call(STRING_FORMAT, &args![path, MESHES_FORMAT, model_name]);
@@ -789,12 +819,12 @@ pub fn fn_00654720(e: &mut Engine, head: u32, skinned: u32, data: u32, reset: u8
                 e.call(SET_ROTATE, &args![object, matrix]);
                 attach_to(e, head, geometry);
                 let object = held(e, geometry);
-                let node = e.call(IDENTITY, &args![iterator]).u32();
+                let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, iterator));
                 let part = e.mem.u32(node).wrapping_add(0x24);
                 e.call(SWAP_TEXTURES, &args![part, object]);
                 name_geometry(e, frame.at(0xcc), ACCESSORY_NAME, geometry);
             }
-            iterator = e.call(LIST_NEXT, &args![iterator]).u32();
+            iterator = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, iterator));
         }
         for string in [
             low_lod_name,
@@ -962,7 +992,11 @@ fn shader_of_type(e: &mut Engine, property: u32, kind: i32) -> u32 {
 fn coordinate_texturing(e: &mut Engine, data: u32, part: u32, model: u32, target: u32) {
     let list = data + 0xc4;
     if e.call(PART_LIST_COUNT, &args![list]).u32() != 0 {
-        let at = e.call(PART_LIST_AT, &args![list, part]).u32();
+        let at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, list, part)
+        );
         if held(e, at) != 0 {
             return;
         }
@@ -1072,15 +1106,27 @@ fn update_head(e: &mut Engine, frame: &Frame, node: u32, data: u32, kind: &mut u
             continue;
         }
         *kind = if part == 0 || part == 1 { 0xe } else { 1 };
-        let at = e.call(PART_LIST_AT, &args![data + 0x94, part]).u32();
+        let at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, data + 0x94, part)
+        );
         if e.mem.u32(at) == 0 {
             continue;
         }
-        let at = e.call(PART_LIST_AT, &args![data + 0xa4, part]).u32();
+        let at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, data + 0xa4, part)
+        );
         if e.mem.u32(at) == 0 {
             continue;
         }
-        let at = e.call(PART_LIST_AT, &args![data + 0xb4, part]).u32();
+        let at = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, data + 0xb4, part)
+        );
         let name_text = e.mem.u32(at);
         let name_slot = frame.at(0x3e4);
         let name = e
@@ -1110,12 +1156,20 @@ fn update_head(e: &mut Engine, frame: &Frame, node: u32, data: u32, kind: &mut u
         }
         // FaceGen data +0xC4: per-part tint pointers; +0xD4: the tint flag (byte).
         if e.call(PART_LIST_COUNT, &args![data + 0xc4]).u32() != 0 && e.mem.u8(data + 0xd4) != 0 {
-            let at = e.call(PART_LIST_AT, &args![data + 0xc4, part]).u32();
+            let at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, data + 0xc4, part)
+            );
             e.call(POINTER_ASSIGN_FROM, &args![tint, at]);
         }
         let mut detailed = false;
         if part == 0 && (level as i8) >= 0 {
-            let at = e.call(PART_LIST_AT, &args![data + 0xa4, part]).u32();
+            let at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, data + 0xa4, part)
+            );
             let form = e.mem.u32(at);
             let path = e.call(TEXTURE_PATH, &args![form]).u32();
             // FaceGen data +0x90: the word the detail texture name is built from.
@@ -1140,7 +1194,11 @@ fn update_head(e: &mut Engine, frame: &Frame, node: u32, data: u32, kind: &mut u
             coordinate_texturing(e, data, part, model, tint);
             let own = frame.at(0x1a0);
             e.call(STRING_CONSTRUCTOR, &args![own]);
-            let at = e.call(PART_LIST_AT, &args![data + 0xa4, part]).u32();
+            let at = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, data + 0xa4, part)
+            );
             let form = e.mem.u32(at);
             e.vcall(form, 0x14, &args![own]);
             if held(e, own) != 0 {
@@ -1160,7 +1218,7 @@ fn update_head(e: &mut Engine, frame: &Frame, node: u32, data: u32, kind: &mut u
             e.vcall(shader, SLOT_SHADER_SET_TEXTURE, &args![0u32, texture]);
             let texture = held(e, image);
             let holder = fn_00656d80(e, Ptr::new(texture));
-            let count = e.call(LIST_NEXT, &args![holder]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, holder));
             let flag = u32::from(count == 5 || count == 6 || count == 1);
             e.mem.set_u8(frame.at(0x145), flag as u8);
             e.call(SET_SHADER_FLAG, &args![shader, 0u32, flag]);
@@ -1290,8 +1348,11 @@ const POINTER_GLOBAL_011F9510: u32 = 0x011f_9510;
 /// Unnamed in the engine map (no arguments): `00559450` on the global at `011f9510`
 /// (the word it holds).
 pub fn fn_00656db0(e: &mut Engine) -> u32 {
-    e.call(CALLEE_00559450, &args![POINTER_GLOBAL_011F9510])
-        .u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, POINTER_GLOBAL_011F9510)
+    )
 }
 
 /// Callees of [`fn_00656dc0`]: the bound's centre setter (`0098ddd0`; `thiscall`: point
@@ -1304,12 +1365,14 @@ pub fn fn_00656db0(e: &mut Engine) -> u32 {
 /// (`004579e0`; cdecl float; ST0).
 const BOUND_SET_CENTER: u32 = 0x0098_ddd0;
 const BOUND_SET_RADIUS: u32 = 0x0063_f790;
+#[cfg(test)]
 const POINT_DEFAULT: u32 = 0x0068_15c0;
 const ITERATOR_POINT_AT: u32 = 0x0053_4570;
 const ITERATOR_ADVANCE: u32 = 0x0065_7be0;
 const POINT_ADD: u32 = 0x0043_9e90;
 const POINT_SUBTRACT: u32 = 0x0043_9ef0;
 const POINT_SCALE: u32 = 0x004a_3760;
+#[cfg(test)]
 const POINT_DOT: u32 = 0x004b_6190;
 const SQUARE_ROOT: u32 = 0x0045_79e0;
 /// The `float` factor of the centre (`01016248`, read at run time).
@@ -1338,10 +1401,10 @@ pub fn fn_00656dc0(e: &mut Engine, bound: u32, iterator: Ptr, count: i32) {
         let (center, best) = (at(0x10), at(0x4));
         let (min, point, max) = (at(0x44), at(0x38), at(0x50));
         let (walk, walk_again) = (at(0x20), at(0x2c));
-        e.call(POINT_DEFAULT, &args![center]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, center));
         e.mem.set_u32(best, 0);
-        e.call(POINT_DEFAULT, &args![min]);
-        e.call(POINT_DEFAULT, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, min));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         e.call(ITERATOR_POINT_AT, &args![iterator, 0u32, min]);
         for word in [0, 4, 8] {
             let value = e.mem.u32(min + word);
@@ -1385,7 +1448,15 @@ pub fn fn_00656dc0(e: &mut Engine, bound: u32, iterator: Ptr, count: i32) {
             fn_00656fd0(e, Ptr::new(walk_again), Ptr::new(point));
             let difference = at(0x60);
             e.call(POINT_SUBTRACT, &args![point, difference, center]);
-            let dot = x87_store32(e.call(POINT_DOT, &args![difference, difference]).st0);
+            let dot = x87_store32(
+                typed_call!(
+                    leaf::FAMILY,
+                    0x004b_6190,
+                    leaf::point3_dot(e, difference, difference)
+                )
+                .into_ret()
+                .st0,
+            );
             e.mem.set_u32(at(0x54), dot);
             if x87_load32(e.mem.u32(best)) < x87_load32(dot) {
                 e.mem.set_u32(best, x87_quiet_bits(dot));

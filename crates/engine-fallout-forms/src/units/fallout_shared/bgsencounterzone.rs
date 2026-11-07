@@ -141,6 +141,7 @@ const SWAP_ON_SAVE: u32 = 0x0040_1500;
 const SWAP_WORD: u32 = 0x0050_3210;
 /// `iFormID` getter (`thiscall`; the engine map names the folded body
 /// `0084e3a0`).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// `TESForm::GetFile` (Xbox PDB), `thiscall` (form, `-1`).
 const FORM_GET_FILE: u32 = 0x0048_4e60;
@@ -312,7 +313,7 @@ pub fn fn_00525e70(e: &mut Engine, this: Ptr<BGSEncounterZone>) {
     e.call(FORM_START_FORM, &args![this]);
     let owner = e.get(this, BGSEncounterZone::pZoneOwner);
     if owner != 0 {
-        let form_id = e.call(GET_FORM_ID, &args![owner]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
         e.set(this, BGSEncounterZone::pZoneOwner, form_id);
     }
     if e.call(SWAP_ON_SAVE, &[]).bool() {
@@ -350,7 +351,7 @@ pub fn bgs_encounter_zone_init_item(e: &mut Engine, this: Ptr<BGSEncounterZone>)
         });
         let form = e.call(LOOKUP_FORM, &args![id]).u32();
         if form == 0 {
-            let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e
                 .vcall(this.addr(), FORM_GET_OBJECT_TYPE_NAME_SLOT, &[])
                 .u32();

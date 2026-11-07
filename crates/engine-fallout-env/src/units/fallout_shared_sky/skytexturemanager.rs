@@ -11,6 +11,7 @@ const SCOPE_DESTROY_00404EE0: u32 = 0x0040_4ee0;
 /// The source file name `SkyTask::Run` passes to the scope local (a string in `.rdata`).
 const SOURCE_FILE_0104F148: u32 = 0x0104_f148;
 /// `0045cd60` (`thiscall`, plain `RET`): returns the word at +0x28 of its object.
+#[cfg(test)]
 const TASK_0045CD60: u32 = 0x0045_cd60;
 /// `BSShaderManager::GetTexture` (`00b55840`, `cdecl`, five words).
 const SHADER_MANAGER_GET_TEXTURE: u32 = 0x00b5_5840;
@@ -29,7 +30,7 @@ pub fn sky_task_run(e: &mut Engine, this: Ptr) {
             &args![scope, 0x21u32, 1u32, SOURCE_FILE_0104F148, 0x32u32],
         );
         let name = e.mem.u32(this.addr().wrapping_add(0x30));
-        let texture = e.call(TASK_0045CD60, &args![this]).u32();
+        let texture = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
         e.call(
             SHADER_MANAGER_GET_TEXTURE,
             &args![texture, 1u32, name, 1u32, 0u32],

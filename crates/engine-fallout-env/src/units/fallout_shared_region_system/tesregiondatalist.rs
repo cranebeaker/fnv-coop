@@ -6,8 +6,10 @@ use crate::prelude::*;
 
 /// `006815c0` (`thiscall`, no stack words): the list node's item address
 /// (the code reads the item word through it).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// `00726070` (`thiscall`, no stack words): the next node of a list node.
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 
 // Translated from 004f35b0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -17,12 +19,12 @@ const NODE_NEXT: u32 = 0x0072_6070;
 pub fn tes_region_data_list_find(e: &mut Engine, this: Ptr, data_type: u32) -> u32 {
     let mut node = this.addr();
     while node != 0 {
-        let item_address = e.call(NODE_ITEM, &args![node]).u32();
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         if item != 0 && e.vcall(item, 0x10, &[]).u32() == data_type {
             return item;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     0
 }

@@ -92,6 +92,7 @@ const HK_BOOL_GET: u32 = 0x0056_09f0;
 /// (`this`, allocator, element), element destructor and element copy; the
 /// map's constructor, insert, remove, lookup, clear and
 /// clear-and-deallocate.
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0072_6070;
 const ARRAY_ELEMENT: u32 = 0x0062_6660;
 const ARRAY_CONSTRUCT: u32 = 0x0062_99a0;
@@ -123,6 +124,7 @@ const REFERENCED_OBJECT_DESTRUCT: u32 = 0x0056_d6c0;
 const REFERENCED_OBJECT_CONSTRUCT: u32 = 0x0053_8ef0;
 const REFERENCED_OBJECT_FREE: u32 = 0x0053_8eb0;
 /// The singleton member constructor body that returns `this` (`006815c0`).
+#[cfg(test)]
 const SINGLETON_CONSTRUCT: u32 = 0x0068_15c0;
 /// Release of a Havok singleton's reference (`00c903b0`).
 const REMOVE_REFERENCE: u32 = 0x00c9_03b0;
@@ -348,7 +350,11 @@ pub fn fn_00624de0(e: &mut Engine, this: Ptr) -> Ptr {
 // Translation incomplete: 00624e00 - the FS:[0] exception-unwinding frame is not modeled.
 pub fn fn_00624e00(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(REFERENCED_OBJECT_CONSTRUCT, &args![this]);
-    e.call(SINGLETON_CONSTRUCT, &args![this.byte_add(8)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(8))
+    );
     e.mem.set_u32(this.addr(), VTABLE_FILE_SYSTEM);
     this
 }
@@ -666,7 +672,11 @@ pub fn fn_00625bd0(e: &mut Engine, this: Ptr) {
 /// `array` (`this`, the error handler, is not read).
 pub fn fn_00625bf0(e: &mut Engine, _this: Ptr, array: Ptr) {
     let mut index = 0;
-    while index < e.call(ARRAY_SIZE, &args![array]).i32() {
+    while index
+        < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, array))
+            .into_ret()
+            .i32()
+    {
         let element = e
             .call(ARRAY_ELEMENT, &args![array, index])
             .ptr::<HkFileLine>();
@@ -688,14 +698,18 @@ pub fn havok_error_is_report_enabled(
     line: u32,
 ) -> bool {
     let reports = this.byte_add(HavokError::m_disabledReports.off);
-    if e.call(ARRAY_SIZE, &args![reports]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, reports)) == 0 {
         return true;
     }
     e.with_stack(0xa0, |e, locals| {
         let name = locals.addr();
         base_name_with_extension(e, file, name, name + 0x80);
         let mut index = 0;
-        while index < e.call(ARRAY_SIZE, &args![reports]).i32() {
+        while index
+            < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, reports))
+                .into_ret()
+                .i32()
+        {
             let element = e
                 .call(ARRAY_ELEMENT, &args![reports, index])
                 .ptr::<HkFileLine>();
@@ -721,7 +735,11 @@ pub fn havok_error_enable_report(e: &mut Engine, this: Ptr<HavokError>, file: Pt
         let name = locals.addr();
         base_name_with_extension(e, file, name, name + 0x80);
         let mut index = 0;
-        while index < e.call(ARRAY_SIZE, &args![reports]).i32() {
+        while index
+            < typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, reports))
+                .into_ret()
+                .i32()
+        {
             let element = e
                 .call(ARRAY_ELEMENT, &args![reports, index])
                 .ptr::<HkFileLine>();
@@ -761,7 +779,11 @@ pub fn havok_error_disable_report(e: &mut Engine, this: Ptr<HavokError>, file: P
 // Translation incomplete: 00625f10 - the FS:[0] exception-unwinding frame is not modeled.
 pub fn fn_00625f10(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(REFERENCED_OBJECT_CONSTRUCT, &args![this]);
-    e.call(SINGLETON_CONSTRUCT, &args![this.byte_add(8)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.byte_add(8))
+    );
     e.mem.set_u32(this.addr(), VTABLE_ERROR_BASE);
     this
 }

@@ -101,6 +101,7 @@ const SLOT_COPY_DATA: u32 = 0x44;
 /// `ActiveEffect::Dispel` (engine map), thiscall (word), `RET 4`.
 const ACTIVE_EFFECT_DISPEL: u32 = 0x0080_4210;
 /// The effect's caster (`0045cd60`, folded code: the word at +0x28).
+#[cfg(test)]
 const EFFECT_CASTER: u32 = 0x0045_cd60;
 /// The effect's effect setting (`007df1d0`) and the setting's word
 /// `00407820` (a hit shader, as `Finish` hands it to `ProcessLists`).
@@ -125,6 +126,7 @@ const SAVE_LOAD_WRITE: u32 = 0x0085_79b0;
 const SAVE_LOAD_READ: u32 = 0x0085_79e0;
 /// A form's id (`0084e3a0`, the word at +0xc) and the form with an id
 /// (`004839c0`, cdecl).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 const LOOK_UP_FORM: u32 = 0x0048_39c0;
 /// `__RTDynamicCast` (CRT), cdecl, and the type descriptors of `TESForm`
@@ -302,12 +304,14 @@ fn spring_object_kind_ok(e: &mut Engine, object: u32, frame: u32) -> bool {
 /// `01012054`): added to the process lists when its virtual slot +0xc4
 /// answers true, deleted (virtual slot +0 with 1) otherwise.
 pub fn telekinesis_effect_create_spring(e: &mut Engine, this: Ptr<TelekinesisEffect>) {
-    if e.get(this, TelekinesisEffect::pRef) == 0 || e.call(EFFECT_CASTER, &args![this]).u32() == 0 {
+    if e.get(this, TelekinesisEffect::pRef) == 0
+        || typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this)) == 0
+    {
         dispel(e, this);
         return;
     }
     let reference = e.get(this, TelekinesisEffect::pRef);
-    let form = e.call(0x007a_f430, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if e.call(0x0040_1170, &args![form]).u32() == 0x1b {
         dispel(e, this);
         return;
@@ -360,18 +364,24 @@ pub fn telekinesis_effect_create_spring(e: &mut Engine, this: Ptr<TelekinesisEff
         let reference = e.get(this, TelekinesisEffect::pRef);
         let player = e.global::<u32>(PLAYER);
         e.call(0x0095_f930, &args![player, reference, 3u32, distance]);
-        e.call(0x0068_15c0, &args![local(0x28)]);
-        e.call(0x0068_15c0, &args![local(0x34)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local(0x28)));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local(0x34)));
         let player = e.global::<u32>(PLAYER);
         e.call(0x008a_ff80, &args![player, local(0x28), local(0x34), 1u32]);
         let game = e.global::<u32>(SAVE_LOAD_GAME);
         if !e.call(0x0047_c850, &args![game]).bool() {
-            e.call(0x0068_15c0, &args![local(0x50)]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local(0x50)));
             let player = e.global::<u32>(PLAYER);
             let grab = fn_0082aa90(e, Ptr::new(player));
             fn_0082aa50(e, Ptr::new(grab), local(0x50));
             e.call(0x0043_9ef0, &args![local(0x50), local(0x44), local(0x28)]);
-            let dot = e.call(0x004b_6190, &args![local(0x34), local(0x44)]).f64();
+            let dot = typed_call!(
+                leaf::FAMILY,
+                0x004b_6190,
+                leaf::point3_dot(e, local(0x34), local(0x44))
+            )
+            .into_ret()
+            .f64();
             e.set(this, TelekinesisEffect::fHoldDistance, x87_store32(dot));
             let distance = x87_quiet_bits(e.get(this, TelekinesisEffect::fHoldDistance));
             let player = e.global::<u32>(PLAYER);
@@ -419,7 +429,11 @@ pub fn fn_0082aa50(e: &mut Engine, this: Ptr, position: u32) {
 /// Unnamed in the engine map (`thiscall`, folded code): the word at +0x634
 /// (`00559450` on `this + 0x634`; on the player, what `Update` grabs).
 pub fn fn_0082aa90(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(0x0055_9450, &args![this.addr() + 0x634]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0x634)
+    )
 }
 
 // Translated from 0082aab0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -481,15 +495,16 @@ pub fn telekinesis_effect_update(e: &mut Engine, this: Ptr<TelekinesisEffect>, s
         dispel(e, this);
         return;
     }
-    let caster_word =
-        if e.call(EFFECT_CASTER, &args![this]).u32() != 0 && player_word_008d6f30(e) != 0 {
-            let caster = e.call(EFFECT_CASTER, &args![this]).u32();
-            let actor = e.vcall(caster, 0x2c, &args![]).u32();
-            let process = e.call(0x008d_6f30, &args![actor]).u32();
-            e.call(0x0045_43c0, &args![process]).u32()
-        } else {
-            0
-        };
+    let caster_word = if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this)) != 0
+        && player_word_008d6f30(e) != 0
+    {
+        let caster = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
+        let actor = e.vcall(caster, 0x2c, &args![]).u32();
+        let process = e.call(0x008d_6f30, &args![actor]).u32();
+        e.call(0x0045_43c0, &args![process]).u32()
+    } else {
+        0
+    };
     let player_word = if player_word_0089f4e0(e) != 0 && player_word_008d6f30(e) != 0 {
         let process = player_word_008d6f30(e);
         e.call(0x0045_43c0, &args![process]).u32()
@@ -675,8 +690,8 @@ pub fn fn_0082afa0(e: &mut Engine, this: Ptr<TelekinesisEffect>) {
     e.with_stack(0x80, |e, frame| {
         let frame = frame.addr();
         let local = |offset: u32| frame + 0x80 - offset;
-        e.call(0x0068_15c0, &args![local(0x1c)]);
-        e.call(0x0068_15c0, &args![local(0x40)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local(0x1c)));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local(0x40)));
         let player = e.global::<u32>(PLAYER);
         let angles = e.call(0x0043_0830, &args![player]).u32();
         for i in 0..3 {
@@ -696,7 +711,7 @@ pub fn fn_0082afa0(e: &mut Engine, this: Ptr<TelekinesisEffect>) {
         e.mem.set_u32(local(0x50), speed);
         let speed = x87_quiet_bits(speed);
         e.call(0x0045_bb20, &args![local(0x1c), local(0x5c), speed]);
-        e.call(0x0068_15c0, &args![local(0x70)]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local(0x70)));
         e.call(0x004a_3e00, &args![local(0x70), local(0x5c)]);
         let mass = x87_store32(e.call(0x004b_5400, &args![reference]).f64());
         e.call(0x005d_bf20, &args![local(0x80), mass]);
@@ -752,7 +767,7 @@ pub fn telekinesis_effect_save_game(e: &mut Engine, this: Ptr<TelekinesisEffect>
         e.mem.set_u32(id.addr(), 0);
         let reference = e.get(this, TelekinesisEffect::pRef);
         if reference != 0 {
-            let form_id = e.call(FORM_ID, &args![reference]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
             e.mem.set_u32(id.addr(), form_id);
         }
         let game = e.global::<u32>(SAVE_LOAD_GAME);

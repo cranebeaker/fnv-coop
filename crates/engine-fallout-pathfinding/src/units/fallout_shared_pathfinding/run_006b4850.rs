@@ -119,13 +119,16 @@ pub fn fn_006b4b50(e: &mut Engine, this: Ptr, data: u32, file: Ptr, version: i32
 /// word written goes through `00401080` first.
 const SAVE_FLAG_00401500: u32 = 0x0040_1500;
 /// `0084e3a0` (`thiscall`): the word at the object's `+0xc`.
+#[cfg(test)]
 const WORD_AT_C_0084E3A0: u32 = 0x0084_e3a0;
 /// `0069c4c0` (unnamed in the engine map; `thiscall`, `RET 4`: data): writes
 /// the object at `+0x58` into the record.
 const EXTRA_SAVE_0069C4C0: u32 = 0x0069_c4c0;
 /// `0044ddc0` (`thiscall`): the element count of an array.
+#[cfg(test)]
 const COUNT_0044DDC0: u32 = 0x0044_ddc0;
 /// `00877a30` (`thiscall`, `RET 4`: index): the address of element `index`.
+#[cfg(test)]
 const ELEMENT_00877A30: u32 = 0x0087_7a30;
 /// `0042fb00` and `0042fa40` (`thiscall`): construct and destroy the 4-byte
 /// local `00690860` fills.
@@ -134,6 +137,7 @@ const LOCAL_DESTRUCT_0042FA40: u32 = 0x0042_fa40;
 /// `00690860` (`thiscall` on an element, `RET 4`: the local): a byte.
 const ELEMENT_FILL_00690860: u32 = 0x0069_0860;
 /// `00559450` (`thiscall` on the local): an object.
+#[cfg(test)]
 const LOCAL_OBJECT_00559450: u32 = 0x0055_9450;
 
 // Translated from 006b4880 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -192,10 +196,10 @@ pub fn fn_006b48f0(e: &mut Engine, this: Ptr, data: u32) {
 
         if e.mem.u32(base + 0x54) != 0 {
             let owner = e.mem.u32(base + 0x54);
-            let id = e.call(WORD_AT_C_0084E3A0, &args![owner]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
             if id != e.mem.u32(base) {
                 let owner = e.mem.u32(base + 0x54);
-                let id = e.call(WORD_AT_C_0084E3A0, &args![owner]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner));
                 e.mem.set_u32(base, id);
             }
         }
@@ -206,7 +210,7 @@ pub fn fn_006b48f0(e: &mut Engine, this: Ptr, data: u32) {
         data = data.wrapping_add(4);
 
         let object = e.mem.u32(base + 0x1c);
-        let id = e.call(WORD_AT_C_0084E3A0, &args![object]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object));
         e.mem.set_u32(base + 4, id);
         let value = e.mem.u32(base + 4);
         e.mem.set_u32(word, value);
@@ -257,7 +261,11 @@ pub fn fn_006b4e10(e: &mut Engine, this: Ptr) -> u32 {
     let mut size = 0u32;
     for array in [0x24, 0x34, 0x44] {
         size = size.wrapping_add(4);
-        let count = e.call(COUNT_0044DDC0, &args![this.addr() + array]).u32();
+        let count = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, this.addr() + array)
+        );
         size = size.wrapping_add(count.wrapping_mul(4));
     }
     size
@@ -291,19 +299,23 @@ pub fn fn_006b4e80(e: &mut Engine, this: Ptr, out: u32) {
         let value = frame.addr() + 0x10;
         let mut out = out;
         for (array, local) in [(0x24, frame.addr() + 8), (0x34, frame.addr())] {
-            let count = e.call(COUNT_0044DDC0, &args![base + array]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + array));
             e.mem.set_u32(value, count);
             put_word(e, value, out);
             out = out.wrapping_add(4);
-            let count = e.call(COUNT_0044DDC0, &args![base + array]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + array));
             let mut index = 0u32;
             while index < count {
-                let slot = e.call(ELEMENT_00877A30, &args![base + array, index]).u32();
+                let slot = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, base + array, index)
+                );
                 let element = e.mem.u32(slot);
                 e.call(LOCAL_CONSTRUCT_0042FB00, &args![local]);
                 if e.call(ELEMENT_FILL_00690860, &args![element, local]).bool() {
-                    let object = e.call(LOCAL_OBJECT_00559450, &args![local]).u32();
-                    let id = e.call(WORD_AT_C_0084E3A0, &args![object]).u32();
+                    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local));
+                    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, object));
                     e.mem.set_u32(value, id);
                     put_word(e, value, out);
                 }
@@ -312,19 +324,23 @@ pub fn fn_006b4e80(e: &mut Engine, this: Ptr, out: u32) {
                 index += 1;
             }
         }
-        let count = e.call(COUNT_0044DDC0, &args![base + 0x44]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + 0x44));
         e.mem.set_u32(value, count);
         put_word(e, value, out);
         out = out.wrapping_add(4);
-        let count = e.call(COUNT_0044DDC0, &args![base + 0x44]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base + 0x44));
         let mut index = 0u32;
         while index < count {
-            let slot = e.call(ELEMENT_00877A30, &args![base + 0x44, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, base + 0x44, index)
+            );
             let element = e.mem.u32(slot);
             if element == 0 {
                 e.mem.set_u32(out, 0);
             } else {
-                let id = e.call(WORD_AT_C_0084E3A0, &args![element]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, element));
                 e.mem.set_u32(value, id);
                 put_word(e, value, out);
             }

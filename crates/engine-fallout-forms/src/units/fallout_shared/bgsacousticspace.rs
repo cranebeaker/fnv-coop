@@ -45,6 +45,7 @@ const TYPE_TES_SOUND: u32 = 0x0118_32fc;
 /// RTTI type descriptor `.?AVTESRegion@@`.
 const TYPE_TES_REGION: u32 = 0x0118_99b4;
 /// `0084e3a0` (`thiscall`): the form's word at +0xC (its form id).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The form's name: its vtable slot +0x130.
 const NAME_SLOT: u32 = 0x130;
@@ -94,7 +95,7 @@ pub fn bgs_acoustic_space_init_item(e: &mut Engine, this: Ptr<BGSAcousticSpace>)
                 .u32();
             e.mem.set_u32(field, cast);
             if e.mem.u32(field) == 0 {
-                let own_id = e.call(FORM_ID, &args![this]).u32();
+                let own_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 let name = e.vcall(this.addr(), NAME_SLOT, &args![]).u32();
                 e.call(PRINT_WARNING, &args![format, id, name, own_id]);
             }

@@ -20,6 +20,7 @@ use crate::prelude::*;
 const COMPARE_EXCHANGE: u32 = 0x0043_b460;
 /// `Error` (`0040fbe0`): a five-byte stub called around the locked section
 /// (takes no arguments).
+#[cfg(test)]
 const ERROR_NO_OP: u32 = 0x0040_fbe0;
 
 // Translated from 00407800 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -286,9 +287,9 @@ fn try_locked_vcall(e: &mut Engine, this: Ptr, slot: u32, message: Ptr) -> bool 
     if previous != 0 {
         return false;
     }
-    e.call(ERROR_NO_OP, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     let result = e.vcall(this.addr(), slot, &args![message]).bool();
-    e.call(ERROR_NO_OP, &args![]);
+    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     e.call(COMPARE_EXCHANGE, &args![lock, 1u32, 0u32]);
     result
 }
@@ -344,6 +345,7 @@ const BASE_LOAD: u32 = 0x006d_c910;
 const BASE_CONSTRUCTOR: u32 = 0x0091_3fe0;
 const LIST_CONSTRUCTOR: u32 = 0x0096_a2d0;
 const OPERATOR_NEW: u32 = 0x0040_1000;
+#[cfg(test)]
 const POINT_CONSTRUCTOR: u32 = 0x0068_15c0;
 /// `__ehvec_ctor(array, element size, count, constructor, destructor)`
 /// (`00ec782f`, cdecl).
@@ -922,7 +924,7 @@ pub fn high_process_high_process(e: &mut Engine, this: Ptr<HighProcess>) -> Ptr<
     for offset in [0x274u32, 0x27c, 0x284, 0x28c] {
         e.call(LIST_CONSTRUCTOR, &args![base + offset]);
     }
-    e.call(POINT_CONSTRUCTOR, &args![base + 0x300]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x300));
     e.call(
         VECTOR_CONSTRUCT,
         &args![
@@ -1509,16 +1511,10 @@ pub fn middle_high_process_set_force_next_update(e: &mut Engine, this: Ptr, valu
 const RUN_ONCE_PACKAGE_OFFSET: u32 = 0xe4;
 /// `spCharController` (`NiPointer<bhkCharacterController>`, Xbox PDB) at +0x138.
 const CHAR_CONTROLLER_OFFSET: u32 = 0x138;
-/// Reads the first word of an object (`00559450`; the `NiPointer` getter).
-const READ_FIRST_WORD: u32 = 0x0055_9450;
 /// Stores its argument at +0xc of the object (`0041fd00`).
 const WRITE_WORD_AT_0C: u32 = 0x0041_fd00;
-/// Reads the word at +0xc of the object (`0084e3a0`).
-const READ_WORD_AT_0C: u32 = 0x0084_e3a0;
 /// Adds its argument to the word at +0xc of the object (`0049bb50`).
 const ADD_TO_WORD_AT_0C: u32 = 0x0049_bb50;
-/// Reads the word at +4 of the object (`00726070`).
-const READ_WORD_AT_04: u32 = 0x0072_6070;
 /// `NiPointer<..>::operator=(const NiPointer&)` (`006e5cc0`): takes the
 /// address of the source pointer.
 const NI_POINTER_ASSIGN: u32 = 0x006e_5cc0;
@@ -1560,11 +1556,11 @@ pub fn middle_high_process_add_gun_drift(e: &mut Engine, this: Ptr, amount: f32)
 /// Unnamed in the map: returns `00559450(&RunOncePackage)`, the first word
 /// of the embedded package at +0xe4.
 pub fn fn_008d83e0(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(
-        READ_FIRST_WORD,
-        &args![this.addr() + RUN_ONCE_PACKAGE_OFFSET],
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + RUN_ONCE_PACKAGE_OFFSET)
     )
-    .u32()
 }
 
 // Translated from 008d8400 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1581,11 +1577,11 @@ pub fn middle_high_process_set_run_once_procedure_index(e: &mut Engine, this: Pt
 /// `MiddleHighProcess::GetRunOnceProcedureIndex` (Xbox PDB): returns
 /// `0084e3a0(&RunOncePackage)`.
 pub fn middle_high_process_get_run_once_procedure_index(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(
-        READ_WORD_AT_0C,
-        &args![this.addr() + RUN_ONCE_PACKAGE_OFFSET],
+    typed_call!(
+        leaf::FAMILY,
+        0x0084_e3a0,
+        leaf::word_at_c(e, this.addr() + RUN_ONCE_PACKAGE_OFFSET)
     )
-    .u32()
 }
 
 // Translated from 008d8440 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1602,13 +1598,11 @@ pub fn middle_high_process_add_to_run_once_procedure_index(e: &mut Engine, this:
 /// `MiddleHighProcess::GetRunOncePackageInstanceData` (Xbox PDB): returns
 /// `00726070(&RunOncePackage)`.
 pub fn middle_high_process_get_run_once_package_instance_data(e: &mut Engine, this: Ptr) -> Ptr {
-    Ptr::new(
-        e.call(
-            READ_WORD_AT_04,
-            &args![this.addr() + RUN_ONCE_PACKAGE_OFFSET],
-        )
-        .u32(),
-    )
+    Ptr::new(typed_call!(
+        leaf::FAMILY,
+        0x0072_6070,
+        leaf::word_at_4(e, this.addr() + RUN_ONCE_PACKAGE_OFFSET)
+    ))
 }
 
 // Translated from 008d8480 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1616,13 +1610,11 @@ pub fn middle_high_process_get_run_once_package_instance_data(e: &mut Engine, th
 /// `00559450(&spCharController)`, the controller held by the `NiPointer`
 /// at +0x138.
 pub fn middle_high_process_get_char_controller(e: &mut Engine, this: Ptr) -> Ptr {
-    Ptr::new(
-        e.call(
-            READ_FIRST_WORD,
-            &args![this.addr() + CHAR_CONTROLLER_OFFSET],
-        )
-        .u32(),
-    )
+    Ptr::new(typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + CHAR_CONTROLLER_OFFSET)
+    ))
 }
 
 // Translated from 008d84a0 (decompiled, FalloutNV.exe 1.4.0.525)

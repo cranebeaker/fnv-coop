@@ -131,6 +131,7 @@ const COPY_00401460: u32 = 0x0040_1460;
 /// `NiPointer` assignment (`0066b0d0`, `RET 4`), `00559450` (`thiscall`: the word at +0, an
 /// `NiPointer`'s object or a string's text) and the `NiPointer` destructor (`0045cec0`).
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
+#[cfg(test)]
 const WORD_AT_0_00559450: u32 = 0x0055_9450;
 const NI_POINTER_DESTROY: u32 = 0x0045_cec0;
 /// `00450b80` (`cdecl`, a word: the scene node), `00b5d180` and `00572160` (`thiscall`).
@@ -139,12 +140,14 @@ const SCENE_00B5D180: u32 = 0x00b5_d180;
 const NODE_00572160: u32 = 0x0057_2160;
 /// List helpers: empty (`008256d0`), free the nodes (`00470470`), the list's deleting
 /// destructor (`004702f0`, `RET 4`), append the pointed-to word (`005ae3d0`, `RET 4`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 const LIST_FREE_NODES: u32 = 0x0047_0470;
 const LIST_DELETE: u32 = 0x0047_02f0;
 const LIST_APPEND: u32 = 0x005a_e3d0;
 /// The list constructor (`0096a2d0`) and `006815c0` (`thiscall`, returns `this`).
 const LIST_CONSTRUCT: u32 = 0x0096_a2d0;
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
 /// `eh vector destructor iterator` (`00ec5fce`, `stdcall`, four words) and the menu's base
 /// destructor (`00a1c520`).
@@ -153,6 +156,7 @@ const MENU_DESTRUCT: u32 = 0x00a1_c520;
 /// `InterfaceManager` (`004b7210`), its word at +0x28 (`0045cd60`: the cursor tile) and
 /// `Tile::SetFloat` (`00a012d0`, `RET 0xc`), `Tile::SetString` (`00a01350`, `RET 0xc`).
 const INTERFACE_MANAGER: u32 = 0x004b_7210;
+#[cfg(test)]
 const WORD_AT_28_0045CD60: u32 = 0x0045_cd60;
 const TILE_SET_FLOAT: u32 = 0x00a0_12d0;
 const TILE_SET_STRING: u32 = 0x00a0_1350;
@@ -174,6 +178,7 @@ const NI_NODE_CONSTRUCT: u32 = 0x00a5_ecb0;
 const POINT_CONSTRUCT_0043D410: u32 = 0x0043_d410;
 const SET_TRANSLATE_00A59C60: u32 = 0x00a5_9c60;
 const GET_CONTROLLER: u32 = 0x00a5_c570;
+#[cfg(test)]
 const GET_WORLD_BOUND: u32 = 0x0043_d450;
 const BOUND_RADIUS_0084D030: u32 = 0x0084_d030;
 const LOCAL_TRANSLATE_0043C490: u32 = 0x0043_c490;
@@ -261,7 +266,7 @@ fn tile(e: &Engine, this: u32, index: u32) -> u32 {
 
 /// The item word of a list node, reached through `006815c0` as the code does.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_SELF, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -273,7 +278,11 @@ fn bet_tile(this: u32, index: u32) -> u32 {
 
 /// The model node (`spModel`).
 fn model(e: &mut Engine) -> u32 {
-    e.call(WORD_AT_0_00559450, &args![MODEL_011DA8A0]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, MODEL_011DA8A0)
+    )
 }
 
 /// A path from one of the casino's models (`00504e00(index)`, its vtable +0x14).
@@ -345,7 +354,7 @@ fn reset_model_translate(e: &mut Engine) {
 /// `Tile::SetFloat(0xfa9, value, 1)` on the interface manager's cursor tile (+0x28).
 fn set_cursor_fade(e: &mut Engine, value: u32) {
     let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
-    let cursor = e.call(WORD_AT_28_0045CD60, &args![interface]).u32();
+    let cursor = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, interface));
     e.call(TILE_SET_FLOAT, &args![cursor, 0xfa9u32, value, 1u32]);
 }
 
@@ -390,7 +399,11 @@ pub fn roulette_menu_scalar_deleting_destructor(
 /// argument): the number list (`0096a2d0`) and `006815c0` on +0x10. Returns `this`.
 pub fn fn_007b8fa0(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(LIST_CONSTRUCT, &args![this]);
-    e.call(NODE_SELF, &args![this.addr() + 0x10]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0x10)
+    );
     this
 }
 
@@ -439,7 +452,7 @@ pub fn fn_007b9020(e: &mut Engine, this: Ptr<RouletteMenu>) {
     e.set(this, RouletteMenu::pInvalidBetFace, 0);
     e.call(NI_POINTER_ASSIGN, &args![base + WHEEL_TEXTURE, 0u32]);
     let list = e.get(this, RouletteMenu::pBetList);
-    if list != 0 && !e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if list != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         e.call(LIST_FREE_NODES, &args![list]);
     }
     let list = e.get(this, RouletteMenu::pBetList);
@@ -455,7 +468,7 @@ pub fn fn_007b9020(e: &mut Engine, this: Ptr<RouletteMenu>) {
         e.mem.set_u32(base + BET_SHADOW_GEOMETRY + 4 * index, 0);
     }
     let list = e.get(this, RouletteMenu::pBetList);
-    if !e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         e.call(LIST_FREE_NODES, &args![list]);
     }
     e.set(this, RouletteMenu::pBetList, 0);
@@ -608,7 +621,12 @@ pub fn roulette_menu_prepare_3d_elements(e: &mut Engine, this: Ptr<RouletteMenu>
         let table = e.get(this, RouletteMenu::pRouletteTableGeometry);
         e.call(START_ANIMATIONS, &args![table]);
     }
-    if e.call(WORD_AT_0_00559450, &args![CAMERA_011DA8D0]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_011DA8D0)
+    ) == 0
+    {
         let camera = e.call(MAKE_CAMERA_007C2180, &args![this]).u32();
         e.call(NI_POINTER_ASSIGN, &args![CAMERA_011DA8D0, camera]);
     }
@@ -616,7 +634,7 @@ pub fn roulette_menu_prepare_3d_elements(e: &mut Engine, this: Ptr<RouletteMenu>
     let node = model(e);
     e.vcall(scene, 0xdc, &args![node, 1u32]);
     let node = model(e);
-    let bound = e.call(GET_WORLD_BOUND, &args![node]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
     let radius = e.call(BOUND_RADIUS_0084D030, &args![bound]).f64();
     let scale: f64 = e.global(LIGHT_SCALE_0101DB80);
     let radius = x87_store32(x87_mul(radius, scale));
@@ -956,8 +974,8 @@ pub fn roulette_menu_prepare_bet_tiles(e: &mut Engine, this: Ptr<RouletteMenu>) 
                 });
             }
             e.call(SET_APP_CULLED_00450F90, &args![node, 1u32]);
-            let bound = e.call(GET_WORLD_BOUND, &args![node]).u32();
-            let centre = e.call(NODE_SELF, &args![bound]).u32();
+            let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
+            let centre = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, bound));
             let position = bet_x(base, index);
             for word in 0..3u32 {
                 let value = e.mem.u32(centre + 4 * word);
@@ -1294,9 +1312,11 @@ pub fn roulette_menu_set_tile_text_alpha(
 ) {
     let menu = roulette_menu(e);
     let parent = tile(e, menu, index);
-    let mut node = e
-        .call(WORD_AT_0_00559450, &args![parent.wrapping_add(4)])
-        .u32();
+    let mut node = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, parent.wrapping_add(4))
+    );
     let menu = roulette_menu(e);
     let list = tile(e, menu, index).wrapping_add(4);
     while node != 0 && list != 0 {
@@ -1461,7 +1481,9 @@ const SOUND_HANDLE_PLAY: u32 = 0x00ad_8830;
 const SOUND_HANDLE_DESTROY: u32 = 0x0048_3710;
 /// `0084e3a0` (`thiscall`: a form's key, as the casino data compares it), `00726070` (the
 /// word at +4: a node's next, a menu's tile) and `0063f7b0` (removes a list's first node).
+#[cfg(test)]
 const KEY_0084E3A0: u32 = 0x0084_e3a0;
+#[cfg(test)]
 const WORD_AT_4_00726070: u32 = 0x0072_6070;
 const LIST_REMOVE_FIRST_0063F7B0: u32 = 0x0063_f7b0;
 
@@ -1725,14 +1747,18 @@ pub fn fn_007bbcf0(e: &mut Engine) {
     let source = e.call(RENDER_0045C670, &args![]).u32();
     let accumulator = e.call(RENDER_008D80E0, &args![source]).u32();
     e.call(RENDER_00C4F270, &args![accumulator, 1u32]);
-    let camera = e.call(WORD_AT_0_00559450, &args![CAMERA_011DA8D0]).u32();
+    let camera = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, CAMERA_011DA8D0)
+    );
     let value = x87_quiet_bits(e.global::<u32>(CAMERA_VALUE_01030FF4));
     e.call(RENDER_00709D50, &args![camera, value]);
     let interface = e.call(INTERFACE_MANAGER, &args![]).u32();
     let target = e.call(RENDER_007FD640, &args![interface]).u32();
     e.with_stack(4, |e, local| {
         e.call(NI_POINTER_FROM_00633C90, &args![local, target]);
-        let pointer = e.call(WORD_AT_0_00559450, &args![local]).u32();
+        let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local));
         e.call(RENDER_004A0FD0, &args![accumulator, pointer]);
         let scene = if camera != 0 {
             camera
@@ -1741,7 +1767,7 @@ pub fn fn_007bbcf0(e: &mut Engine) {
         };
         let node = e.call(SCENE_00450B80, &args![1u32]).u32();
         e.call(ACCUMULATE_SCENE, &args![scene, node, accumulator]);
-        let pointer = e.call(WORD_AT_0_00559450, &args![local]).u32();
+        let pointer = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local));
         e.call(RENDER_00B6C0D0, &args![scene, pointer, 0u32]);
         e.call(RENDER_004A0FD0, &args![accumulator, 0u32]);
         e.call(NI_POINTER_ASSIGN, &args![local, 0u32]);
@@ -1793,17 +1819,17 @@ pub fn roulette_menu_create(
     let mut node = e.call(CASINO_DATA_LIST_005A6260, &args![player]).u32();
     while node != 0 && node_item(e, node) != 0 {
         let casino = e.global::<u32>(CASINO_011DA880);
-        let key = e.call(KEY_0084E3A0, &args![casino]).u32();
+        let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, casino));
         let data = node_item(e, node);
         if key == e.mem.u32(data) {
             let data = node_item(e, node);
             e.set_global(CASINO_DATA_011DA87C, data);
             break;
         }
-        if e.call(WORD_AT_4_00726070, &args![node]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node)) == 0 {
             break;
         }
-        node = e.call(WORD_AT_4_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if e.global::<u32>(CASINO_DATA_011DA87C) == 0 {
         e.with_stack(4, |e, local| {
@@ -1815,13 +1841,13 @@ pub fn roulette_menu_create(
             };
             e.mem.set_u32(local.addr(), data);
             let casino = e.global::<u32>(CASINO_011DA880);
-            let key = e.call(KEY_0084E3A0, &args![casino]).u32();
+            let key = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, casino));
             let data = e.mem.u32(local.addr());
             e.mem.set_u32(data, key);
             e.mem.set_u32(data.wrapping_add(4), 0);
             let player = e.global::<u32>(PLAYER_011DEA3C);
             let list = e.call(CASINO_DATA_LIST_005A6260, &args![player]).u32();
-            if list == 0 || e.call(LIST_IS_EMPTY, &args![list]).bool() {
+            if list == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
                 e.call(LIST_SET_FIRST_00726C60, &args![list, local]);
             } else {
                 e.call(LIST_APPEND, &args![list, local]);
@@ -1889,7 +1915,7 @@ pub fn roulette_menu_create(
     };
     if !created {
         let menu = roulette_menu(e);
-        if menu != 0 && e.call(WORD_AT_4_00726070, &args![menu]).u32() != 0 {
+        if menu != 0 && typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu)) != 0 {
             let menu = roulette_menu(e);
             e.vcall(menu, 0, &args![1u32]);
         }
@@ -2105,7 +2131,7 @@ pub fn roulette_menu_do_click(e: &mut Engine, this: Ptr<RouletteMenu>, id: u32, 
         }
         2 => {
             let list = e.get(this, RouletteMenu::pBetList);
-            if list == 0 || e.call(LIST_IS_EMPTY, &args![list]).bool() {
+            if list == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
                 return;
             }
             fn_007bf670(e, this);
@@ -2344,7 +2370,7 @@ fn idle_closing(e: &mut Engine, this: Ptr<RouletteMenu>) {
     }
     let fade = x87_quiet_bits(e.global::<u32>(CURSOR_FADE_01023CD8));
     set_cursor_fade(e, fade);
-    let root = e.call(WORD_AT_4_00726070, &args![this]).u32();
+    let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     e.call(TILE_SET_INT, &args![root, 0x1772u32, 1u32]);
     e.call(MENU_START_FADE_OUT, &args![this]);
     let casino = e.global::<u32>(CASINO_011DA880);
@@ -2398,7 +2424,7 @@ fn idle_closing(e: &mut Engine, this: Ptr<RouletteMenu>) {
             let sound = e
                 .call(GET_PICK_UP_SOUND_NAME, &args![player, item, 1u32, 0u32])
                 .u32();
-            let chars = e.call(WORD_AT_0_00559450, &args![text]).u32();
+            let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
             show_message(e, chars, LOST_ICON_010208A0, sound);
             e.call(STRING_DESTROY, &args![text]);
         });
@@ -2446,7 +2472,7 @@ fn idle_closing(e: &mut Engine, this: Ptr<RouletteMenu>) {
                     let sound = e
                         .call(GET_PICK_UP_SOUND_NAME, &args![player, item, 1u32, 0u32])
                         .u32();
-                    let chars = e.call(WORD_AT_0_00559450, &args![text]).u32();
+                    let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, text));
                     show_message(e, chars, WON_ICON_0103A830, sound);
                     e.call(STRING_DESTROY, &args![text]);
                 });
@@ -2608,12 +2634,12 @@ fn idle_payout(e: &mut Engine, this: Ptr<RouletteMenu>, other: i32) {
         if (index as i32) < 0x93 {
             let mut node = record;
             while node != 0 {
-                let slot = e.call(NODE_SELF, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 if e.get(this, RouletteMenu::iResultValue) as u32 == e.mem.u32(slot) {
                     won = true;
                     break;
                 }
-                node = e.call(WORD_AT_4_00726070, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         } else {
             won = outside_bet_wins(e, this, index);
@@ -2949,7 +2975,7 @@ pub fn roulette_menu_set_bet(e: &mut Engine, this: Ptr<RouletteMenu>, index: u32
         if e.mem.u32(bet.wrapping_add(4)) == index {
             return false;
         }
-        node = e.call(WORD_AT_4_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.with_stack(0x1c, |e, frame| {
         e.call(
@@ -2976,7 +3002,7 @@ pub fn roulette_menu_set_bet(e: &mut Engine, this: Ptr<RouletteMenu>, index: u32
         let next = e.get(this, RouletteMenu::iNextModelIndex) as u32;
         e.mem.set_u32(bet.wrapping_add(8), next);
         let list = e.get(this, RouletteMenu::pBetList);
-        if list == 0 || e.call(LIST_IS_EMPTY, &args![list]).bool() {
+        if list == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
             let list = e.get(this, RouletteMenu::pBetList);
             e.call(LIST_SET_FIRST_00726C60, &args![list, bet_slot]);
         } else {
@@ -3099,7 +3125,7 @@ pub fn roulette_menu_remove_bet(e: &mut Engine, this: Ptr<RouletteMenu>, index: 
             e.call(FREE, &args![item]);
             return true;
         }
-        node = e.call(WORD_AT_4_00726070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     false
 }

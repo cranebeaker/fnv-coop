@@ -23,6 +23,7 @@ use crate::prelude::*;
 
 /// `NiPointer<T>::get` (`__thiscall`, no arguments): the pointer stored at
 /// `this`.
+#[cfg(test)]
 pub(crate) const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiPointer<T>::operator=(T*)` (`RET 4`): releases the old object, stores
 /// the new one and adds a reference to it.
@@ -35,8 +36,11 @@ const NI_POINTER_DESTRUCTOR: u32 = 0x0045_cec0;
 /// item (`this`) and the next node (`this + 4`); `IsEmpty` tests both words
 /// of the head node, `RemoveHead` unlinks and frees the first node, `Clear`
 /// empties the list and `0047 02f0` is its scalar deleting destructor.
+#[cfg(test)]
 const LIST_NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
 const LIST_CLEAR: u32 = 0x0047_0470;
@@ -199,6 +203,7 @@ const MIN_FLOAT: u32 = 0x0040_ebd0;
 const CLAMP_FLOAT: u32 = 0x0053_30e0;
 const COLOR_CLAMP_TO_ONE: u32 = 0x00a6_9690;
 /// `NiColor::NiColor(r, g, b)` (`__thiscall`, returns `this`).
+#[cfg(test)]
 const NI_COLOR_CONSTRUCT: u32 = 0x0041_6870;
 /// A weather's byte table fraction (`ECX` = weather; index, high, low):
 /// `table[index] / 255 * (high - low) + low`.
@@ -243,7 +248,9 @@ const LIGHTNING_SCALE_COLOR_4: u32 = 0x011c_cccc;
 /// (`+0x20`) and the sun (`+0x28`); and the `NiPointer` at `+8` of a
 /// component.
 const SKY_GET_CLOUDS: u32 = 0x0055_b980;
+#[cfg(test)]
 const SKY_GET_ATMOSPHERE: u32 = 0x007a_f430;
+#[cfg(test)]
 const SKY_GET_SUN: u32 = 0x0045_cd60;
 const HOLDER_NODE: u32 = 0x0055_85e0;
 /// `TESForm` lookup by id (`cdecl`), `__RTDynamicCast` (`cdecl`: object,
@@ -385,6 +392,7 @@ const SAVE_VERSION: u32 = 0x008d_f040;
 const SAVE_NUMERIC_ID: u32 = 0x0085_7a10;
 const SAVE_DATA: u32 = 0x0085_79b0;
 /// A form's id (`ECX` = form, returns a word).
+#[cfg(test)]
 const FORM_ID_OF: u32 = 0x0084_e3a0;
 /// The second save format: `SaveFormID` (`RET 8`: form, 0) and data save
 /// (`RET 0xc`: pointer, size, 0).
@@ -523,7 +531,9 @@ fn copy_color(e: &mut Engine, to: u32, from: u32) {
 
 /// `NiPointer<T>::get` on the smart pointer stored at `slot`.
 fn ni_pointer_get(e: &mut Engine, slot: u32) -> Ptr {
-    e.call(NI_POINTER_GET, &args![slot]).ptr()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
+        .into_ret()
+        .ptr()
 }
 
 /// `NiPointer<T>::operator=` on the smart pointer stored at `slot`.
@@ -673,16 +683,22 @@ pub fn fn_0063a0b0(e: &mut Engine, this: Ptr<Sky>) {
     ni_pointer_assign(e, root_slot, Ptr::NULL);
     let mut node = e.get(this, Sky::pSkySoundList);
     while !node.is_null() {
-        let item_slot: Ptr = e.call(LIST_NODE_ITEM, &args![node]).ptr();
+        let item_slot: Ptr = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
+            .into_ret()
+            .ptr();
         if e.mem.u32(item_slot.addr()) == 0 {
             break;
         }
-        let item_slot: Ptr = e.call(LIST_NODE_ITEM, &args![node]).ptr();
+        let item_slot: Ptr = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
+            .into_ret()
+            .ptr();
         let item: Ptr<SkySound> = Ptr::new(e.mem.u32(item_slot.addr()));
         if !item.is_null() {
             fn_0063a3c0(e, item, 1);
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).ptr();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
+            .into_ret()
+            .ptr();
     }
     let list = e.get(this, Sky::pSkySoundList);
     e.call(LIST_CLEAR, &args![list]);
@@ -729,18 +745,26 @@ pub fn sky_set_mode(e: &mut Engine, this: Ptr<Sky>, mode: u32) {
         e.call(SKY_UNLOAD_ALL_TEXTURES, &args![this]);
         set_root_and_sun_hidden(e, this, 1);
         let list = e.get(this, Sky::pSkySoundList);
-        while !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-            let slot: Ptr = e.call(LIST_NODE_ITEM, &args![list]).ptr();
+        while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+            let slot: Ptr = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list))
+                .into_ret()
+                .ptr();
             let sound = e.mem.u32(slot.addr());
             if e.call(SOUND_HANDLE_IS_PLAYING, &args![sound]).bool() {
-                let slot: Ptr = e.call(LIST_NODE_ITEM, &args![list]).ptr();
+                let slot: Ptr = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list))
+                    .into_ret()
+                    .ptr();
                 let sound = e.mem.u32(slot.addr());
                 e.call(SOUND_HANDLE_STOP, &args![sound]);
             }
-            let slot: Ptr = e.call(LIST_NODE_ITEM, &args![list]).ptr();
+            let slot: Ptr = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list))
+                .into_ret()
+                .ptr();
             let sound = e.mem.u32(slot.addr());
             e.call(SOUND_HANDLE_RELEASE, &args![sound]);
-            let slot: Ptr = e.call(LIST_NODE_ITEM, &args![list]).ptr();
+            let slot: Ptr = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list))
+                .into_ret()
+                .ptr();
             let sound: Ptr<SkySound> = Ptr::new(e.mem.u32(slot.addr()));
             if !sound.is_null() {
                 fn_0063a3c0(e, sound, 1);
@@ -1057,16 +1081,28 @@ pub fn fn_0063b120(e: &mut Engine, this: Ptr<Sky>) {
     if mode == 0 {
         let temp = e.mem.alloc(12);
         let (a, b): (f32, f32) = (e.global(0x0101_ffc0), e.global(0x0101_9de0));
-        e.call(NI_COLOR_CONSTRUCT, &args![temp, a, b, b]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, temp, a, b, b)
+        );
         copy_color(e, sky + 0x6c, temp);
         let (a, c): (f32, f32) = (e.global(0x0102_1f44), e.global(0x0104_ee30));
-        e.call(NI_COLOR_CONSTRUCT, &args![temp, a, a, c]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, temp, a, a, c)
+        );
         copy_color(e, sky + 0x60, temp);
         if !clouds.is_null() {
             let mut layer = 0;
             while layer < e.call(CLOUDS_LAYER_COUNT, &args![clouds]).i32() {
                 let value: f32 = e.global(0x0101_e2bc);
-                e.call(NI_COLOR_CONSTRUCT, &args![temp, value, value, value]);
+                typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, temp, value, value, value)
+                );
                 fn_0063b600(e, clouds, layer, Ptr::new(temp));
                 layer += 1;
             }
@@ -1159,7 +1195,11 @@ pub fn fn_0063b120(e: &mut Engine, this: Ptr<Sky>) {
                 if last_weather.is_null() && layer == 0 {
                     lightning = flash;
                 }
-                e.call(NI_COLOR_CONSTRUCT, &args![temp, 0.0f32, 0.0f32, 0.0f32]);
+                typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, temp, 0.0f32, 0.0f32, 0.0f32)
+                );
                 fn_0063c690(e, this, Ptr::new(temp), Ptr::new(sample), lightning);
                 fn_0063b600(e, clouds, layer, Ptr::new(temp));
                 layer += 1;
@@ -1592,13 +1632,19 @@ fn fog_from_water(e: &mut Engine, this: Ptr<Sky>, water: u32, camera_height: f32
             let node = fn_0063c440(e, clouds, layer);
             e.call(SET_NODE_HIDDEN, &args![node, hide as u32]);
         }
-        let atmosphere: Ptr = e.call(SKY_GET_ATMOSPHERE, &args![this]).ptr();
+        let atmosphere: Ptr = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this))
+            .into_ret()
+            .ptr();
         let node: Ptr = e.call(HOLDER_NODE, &args![atmosphere]).ptr();
         e.call(SET_NODE_HIDDEN, &args![node, hide as u32]);
-        let sun: Ptr = e.call(SKY_GET_SUN, &args![this]).ptr();
+        let sun: Ptr = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this))
+            .into_ret()
+            .ptr();
         let node: Ptr = e.call(HOLDER_NODE, &args![sun]).ptr();
         e.call(SET_NODE_HIDDEN, &args![node, hide as u32]);
-        let sun: Ptr = e.call(SKY_GET_SUN, &args![this]).ptr();
+        let sun: Ptr = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this))
+            .into_ret()
+            .ptr();
         let node: Ptr = e.call(SUN_GET_NODE, &args![sun]).ptr();
         e.call(SET_NODE_HIDDEN, &args![node, hide as u32]);
         let root = ni_pointer_get(e, this.addr() + 4);
@@ -1808,9 +1854,10 @@ pub fn fn_0063c690(e: &mut Engine, this: Ptr<Sky>, dest: Ptr, source: Ptr, light
     let zero: f64 = e.global(DOUBLE_ZERO);
     if lightning as f64 > zero {
         e.with_stack(12, |e, tint| {
-            e.call(
-                NI_COLOR_CONSTRUCT,
-                &args![tint, lightning, lightning, lightning],
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, tint, lightning, lightning, lightning)
             );
             fn_0063c8a0(e, dest, tint);
         });
@@ -2139,13 +2186,15 @@ pub fn fn_0063d040(e: &mut Engine, this: Ptr) -> Ptr {
 
 /// The item of a `BSSimpleList` node (`LIST_NODE_ITEM` returns its address).
 fn list_item(e: &mut Engine, node: u32) -> u32 {
-    let slot: Ptr = e.call(LIST_NODE_ITEM, &args![node]).ptr();
+    let slot: Ptr = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
+        .into_ret()
+        .ptr();
     e.mem.u32(slot.addr())
 }
 
 /// The next node of a `BSSimpleList` node (zero at the end).
 fn list_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NODE_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// Inserts `item` into the list at `list` (`LIST_INSERT` takes the address of
@@ -3153,7 +3202,7 @@ fn save_form_id(e: &mut Engine, form: Ptr) {
         let id = if form.is_null() {
             0
         } else {
-            e.call(FORM_ID_OF, &args![form]).u32()
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
         };
         e.mem.set_u32(slot.addr(), id);
         let buffer: u32 = e.global(SAVE_BUFFER_GLOBAL);

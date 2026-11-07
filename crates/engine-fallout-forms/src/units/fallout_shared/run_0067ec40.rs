@@ -17,14 +17,18 @@ const CALENDAR_GET_HOUR: u32 = 0x0086_7da0;
 const CALENDAR_VALUE_00867EF0: u32 = 0x0086_7ef0;
 /// Reads the word at +0x68 (`008d8520`; the engine map's name
 /// `MiddleHighProcess::GetSavedAcquireObject` belongs to folded code).
+#[cfg(test)]
 const OBJECT_AT_0X68: u32 = 0x008d_8520;
 /// `MobileObject::GetCurrentPackage` (`009344a0`).
 const MOBILE_OBJECT_GET_CURRENT_PACKAGE: u32 = 0x0093_44a0;
 /// A list node's item address (`006815c0`, returns the node itself).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
 /// A list node's next node (`00726070`, the word at +4).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// Whether a list is empty (`008256d0`: both of the head node's words are 0).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// Number of nodes with an item (`005ae380`; the engine map's name
 /// `VATS::GetCount` belongs to folded code).
@@ -98,11 +102,11 @@ pub fn fn_0067efd0(e: &mut Engine, this: Ptr) -> bool {
 /// never read.
 pub fn fn_0067ec40(e: &mut Engine, this: Ptr, actor: Ptr, out: Ptr, _unused_3: u32, hour: f32) {
     let mut current_package = 0u32;
-    let source = e.call(OBJECT_AT_0X68, &args![actor]).u32();
+    let source = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     let mut day = e.vcall(source, 0x30, &args![]).i32();
-    let source = e.call(OBJECT_AT_0X68, &args![actor]).u32();
+    let source = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     let mut month = e.vcall(source, 0x34, &args![]).i32();
-    let source = e.call(OBJECT_AT_0X68, &args![actor]).u32();
+    let source = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     // The year is carried along but never read.
     let mut _year = e.vcall(source, 0x38, &args![]).i32();
     let mut hour_bits = x87_quiet_bits(hour.to_bits());
@@ -111,19 +115,19 @@ pub fn fn_0067ec40(e: &mut Engine, this: Ptr, actor: Ptr, out: Ptr, _unused_3: u
 
     e.with_stack(4, |e, package| {
         while day != 0 {
-            let mut node = e.call(NODE_ITEM, &args![this]).u32();
+            let mut node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
             if !actor.is_null() {
                 current_package = e
                     .call(MOBILE_OBJECT_GET_CURRENT_PACKAGE, &args![actor])
                     .u32();
             }
-            if e.call(LIST_IS_EMPTY, &args![node]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
                 day = 0;
                 continue;
             }
             e.mem.set_u32(package.addr(), 0);
             while node != 0 {
-                let item_address = e.call(NODE_ITEM, &args![node]).u32();
+                let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(item_address);
                 e.mem.set_u32(package.addr(), item);
                 if item == 0 {
@@ -145,7 +149,7 @@ pub fn fn_0067ec40(e: &mut Engine, this: Ptr, actor: Ptr, out: Ptr, _unused_3: u
                     }
                     e.call(LIST_ADD, &args![out, package]);
                 }
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
 
             let one: f64 = e.global(ONE);
@@ -188,10 +192,10 @@ pub fn fn_0067ec40(e: &mut Engine, this: Ptr, actor: Ptr, out: Ptr, _unused_3: u
             swapped = false;
             let mut node = outer;
             while node != 0 {
-                let address = e.call(NODE_ITEM, &args![outer]).u32();
+                let address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, outer));
                 let value = e.mem.u32(address);
                 e.mem.set_u32(first, value);
-                let address = e.call(NODE_ITEM, &args![node]).u32();
+                let address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let value = e.mem.u32(address);
                 e.mem.set_u32(second, value);
                 let other = e.mem.u32(second);
@@ -202,9 +206,9 @@ pub fn fn_0067ec40(e: &mut Engine, this: Ptr, actor: Ptr, out: Ptr, _unused_3: u
                     e.call(NODE_SET_ITEM, &args![node, first]);
                     swapped = true;
                 }
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
-            outer = e.call(NODE_NEXT, &args![outer]).u32();
+            outer = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, outer));
             count = count.wrapping_sub(1);
         }
     });

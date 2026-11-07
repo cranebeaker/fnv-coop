@@ -55,6 +55,7 @@ const NO_CELL_TEXT: u32 = 0x0101_1584;
 
 /// `00559450` (`thiscall`): the word at `this` (the pointed-to object of a
 /// smart pointer).
+#[cfg(test)]
 const WORD_AT: u32 = 0x0055_9450;
 /// `005a4320` (`thiscall`): the path's node count.
 const PATH_NODE_COUNT: u32 = 0x005a_4320;
@@ -74,6 +75,7 @@ const BASE_CONSTRUCT: u32 = 0x009d_fe40;
 const BASE_DESTRUCT: u32 = 0x009d_fed0;
 
 /// `MiddleHighProcess::GetSavedAcquireObject` (engine map), on the actor.
+#[cfg(test)]
 const SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// `PlayerCharacter::IsSleepingorResting` (engine map).
 const IS_SLEEPING_OR_RESTING: u32 = 0x0094_df60;
@@ -234,7 +236,11 @@ pub fn virtual_actor_path_handler_init(
     let index = x87_fistp64_chop(X87Ext::load32(start.to_bits())) as u32;
     e.set(this, VirtualActorPathHandler::iCurrentNodeIndex, index);
     e.set(this, VirtualActorPathHandler::fDistanceTraveled, 0.0);
-    let path = e.call(WORD_AT, &args![this.addr() + 0xc]).u32();
+    let path = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xc)
+    );
     let length = e.call(PATH_LENGTH, &args![path]).f64();
     e.mem.set_u32(this.addr() + 0x1c, x87_store32(length));
     if x87_load32(start.to_bits()) == e.global::<f64>(ZERO) {
@@ -247,14 +253,22 @@ pub fn virtual_actor_path_handler_init(
 
 /// The current path's node count (`005a4320` on `00559450(spPath)`).
 fn path_node_count(e: &mut Engine, this: Ptr<VirtualActorPathHandler>) -> u32 {
-    let path = e.call(WORD_AT, &args![this.addr() + 0xc]).u32();
+    let path = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xc)
+    );
     e.call(PATH_NODE_COUNT, &args![path]).u32()
 }
 
 /// The path node at the current index (`006e78b0`).
 fn current_node(e: &mut Engine, this: Ptr<VirtualActorPathHandler>) -> u32 {
     let index = e.get(this, VirtualActorPathHandler::iCurrentNodeIndex);
-    let path = e.call(WORD_AT, &args![this.addr() + 0xc]).u32();
+    let path = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xc)
+    );
     e.call(PATH_NODE, &args![path, index]).u32()
 }
 
@@ -322,7 +336,7 @@ pub fn virtual_actor_path_handler_update(
 ) -> u32 {
     let mut step = x87_quiet_bits(elapsed.to_bits());
     let actor = e.get(this, VirtualActorPathHandler::pActor);
-    let acquire = e.call(SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+    let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     if acquire != 0 && e.vcall(acquire, 0x4bc, &[]).u32() != 0 {
         return 0;
     }
@@ -342,7 +356,7 @@ pub fn virtual_actor_path_handler_update(
             let time_scale = e.call(GET_TIME_SCALE, &args![CALENDAR]).f64();
             step = x87_store32(x87_div(e.global::<f64>(WAIT_STEP), time_scale));
             let actor = e.get(this, VirtualActorPathHandler::pActor);
-            let acquire = e.call(SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+            let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if acquire != 0 {
                 let value = e.call(ACQUIRE_VALUE, &args![acquire]).f64();
                 let left = x87_sub(x87_m32(e.global::<u32>(ACQUIRE_TIME)), value);
@@ -368,7 +382,7 @@ pub fn virtual_actor_path_handler_update(
             let word = e.global::<u32>(ZERO_POINT + 4 * i);
             e.mem.set_u32(direction + 4 * i, word);
         }
-        e.call(0x0068_15c0, &args![next]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, next));
         let actor = e.get(this, VirtualActorPathHandler::pActor);
         let speed = e.call(CURRENT_SPEED, &args![actor]).f64();
         let mut remaining = x87_store32(x87_mul(speed, x87_m32(step)));
@@ -451,12 +465,21 @@ pub fn virtual_actor_path_handler_update(
         if actor_is_inactive(e, this) {
             return 0;
         }
-        if e.call(WORD_AT, &args![this.addr() + 0xc]).u32() != 0 {
+        if typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.addr() + 0xc)
+        ) != 0
+        {
             let next_index = e
                 .get(this, VirtualActorPathHandler::iCurrentNodeIndex)
                 .wrapping_add(1);
             if next_index == path_node_count(e, this) {
-                let request = e.call(WORD_AT, &args![this.addr() + 0x10]).u32();
+                let request = typed_call!(
+                    leaf::FAMILY,
+                    0x0055_9450,
+                    leaf::word_at_0(e, this.addr() + 0x10)
+                );
                 let radius = e.call(TARGET_RADIUS, &args![request]).f64();
                 let reach = x87_add(radius, x87_m32(remaining));
                 if x87_load32(segment) <= reach {
@@ -519,7 +542,11 @@ pub fn virtual_actor_path_handler_use_door_at_node(
             return -1;
         }
     }
-    if e.call(WORD_AT, &args![this.addr() + 0xc]).u32() != 0
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xc)
+    ) != 0
         && e.get(this, VirtualActorPathHandler::iCurrentNodeIndex) < path_node_count(e, this)
     {
         let far = e.with_stack(0x30, |e, locals| {
@@ -685,7 +712,12 @@ pub fn virtual_actor_path_handler_get_percent_traveled(
     e: &mut Engine,
     this: Ptr<VirtualActorPathHandler>,
 ) -> f32 {
-    if e.call(WORD_AT, &args![this.addr() + 0xc]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xc)
+    ) == 0
+    {
         return 0.0;
     }
     let count = path_node_count(e, this);
@@ -728,7 +760,11 @@ pub fn virtual_actor_path_handler_get_next_node_location(
     this: Ptr<VirtualActorPathHandler>,
     out: u32,
 ) -> u32 {
-    let path = e.call(WORD_AT, &args![this.addr() + 0xc]).u32();
+    let path = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xc)
+    );
     if e.call(PATH_COUNT_008B6800, &args![path]).u32() == 0 {
         copy_actor_position(e, this, out);
         return out;
@@ -740,10 +776,18 @@ pub fn virtual_actor_path_handler_get_next_node_location(
         let next = e
             .get(this, VirtualActorPathHandler::iCurrentNodeIndex)
             .wrapping_add(1);
-        let path = e.call(WORD_AT, &args![this.addr() + 0xc]).u32();
+        let path = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.addr() + 0xc)
+        );
         e.call(PATH_NODE, &args![path, next]).u32()
     } else {
-        let path = e.call(WORD_AT, &args![this.addr() + 0xc]).u32();
+        let path = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.addr() + 0xc)
+        );
         e.call(PATH_LAST_NODE_009DDB30, &args![path]).u32()
     };
     let part = e.call(NODE_PART, &args![node]).u32();
@@ -762,14 +806,23 @@ pub fn virtual_actor_path_handler_get_node_location(
     index: u32,
     out: u32,
 ) -> bool {
-    if e.call(WORD_AT, &args![this.addr() + 0xc]).u32() == 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xc)
+    ) == 0
+    {
         return false;
     }
     if index >= path_node_count(e, this) {
         return false;
     }
     e.with_stack(0xc, |e, local| {
-        let path = e.call(WORD_AT, &args![this.addr() + 0xc]).u32();
+        let path = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, this.addr() + 0xc)
+        );
         let node = e.call(PATH_NODE, &args![path, index]).u32();
         let part = e.call(NODE_PART, &args![node]).u32();
         let point = e.call(NODE_POINT, &args![part, local]).u32();
@@ -808,7 +861,12 @@ pub fn virtual_actor_path_handler_print_current_status(
             x87_load32(z)
         ],
     );
-    if e.call(WORD_AT, &args![this.addr() + 0xc]).u32() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.addr() + 0xc)
+    ) != 0
+    {
         let count = path_node_count(e, this);
         let index = e.get(this, VirtualActorPathHandler::iCurrentNodeIndex);
         e.vcall(

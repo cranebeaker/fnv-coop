@@ -17,7 +17,7 @@ pub fn fn_0098fda0(e: &mut Engine, this: Ptr) -> Ptr {
 /// The word of the table at `011a4ed0` (the exe's data) for the index
 /// `00726070` gives.
 pub fn fn_0098fdd0(e: &mut Engine, this: Ptr) -> u32 {
-    let index = e.call(0x0072_6070, &args![this]).u32();
+    let index = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
     e.mem.u32(index.wrapping_mul(4).wrapping_add(0x011a_4ed0))
 }
 

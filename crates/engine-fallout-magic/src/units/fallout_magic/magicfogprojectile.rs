@@ -96,6 +96,7 @@ const MAKE_SOUND_HANDLE: u32 = 0x0093_3150;
 const BASE_FORM: u32 = 0x004f_d400;
 const PROJECTILE_FLIGHT_SOUND: u32 = 0x004f_d3c0;
 const PROJECTILE_LIGHT: u32 = 0x004f_d380;
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 const PROJECTILE_SPEED: u32 = 0x009b_0bd0;
 /// `00586150` the projectile's effect item, `EffectItem::GetDuration` (`004044d0`) and
@@ -153,6 +154,7 @@ const CELL_ADD_REFERENCE: u32 = 0x0054_8230;
 const CELL_HAVOK_WORLD: u32 = 0x0045_43c0;
 const CELL_WATER_HEIGHT: u32 = 0x0054_71e0;
 /// The controller construction and placement (as in `magicballprojectile.rs`).
+#[cfg(test)]
 const OBJECT_BUSY: u32 = 0x0045_cd60;
 const CONTROLLER_INFO_CONSTRUCT: u32 = 0x00c6_da50;
 const CONTROLLER_INFO_DESTRUCT: u32 = 0x00c6_de10;
@@ -189,6 +191,7 @@ const NODE_SET_SCALE: u32 = 0x0044_0490;
 const NODE_SET_TRANSLATE: u32 = 0x0044_0460;
 const NODE_SET_ROTATE: u32 = 0x0043_fa80;
 const ANGLES: u32 = 0x0043_0830;
+#[cfg(test)]
 const SELF: u32 = 0x0068_15c0;
 const MATRIX_FROM_ANGLES: u32 = 0x00a5_9660;
 const PROCESS_SELECTIVE_UPDATE: u32 = 0x00c4_b500;
@@ -220,11 +223,13 @@ const CHILD_COUNT: u32 = 0x0043_b480;
 const CHILD_AT: u32 = 0x0043_b4a0;
 /// Point helpers (`00416870`, `00439ef0`, `00457990`, `005532a0`), `004587d0` and the
 /// reference flag `00440d80`.
+#[cfg(test)]
 const POINT_SET: u32 = 0x0041_6870;
 const POINT_DIFFERENCE: u32 = 0x0043_9ef0;
 const POINT_LENGTH: u32 = 0x0045_7990;
 const VECTOR4_SET: u32 = 0x0055_32a0;
 const HEIGHT_OFFSET: u32 = 0x0045_87d0;
+#[cfg(test)]
 const REFERENCE_FLAG: u32 = 0x0044_0d80;
 /// `MagicLight` functions: `MagicLight::MagicLight` (`0081bf80`), `Fade` (`0081c470`),
 /// `Transfer` (`0081c4a0`), the update (`0081c320`), `00621b00` / `00621b20`.
@@ -328,7 +333,7 @@ fn remake_flight_sound(e: &mut Engine, this: Ptr) {
     let handle = this.addr().wrapping_add(0xbc);
     let form = e.call(BASE_FORM, &args![this]).u32();
     let sound = e.call(PROJECTILE_FLIGHT_SOUND, &args![form]).u32();
-    let id = e.call(FORM_ID, &args![sound]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
     if e.call(SOUND_HANDLE_IS_VALID, &args![handle]).bool() {
         e.call(SOUND_HANDLE_RELEASE, &args![handle]);
     }
@@ -563,7 +568,7 @@ pub fn magic_fog_projectile_init_3d(e: &mut Engine, this: Ptr) {
     let angles = e.call(ANGLES, &args![this]).u32();
     let [x, y, z] = read_point(e, angles);
     e.with_stack(0x24, |e, matrix| {
-        e.call(SELF, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         e.call(
             MATRIX_FROM_ANGLES,
             &args![
@@ -641,7 +646,7 @@ const SEQUENCE_SET_FLOAT: u32 = 0x0098_adb0;
 pub fn fn_00819ca0(e: &mut Engine, this: Ptr) {
     let base = this.addr();
     let object = e.mem.u32(base.wrapping_add(0x68));
-    if object == 0 || e.call(OBJECT_BUSY, &args![object]).u32() != 0 {
+    if object == 0 || typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, object)) != 0 {
         return;
     }
     let mut controller = e.call(GET_CHAR_CONTROLLER, &args![this]).u32();
@@ -792,7 +797,7 @@ pub fn magic_fog_projectile_update(e: &mut Engine, this: Ptr, time: f32) {
         return;
     }
     if e.mem.u32(base.wrapping_add(0xb4)) == 0 {
-        if e.call(REFERENCE_FLAG, &args![this]).bool() {
+        if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this)) {
             return;
         }
         fog_move(e, this, time);
@@ -894,7 +899,11 @@ fn fog_move(e: &mut Engine, this: Ptr, time: f32) {
             x87_load32(e.mem.u32(base.wrapping_add(0x88))),
             x87_m32(time.to_bits()),
         ));
-        e.call(POINT_SET, &args![step, 0.0f32, speed, 0.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, step, 0.0f32, speed, 0.0f32)
+        );
         let damping = e.call(SETTING_VALUE, &args![DAMPING_SETTING]).u32();
         let damping = x87_store32(x87_sub(
             1.0,
@@ -985,7 +994,7 @@ pub fn magic_fog_projectile_save_game(e: &mut Engine, this: Ptr, buffer: u32) {
             e.mem.set_u32(id, 0);
             let target = e.mem.u32(record);
             if target != 0 {
-                let form_id = e.call(FORM_ID, &args![target]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, target));
                 e.mem.set_u32(id, form_id);
             }
             e.call(SAVE_ID, &args![this, id, 4u32]);
@@ -1100,7 +1109,7 @@ pub fn magic_fog_projectile_init_load_game(e: &mut Engine, this: Ptr, buffer: u3
             let node = ball::node(e, this);
             let form = e.call(BASE_FORM, &args![this]).u32();
             let light_form = e.call(PROJECTILE_LIGHT, &args![form]).u32();
-            let id = e.call(FORM_ID, &args![light_form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, light_form));
             e.call(MAGIC_LIGHT_CONSTRUCTOR, &args![block, id, node])
                 .u32()
         } else {

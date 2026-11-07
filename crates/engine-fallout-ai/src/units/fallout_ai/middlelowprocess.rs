@@ -280,6 +280,7 @@ const EMPTY_BODY: u32 = 0x0048_3710;
 const UPDATE_SCOPE: u32 = 0x011e_0528;
 /// `008d8520` `MiddleHighProcess::GetSavedAcquireObject` (Xbox PDB name in
 /// the engine map; thiscall on the actor).
+#[cfg(test)]
 const GET_SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 /// `008a8f60` (thiscall on the actor).
 const ACTOR_008A8F60: u32 = 0x008a_8f60;
@@ -325,6 +326,7 @@ const PACKAGE_LOCATION_COORD: u32 = 0x0067_5de0;
 /// `Actor::SetPathfindingGoal_ov2` (`008b3690`, thiscall, 5 words).
 const SET_PATHFINDING_GOAL: u32 = 0x008b_3690;
 /// `0045cd60` (thiscall on the acquire object): its state.
+#[cfg(test)]
 const ACQUIRE_STATE: u32 = 0x0045_cd60;
 /// `00670f40` / `00670f60` (thiscall on the package): two package flags
 /// that ask for a look around (callbacks `0090d480` / `0090d570`).
@@ -344,6 +346,7 @@ const DATA_HANDLER: u32 = 0x011c_3f2c;
 const ENUM_REFERENCES_CLOSE_TO_POINT: u32 = 0x0046_f280;
 /// `007af430` (thiscall): the target's form (named
 /// `BGSSaveFormBuffer::GetForm` in the engine map, a folded body).
+#[cfg(test)]
 const TARGET_FORM: u32 = 0x007a_f430;
 /// The form the target is compared with (a global pointer).
 const TARGET_FORM_GLOBAL: u32 = 0x011c_a248;
@@ -375,6 +378,7 @@ const SLEEPING_FORMAT: u32 = 0x0108_8f2c;
 const EATING_FORMAT: u32 = 0x0108_8f14;
 const DONE_FORMAT: u32 = 0x0108_8f00;
 /// `00440d80` (thiscall on the process's object at +0x40).
+#[cfg(test)]
 const OBJECT_00440D80: u32 = 0x0044_0d80;
 /// `00962720` (thiscall on the player, actor).
 const PLAYER_00962720: u32 = 0x0096_2720;
@@ -386,8 +390,10 @@ const SETTING_011CDAD0: u32 = 0x011c_dad0;
 /// `00674f30` (thiscall on the package, one word).
 const PACKAGE_00674F30: u32 = 0x0067_4f30;
 /// `00671d10` (thiscall on the package): its data.
+#[cfg(test)]
 const PACKAGE_DATA: u32 = 0x0067_1d10;
 /// `0044ddc0` (thiscall): the word at +8.
+#[cfg(test)]
 const WORD_AT_8: u32 = 0x0044_ddc0;
 /// `TESObjectREFR::GetDistanceFromReference` (`005723b0`, thiscall, 3
 /// words; ST0).
@@ -417,13 +423,16 @@ const PACKAGE_IS_CREATED: u32 = 0x0067_4d40;
 /// `007b3fa0` (thiscall, one word): deletes the object.
 const DELETE_OBJECT: u32 = 0x007b_3fa0;
 /// `008256d0` (thiscall on the list at +0x5C): whether it is empty.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0` (thiscall): returns `this`.
+#[cfg(test)]
 const SAME_POINTER: u32 = 0x0068_15c0;
 /// `00905330` (thiscall on the list, word address): removes the item.
 const LIST_REMOVE: u32 = 0x0090_5330;
 /// `0041d8a0` (thiscall on the package), then `00726070` (the word at +4).
 const PACKAGE_0041D8A0: u32 = 0x0041_d8a0;
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// `Actor::IsWaitingOnPath` (`008b3bf0`, thiscall).
 const IS_WAITING_ON_PATH: u32 = 0x008b_3bf0;
@@ -445,7 +454,7 @@ fn procedure_action(e: &mut Engine, process: u32) -> u32 {
 
 /// The saved acquire object's vtable +0x28 (`Update`'s last step).
 fn update_acquire_object(e: &mut Engine, actor: u32) {
-    let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
     e.vcall(object, 0x28, &[]);
 }
 
@@ -506,7 +515,7 @@ fn update_travel(e: &mut Engine, process: u32, actor: u32, location: u32) {
         target = e.call(LOCATION_GET_REFERENCE, &args![location]).u32();
     }
     if target == 0 {
-        let acquire = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+        let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         target = if acquire != 0 {
             e.vcall(acquire, 0x514, &[]).u32()
         } else {
@@ -552,8 +561,8 @@ fn update_travel(e: &mut Engine, process: u32, actor: u32, location: u32) {
             );
         });
     }
-    let acquire = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
-    if e.call(ACQUIRE_STATE, &args![acquire]).u32() != 2 {
+    let acquire = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+    if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, acquire)) != 2 {
         return;
     }
     if !package_test_13c(e, process, actor) {
@@ -571,7 +580,8 @@ fn update_travel(e: &mut Engine, process: u32, actor: u32, location: u32) {
         enum_close_references(e, actor, CLOSE_CALLBACK_0090D570);
     }
     let face = (target != 0
-        && e.call(TARGET_FORM, &args![target]).u32() == e.global::<u32>(TARGET_FORM_GLOBAL))
+        && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, target))
+            == e.global::<u32>(TARGET_FORM_GLOBAL))
         || {
             let package = current_package(e, process);
             if e.call(PACKAGE_LOCATION, &args![package]).u32() != 0 {
@@ -642,7 +652,7 @@ fn update_reach_object(e: &mut Engine, process: u32, actor: u32, package: u32) {
         e.vcall(process, 0x8c, &args![actor]);
     }
     let object = e.mem.u32(process + 0x40);
-    if object == 0 || e.call(OBJECT_00440D80, &args![object]).bool() {
+    if object == 0 || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, object)) {
         e.vcall(process, 0x288, &args![actor, 1u32]);
         return;
     }
@@ -667,8 +677,10 @@ fn update_reach_object(e: &mut Engine, process: u32, actor: u32, package: u32) {
         return;
     }
     if e.call(PACKAGE_PROCEDURE, &args![package]).u32() == 1 {
-        let data = e.call(PACKAGE_DATA, &args![package]).u32();
-        let reach = e.call(WORD_AT_8, &args![data]).i32();
+        let data = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
+        let reach = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, data))
+            .into_ret()
+            .i32();
         let reach = x87_store32(f64::from(reach));
         let object = e.mem.u32(process + 0x40);
         let distance = e
@@ -682,10 +694,12 @@ fn update_reach_object(e: &mut Engine, process: u32, actor: u32, package: u32) {
     }
     let mut reach = x87_store32(0.0);
     let package_now = current_package(e, process);
-    let data = e.call(PACKAGE_DATA, &args![package_now]).u32();
+    let data = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package_now));
     // The package's distance (200 when not above 0) is stored and never
     // read again.
-    let distance_word = e.call(WORD_AT_8, &args![data]).i32();
+    let distance_word = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, data))
+        .into_ret()
+        .i32();
     let _distance_word = if distance_word <= 0 {
         200
     } else {
@@ -825,8 +839,16 @@ fn update_finish_package(e: &mut Engine, process: u32, actor: u32, package: &mut
         e.call(DELETE_OBJECT, &args![object, 1u32]);
     }
     e.mem.set_u32(process + 0x64, 0);
-    while !e.call(LIST_IS_EMPTY, &args![process + 0x5c]).bool() {
-        let head = e.call(SAME_POINTER, &args![process + 0x5c]).u32();
+    while !typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, process + 0x5c)
+    ) {
+        let head = typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, process + 0x5c)
+        );
         let item = e.mem.u32(head);
         e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), item);
@@ -839,7 +861,7 @@ fn update_finish_package(e: &mut Engine, process: u32, actor: u32, package: &mut
     if current_package(e, process) != 0 {
         let current = current_package(e, process);
         let data = e.call(PACKAGE_0041D8A0, &args![current]).u32();
-        if e.call(WORD_AT_4, &args![data]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, data)) == 0 {
             let old = current_package(e, process);
             e.vcall(process, 0x24, &args![actor, 1u32]);
             *package = current_package(e, process);
@@ -934,6 +956,7 @@ const REFERENCE_TYPE: u32 = 0x0118_41cc;
 const ACTOR_TYPE: u32 = 0x0118_46d4;
 /// `00440da0` (unnamed, engine map unit `modelloader.cpp`, `thiscall` on the target, no stack
 /// words; a `bool` in `AL`).
+#[cfg(test)]
 const OBJECT_00440DA0: u32 = 0x0044_0da0;
 /// `ActorValue::CheckClampDamageModifier` (engine map, `0066eea0`; `cdecl`: owner, actor
 /// value, `float`; in `ST0`).
@@ -988,6 +1011,7 @@ const SIZE_REPORT_SETTING: u32 = 0x011d_e4e8;
 const SETTING_BYTE_ADDRESS: u32 = 0x0040_8d60;
 /// `Error` (engine map, `0040fbe0`; `cdecl`, varargs) and the debug print `005b5e40`
 /// (`cdecl`, varargs).
+#[cfg(test)]
 const ERROR_REPORT: u32 = 0x0040_fbe0;
 const DEBUG_PRINT: u32 = 0x005b_5e40;
 /// A form's vtable slot `+0x130` (no stack words): its name.
@@ -1058,8 +1082,8 @@ fn actor_slot_22c(e: &mut Engine, actor: u32) -> bool {
 
 /// The state of the actor's saved acquire object (`0045cd60` of `008d8520`).
 fn acquire_state(e: &mut Engine, actor: u32) -> u32 {
-    let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
-    e.call(ACQUIRE_STATE, &args![object]).u32()
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+    typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, object))
 }
 
 /// The combat rounds: the setting `011cd6cc`'s `float` (through `00403e20`) combined by
@@ -1168,8 +1192,8 @@ pub fn middle_low_process_process_combat(e: &mut Engine, this: Ptr, actor: u32) 
     let mut target = combat_target_actor(e, this);
     let mut fought = false;
     let stops = e.mem.u32(this.addr() + COMBAT_TARGET) == 0
-        || e.call(OBJECT_00440DA0, &args![target]).bool()
-        || e.call(OBJECT_00440D80, &args![target]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, target))
+        || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, target))
         || actor_slot_22c(e, target);
     if stops {
         e.vcall(actor, ACTOR_STOP_COMBAT_SLOT, &args![0u32]);
@@ -1177,7 +1201,7 @@ pub fn middle_low_process_process_combat(e: &mut Engine, this: Ptr, actor: u32) 
         return;
     }
     let engaged = target != 0
-        && e.call(GET_SAVED_ACQUIRE_OBJECT, &args![target]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target)) != 0
         && acquire_state(e, target) == 2;
     if !engaged {
         e.vcall(
@@ -1200,7 +1224,7 @@ pub fn middle_low_process_process_combat(e: &mut Engine, this: Ptr, actor: u32) 
         rounds = rounds.wrapping_sub(1);
     }
     if fought && target != 0 {
-        let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![target]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
         e.vcall(object, ACQUIRE_OBJECT_SLOT_28, &args![]);
     }
 }
@@ -1235,7 +1259,7 @@ pub fn middle_low_process_process_combat_one_hour(
         rounds = rounds.wrapping_sub(1);
     }
     if target != 0 && !actor_slot_22c(e, target) {
-        let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![target]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
         e.vcall(object, ACQUIRE_OBJECT_SLOT_28, &args![]);
     }
     false
@@ -1279,23 +1303,9 @@ pub fn middle_low_process_get_save_size(e: &mut Engine, this: Ptr, flags: u32, f
             let word = e.mem.u32(record + 5);
             let name = e.vcall(form_object, FORM_NAME_SLOT, &args![]).u32();
             let id = e.mem.u32(record);
-            e.call(
-                ERROR_REPORT,
-                &args![
-                    GET_SAVE_SIZE_FORM_FORMAT,
-                    part,
-                    id,
-                    name,
-                    word,
-                    GET_SAVE_SIZE_LINE,
-                    SOURCE_FILE
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words GET_SAVE_SIZE_FORM_FORMAT, part, id, name, word, GET_SAVE_SIZE_LINE, SOURCE_FILE);
         } else {
-            e.call(
-                ERROR_REPORT,
-                &args![GET_SAVE_SIZE_FORMAT, part, GET_SAVE_SIZE_LINE, SOURCE_FILE],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words GET_SAVE_SIZE_FORMAT, part, GET_SAVE_SIZE_LINE, SOURCE_FILE);
         }
     }
     size
@@ -1351,23 +1361,9 @@ pub fn middle_low_process_save_game(e: &mut Engine, this: Ptr, flags: u32, form:
                 let word = e.mem.u32(record + 5);
                 let name = e.vcall(form_object, FORM_NAME_SLOT, &args![]).u32();
                 let id = e.mem.u32(record);
-                e.call(
-                    ERROR_REPORT,
-                    &args![
-                        SAVE_GAME_FORM_FORMAT,
-                        part,
-                        id,
-                        name,
-                        word,
-                        SAVE_GAME_LINE,
-                        SOURCE_FILE
-                    ],
-                );
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words SAVE_GAME_FORM_FORMAT, part, id, name, word, SAVE_GAME_LINE, SOURCE_FILE);
             } else {
-                e.call(
-                    ERROR_REPORT,
-                    &args![SAVE_GAME_FORMAT, part, SAVE_GAME_LINE, SOURCE_FILE],
-                );
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words SAVE_GAME_FORMAT, part, SAVE_GAME_LINE, SOURCE_FILE);
             }
         }
         if uses_save_game_blocks(e) {

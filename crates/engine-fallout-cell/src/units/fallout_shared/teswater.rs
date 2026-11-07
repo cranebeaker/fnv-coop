@@ -82,6 +82,7 @@ use crate::prelude::*;
 
 /// `*this`: `NiPointer<T>::operator T*` and `NiTPointerListBase::GetHeadPos`
 /// (one folded body).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `NiTPointerListBase::GetNextPos(this, position)`: the node's `next`.
 const LIST_NEXT_POSITION: u32 = 0x007b_52d0;
@@ -91,6 +92,7 @@ const LIST_ITEM_SLOT: u32 = 0x0063_17a0;
 /// Whether a `NiTPointerList` is empty (its count at +8 is zero).
 const LIST_IS_EMPTY: u32 = 0x0076_b610;
 /// The count of a list or array (`this + 8`).
+#[cfg(test)]
 const LIST_COUNT: u32 = 0x0044_ddc0;
 /// `NiTPointerListBase::RemoveAll` (the engine map's name for the body).
 const LIST_REMOVE_ALL: u32 = 0x004e_d900;
@@ -109,6 +111,7 @@ const SETTING_VALUE: u32 = 0x0040_8d60;
 /// `TES::pInteriorCell` read through the `TES` object (`TES + 0x34`).
 const TES_GET_INTERIOR_CELL: u32 = 0x005f_36f0;
 /// `TESObjectREFR::pBaseForm` (+0x20).
+#[cfg(test)]
 const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 /// `TESObjectREFR::pParentCell` (+0x40 on the PC).
 const REFERENCE_PARENT_CELL: u32 = 0x008d_6f30;
@@ -132,12 +135,14 @@ const NODE_GET_PROPERTY: u32 = 0x00a5_9d30;
 /// `[this + 0xc0]` of a water reference's 3D object, and the type id
 /// (`+0x68`) of that object.
 const NODE_OWNER: u32 = 0x0040_30b0;
+#[cfg(test)]
 const OWNER_TYPE: u32 = 0x008d_8520;
 /// The owner type id the shader-property updates apply to.
 const WATER_OWNER_TYPE: u32 = 0x0d;
 /// `NiPoint4::NiPoint4(this, x, y, z, w)` (returns `this`).
 const NI_POINT4_CONSTRUCT: u32 = 0x0041_4430;
 /// `this[0] == 0 && this[1] == 0`.
+#[cfg(test)]
 const WORDS_ARE_ZERO: u32 = 0x0082_56d0;
 /// Whether the form flags of a base object have a bit set: `this`, then the
 /// mask.
@@ -183,6 +188,7 @@ const RENDER_GROUP_DEPTH: u32 = 0x004e_cb60;
 const AFTER_GROUP_DEPTH: u32 = 0x004e_c800;
 /// `cdecl(index, x, y, z, w)`: stores a four-float shader constant (the
 /// depth pass sets index 0x1e to the viewer's position).
+#[cfg(test)]
 const VIEWER_POSITION_UPDATE: u32 = 0x004e_20c0;
 /// Returns the byte at `0x011c7a59`; the water code skips its passes while it
 /// is set.
@@ -269,6 +275,7 @@ const LOG_MESSAGE: u32 = 0x005b_5e40;
 // Callees of the functions from `004e4730` on (second session).
 
 /// `NiPoint3::NiPoint3(this, x, y, z)` (returns `this`).
+#[cfg(test)]
 const NI_POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// `NiPlane::NiPlane_ov3(this, normal, point)` (Xbox PDB name): a plane
 /// through `point` with the given `normal` (the constant is their dot
@@ -326,6 +333,7 @@ const CELL_HAS_WATER: u32 = 0x0045_18e0;
 /// The water type's sound (`+0x7c` of the water type).
 const WATER_TYPE_SOUND: u32 = 0x0040_7840;
 /// Returns `[this + 0xc]`.
+#[cfg(test)]
 const READ_WORD_AT_0C: u32 = 0x0084_e3a0;
 /// `NiObjectNET::GetName` (`this + 8`, the address of the name slot) and
 /// `NiFixedString` to `const char*`.
@@ -617,6 +625,7 @@ const MT_SET_THREAD_STAGE_ONE: u32 = 0x00ba_3130;
 const SKY_OBJECT_POINTER: u32 = 0x007f_a950;
 /// `TES + 0x68` (`pSky`, Xbox PDB), read through the folded accessor the
 /// engine map names `MiddleHighProcess::GetSavedAcquireObject`.
+#[cfg(test)]
 const TES_GET_SKY: u32 = 0x008d_8520;
 /// `this + 0x20` (the address of three floats).
 const COLOR_FACTOR_ADDRESS: u32 = 0x0089_1170;
@@ -644,6 +653,7 @@ const CELL_NODE_CHILD: u32 = 0x0045_c9a0;
 /// references it answers true for outside interiors.
 const REFERENCE_IS_EXCLUDED: u32 = 0x0056_4e60;
 /// `this`: the next node of a `BSSimpleList`-style node (`[this + 4]`).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `(camera, accumulator, 0)` (cdecl): draws the accumulated scene into the
 /// current target.
@@ -813,6 +823,7 @@ const IMAGE_SPACE_TEXTURE_DESTRUCT: u32 = 0x00ba_3a00;
 const IMAGE_SPACE_EFFECT_SET_TEXTURE: u32 = 0x00ba_3cb0;
 /// `(this, index)`: the address of element `index` of the array whose base
 /// is `[this + 4]` (no engine-map name; `fn_004ebbc0` reads through it).
+#[cfg(test)]
 const ARRAY_ELEMENT_ADDRESS: u32 = 0x0087_7a30;
 /// The vtable of `ImageSpaceEffectParam` (0x24 bytes), and the constructors
 /// `(this, 0, 1)` and destructors of its two members at `+4` and `+0x14`
@@ -834,6 +845,7 @@ const LIST_DESTRUCT: u32 = 0x004a_1a30;
 /// `NiPlane::NiPlane(this)` (Xbox PDB name).
 const NI_PLANE_DEFAULT_CONSTRUCT: u32 = 0x00a6_9940;
 /// `NiPoint3::Dot(this, other)` (Xbox PDB name; the result is in `ST0`).
+#[cfg(test)]
 const NI_POINT3_DOT: u32 = 0x004b_6190;
 /// The CRT `memcpy(destination, source, count)` (cdecl; the engine map's
 /// `_memcpy`).
@@ -1398,7 +1410,7 @@ fn address_of<S, T>(object: Ptr<S>, field: Field<S, T>) -> u32 {
 
 /// The object a `NiPointer` slot (or the head of a list) holds.
 fn pointer_in_slot(e: &mut Engine, slot: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// Stores `value` in a `NiPointer` slot.
@@ -1661,7 +1673,7 @@ pub fn tes_water_system_update_placeable_water(
             }
         } else {
             // Too many groups for the 16 stages: log it and switch the group off.
-            let count = e.call(LIST_COUNT, &args![group_list]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, group_list));
             let water_type = e.get(group, PlaceableWaterGroup::pWaterType);
             let name = e.vcall(water_type.addr(), WATER_FORM_GET_NAME, &[]).u32();
             let height = e
@@ -1751,7 +1763,7 @@ fn update_group_member(
     reference: u32,
 ) -> bool {
     let mut switched_on = false;
-    let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if reference != 0 && e.vcall(reference, REFERENCE_GET_3D, &[]).u32() != 0 {
         let parent_cell_matches = {
             let cell = e.call(REFERENCE_PARENT_CELL, &args![reference]).u32();
@@ -1816,7 +1828,10 @@ fn update_group_member(
     let node = e.call(WATER_REFERENCE_3D, &args![this, reference]).u32();
     if node != 0 {
         let owner = e.call(NODE_OWNER, &args![node]).u32();
-        if owner != 0 && e.call(OWNER_TYPE, &args![owner]).u32() == WATER_OWNER_TYPE {
+        if owner != 0
+            && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner))
+                == WATER_OWNER_TYPE
+        {
             let property = water_shader_property(e, node);
             if reference != 0 && !rendering {
                 assign_slot(
@@ -1856,7 +1871,11 @@ fn needs_depth_for_reference(e: &mut Engine, reference: u32, base_form: u32) -> 
         let reflected = e
             .call(EXTRA_DATA_LIST_GET_REFLECTED_REFS, &args![extra])
             .u32();
-        if !e.call(WORDS_ARE_ZERO, &args![reflected]).bool() {
+        if !typed_call!(
+            leaf::FAMILY,
+            0x0082_56d0,
+            leaf::both_words_zero(e, reflected)
+        ) {
             return true;
         }
     }
@@ -1865,7 +1884,7 @@ fn needs_depth_for_reference(e: &mut Engine, reference: u32, base_form: u32) -> 
     }
     if e.call(FORM_FLAG_TEST_40000000, &args![base_form]).bool() {
         let object = fn_004e3260(e);
-        return !e.call(WORDS_ARE_ZERO, &args![object]).bool();
+        return !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, object));
     }
     false
 }
@@ -1961,9 +1980,10 @@ fn render_depth_maps(e: &mut Engine, this: Ptr<TESWaterSystem>, viewer: Ptr) {
             ],
         );
         let words: Vec<u32> = (0..4).map(|i| e.mem.u32(position_point + 4 * i)).collect();
-        e.call(
-            VIEWER_POSITION_UPDATE,
-            &args![0x1eu32, words[0], words[1], words[2], words[3]],
+        typed_call!(
+            leaf::FAMILY,
+            0x004e_20c0,
+            leaf::store_colour(e, 0x1eu32, words[0], words[1], words[2], words[3])
         );
 
         for_each_list_item(e, group_list, |e, item| {
@@ -2182,11 +2202,13 @@ pub fn tes_water_system_update_water_shader_properties_ov2(
         return;
     }
     let owner = e.call(NODE_OWNER, &args![node]).u32();
-    if owner == 0 || e.call(OWNER_TYPE, &args![owner]).u32() != WATER_OWNER_TYPE {
+    if owner == 0
+        || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner)) != WATER_OWNER_TYPE
+    {
         return;
     }
     let property = water_shader_property(e, node);
-    let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let water_form = e.vcall(base_form, BASE_FORM_GET_WATER_FORM, &[]).u32();
     if property.is_null()
         || water_form == 0
@@ -2408,7 +2430,7 @@ pub fn fn_004e3d60(e: &mut Engine, this: Ptr<TESWaterSystem>, group: Ptr<Placeab
 
 /// One iteration of `fn_004e3d60`.
 fn update_water_form_for_reference(e: &mut Engine, this: Ptr<TESWaterSystem>, reference: u32) {
-    let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let water_form_address = e.vcall(base_form, BASE_FORM_GET_WATER_FORM, &[]).u32();
     if water_form_address == 0
         || e.call(WATER_FORM_HAS_NOISE_TEXTURE, &args![water_form_address])
@@ -2430,7 +2452,9 @@ fn update_water_form_for_reference(e: &mut Engine, this: Ptr<TESWaterSystem>, re
         return;
     }
     let owner = e.call(NODE_OWNER, &args![node]).u32();
-    if owner == 0 || e.call(OWNER_TYPE, &args![owner]).u32() != WATER_OWNER_TYPE {
+    if owner == 0
+        || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner)) != WATER_OWNER_TYPE
+    {
         return;
     }
     let property = water_shader_property(e, node);
@@ -2847,7 +2871,7 @@ fn list_remove_position(e: &mut Engine, list: u32, position: u32) {
 
 /// The address of the normal of a `NiPlane` (`006815c0` returns `this`).
 fn plane_normal(e: &mut Engine, plane: u32) -> u32 {
-    e.call(ADDRESS_OF_THIS, &args![plane]).u32()
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, plane))
 }
 
 /// `NiPlane::m_fConstant` through `0084d030`.
@@ -2991,14 +3015,22 @@ pub fn tes_water_system_add_placeable_water_ov2(
         let moved_position = frame + 0x44;
         let update_data = frame + 0x50;
 
-        e.call(NI_POINT3_CONSTRUCT, &args![up, 0.0f32, 0.0f32, 1.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, up, 0.0f32, 0.0f32, 1.0f32)
+        );
         let minus_one: f32 = e.global(MINUS_ONE);
-        e.call(NI_POINT3_CONSTRUCT, &args![down, 0.0f32, 0.0f32, minus_one]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, down, 0.0f32, 0.0f32, minus_one)
+        );
         rotate_and_unitize(e, rotation, scratch, up);
         rotate_and_unitize(e, rotation, scratch, down);
         e.call(NI_PLANE_CONSTRUCT, &args![plane_up, up, position]);
         e.call(NI_PLANE_CONSTRUCT, &args![plane_down, down, position]);
-        let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+        let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
 
         let list = this.at(TESWaterSystem::PlaceableWaterGroupList).addr();
         let mut joined_a_group = false;
@@ -3254,9 +3286,10 @@ pub fn fn_004e4c80(
         e.call(NODE_UPDATE, &args![fade_node, update_data]);
         e.call(NODE_UPDATE, &args![innermost, update_data]);
         let height = e.call(WORLD_SPACE_WATER_HEIGHT, &args![world_space]).f32();
-        e.call(
-            NI_POINT3_CONSTRUCT,
-            &args![water_point, 0.0f32, 0.0f32, height],
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, water_point, 0.0f32, 0.0f32, height)
         );
         copy_words(e, IDENTITY_MATRIX, matrix, 9);
 
@@ -3268,7 +3301,11 @@ pub fn fn_004e4c80(
             } else {
                 e.call(GROUP_CONSTRUCT, &args![memory]).ptr()
             };
-            e.call(NI_POINT3_CONSTRUCT, &args![up, 0.0f32, 0.0f32, 1.0f32]);
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, up, 0.0f32, 0.0f32, 1.0f32)
+            );
             rotate_and_unitize(e, matrix, scratch, up);
             e.call(NI_PLANE_CONSTRUCT, &args![plane, up, water_point]);
             copy_words(
@@ -3277,7 +3314,7 @@ pub fn fn_004e4c80(
                 address_of(group, PlaceableWaterGroup::ReflectWaterPlane),
                 4,
             );
-            let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+            let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             let water_type = e.vcall(base_form, BASE_FORM_GET_WATER_FORM, &[]).u32();
             e.set(group, PlaceableWaterGroup::pWaterType, Ptr::new(water_type));
             list_add_head(
@@ -3356,7 +3393,7 @@ pub fn fn_004e5140(
                 );
             }
             let list = lod_list(e, this);
-            if e.call(LIST_COUNT, &args![list]).u32() == 0 {
+            if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)) == 0 {
                 let group = e.get(this, TESWaterSystem::pLODWaterGroup);
                 if !group.is_null() {
                     fn_004e52c0(e, group.addr(), 1);
@@ -3432,7 +3469,11 @@ pub fn tes_water_system_remove_placeable_water(
         let scratch = frame + 0x0c;
         let plane = frame + 0x18;
         let point = frame + 0x28;
-        e.call(NI_POINT3_CONSTRUCT, &args![up, 0.0f32, 0.0f32, 1.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, up, 0.0f32, 0.0f32, 1.0f32)
+        );
         rotate_and_unitize(e, rotation, scratch, up);
         copy_words(e, position, point, 3);
         e.call(NI_PLANE_CONSTRUCT, &args![plane, up, point]);
@@ -3464,7 +3505,8 @@ pub fn tes_water_system_remove_placeable_water(
                             let property = water_shader_property(e, node);
                             clear_all_texture_slots(e, property);
                         }
-                        if e.call(LIST_COUNT, &args![members]).u32() == 0 {
+                        if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, members)) == 0
+                        {
                             list_remove_position(e, groups, group_cursor);
                             if !group.is_null() {
                                 fn_004e52c0(e, group.addr(), 1);
@@ -3522,7 +3564,7 @@ pub fn fn_004e56c0(e: &mut Engine, this: Ptr<TESWaterSystem>, group: Ptr<Placeab
             cursor = e.mem.u32(position.addr());
             e.mem.u32(item)
         });
-        let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+        let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         if reference == 0 {
             continue;
         }
@@ -3585,7 +3627,10 @@ pub fn fn_004e58a0(
             return;
         }
         let owner = e.call(NODE_OWNER, &args![node]).u32();
-        if owner != 0 && e.call(OWNER_TYPE, &args![owner]).u32() == WATER_OWNER_TYPE {
+        if owner != 0
+            && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner))
+                == WATER_OWNER_TYPE
+        {
             let property = water_shader_property(e, node);
             assign_slot(
                 e,
@@ -3628,11 +3673,17 @@ pub fn fn_004e59f0(
         let scratch = frame + 0x0c;
         let point = frame + 0x18;
         let plane = frame + 0x24;
-        e.call(NI_POINT3_CONSTRUCT, &args![up, 0.0f32, 0.0f32, 1.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, up, 0.0f32, 0.0f32, 1.0f32)
+        );
         let water_type = if reference == 0 {
-            let made = e
-                .call(NI_POINT3_CONSTRUCT, &args![scratch, 0.0f32, 0.0f32, height])
-                .u32();
+            let made = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, scratch, 0.0f32, 0.0f32, height)
+            );
             copy_words(e, made, point, 3);
             let cell = e.call(REFERENCE_PARENT_CELL, &args![object]).u32();
             e.call(CELL_GET_WATER_TYPE, &args![cell]).u32()
@@ -3646,7 +3697,7 @@ pub fn fn_004e59f0(
             let node = reference_node(e, reference);
             let translate = e.call(NODE_WORLD_TRANSLATE, &args![node]).u32();
             copy_words(e, translate, point, 3);
-            let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+            let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             e.vcall(base_form, BASE_FORM_GET_WATER_FORM, &[]).u32()
         };
         e.call(NI_PLANE_CONSTRUCT, &args![plane, up, point]);
@@ -3832,7 +3883,8 @@ pub fn fn_004e5fe0(e: &mut Engine, this: Ptr<TESWaterSystem>, object: u32) {
                     iterator = e.mem.u32(frame);
                     e.mem.u32(frame + 4)
                 });
-                let zone_reference = e.call(READ_WORD_AT_0C, &args![key + 4]).u32();
+                let zone_reference =
+                    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, key + 4));
                 let members = group + 0x24;
                 let mut member_cursor = pointer_in_slot(e, members);
                 while member_cursor != 0 {
@@ -3899,7 +3951,7 @@ pub fn fn_004e62e0(e: &mut Engine, _unused_0: u32, reference: u32, viewer: u32) 
         let child = e.call(NODE_FIRST_CHILD, &args![node, 0u32]).u32();
         let animation_data = e.call(FACE_GEN_ANIMATION_DATA, &args![child]).u32();
         let target = e.call(ANIMATION_DATA_TARGET, &args![animation_data]).u32();
-        u8::from(e.call(LIST_COUNT, &args![target]).u32() == 1)
+        u8::from(typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, target)) == 1)
     } else {
         e.call(NODE_IN_RANGE_OF_VIEWER, &args![node, viewer]).u8()
     }
@@ -3923,7 +3975,8 @@ pub fn fn_004e6370(
         let members = group + 0x24;
         for_each_list_item(e, members, |e, reference| {
             if only_flagged {
-                let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+                let base_form =
+                    typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                 if !fn_004e32c0(e, base_form) {
                     return;
                 }
@@ -3946,7 +3999,7 @@ pub fn fn_004e6370(
 /// the engine map has no name for; its callers in the engine map are
 /// `ToggleVATSLight`, `CalculateLightValue` and `SetMode`).
 pub fn fn_004e6540(e: &mut Engine, this: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![this + 0xf8]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this + 0xf8))
 }
 
 // Translated from 004e6560 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -4026,7 +4079,10 @@ pub fn fn_004e6620(
                     return;
                 }
                 let owner = e.call(NODE_OWNER, &args![node]).u32();
-                if owner != 0 && e.call(OWNER_TYPE, &args![owner]).u32() == WATER_OWNER_TYPE {
+                if owner != 0
+                    && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner))
+                        == WATER_OWNER_TYPE
+                {
                     let property = water_shader_property(e, node);
                     clear_all_texture_slots(e, property);
                 }
@@ -4232,13 +4288,21 @@ pub fn tes_water_system_update_water_sounds(e: &mut Engine, this: Ptr<TESWaterSy
 
                     let mut inside_cached_cell = false;
                     if cached_cell != 0 {
-                        e.call(NI_POINT3_CONSTRUCT, &args![made, x, y, 0.0f32]);
+                        typed_call!(
+                            leaf::FAMILY,
+                            0x0041_6870,
+                            leaf::point3_new(e, made, x, y, 0.0f32)
+                        );
                         inside_cached_cell = e
                             .call(CELL_CONTAINS_POINT, &args![cached_cell, made])
                             .bool();
                     }
                     if !inside_cached_cell {
-                        e.call(NI_POINT3_CONSTRUCT, &args![made_again, x, y, 0.0f32]);
+                        typed_call!(
+                            leaf::FAMILY,
+                            0x0041_6870,
+                            leaf::point3_new(e, made_again, x, y, 0.0f32)
+                        );
                         let world_space = e.call(TES_GET_WORLD_SPACE, &args![tes]).u32();
                         cached_cell = e
                             .call(WORLD_SPACE_GET_CELL, &args![world_space, made_again])
@@ -4276,9 +4340,11 @@ pub fn tes_water_system_update_water_sounds(e: &mut Engine, this: Ptr<TESWaterSy
                         let water = e.call(CELL_GET_WATER_HEIGHT, &args![cell]).f32();
                         let top = e.call(FLOAT_MAX, &args![water, land]).f32();
                         let z = (top as f64 + ten) as f32;
-                        let at = e
-                            .call(NI_POINT3_CONSTRUCT, &args![marker_point, x, y, z])
-                            .u32();
+                        let at = typed_call!(
+                            leaf::FAMILY,
+                            0x0041_6870,
+                            leaf::point3_new(e, marker_point, x, y, z)
+                        );
                         e.call(NODE_SET_LOCAL_TRANSLATE, &args![marker, at]);
                         let seconds = e.global::<f32>(TEN_FLOAT);
                         e.call(TES_ADD_TEMP_DEBUG_OBJECT, &args![tes, marker, seconds]);
@@ -4337,7 +4403,11 @@ pub fn tes_water_system_update_water_sounds(e: &mut Engine, this: Ptr<TESWaterSy
                 let raised = (e.mem.f32(player_point + 8) as f64 + ten) as f32;
                 e.mem.set_f32(player_point + 8, raised);
                 let (x, y) = (e.mem.f32(sum), e.mem.f32(sum + 4));
-                e.call(NI_POINT3_CONSTRUCT, &args![marker_point, x, y, raised]);
+                typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, marker_point, x, y, raised)
+                );
                 e.call(
                     NI_COLOR_CONSTRUCT,
                     &args![color, 1.0f32, 0.0f32, 0.0f32, 0.0f32],
@@ -4400,7 +4470,8 @@ pub fn tes_water_system_update_water_sounds(e: &mut Engine, this: Ptr<TESWaterSy
                     };
                     let numeric_id = (mask + 2) | audio_flags;
                     let water_sound_b = water_sound(e);
-                    let sound_number = e.call(READ_WORD_AT_0C, &args![water_sound_b]).u32();
+                    let sound_number =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, water_sound_b));
                     let audio = e.call(AUDIO_INSTANCE, &[]).u32();
                     let created = e
                         .call(
@@ -4612,18 +4683,21 @@ fn quad_data_in_scope(
         .into_iter()
         .enumerate()
         {
-            let made = e
-                .call(NI_POINT3_CONSTRUCT, &args![corner, x, y, 0.0f32])
-                .u32();
+            let made = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, corner, x, y, 0.0f32)
+            );
             copy_words(e, made, vertices + 0x0c * index as u32, 3);
         }
     });
     if e.global::<u32>(QUAD_STATICS_BUILT) & 1 == 0 {
         let built = e.global::<u32>(QUAD_STATICS_BUILT);
         e.set_global(QUAD_STATICS_BUILT, built | 1);
-        e.call(
-            NI_POINT3_CONSTRUCT,
-            &args![QUAD_NORMAL, 0.0f32, 0.0f32, 1.0f32],
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, QUAD_NORMAL, 0.0f32, 0.0f32, 1.0f32)
         );
     }
     let uvs = new_constructed_array(e, 0x20, 0x08, 4, ADDRESS_OF_THIS);
@@ -4732,7 +4806,11 @@ fn quad_data_in_scope(
 /// `NiPointer<T>::operator T*` on the static at `0x011c7c28` (the water root
 /// node, `spWaterRoot`).
 pub fn fn_004e7ff0(e: &mut Engine) -> u32 {
-    e.call(NI_POINTER_GET, &args![WATER_ROOT_SLOT]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, WATER_ROOT_SLOT)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -4832,7 +4910,7 @@ fn set_silhouette_color(e: &mut Engine, sorter_slot: u32) {
     let accumulator = pointer_in_slot(e, sorter_slot);
     e.call(ACCUMULATOR_SET_WORD_19C, &args![accumulator, 0xfu32]);
     let tes = e.global::<u32>(TES_POINTER);
-    let sky = e.call(TES_GET_SKY, &args![tes]).u32();
+    let sky = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes));
     let sky_color = fn_004ea950(e, sky);
     let color: Vec<f32> = (0..3).map(|i| e.mem.f32(sky_color + 4 * i)).collect();
     let table_entry = e.call(RENDER_TABLE_ENTRY, &args![0u32]).u32();
@@ -4893,11 +4971,19 @@ fn add_accumulator_task(
 /// `plane` (0x10 bytes) with `normal` and `point` (0xc bytes each) as
 /// scratch.
 fn build_world_water_plane(e: &mut Engine, plane: u32, normal: u32, point: u32) {
-    e.call(NI_POINT3_CONSTRUCT, &args![normal, 0.0f32, 0.0f32, 1.0f32]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, normal, 0.0f32, 0.0f32, 1.0f32)
+    );
     let tes = e.global::<u32>(TES_POINTER);
     let world_space = e.call(TES_GET_WORLD_SPACE, &args![tes]).u32();
     let height = e.call(WORLD_SPACE_WATER_HEIGHT, &args![world_space]).f32();
-    e.call(NI_POINT3_CONSTRUCT, &args![point, 0.0f32, 0.0f32, height]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, point, 0.0f32, 0.0f32, height)
+    );
     e.call(NI_PLANE_CONSTRUCT, &args![plane, normal, point]);
 }
 
@@ -4933,7 +5019,7 @@ pub fn fn_004e8030(e: &mut Engine, this: Ptr<TESWaterSystem>, reference: u32) ->
     if reference == 0 || reference_node(e, reference) == 0 {
         return 0;
     }
-    let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+    let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let count = e.get(this, TESWaterSystem::iGlobalGetWaterGeometryCount);
     e.set(
         this,
@@ -4984,7 +5070,11 @@ pub fn fn_004e8160(
     let data = fn_004e7730(e, this, size, 0x200, 1, true, true);
     let shape = fn_004e7680(e, this.addr(), data);
     e.with_stack(0x0c, |e, origin| {
-        e.call(NI_POINT3_CONSTRUCT, &args![origin, 0.0f32, 0.0f32, 0.0f32]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, origin, 0.0f32, 0.0f32, 0.0f32)
+        );
         let player = e.global::<u32>(PLAYER_CHARACTER);
         if player == 0 {
             e.call(NODE_SET_LOCAL_TRANSLATE, &args![shape, origin]);
@@ -5017,7 +5107,10 @@ pub fn fn_004e8160(
         let geometry = fn_004e8030(e, this, first_reference);
         if geometry != 0 {
             let owner = e.call(NODE_OWNER, &args![geometry]).u32();
-            if owner != 0 && e.call(OWNER_TYPE, &args![owner]).u32() == WATER_OWNER_TYPE {
+            if owner != 0
+                && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner))
+                    == WATER_OWNER_TYPE
+            {
                 let other = water_shader_property(e, geometry);
                 e.call(WATER_PROPERTY_METHOD_00B6AB20, &args![other, property]);
             }
@@ -5131,8 +5224,8 @@ pub fn tes_water_system_add_ripple(
         let difference = frame + 0x10;
         let first_offset = frame + 0x18;
         let second_offset = frame + 0x20;
-        e.call(ADDRESS_OF_THIS, &args![player_point]);
-        e.call(ADDRESS_OF_THIS, &args![ripple_point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, player_point));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, ripple_point));
         let player = e.global::<u32>(PLAYER_CHARACTER);
         let position = e.vcall(player, REFERENCE_GET_LOCATION_VIRTUAL, &[]).u32();
         let word = e.mem.u32(position);
@@ -5374,8 +5467,8 @@ fn update_wading_actor(
             copy_words(e, actor_position, item + 0x10, 3);
             e.call(MAP_SET_AT, &args![map, actor, item]);
         }
-        e.call(ADDRESS_OF_THIS, &args![first_offset]);
-        e.call(ADDRESS_OF_THIS, &args![second_offset]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first_offset));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second_offset));
         let data: Ptr<WadingWaterData> = Ptr::new(item);
         let player_x = e.mem.f32(player_position);
         let player_y = e.mem.f32(player_position + 4);
@@ -5404,9 +5497,13 @@ fn update_wading_actor(
 /// `0x011f4980` and `fLastPosition` to the zero point at `0x011f426c`.
 pub fn fn_004e8e40(e: &mut Engine, this: Ptr<WadingWaterData>) -> Ptr<WadingWaterData> {
     let address = this.addr();
-    e.call(ADDRESS_OF_THIS, &args![address]);
-    e.call(ADDRESS_OF_THIS, &args![address + 8]);
-    e.call(ADDRESS_OF_THIS, &args![address + 0x10]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, address));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, address + 8));
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, address + 0x10)
+    );
     copy_words(e, ZERO_POINT2, address, 2);
     copy_words(e, ZERO_POINT2, address + 8, 2);
     copy_words(e, ZERO_POINT3, address + 0x10, 3);
@@ -5506,7 +5603,11 @@ pub fn tes_water_system_update_water_displacement_simulation(
         let update_data = frame + 0x20;
         let position = e.vcall(player, REFERENCE_GET_LOCATION_VIRTUAL, &[]).u32();
         copy_words(e, position, player_point, 3);
-        e.call(ADDRESS_OF_THIS, &args![geometry_point]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, geometry_point)
+        );
         let first_geometry_slot = group_address + PlaceableWaterGroup::spWadingWaterGeometry.off;
         if pointer_in_slot(e, first_geometry_slot) != 0 {
             let node = pointer_in_slot(e, first_geometry_slot);
@@ -5515,7 +5616,7 @@ pub fn tes_water_system_update_water_displacement_simulation(
         } else {
             copy_words(e, player_point, geometry_point, 3);
         }
-        e.call(ADDRESS_OF_THIS, &args![difference]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, difference));
         let difference_x = float_difference(e.mem.f32(player_point), e.mem.f32(geometry_point));
         let difference_y =
             float_difference(e.mem.f32(player_point + 4), e.mem.f32(geometry_point + 4));
@@ -5647,7 +5748,12 @@ pub fn tes_water_system_update_water_displacement_simulation(
                 }
             });
             // Ripples placed restart the timer (004e93ce, 004e93d0).
-            if e.call(LIST_COUNT, &args![DISPLACEMENT_POINTS_A]).u32() != 0 {
+            if typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, DISPLACEMENT_POINTS_A)
+            ) != 0
+            {
                 e.set(this, TESWaterSystem::fTimeSinceLastRipplePlaced, 0.0);
             } else {
                 let step = e.call(FLOAT_TABLE_ENTRY, &args![1u32]).f32();
@@ -5758,12 +5864,11 @@ pub fn fn_004e9550(e: &mut Engine, this: Ptr<TESWaterSystem>) {
         let player_y = e.mem.f32(position + 4);
         let position = e.vcall(player, REFERENCE_GET_LOCATION_VIRTUAL, &[]).u32();
         let player_x = e.mem.f32(position);
-        let eye = e
-            .call(
-                NI_POINT3_CONSTRUCT,
-                &args![eye_point, player_x, player_y, eye_height],
-            )
-            .u32();
+        let eye = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, eye_point, player_x, player_y, eye_height)
+        );
         e.call(NODE_SET_LOCAL_TRANSLATE, &args![camera, eye]);
         e.call(CAMERA_SET_VIEW_FRUSTUM, &args![camera, frustum]);
         e.call(
@@ -5775,9 +5880,10 @@ pub fn fn_004e9550(e: &mut Engine, this: Ptr<TESWaterSystem>) {
         let player_y = e.mem.f32(position + 4);
         let position = e.vcall(player, REFERENCE_GET_LOCATION_VIRTUAL, &[]).u32();
         let player_x = e.mem.f32(position);
-        e.call(
-            NI_POINT3_CONSTRUCT,
-            &args![target_point, player_x, player_y, top],
+        typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, target_point, player_x, player_y, top)
         );
         e.call(
             CAMERA_LOOK_AT_WORLD_POINT,
@@ -5830,7 +5936,9 @@ fn draw_wading_reference(e: &mut Engine, this: Ptr<TESWaterSystem>, camera: u32,
         return;
     }
     let owner = e.call(NODE_OWNER, &args![geometry]).u32();
-    if owner == 0 || e.call(OWNER_TYPE, &args![owner]).u32() != WATER_OWNER_TYPE {
+    if owner == 0
+        || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner)) != WATER_OWNER_TYPE
+    {
         return;
     }
     let property = water_shader_property(e, geometry);
@@ -5902,7 +6010,7 @@ pub fn fn_004e9c50(e: &mut Engine, this: u32, out: u32) -> u32 {
 fn rotation_column(e: &mut Engine, this: u32, column: u32, out: u32) -> u32 {
     e.with_stack(0x0c, |e, local| {
         let local = local.addr();
-        e.call(ADDRESS_OF_THIS, &args![local]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, local));
         e.call(MATRIX_COLUMN, &args![this + 0x68, column, local]);
         copy_words(e, local, out, 3);
     });
@@ -6048,7 +6156,7 @@ fn setup_group_reflections(
                 .call(LIST_NEXT_ITEM, &args![references, position_slot])
                 .u32();
             let reference = e.mem.u32(item);
-            let base_form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+            let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
             if reference == 0 {
                 continue;
             }
@@ -6086,7 +6194,7 @@ fn setup_group_reflections(
             if base_form != 0 && fn_004ea930(e, base_form) && !sky_added {
                 sky_added = true;
                 let tes = e.global::<u32>(TES_POINTER);
-                let sky = e.call(TES_GET_SKY, &args![tes]).u32();
+                let sky = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes));
                 let sky_objects = e.call(SKY_OBJECT_POINTER, &args![sky]).u32();
                 list_add_head(e, static_objects, sky_objects);
             }
@@ -6150,11 +6258,19 @@ fn setup_group_reflections(
                 let mut reflected = e
                     .call(EXTRA_DATA_LIST_GET_REFLECTED_REFS, &args![extra_data])
                     .u32();
-                while reflected != 0 && !e.call(WORDS_ARE_ZERO, &args![reflected]).bool() {
-                    let entry = e.call(ADDRESS_OF_THIS, &args![reflected]).u32();
+                while reflected != 0
+                    && !typed_call!(
+                        leaf::FAMILY,
+                        0x0082_56d0,
+                        leaf::both_words_zero(e, reflected)
+                    )
+                {
+                    let entry =
+                        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, reflected));
                     let data = e.mem.u32(entry);
                     if e.mem.u32(data + 4) & 1 != 0 {
-                        let entry = e.call(ADDRESS_OF_THIS, &args![reflected]).u32();
+                        let entry =
+                            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, reflected));
                         let data = e.mem.u32(entry);
                         let object = e.mem.u32(data);
                         add_reflected_reference(
@@ -6165,7 +6281,8 @@ fn setup_group_reflections(
                             true,
                         );
                     }
-                    reflected = e.call(NODE_NEXT, &args![reflected]).u32();
+                    reflected =
+                        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, reflected));
                 }
             }
 
@@ -6175,8 +6292,10 @@ fn setup_group_reflections(
                 && e.call(FORM_FLAG_TEST_40000000, &args![base_form]).bool()
             {
                 let mut node = fn_004e3260(e);
-                while node != 0 && !e.call(WORDS_ARE_ZERO, &args![node]).bool() {
-                    let entry = e.call(ADDRESS_OF_THIS, &args![node]).u32();
+                while node != 0
+                    && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+                {
+                    let entry = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let object = e.mem.u32(entry);
                     if object != 0 {
                         add_reflected_reference(
@@ -6187,7 +6306,7 @@ fn setup_group_reflections(
                             false,
                         );
                     }
-                    node = e.call(NODE_NEXT, &args![node]).u32();
+                    node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 }
             }
         }
@@ -6439,7 +6558,7 @@ fn setup_world_reflections(e: &mut Engine, this: Ptr<TESWaterSystem>, viewer: u3
         }
     } else {
         let tes = e.global::<u32>(TES_POINTER);
-        let sky = e.call(TES_GET_SKY, &args![tes]).u32();
+        let sky = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes));
         let sky_objects = e.call(SKY_OBJECT_POINTER, &args![sky]).u32();
         list_add_head(e, static_objects, sky_objects);
         if current_world_space(e) != 0 {
@@ -6520,7 +6639,7 @@ fn setup_sky_reflections(e: &mut Engine, viewer: u32) {
     e.call(LIST_REMOVE_ALL, &args![STATIC_SKY_REFLECTIVE_OBJECTS]);
     e.call(LIST_REMOVE_ALL, &args![DYNAMIC_SKY_REFLECTIVE_OBJECTS]);
     let tes = e.global::<u32>(TES_POINTER);
-    let sky = e.call(TES_GET_SKY, &args![tes]).u32();
+    let sky = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes));
     let sky_objects = e.call(SKY_OBJECT_POINTER, &args![sky]).u32();
     list_add_head(e, STATIC_SKY_REFLECTIVE_OBJECTS, sky_objects);
     let stage = e.global::<i32>(SKY_REFLECTION_THREAD_STAGE);
@@ -6626,15 +6745,15 @@ fn finish_group_interior(
         let constant = plane_constant(e, plane);
         let negated = -constant;
         let normal_z = {
-            let normal = e.call(ADDRESS_OF_THIS, &args![plane]).u32();
+            let normal = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, plane));
             e.mem.f32(normal + 8)
         };
         let normal_y = {
-            let normal = e.call(ADDRESS_OF_THIS, &args![plane]).u32();
+            let normal = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, plane));
             e.mem.f32(normal + 4)
         };
         let normal_x = {
-            let normal = e.call(ADDRESS_OF_THIS, &args![plane]).u32();
+            let normal = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, plane));
             e.mem.f32(normal)
         };
         e.with_stack(0x10, |e, vector| {
@@ -6946,21 +7065,21 @@ fn add_reflected_depth_objects(
     let mut node = e
         .call(EXTRA_DATA_LIST_GET_REFLECTED_REFS, &args![extra_data])
         .u32();
-    while node != 0 && !e.call(WORDS_ARE_ZERO, &args![node]).bool() {
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         let record = {
-            let slot = e.call(ADDRESS_OF_THIS, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             e.mem.u32(slot)
         };
         // The record: the reflected reference, then a flag word.
         if e.mem.u32(record + 4) & 2 != 0 {
             let record = {
-                let slot = e.call(ADDRESS_OF_THIS, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 e.mem.u32(slot)
             };
             let reflected = e.mem.u32(record);
             add_depth_object(e, this, static_objects, reflected);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -6996,7 +7115,7 @@ fn setup_depth_for_reference(
             DEPTH_MAP
         ],
     );
-    let form = e.call(REFERENCE_BASE_FORM, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if !fn_004e32e0(e, form) {
         return;
     }
@@ -7028,15 +7147,15 @@ fn setup_depth_for_reference(
     if form != 0 && e.call(FORM_FLAG_TEST_40000000, &args![form]).bool() {
         let static_objects = address_of(group, PlaceableWaterGroup::StaticDepthObjects);
         let mut node = fn_004ec7b0(e);
-        while node != 0 && !e.call(WORDS_ARE_ZERO, &args![node]).bool() {
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
             let object = {
-                let slot = e.call(ADDRESS_OF_THIS, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 e.mem.u32(slot)
             };
             if object != 0 {
                 add_depth_object(e, this, static_objects, object);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
 }
@@ -7191,7 +7310,11 @@ pub fn fn_004ebb70(e: &mut Engine, this: u32) -> u32 {
 /// name): the pointer stored there. The image-space manager's effects are
 /// read this way.
 pub fn fn_004ebbc0(e: &mut Engine, this: u32, index: u32) -> u32 {
-    let slot = e.call(ARRAY_ELEMENT_ADDRESS, &args![this + 4, index]).u32();
+    let slot = typed_call!(
+        leaf::FAMILY,
+        0x0087_7a30,
+        leaf::array_element(e, this + 4, index)
+    );
     e.mem.u32(slot)
 }
 
@@ -7609,7 +7732,9 @@ fn draw_depth_reference(
         return;
     }
     let owner = e.call(NODE_OWNER, &args![geometry]).u32();
-    if owner == 0 || e.call(OWNER_TYPE, &args![owner]).u32() != WATER_OWNER_TYPE {
+    if owner == 0
+        || typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, owner)) != WATER_OWNER_TYPE
+    {
         return;
     }
     let property = water_shader_property(e, geometry);
@@ -7682,9 +7807,13 @@ pub fn fn_004ecef0(
             let x = e.mem.f32(view + 4 * column);
             let y = e.mem.f32(view + 0x10 + 4 * column);
             let z = e.mem.f32(view + 0x20 + 4 * column);
-            let point = e.call(NI_POINT3_CONSTRUCT, &args![axis, x, y, z]).u32();
+            let point = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, axis, x, y, z)
+            );
             let eye = fn_004ed180(e);
-            let dot = e.call(NI_POINT3_DOT, &args![eye, point]).f32();
+            let dot = typed_call!(leaf::FAMILY, 0x004b_6190, leaf::point3_dot(e, eye, point));
             e.mem.set_f32(view + 0x30 + 4 * column, -dot);
         }
         let renderer = e.call(RENDERER, &[]).u32();
@@ -7837,7 +7966,7 @@ pub fn fn_004ed3e0(e: &mut Engine, this: Ptr<PlaceableWaterGroup>) {
         if pointer_in_slot(e, map_slot) != 0 {
             let texture = pointer_in_slot(e, map_slot);
             // The word at +4 of the texture is its reference count.
-            if e.call(NODE_NEXT, &args![texture]).u32() == 2 {
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, texture)) == 2 {
                 let texture = pointer_in_slot(e, map_slot);
                 let manager = e.call(TEXTURE_MANAGER, &[]).u32();
                 e.call(RETURN_RENDERED_TEXTURE, &args![manager, texture]);

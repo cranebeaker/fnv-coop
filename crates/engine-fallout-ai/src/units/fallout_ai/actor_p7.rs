@@ -37,8 +37,10 @@ const CALENDAR: u32 = 0x011d_e7b8;
 const BROADCAST_LOCK: u32 = 0x011f_1180;
 
 /// The actor's process (`008d8520`: the word at `+0x68`).
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// `TESObjectREFR`'s base form getter (`007af430`, `ECX` = the reference).
+#[cfg(test)]
 const GET_FORM: u32 = 0x007a_f430;
 /// The base form of an actor reference (`004181e0`).
 const GET_BASE_FORM: u32 = 0x0041_81e0;
@@ -177,21 +179,26 @@ const PLAYER_ALARM_COUNTER_22: u32 = 0x0096_6e00;
 /// actor, a perk argument and the address of the value.
 const HANDLE_ENTRY_POINT: u32 = 0x005e_58f0;
 /// The word at `+8` of an object (`0044ddc0`).
+#[cfg(test)]
 const WORD_AT_8: u32 = 0x0044_ddc0;
 /// The word at `+0xc` of an object (`0084e3a0`): the reference of an alarm
 /// record or crime.
+#[cfg(test)]
 const RECORD_REFERENCE: u32 = 0x0084_e3a0;
 /// The byte at `+0x10` of an alarm record (`00833c20`).
 const RECORD_BYTE_AT_0X10: u32 = 0x0083_3c20;
 /// A list node's own data slot (`006815c0`): the item is the word at it.
+#[cfg(test)]
 const LIST_NODE_ITEM_SLOT: u32 = 0x0068_15c0;
 /// A list node's next node (`00726070`).
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// Empties a list (`00470470`).
 const LIST_CLEAR: u32 = 0x0047_0470;
 /// Destroys a list (`004702f0`, flag word: free the block).
 const LIST_DESTROY: u32 = 0x0047_02f0;
 /// A list head test (`008256d0`): both words zero.
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `ProcessLists::GetActorRefInHigh` (Xbox PDB).
 const PROCESS_LISTS_GET_ACTOR_REF_IN_HIGH: u32 = 0x0097_0a20;
@@ -238,6 +245,7 @@ const SET_PACKAGE_LOCATION: u32 = 0x0067_1d30;
 /// `TESPackage::SetPackageTarget` (Xbox PDB).
 const SET_PACKAGE_TARGET: u32 = 0x0067_2fc0;
 /// The package's target object (`00671d10`: the word at `+0x30`).
+#[cfg(test)]
 const PACKAGE_TARGET_OBJECT: u32 = 0x0067_1d10;
 /// `TESPackage::IsInterruptPackage` (Xbox PDB).
 const IS_INTERRUPT_PACKAGE: u32 = 0x0067_8610;
@@ -354,7 +362,7 @@ fn setting_int(e: &mut Engine, setting: u32) -> i32 {
 
 /// The actor's process (`008d8520`).
 fn process_of(e: &mut Engine, actor: u32) -> u32 {
-    e.call(ACTOR_PROCESS, &args![actor]).u32()
+    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
 }
 
 /// The calendar hour as the `float` the game pushes.
@@ -448,9 +456,9 @@ fn begin_witness_line(
     witness: u32,
     topic_id: u32,
 ) -> u32 {
-    let form = e.call(GET_FORM, &args![form_owner]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, form_owner));
     fn_008bff30(e, form);
-    let speaker = e.call(RECORD_REFERENCE, &args![crime]).u32();
+    let speaker = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime));
     e.call(SET_WORD_AT_0X70, &args![witness, speaker]);
     e.call(GET_TOPIC, &args![2u32, topic_id]).u32()
 }
@@ -521,7 +529,9 @@ pub fn fn_008bed50(
     let player = e.global::<u32>(PLAYER_POINTER);
     if e.vcall(this.addr(), 0x304, &args![]).bool() {
         if !record.is_null() && reference.is_null() {
-            reference = e.call(RECORD_REFERENCE, &args![record]).ptr();
+            reference = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, record))
+                .into_ret()
+                .ptr();
         }
         let entry = e
             .call(
@@ -578,7 +588,7 @@ pub fn fn_008bed50(
         && e.call(PACKAGE_GET_FLAG_400000, &args![package]).bool()
         && !record.is_null()
     {
-        let record_value = e.call(WORD_AT_8, &args![record]).u32();
+        let record_value = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, record));
         let own_process = e.get(this, Actor::pCurrentProcess).addr();
         let handled = e.vcall(own_process, 0x128, &args![]).u32();
         if record_value != handled {
@@ -589,7 +599,7 @@ pub fn fn_008bed50(
         if !e.vcall(this.addr(), 0x22c, &args![0u32]).bool()
             && !e.call(RECORD_BYTE_AT_0X10, &args![record]).bool()
         {
-            let target = e.call(RECORD_REFERENCE, &args![record]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, record));
             let own_process = e.get(this, Actor::pCurrentProcess).addr();
             e.vcall(own_process, 0x344, &args![this, target, record]);
         }
@@ -613,15 +623,17 @@ pub fn fn_008bed50(
         let class = e.call(ACTOR_GET_CLASS, &args![this]).u32();
         if e.call(CLASS_IS_GUARD, &args![class]).bool() {
             fn_008bf4e0(e, record, 1);
-            let target = e.call(RECORD_REFERENCE, &args![record]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, record));
             if e.vcall(target, 0x218, &args![]).bool() {
-                let target = e.call(RECORD_REFERENCE, &args![record]).u32();
+                let target = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, record));
                 if target != player {
-                    let target = e.call(RECORD_REFERENCE, &args![record]).u32();
+                    let target = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, record));
                     if !e.call(IN_COMBAT_FLAG, &args![target]).bool() {
-                        let target = e.call(RECORD_REFERENCE, &args![record]).u32();
+                        let target =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, record));
                         if e.call(GET_REF_PERSISTS, &args![target]).bool() {
-                            let target = e.call(RECORD_REFERENCE, &args![record]).u32();
+                            let target =
+                                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, record));
                             if !e.call(IS_FLEEING, &args![target, 0u32]).bool() {
                                 let minus_one_a = e.global::<f32>(FLOAT_MINUS_ONE);
                                 let minus_one_b = e.global::<f32>(FLOAT_MINUS_ONE);
@@ -693,7 +705,7 @@ pub fn fn_008bed50(
             0
         };
         if !record.is_null() {
-            let target = e.call(RECORD_REFERENCE, &args![record]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, record));
             e.call(SET_LOC_REFERENCE, &args![location, target]);
         } else {
             e.call(SET_LOC_REFERENCE, &args![location, reference]);
@@ -713,14 +725,14 @@ pub fn fn_008bed50(
             e.call(PACKAGE_TARGET_DESTRUCTOR, &args![target, 1u32]);
         }
         e.call(SET_PACKAGE_WORD_AT_0X18, &args![alarm, 0xbu32]);
-        let package_target = e.call(PACKAGE_TARGET_OBJECT, &args![alarm]).u32();
+        let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, alarm));
         e.call(SET_TARG_TYPE, &args![package_target, 0u32]);
         if !record.is_null() {
-            let target = e.call(RECORD_REFERENCE, &args![record]).u32();
-            let package_target = e.call(PACKAGE_TARGET_OBJECT, &args![alarm]).u32();
+            let target = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, record));
+            let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, alarm));
             e.call(SET_TARG_REFERENCE, &args![package_target, target]);
         } else {
-            let package_target = e.call(PACKAGE_TARGET_OBJECT, &args![alarm]).u32();
+            let package_target = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, alarm));
             e.call(SET_TARG_REFERENCE, &args![package_target, reference]);
         }
         let own_process = process_of(e, this.addr());
@@ -736,7 +748,7 @@ pub fn fn_008bed50(
     } else if !record.is_null() {
         let own_process = e.get(this, Actor::pCurrentProcess).addr();
         let handled = e.vcall(own_process, 0x128, &args![]).u32();
-        let record_reference = e.call(RECORD_REFERENCE, &args![record]).u32();
+        let record_reference = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, record));
         if handled == record_reference
             && !e.call(CRIME_HAS_WITNESS, &args![existing, record]).bool()
         {
@@ -808,11 +820,11 @@ fn start_target_package(
         e.call(PACKAGE_TARGET_DESTRUCTOR, &args![package_target, 1u32]);
     }
     e.call(SET_PACKAGE_WORD_AT_0X18, &args![package, kind]);
-    let target_object = e.call(PACKAGE_TARGET_OBJECT, &args![package]).u32();
+    let target_object = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     e.call(SET_TARG_TYPE, &args![target_object, 0u32]);
-    let target_object = e.call(PACKAGE_TARGET_OBJECT, &args![package]).u32();
+    let target_object = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     e.call(SET_TARG_REFERENCE, &args![target_object, target]);
-    let target_object = e.call(PACKAGE_TARGET_OBJECT, &args![package]).u32();
+    let target_object = typed_call!(leaf::FAMILY, 0x0067_1d10, leaf::word_at_30(e, package));
     e.call(SET_TARGET_WORD_AT_8, &args![target_object, 0u32]);
     if copy_flag && process_package != 0 {
         let bit_200000 = e
@@ -992,7 +1004,7 @@ pub fn actor_steal_alarm(
         return;
     }
     fn_008bff30(e, owner);
-    let speaker = e.call(RECORD_REFERENCE, &args![crime]).u32();
+    let speaker = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime));
     e.call(SET_WORD_AT_0X70, &args![this, speaker]);
     let topic = e.call(GET_TOPIC, &args![2u32, 9u32]).u32();
     witness_says(e, witness, topic);
@@ -1036,7 +1048,7 @@ pub fn fn_008bffa0(e: &mut Engine, this: Ptr) -> u32 {
 pub fn actor_is_angry_with_player(e: &mut Engine, this: Ptr<Actor>) -> bool {
     let extra_list = e.call(EXTRA_LIST_OF_REFERENCE, &args![this]).u32();
     let crimes = e.call(GET_PLAYER_CRIME_LIST, &args![extra_list]).u32();
-    if crimes == 0 || e.call(LIST_IS_EMPTY, &args![crimes]).bool() {
+    if crimes == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, crimes)) {
         return false;
     }
     if process_of(e, this.addr()) == 0 {
@@ -1118,16 +1130,16 @@ pub fn fn_008c00e0(
         [victim.addr(), this.addr(), argument_a, argument_b, 0],
     );
     let crime_word_8 = if crime != 0 {
-        e.call(WORD_AT_8, &args![crime]).u32()
+        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, crime))
     } else {
         0
     };
     if crime == 0 || victim.addr() != crime_word_8 {
-        let crime_owner = e.call(WORD_AT_8, &args![crime]).u32();
+        let crime_owner = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, crime));
         e.call(IS_AN_OWNER, &args![crime_owner, victim, 1u32]);
     }
     let victim_process = process_of(e, victim.addr());
-    let reference = e.call(RECORD_REFERENCE, &args![crime]).u32();
+    let reference = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime));
     let entry = e
         .vcall(victim_process, 0x504, &args![reference, 0u32])
         .u32();
@@ -1137,7 +1149,7 @@ pub fn fn_008c00e0(
     } else {
         e.mem.set_u32(entry + 4, 3);
     }
-    let form = e.call(GET_FORM, &args![victim]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, victim));
     e.call(
         RT_DYNAMIC_CAST,
         &args![form, 0u32, CAST_FROM_FORM, CAST_TO_NPC, 0u32],
@@ -1210,11 +1222,11 @@ pub fn actor_attack_alarm(
     let mut node = witnesses;
     if node != 0 {
         while node != 0 {
-            let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 {
                 break;
             }
-            let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let witness = e.mem.u32(slot);
             if !e.vcall(witness, 0x22c, &args![0u32]).bool()
                 && !e.vcall(witness, 0x320, &args![]).bool()
@@ -1235,11 +1247,14 @@ pub fn actor_attack_alarm(
                     fn_008bff30(e, 0);
                 } else {
                     let topic = begin_witness_line(e, this.addr(), crime, witness, 0xf);
-                    let crime_word_8 = e.call(WORD_AT_8, &args![crime]).u32();
+                    let crime_word_8 =
+                        typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, crime));
                     let is_victim = this.addr() == crime_word_8;
-                    let crime_reference = e.call(RECORD_REFERENCE, &args![crime]).u32();
+                    let crime_reference =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime));
                     let attack = crime_reference != 0 && {
-                        let target = e.call(RECORD_REFERENCE, &args![crime]).u32();
+                        let target =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime));
                         e.with_stack(4, |e, out| {
                             e.mem.set_u32(out.addr(), 0);
                             e.call(
@@ -1251,7 +1266,8 @@ pub fn actor_attack_alarm(
                     };
                     if attack {
                         let witness_process = process_of(e, witness);
-                        let target = e.call(RECORD_REFERENCE, &args![crime]).u32();
+                        let target =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime));
                         e.vcall(
                             witness_process,
                             0x33c,
@@ -1266,7 +1282,7 @@ pub fn actor_attack_alarm(
                     fn_008bff30(e, 0);
                 }
             }
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         destroy_list(e, witnesses);
         if e.call(CRIME_WITNESS_COUNT, &args![crime]).i32() == 0 {
@@ -1349,11 +1365,11 @@ pub fn fn_008c09e0(e: &mut Engine, this: Ptr<Actor>, other: Ptr) {
     let mut node = witnesses;
     if node != 0 {
         while node != 0 {
-            let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(slot) == 0 {
                 break;
             }
-            let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let witness = e.mem.u32(slot);
             if !e.vcall(witness, 0x22c, &args![0u32]).bool()
                 && !e.vcall(witness, 0x320, &args![]).bool()
@@ -1371,15 +1387,18 @@ pub fn fn_008c09e0(e: &mut Engine, this: Ptr<Actor>, other: Ptr) {
                     if e.call(GET_SHOULD_HELP, &args![witness, this]).bool()
                         && !e.call(IN_COMBAT_FLAG, &args![witness]).bool()
                     {
-                        let target = e.call(RECORD_REFERENCE, &args![crime]).u32();
+                        let target =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime));
                         witness_reacts(e, witness, target);
                     }
                     fn_008bff30(e, 0);
                 } else {
                     let topic = begin_witness_line(e, this.addr(), crime, witness, 0x10);
-                    let crime_reference = e.call(RECORD_REFERENCE, &args![crime]).u32();
+                    let crime_reference =
+                        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime));
                     let attack = crime_reference != 0 && {
-                        let target = e.call(RECORD_REFERENCE, &args![crime]).u32();
+                        let target =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime));
                         e.with_stack(4, |e, out| {
                             e.mem.set_u32(out.addr(), 0);
                             e.call(
@@ -1393,7 +1412,8 @@ pub fn fn_008c09e0(e: &mut Engine, this: Ptr<Actor>, other: Ptr) {
                         || (e.call(GET_SHOULD_HELP, &args![witness, this]).bool()
                             && !e.call(IN_COMBAT_FLAG, &args![witness]).bool())
                     {
-                        let target = e.call(RECORD_REFERENCE, &args![crime]).u32();
+                        let target =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, crime));
                         witness_reacts(e, witness, target);
                     } else {
                         witness_says(e, witness, topic);
@@ -1401,7 +1421,7 @@ pub fn fn_008c09e0(e: &mut Engine, this: Ptr<Actor>, other: Ptr) {
                     fn_008bff30(e, 0);
                 }
             }
-            node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         destroy_list(e, witnesses);
         if e.call(CRIME_WITNESS_COUNT, &args![crime]).i32() > 0 {
@@ -1552,11 +1572,11 @@ pub fn is_actor_of_faction(e: &mut Engine, reference: Ptr, form: Ptr, actor: Ptr
 /// callers do not pass a null list (8c1044 and 8c11d8 test it).
 pub fn fn_008c1210(e: &mut Engine, mut node: Ptr, actor: Ptr<Actor>, _unused_2: u32) -> bool {
     while !node.is_null() {
-        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             return slot as u8 != 0;
         }
-        let slot = e.call(LIST_NODE_ITEM_SLOT, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(slot);
         if item != 0 {
             let faction = e.mem.u32(item);
@@ -1564,7 +1584,9 @@ pub fn fn_008c1210(e: &mut Engine, mut node: Ptr, actor: Ptr<Actor>, _unused_2: 
                 return true;
             }
         }
-        node = e.call(LIST_NODE_NEXT, &args![node]).ptr();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
+            .into_ret()
+            .ptr();
     }
     false
 }
@@ -1723,7 +1745,7 @@ fn find_script_variable(e: &mut Engine, this: Ptr, variable: u32) -> Option<(u32
     if this.is_null() {
         return None;
     }
-    let form = e.call(GET_FORM, &args![this]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
     let script = e.call(SCRIPT_OF_FORM, &args![form]).u32();
     let variables = e.call(GET_SCRIPT_VARIABLES, &args![this]).u32();
     if script == 0 || variables == 0 {
@@ -1787,7 +1809,7 @@ fn apply_animation_speed(
         if e.vcall(process, 0x148, &args![]).u32() != 0 {
             let process = process_of(e, this.addr());
             let entry = e.vcall(process, 0x148, &args![]).u32();
-            perk_argument = e.call(WORD_AT_8, &args![entry]).u32();
+            perk_argument = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         }
     }
     let value = e.with_stack(4, |e, slot| {

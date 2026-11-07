@@ -44,6 +44,7 @@ const DIMMED_COLOR: u32 = 0x011f_4998;
 /// `00bb95b0` (`cdecl (index, 4 words)`), `00bb95e0` (`cdecl (index, 4
 /// words, 4 words)`) and `00bbb790` (`cdecl (&colour, flag)`).
 const UNITIZE: u32 = 0x004a_0c10;
+#[cfg(test)]
 const SET_CONSTANT: u32 = 0x004e_20c0;
 const MINIMUM: u32 = 0x0040_ebd0;
 const SCALE_POINT: u32 = 0x0043_9180;
@@ -162,9 +163,10 @@ pub fn fn_00b70820(e: &mut Engine, index: u32, light: Ptr, scale: f32) {
         if data != 0 {
             let color: [u32; 3] =
                 std::array::from_fn(|i| x87_quiet_bits(e.mem.u32(data + 0x8c + 4 * i as u32)));
-            e.call(
-                SET_CONSTANT,
-                &args![index + 0xb, color[0], color[1], color[2], 1.0f32],
+            typed_call!(
+                leaf::FAMILY,
+                0x004e_20c0,
+                leaf::store_colour(e, index + 0xb, color[0], color[1], color[2], 1.0f32)
             );
         }
     } else {
@@ -188,9 +190,10 @@ pub fn fn_00b70820(e: &mut Engine, index: u32, light: Ptr, scale: f32) {
                 1.0
             };
             let w = x87_store32(w);
-            e.call(
-                SET_CONSTANT,
-                &args![index + 0x13, direction[0], direction[1], direction[2], w],
+            typed_call!(
+                leaf::FAMILY,
+                0x004e_20c0,
+                leaf::store_colour(e, index + 0x13, direction[0], direction[1], direction[2], w)
             );
         }
         if !(e.mem.u8(SKIP_FLAG) != 0 && ambient_allowed == 0) {

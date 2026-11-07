@@ -56,6 +56,7 @@ const EFFECT_ITEM_LIST_LOAD: u32 = 0x0040_5760;
 /// head): how many nodes of the list hold a non-null item.
 const LIST_COUNT: u32 = 0x005a_e380;
 /// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `005b5e40` (`cdecl` format, ...): the log print.
 const PRINT: u32 = 0x005b_5e40;
@@ -150,7 +151,7 @@ pub fn fn_0040c650(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
     }
     if e.call(LIST_COUNT, &args![object + 0x40]).u32() == 0 {
         let name = e.call(FULL_NAME_TEXT, &args![component]).u32();
-        let form_id = e.call(FORM_ID, &args![this]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         e.call(PRINT, &args![MESSAGE_NO_EFFECTS, form_id, name]);
     }
     true
@@ -263,7 +264,7 @@ pub fn fn_0040c230(e: &mut Engine, this: Ptr, file: Ptr) -> bool {
     }
     if e.call(LIST_COUNT, &args![object.wrapping_add(0x28)]).u32() == 0 {
         let name = e.call(FULL_NAME_TEXT, &args![component]).u32();
-        let form_id = e.call(FORM_ID, &args![this]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         e.call(PRINT, &args![MESSAGE_NO_EFFECTS, form_id, name]);
     }
     true

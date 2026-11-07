@@ -232,6 +232,7 @@ const LOOKUP_FORM: u32 = 0x004839c0;
 const RT_DYNAMIC_CAST: u32 = 0x00ec43fb;
 /// `iFormID` getter (`thiscall`; the engine map names the folded body
 /// `0084e3a0`).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084e3a0;
 /// Virtual slot `0x130` of a form: its object type name (`GetObjectTypeName`
 /// in the Xbox PDB).
@@ -363,7 +364,7 @@ fn resolve_form_reference(
 /// message, the rewritten id, the weapon's object type name (virtual slot
 /// `0x130`) and the weapon's own form id.
 fn report_missing_reference(e: &mut Engine, this: Ptr<TesObjectWeap>, id: u32, message: u32) {
-    let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let name = e
         .vcall(this.addr(), FORM_GET_OBJECT_TYPE_NAME_SLOT, &[])
         .u32();
@@ -686,6 +687,7 @@ const ADD_CHUNK_DATA: u32 = 0x0048_5990;
 const SWAP_ON_SAVE: u32 = 0x0040_1500;
 /// `BSStringT<char>` length (`thiscall`) and c-string getter (`thiscall`).
 const STRING_LENGTH: u32 = 0x0040_48e0;
+#[cfg(test)]
 const STRING_C_STR: u32 = 0x0055_9450;
 /// Endian swap of the critical-hit block (`thiscall`, +0x1C0) and of the
 /// VATS special block (`thiscall`, +0x370).
@@ -739,7 +741,7 @@ fn save_string_chunk(e: &mut Engine, string: u32, chunk: [u8; 4]) {
     let length = e.call(STRING_LENGTH, &args![string]).u32();
     if length != 0 {
         let length = e.call(STRING_LENGTH, &args![string]).u32();
-        let text = e.call(STRING_C_STR, &args![string]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
         e.call(ADD_CHUNK_ARRAY, &args![tag(&chunk), text, length + 1]);
     }
 }
@@ -760,7 +762,7 @@ fn save_block_with_form_id(
     let weapon = this.addr();
     let saved = e.mem.u32(weapon + pointer_at);
     let id = if saved != 0 {
-        e.call(GET_FORM_ID, &args![saved]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, saved))
     } else {
         0
     };
@@ -821,7 +823,7 @@ pub fn tes_object_weap_save(e: &mut Engine, this: Ptr<TesObjectWeap>) {
         );
         let scope_effect = e.get(this, TesObjectWeap::pScopeEffect);
         if !scope_effect.is_null() {
-            let id = e.call(GET_FORM_ID, &args![scope_effect]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, scope_effect));
             e.call(ADD_CHUNK_WORD, &args![tag(b"EFSD"), id]);
         }
     }
@@ -845,7 +847,7 @@ pub fn tes_object_weap_save(e: &mut Engine, this: Ptr<TesObjectWeap>) {
     for (offset, chunk) in SAVED_FORM_FIELDS {
         let field = e.mem.u32(weapon + offset);
         if field != 0 {
-            let id = e.call(GET_FORM_ID, &args![field]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, field));
             e.call(ADD_CHUNK_WORD, &args![tag(&chunk), id]);
         }
     }
@@ -982,7 +984,9 @@ pub fn fn_00522df0(e: &mut Engine, this: Ptr<TesObjectWeap>, mods: u8, force_mod
     } else {
         Ptr::NULL
     };
-    if model.is_null() || e.call(GET_FORM_ID, &args![this]).u32() == NO_MOD_MODEL_FORM_ID {
+    if model.is_null()
+        || typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == NO_MOD_MODEL_FORM_ID
+    {
         main_model
     } else {
         model
@@ -1102,7 +1106,11 @@ const FOLDED_GETTER_006629F0: u32 = 0x0066_29f0;
 /// Reads the word at the start of the object at `011deb7c` (`00559450`) and
 /// passes it to `006629f0`, returning that result.
 pub fn fn_00524c90(e: &mut Engine) -> u32 {
-    let word = e.call(STRING_C_STR, &args![SINGLETON_011DEB7C]).u32();
+    let word = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, SINGLETON_011DEB7C)
+    );
     e.call(FOLDED_GETTER_006629F0, &args![word]).u32()
 }
 
@@ -1417,6 +1425,7 @@ pub fn fn_00525750(
 
 /// The actor's process pointer: `+0x68` of the actor (the engine map names
 /// the folded body `MiddleHighProcess::GetSavedAcquireObject`).
+#[cfg(test)]
 const ACTOR_PROCESS: u32 = 0x008d_8520;
 /// A reference's position: `+0x30` of the reference (`thiscall`).
 const REFERENCE_POSITION: u32 = 0x0043_6aa0;
@@ -1456,7 +1465,7 @@ pub fn fn_005257a0(e: &mut Engine, this: Ptr<TesObjectWeap>, result: Ptr, refere
     let process = if actor.is_null() {
         0
     } else {
-        e.call(ACTOR_PROCESS, &args![actor]).u32()
+        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
     };
     let player: u32 = e.global(PLAYER_CHARACTER);
     let is_player = actor.addr() == player;
@@ -1522,6 +1531,7 @@ pub fn fn_005257a0(e: &mut Engine, this: Ptr<TesObjectWeap>, result: Ptr, refere
 }
 
 /// `thiscall` on the held-item object the process returns (`0044ddc0`).
+#[cfg(test)]
 const HELD_ITEM_GET_FORM: u32 = 0x0044_ddc0;
 /// The weapon's default ammo (`thiscall` on `BGSAmmoForm`, +0xA4).
 const AMMO_FORM_GET_AMMO: u32 = 0x0047_4920;
@@ -1539,17 +1549,17 @@ pub fn tes_object_weap_get_current_ammo(
     this: Ptr<TesObjectWeap>,
     actor: Ptr,
 ) -> u32 {
-    if !actor.is_null() && e.call(ACTOR_PROCESS, &args![actor]).u32() != 0 {
-        let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+    if !actor.is_null() && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
         if e.vcall(process, PROCESS_AMMO_ITEM_SLOT, &[]).u32() != 0 {
-            let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             let held = e.vcall(process, PROCESS_AMMO_ITEM_SLOT, &[]).u32();
-            let ammo = e.call(HELD_ITEM_GET_FORM, &args![held]).u32();
-            let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+            let ammo = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, held));
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             let other = if e.vcall(process, PROCESS_WEAPON_ITEM_SLOT, &[]).u32() != 0 {
-                let process = e.call(ACTOR_PROCESS, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 let item = e.vcall(process, PROCESS_WEAPON_ITEM_SLOT, &[]).u32();
-                e.call(HELD_ITEM_GET_FORM, &args![item]).u32()
+                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item))
             } else {
                 0
             };
@@ -1952,7 +1962,7 @@ pub fn tes_object_weap_load(e: &mut Engine, this: Ptr<TesObjectWeap>, file: Ptr)
         fn_00521580(e, this, 1);
     }
     if e.get(data, ObjWeap::eType) as i32 >= 0xE {
-        let form_id = e.call(GET_FORM_ID, &args![this]).u32();
+        let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
         let name = e.vcall(weapon, FORM_GET_OBJECT_TYPE_NAME_SLOT, &[]).u32();
         e.call(
             LOG_MESSAGE,
@@ -2167,6 +2177,7 @@ const MATRIX_GET_COLUMN: u32 = 0x0043_9f50;
 /// `RandomFloat` (Xbox PDB), `cdecl` (minimum, maximum), result in `ST0`.
 const RANDOM_FLOAT: u32 = 0x0047_6b70;
 /// Vector constructor (`thiscall`, `this`, x, y, z), returns `this`.
+#[cfg(test)]
 const VECTOR_CONSTRUCT: u32 = 0x0041_6870;
 /// `thiscall` on a vector (`this`, other): `this += other`, returned.
 const VECTOR_ADD_ASSIGN: u32 = 0x0063_c8a0;
@@ -2336,12 +2347,11 @@ fn expel_from_node(e: &mut Engine, this: Ptr<TesObjectWeap>, actor: Ptr, node: u
     let first = e.call(RANDOM_FLOAT, &args![-limit_a, limit_b]).f32();
     let second = e.call(RANDOM_FLOAT, &args![-limit_a, limit_b]).f32();
     let third = e.call(RANDOM_FLOAT, &args![-limit_a, limit_b]).f32();
-    let random = e
-        .call(
-            VECTOR_CONSTRUCT,
-            &args![block + LOCAL_EJECT_JITTER, third, second, first],
-        )
-        .u32();
+    let random = typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, block + LOCAL_EJECT_JITTER, third, second, first)
+    );
     e.call(
         VECTOR_ADD_ASSIGN,
         &args![block + LOCAL_EJECT_VELOCITY, random],
@@ -2390,9 +2400,10 @@ fn expel_from_node(e: &mut Engine, this: Ptr<TesObjectWeap>, actor: Ptr, node: u
     let direction_x = e.mem.f32(block + LOCAL_SPIN_DIRECTION);
     let speed_x =
         (setting_float(e, SETTING_GUN_SHELL_ROTATE_SPEED) as f64 * direction_x as f64) as f32;
-    e.call(
-        VECTOR_CONSTRUCT,
-        &args![block + LOCAL_SPIN_LOCAL, speed_x, 0.0f32, speed_z],
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, block + LOCAL_SPIN_LOCAL, speed_x, 0.0f32, speed_z)
     );
     let rotation = e.call(NODE_WORLD_ROTATION, &args![node]).u32();
     let rotated = e
@@ -2491,6 +2502,7 @@ const ITEM_HAS_MOD_EFFECT: u32 = 0x004b_da70;
 const ITEM_HAS_MOD_EFFECT_VALUE: u32 = 0x004b_d8d0;
 /// `thiscall` on an item or a handle: a count or a reference (`00726070`;
 /// the engine map has no name).
+#[cfg(test)]
 const HANDLE_RESOLVE: u32 = 0x0072_6070;
 /// `thiscall` on a scene node (`0045bc00`, `0043b4a0`, `00450f90`): the
 /// three steps the code takes on the node of a held weapon that has run
@@ -2510,6 +2522,7 @@ const WEAPON_FLAG_TEST_4AD030: u32 = 0x004a_d030;
 /// `PathingLocation::GetWorldspace` by the engine map (identical-code
 /// folding), `0044ddc0` returns its mode, `009c71c0` its current action.
 const VATS_OBJECT: u32 = 0x011f_2250;
+#[cfg(test)]
 const VATS_GET_MODE: u32 = 0x0044_ddc0;
 const VATS_GET_CURRENT_ACTION: u32 = 0x009c_71c0;
 const VATS_GET_WORLDSPACE: u32 = 0x0044_1110;
@@ -2638,6 +2651,7 @@ const NODE_PARENT: u32 = 0x0096_11e0;
 /// `NiPointer` operations: construct from a pointer (`thiscall`, one word),
 /// get the pointer, assign (`thiscall`, one word) and destruct.
 const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const NI_POINTER_DESTRUCT: u32 = 0x0045_cec0;
@@ -2724,7 +2738,7 @@ fn setting_flag(e: &mut Engine, setting: u32) -> bool {
 
 /// `NiPointer::Get` of the pointer object at `pointer`.
 fn ni_pointer_get(e: &mut Engine, pointer: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![pointer]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer))
 }
 
 // Translated from 00523150 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2804,7 +2818,7 @@ fn fire(e: &mut Engine, this: Ptr<TesObjectWeap>, reference: Ptr, frame: u32) {
     let process = if actor.is_null() {
         0
     } else {
-        e.call(ACTOR_PROCESS, &args![actor]).u32()
+        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor))
     };
     let held = if process != 0 {
         e.vcall(process, PROCESS_WEAPON_ITEM_SLOT, &[]).u32()
@@ -2904,7 +2918,11 @@ fn fire_locate_held_weapon(e: &mut Engine, shot: &mut Fire) {
         let ammo_item = e.vcall(shot.process, PROCESS_AMMO_ITEM_SLOT, &[]).u32();
         if ammo_item != 0 {
             let item = e.vcall(shot.process, PROCESS_AMMO_ITEM_SLOT, &[]).u32();
-            if e.call(HANDLE_RESOLVE, &args![item]).i32() > 1 {
+            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+                .into_ret()
+                .i32()
+                > 1
+            {
                 let flag = e.call(PLAYER_BIPED_FLAG, &args![shot.player]).u8();
                 let biped = e.call(PLAYER_GET_BIPED, &args![shot.player, flag]).u32();
                 shot.node = e
@@ -2943,7 +2961,9 @@ fn fire_from_node(e: &mut Engine, shot: &mut Fire) {
     let translation = e.call(NODE_WORLD_TRANSLATION, &args![shot.node]).u32();
     let words = vector_words(e, translation);
     store_vector(e, frame + FIRE_MUZZLE, words);
-    let mode = e.call(VATS_GET_MODE, &args![VATS_OBJECT]).i32();
+    let mode = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, VATS_OBJECT))
+        .into_ret()
+        .i32();
     if mode != 4
         && shot.actor.addr() == shot.player
         && e.call(ACTOR_GET_IRON_SIGHTS, &args![shot.player]).bool()
@@ -2954,7 +2974,8 @@ fn fire_from_node(e: &mut Engine, shot: &mut Fire) {
             if !e.call(WEAPON_FLAG_TEST_4AD030, &args![shot.this]).bool() {
                 aiming = true;
             } else {
-                let process = e.call(ACTOR_PROCESS, &args![shot.player]).u32();
+                let process =
+                    typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, shot.player));
                 if process != 0 && e.vcall(process, PROCESS_WEAPON_ITEM_SLOT, &[]).u32() != 0 {
                     let item = e.vcall(process, PROCESS_WEAPON_ITEM_SLOT, &[]).u32();
                     if e.call(ITEM_HAS_MOD_EFFECT, &args![item, 0xEu32]).bool() {
@@ -2968,9 +2989,10 @@ fn fire_from_node(e: &mut Engine, shot: &mut Fire) {
                     let guard: u32 = e.global(SIGHT_OFFSET_GUARD);
                     e.set_global(SIGHT_OFFSET_GUARD, guard | 1);
                     let y: f32 = e.global(SIGHT_OFFSET_Y);
-                    e.call(
-                        VECTOR_CONSTRUCT,
-                        &args![SIGHT_OFFSET_VECTOR, 0.0f32, y, 0.0f32],
+                    typed_call!(
+                        leaf::FAMILY,
+                        0x0041_6870,
+                        leaf::point3_new(e, SIGHT_OFFSET_VECTOR, 0.0f32, y, 0.0f32)
                     );
                 }
                 let transform = e.call(NODE_WORLD_ROTATION, &args![camera]).u32();
@@ -3086,7 +3108,7 @@ fn fire_base_spread(e: &mut Engine, shot: &Fire) -> f32 {
     };
     let mut use_mod = false;
     if !shot.actor.is_null()
-        && e.call(ACTOR_PROCESS, &args![shot.actor]).u32() != 0
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, shot.actor)) != 0
         && shot.held != 0
         && e.call(ITEM_HAS_MOD_EFFECT, &args![shot.held, 3u32]).bool()
     {
@@ -3096,7 +3118,9 @@ fn fire_base_spread(e: &mut Engine, shot: &Fire) -> f32 {
     let range = fn_00524be0(e, shot.this, use_mod);
     let radians: f64 = e.global(DEGREES_TO_RADIANS);
     let mut spread = ((range as f64 * stat as f64 + minimum as f64) * radians) as f32;
-    if !shot.actor.is_null() && e.call(ACTOR_PROCESS, &args![shot.actor]).u32() != 0 {
+    if !shot.actor.is_null()
+        && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, shot.actor)) != 0
+    {
         let ammo = tes_object_weap_get_current_ammo(e, shot.this, shot.actor);
         let word = if ammo != 0 {
             let ammo = tes_object_weap_get_current_ammo(e, shot.this, shot.actor);
@@ -3160,7 +3184,7 @@ fn fire_aim_at_target(e: &mut Engine, shot: &mut Fire, spread: &mut f32) -> Opti
     let setting = e.mem.f32(setting);
     let radians: f64 = e.global(DEGREES_TO_RADIANS);
     *spread = ((stat as f64 * setting as f64) * radians + *spread as f64) as f32;
-    let process = e.call(ACTOR_PROCESS, &args![shot.actor]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, shot.actor));
     let recoil = e.vcall(process, PROCESS_RECOIL_SLOT, &[]).f32();
     *spread = (*spread as f64 + recoil as f64) as f32;
     Some(target)
@@ -3255,7 +3279,7 @@ fn fire_aim_at_package(e: &mut Engine, shot: &mut Fire) -> Option<()> {
     if handle == 0 {
         return Some(());
     }
-    let resolved = e.call(HANDLE_RESOLVE, &args![handle]).u32();
+    let resolved = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, handle));
     if resolved == 0 {
         return None;
     }
@@ -3543,7 +3567,12 @@ fn fire_shots(e: &mut Engine, shot: &mut Fire, mut spread: f32, target: u32) {
         &args![frame + FIRE_SHOT_POINTER, 0u32],
     );
     let vats_actor: u32 = e.global(VATS_ACTOR);
-    if e.call(VATS_GET_MODE, &args![VATS_OBJECT]).i32() == 4 && shot.actor.addr() == vats_actor {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, VATS_OBJECT))
+        .into_ret()
+        .i32()
+        == 4
+        && shot.actor.addr() == vats_actor
+    {
         state.vats_action = e.call(VATS_GET_CURRENT_ACTION, &args![VATS_OBJECT]).u32();
     }
     let package = if shot.actor.is_null() {
@@ -3586,7 +3615,8 @@ fn fire_shots(e: &mut Engine, shot: &mut Fire, mut spread: f32, target: u32) {
     if state.package_flag && !vats_actor_shot {
         let handle = e.vcall(shot.process, PROCESS_TARGET_HANDLE_SLOT, &[]).u32();
         if handle != 0 && e.vcall(handle, 8, &[]).u32() == 0x10 {
-            state.target_handle = e.call(HANDLE_RESOLVE, &args![handle]).u32();
+            state.target_handle =
+                typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, handle));
         }
     }
 
@@ -3667,7 +3697,7 @@ fn fire_after_shots(e: &mut Engine, shot: &mut Fire, fired: i32) {
     if !shot.actor.is_null() {
         let mut adjust = 0i32;
         if shot.actor.addr() == shot.player {
-            let process = e.call(ACTOR_PROCESS, &args![shot.player]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, shot.player));
             if process != 0 && e.vcall(process, PROCESS_WEAPON_ITEM_SLOT, &[]).u32() != 0 {
                 e.mem.set_f32(frame + FIRE_MOD_VALUE, 0.0);
                 let item = e.vcall(process, PROCESS_WEAPON_ITEM_SLOT, &[]).u32();
@@ -3699,7 +3729,10 @@ fn fire_after_shots(e: &mut Engine, shot: &mut Fire, fired: i32) {
         let mut ammo_left = false;
         if e.vcall(shot.process, PROCESS_AMMO_ITEM_SLOT, &[]).u32() != 0 {
             let item = e.vcall(shot.process, PROCESS_AMMO_ITEM_SLOT, &[]).u32();
-            ammo_left = e.call(HANDLE_RESOLVE, &args![item]).i32() > 0;
+            ammo_left = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item))
+                .into_ret()
+                .i32()
+                > 0;
         }
         if !ammo_left {
             e.call(ACTOR_REMOVE_WEAPON, &args![shot.actor]);
@@ -3722,7 +3755,7 @@ fn fire_after_shots(e: &mut Engine, shot: &mut Fire, fired: i32) {
         && !e.call(WEAPON_FLAG_20_TEST, &args![shot.this]).bool()
     {
         let value = e.call(ACTOR_GET_FIRE_FLOAT, &args![shot.actor]).f32();
-        let process = e.call(ACTOR_PROCESS, &args![shot.actor]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, shot.actor));
         let item = e.vcall(process, PROCESS_WEAPON_ITEM_SLOT, &[]).u32();
         e.vcall(
             shot.actor.addr(),

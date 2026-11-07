@@ -6,6 +6,7 @@ use crate::prelude::*;
 
 /// `006815c0` (`thiscall`, no stack words, no engine-map name): the constructor run on each
 /// 16-byte vector-like member and local.
+#[cfg(test)]
 const VECTOR_CONSTRUCT: u32 = 0x0068_15c0;
 /// `00483710` (`thiscall`, unit `fallout shared/tesform.cpp`): run by `fn_006219c0` on the
 /// object vtable slot +0x94 answers.
@@ -22,6 +23,7 @@ const PHANTOM_SET_POSITION: u32 = 0x00c9_e990;
 /// Callees of `fn_006214d0`, all named by the engine map where it has a name.
 const CAMERA_CASTER_TEST: u32 = 0x0062_1240;
 const OBJECT_011DEA3C: u32 = 0x011d_ea3c;
+#[cfg(test)]
 const GET_SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 const TES_0045BB80: u32 = 0x0045_bb80;
 const MULTIBOUND_00439EF0: u32 = 0x0043_9ef0;
@@ -32,6 +34,7 @@ const COPY_POSITION: u32 = 0x004a_3e00;
 const GET_HK_POSITION: u32 = 0x0062_1a40;
 const SET_FROM_HK: u32 = 0x004a_3f10;
 const GET_CHAR_CONTROLLER: u32 = 0x0093_06d0;
+#[cfg(test)]
 const GET_MEMBER: u32 = 0x0055_9450;
 const TES_00458700: u32 = 0x0045_8700;
 const TES_004586D0: u32 = 0x0045_86d0;
@@ -68,9 +71,9 @@ pub fn fn_006219c0(e: &mut Engine, this: u32) {
 /// Unnamed in the engine map (`thiscall`, no stack words; a constructor shape): runs
 /// `006815c0` on `this`, `this` +0x10 and `this` +0x20 and answers `this`.
 pub fn fn_00621990(e: &mut Engine, this: u32) -> u32 {
-    e.call(VECTOR_CONSTRUCT, &args![this]);
-    e.call(VECTOR_CONSTRUCT, &args![this + 0x10]);
-    e.call(VECTOR_CONSTRUCT, &args![this + 0x20]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this + 0x10));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this + 0x20));
     this
 }
 
@@ -80,7 +83,7 @@ pub fn fn_00621990(e: &mut Engine, this: u32) -> u32 {
 /// `this` +0x20, and answers `this`.
 pub fn fn_00621930(e: &mut Engine, this: u32) -> u32 {
     for offset in [0x0, 0x4, 0x8, 0xc, 0x10, 0x14] {
-        e.call(VECTOR_CONSTRUCT, &args![this + offset]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this + offset));
     }
     fn_00621990(e, this + 0x20);
     this
@@ -170,17 +173,20 @@ pub fn fn_006214d0(
         let collector = local(base, 0x490);
         let out_byte = local(base, 0x4ad);
         let mut answer = false;
-        e.call(VECTOR_CONSTRUCT, &args![first]);
-        e.call(VECTOR_CONSTRUCT, &args![second]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first));
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
 
         if e.call(CAMERA_CASTER_TEST, &args![subject]).bool() {
             let process = e.mem.u32(OBJECT_011DEA3C);
-            if process != 0 && e.call(GET_SAVED_ACQUIRE_OBJECT, &args![process]).u32() != 0 {
+            if process != 0
+                && typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, process)) != 0
+            {
                 let process = e.mem.u32(OBJECT_011DEA3C);
-                let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![process]).u32();
+                let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, process));
                 if e.vcall(object, 0x6d4, &[]).u32() != 0 {
                     let process = e.mem.u32(OBJECT_011DEA3C);
-                    let object = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![process]).u32();
+                    let object =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, process));
                     let target = e.vcall(object, 0x6d4, &[]).u32();
                     let value = e.call(TES_0045BB80, &args![target]).u32();
                     e.call(MULTIBOUND_00439EF0, &args![position, distance_local, value]);
@@ -199,7 +205,7 @@ pub fn fn_006214d0(
         let process = e.mem.u32(OBJECT_011DEA3C);
         let controller = e.call(GET_CHAR_CONTROLLER, &args![process]).u32();
         let member = if subject == controller {
-            let member = e.call(GET_MEMBER, &args![this]).u32();
+            let member = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
             let a = e
                 .call(TES_00458700, &args![first, first_scratch, 2u32])
                 .u32();
@@ -221,7 +227,7 @@ pub fn fn_006214d0(
             }
             member
         } else {
-            e.call(GET_MEMBER, &args![this + 4]).u32()
+            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this + 4))
         };
 
         fn_00621930(e, block);
@@ -245,9 +251,10 @@ pub fn fn_006214d0(
                 fn_006219c0(e, proxy);
                 fn_006219f0(e, member, first);
                 let controller_object = e.call(CALL_004AE6C0, &args![member]).u32();
-                let inner = e.call(GET_MEMBER, &args![model_second]).u32();
+                let inner =
+                    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model_second));
                 let column = e.call(MODEL_LOADER_0043B230, &args![inner]).u32();
-                let inner = e.call(GET_MEMBER, &args![model_first]).u32();
+                let inner = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, model_first));
                 let row = e.call(MODEL_LOADER_0043B230, &args![inner]).u32();
                 let function = fn_006218f0(e, source, row, column);
                 if function != 0 {

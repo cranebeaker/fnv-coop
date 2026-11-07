@@ -19,8 +19,10 @@ const RTTI_ACTOR: u32 = 0x0118_46d4;
 /// `Actor::EvaluatePackage` (engine map), `thiscall`, two words.
 const ACTOR_EVALUATE_PACKAGE: u32 = 0x008a_6ce0;
 /// A `bool` getter on the actor (`thiscall`, no arguments), checked first.
+#[cfg(test)]
 const ACTOR_CHECK_00440DA0: u32 = 0x0044_0da0;
 /// A `bool` getter on the actor (`thiscall`, no arguments), checked second.
+#[cfg(test)]
 const ACTOR_CHECK_00440D80: u32 = 0x0044_0d80;
 
 /// `DialogueItem::~DialogueItem` (engine map), `thiscall`.
@@ -41,6 +43,7 @@ const STOP_CURRENT_DIALOGUE: u32 = 0x0093_4250;
 /// `008d8520` (the engine map's name, `MiddleHighProcess::GetSavedAcquireObject`,
 /// is not confirmed for this body): `thiscall` on an actor, the object `SayTo`
 /// calls its virtual slots on.
+#[cfg(test)]
 const ACTOR_PROCESS_008D8520: u32 = 0x008d_8520;
 /// `MobileObject::GetCurrentProcessType` (engine map), `thiscall`.
 const GET_CURRENT_PROCESS_TYPE: u32 = 0x0093_1850;
@@ -51,6 +54,7 @@ const IS_SLEEPING_OR_RESTING: u32 = 0x0094_df60;
 /// The player (`PlayerCharacter *`) global.
 const PLAYER: u32 = 0x011d_ea3c;
 /// `0045cd60`: `thiscall`, no arguments, a word result.
+#[cfg(test)]
 const PROCESS_CHECK_0045CD60: u32 = 0x0045_cd60;
 /// `Actor::GetEssential` (engine map), `thiscall`, `bool`.
 const ACTOR_GET_ESSENTIAL: u32 = 0x0087_f3d0;
@@ -75,6 +79,7 @@ const SET_SAY_TO_TOPIC: u32 = 0x0057_ad20;
 /// `TESObjectREFR::SetSayToTopicInfo` (engine map), `thiscall`, one word.
 const SET_SAY_TO_TOPIC_INFO: u32 = 0x0057_ace0;
 /// `0084e3a0`: `thiscall`, no arguments, a word result.
+#[cfg(test)]
 const GET_VALUE_0084E3A0: u32 = 0x0084_e3a0;
 /// `BSSoundHandle::SetCompletionCallback` (engine map), `thiscall`, two words.
 const SOUND_HANDLE_SET_COMPLETION_CALLBACK: u32 = 0x00ad_8e60;
@@ -98,8 +103,8 @@ fn evaluate_package_unless_busy(e: &mut Engine, a: ScriptArgs, reset: u32) -> bo
         )
         .u32();
     if actor != 0
-        && !e.call(ACTOR_CHECK_00440DA0, &args![actor]).bool()
-        && !e.call(ACTOR_CHECK_00440D80, &args![actor]).bool()
+        && !typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, actor))
+        && !typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, actor))
         && !e.vcall(actor, 0x360, &args![]).bool()
     {
         e.call(ACTOR_EVALUATE_PACKAGE, &args![actor, 0u32, reset]);
@@ -172,7 +177,7 @@ pub fn say_to(e: &mut Engine, a: ScriptArgs) -> bool {
                 )
                 .u32();
             if item != 0 {
-                let info = e.call(GET_VALUE_0084E3A0, &args![item]).u32();
+                let info = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
                 e.call(SET_SAY_TO_TOPIC_INFO, &args![this_obj, info]);
             }
             e.with_stack(SOUND_HANDLE_SIZE, |e, handle| {
@@ -181,7 +186,7 @@ pub fn say_to(e: &mut Engine, a: ScriptArgs) -> bool {
                     0x13c,
                     &args![handle, topic, target, 0u32, 0u32, 0u32, 0u32, say_flag],
                 );
-                let word = e.call(GET_VALUE_0084E3A0, &args![this_obj]).u32();
+                let word = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this_obj));
                 e.call(
                     SOUND_HANDLE_SET_COMPLETION_CALLBACK,
                     &args![handle, SAY_TO_COMPLETION_CALLBACK, word],
@@ -206,38 +211,38 @@ fn say_to_actor(
     say_flag: u32,
 ) {
     e.call(STOP_CURRENT_DIALOGUE, &args![speaker]);
-    if e.call(ACTOR_PROCESS_008D8520, &args![speaker]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker)) == 0 {
         return;
     }
     if e.vcall(speaker, 0x22c, &args![1u32]).bool() {
         return;
     }
-    if e.call(ACTOR_PROCESS_008D8520, &args![target]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target)) == 0 {
         return;
     }
-    let process = e.call(ACTOR_PROCESS_008D8520, &args![speaker]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
     e.vcall(process, 0x370, &args![0u32]);
-    let process = e.call(ACTOR_PROCESS_008D8520, &args![speaker]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
     e.vcall(process, 0x224, &args![]);
     if e.call(GET_CURRENT_PROCESS_TYPE, &args![speaker]).u32() == 0 {
         if fourth_param == 0 {
-            let process = e.call(ACTOR_PROCESS_008D8520, &args![target]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
             e.vcall(process, 0x648, &args![0u32]);
-            let process = e.call(ACTOR_PROCESS_008D8520, &args![target]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, target));
             e.vcall(process, 0x628, &args![speaker]);
             e.call(ACTOR_WITH_OTHER_0057BD60, &args![target, speaker]);
         }
-        let process = e.call(ACTOR_PROCESS_008D8520, &args![speaker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
         e.vcall(process, 0x648, &args![0u32]);
-        let process = e.call(ACTOR_PROCESS_008D8520, &args![speaker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
         e.vcall(process, 0x628, &args![target]);
     }
 
     let player = e.global::<u32>(PLAYER);
     let mut run_at_once = e.call(IS_SLEEPING_OR_RESTING, &args![player]).bool();
     if !run_at_once {
-        let process = e.call(ACTOR_PROCESS_008D8520, &args![speaker]).u32();
-        run_at_once = e.call(PROCESS_CHECK_0045CD60, &args![process]).u32() != 0;
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
+        run_at_once = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) != 0;
     }
     if !run_at_once && e.call(ACTOR_GET_ESSENTIAL, &args![speaker]).bool() {
         run_at_once = e.call(ACTOR_STATE_004F8960, &args![speaker]).u32() == 6;
@@ -261,7 +266,7 @@ fn say_to_actor(
         }
     } else {
         e.call(ACTOR_WITH_OTHER_0057BD60, &args![speaker, target]);
-        let process = e.call(ACTOR_PROCESS_008D8520, &args![speaker]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, speaker));
         e.vcall(
             process,
             0x2a4,
@@ -320,7 +325,7 @@ fn say_through(
         )
         .u32();
     if item != 0 {
-        let info = e.call(GET_VALUE_0084E3A0, &args![item]).u32();
+        let info = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
         e.call(SET_SAY_TO_TOPIC_INFO, &args![this_obj, info]);
     }
     e.vcall(
@@ -328,7 +333,7 @@ fn say_through(
         0x13c,
         &args![handle, topic, listener, subtitles, flag_c, 0u32, 0u32, flag_a],
     );
-    let word = e.call(GET_VALUE_0084E3A0, &args![this_obj]).u32();
+    let word = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this_obj));
     e.call(
         SOUND_HANDLE_SET_COMPLETION_CALLBACK,
         &args![handle, SAY_TO_COMPLETION_CALLBACK, word],
@@ -385,22 +390,27 @@ pub fn fn_005c8a50(e: &mut Engine, a: ScriptArgs) -> bool {
 
     if topic != 0 {
         if actor != 0 {
-            let has_process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32() != 0;
+            let has_process =
+                typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0;
             if has_process && !e.vcall(actor, 0x22c, &args![1u32]).bool() {
                 let minus_one = x87_quiet_bits(e.global::<u32>(MINUS_ONE));
                 e.mem.set_u32(actor + 0x78, minus_one);
-                let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 e.vcall(process, 0x370, &args![0u32]);
-                let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 e.vcall(process, 0xac, &args![]);
                 if e.call(GET_CURRENT_PROCESS_TYPE, &args![actor]).u32() == 0 {
-                    let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     let value = e.vcall(process, 0x674, &args![2u32]).u32();
-                    let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     e.vcall(process, 0x648, &args![0u32]);
-                    let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     e.vcall(process, 0x628, &args![value]);
-                    let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     e.vcall(process, 0x224, &args![]);
                 } else if int_b != 0 {
                     e.call(SET_SAY_TO_TOPIC, &args![actor, topic]);
@@ -411,7 +421,7 @@ pub fn fn_005c8a50(e: &mut Engine, a: ScriptArgs) -> bool {
                         )
                         .u32();
                     if item != 0 {
-                        let info = e.call(GET_VALUE_0084E3A0, &args![item]).u32();
+                        let info = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, item));
                         e.call(SET_SAY_TO_TOPIC_INFO, &args![this_obj, info]);
                     }
                     e.with_stack(SOUND_HANDLE_SIZE, |e, handle| {
@@ -420,7 +430,8 @@ pub fn fn_005c8a50(e: &mut Engine, a: ScriptArgs) -> bool {
                             0x408,
                             &args![handle, topic, actor, flag_b, flag_c, 0u32, 0u32],
                         );
-                        let word = e.call(GET_VALUE_0084E3A0, &args![this_obj]).u32();
+                        let word =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this_obj));
                         e.call(
                             SOUND_HANDLE_SET_COMPLETION_CALLBACK,
                             &args![handle, SAY_TO_COMPLETION_CALLBACK, word],
@@ -432,8 +443,10 @@ pub fn fn_005c8a50(e: &mut Engine, a: ScriptArgs) -> bool {
                 let player = e.global::<u32>(PLAYER);
                 let mut run_at_once = e.call(IS_SLEEPING_OR_RESTING, &args![player]).bool();
                 if !run_at_once {
-                    let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
-                    run_at_once = e.call(PROCESS_CHECK_0045CD60, &args![process]).u32() != 0;
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+                    run_at_once =
+                        typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) != 0;
                 }
                 if !run_at_once && e.call(ACTOR_GET_ESSENTIAL, &args![actor]).bool() {
                     run_at_once = e.call(ACTOR_STATE_004F8960, &args![actor]).u32() == 6;
@@ -455,17 +468,18 @@ pub fn fn_005c8a50(e: &mut Engine, a: ScriptArgs) -> bool {
                         dialogue_item_scalar_deleting_destructor(e, Ptr::new(item), 1);
                     }
                 } else {
-                    let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     e.vcall(
                         process,
                         0x2a4,
                         &args![actor, topic, flag_a, 0u32, 1u32, 1u32],
                     );
                 }
-            } else if e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32() != 0 {
+            } else if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor)) != 0 {
                 let flags = e.call(ACTOR_PLUS_44, &args![actor]).u32();
                 e.call(SCRIPT_SET_ACTION_FLAG, &args![topic, flags, 0x40000u32]);
-                let process = e.call(ACTOR_PROCESS_008D8520, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 e.vcall(process, 0x88, &args![0u32]);
             }
         } else if this_obj != 0 && reference != 0 {

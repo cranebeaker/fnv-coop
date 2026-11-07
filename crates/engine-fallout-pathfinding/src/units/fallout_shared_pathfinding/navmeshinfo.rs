@@ -31,8 +31,10 @@ const MAP_FIND: u32 = 0x0069_3d70;
 /// `006f2290(array, count, flag)`: `BSSimpleArray::SetSize`.
 const ARRAY_SET_SIZE: u32 = 0x006f_2290;
 /// `00877a30(array, index)`: the address of element `index`.
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// `0044ddc0(array)`: the element count of the array.
+#[cfg(test)]
 const ARRAY_COUNT: u32 = 0x0044_ddc0;
 /// `006bf8f0(array, index, count)`: removes `count` elements from `index` on.
 const ARRAY_REMOVE: u32 = 0x006b_f8f0;
@@ -135,13 +137,21 @@ fn read_nav_mesh_list(e: &mut Engine, array: u32, cursor: &mut u32, file: Ptr) {
     for index in 0..count {
         let id = read_form_id(e, file, *cursor);
         if id == 0 {
-            let slot = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
             e.mem.set_u32(slot, 0);
         } else {
             let tes = e.global::<u32>(TES_POINTER);
             let map = e.call(GET_NAV_MESH_INFO_MAP, &args![tes]).u32();
             let info = e.call(MAP_FIND, &args![map, id]).u32();
-            let slot = e.call(ARRAY_ELEMENT, &args![array, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
             e.mem.set_u32(slot, info);
         }
         *cursor = cursor.wrapping_add(4);
@@ -175,7 +185,11 @@ pub fn nav_mesh_info_set_from_portal_chunk(
     let count = read_count(e, doors, &mut cursor, file);
     for index in 0..count {
         let id = read_form_id(e, file, cursor);
-        let slot = e.call(ARRAY_ELEMENT, &args![doors, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, doors, index)
+        );
         e.mem.set_u32(slot, id);
         cursor = cursor.wrapping_add(4);
     }
@@ -189,15 +203,27 @@ pub fn nav_mesh_info_set_from_portal_chunk(
 /// element that took its place.
 pub fn nav_mesh_info_init_door_pointers(e: &mut Engine, this: Ptr<NavMeshInfo>) {
     let doors = this.addr().wrapping_add(0x44);
-    let mut count = e.call(ARRAY_COUNT, &args![doors]).u32();
+    let mut count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, doors));
     let mut index = 0u32;
     while index < count {
-        let slot = e.call(ARRAY_ELEMENT, &args![doors, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, doors, index)
+        );
         let door_id = e.mem.u32(slot);
         let form = e.call(LOOKUP_FORM, &args![door_id]).u32();
-        let slot = e.call(ARRAY_ELEMENT, &args![doors, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, doors, index)
+        );
         e.mem.set_u32(slot, form);
-        let slot = e.call(ARRAY_ELEMENT, &args![doors, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, doors, index)
+        );
         if e.mem.u32(slot) == 0 {
             let info_id = e.get(this, NavMeshInfo::NavMeshID);
             e.call(PRINT_LINE, &args![MISSING_DOOR_FORMAT, info_id, door_id]);

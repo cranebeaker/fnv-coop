@@ -49,6 +49,7 @@ const BIPED_PLAYABLE: u32 = 0x0048_0d90;
 /// `00514410` (`thiscall`, no stack word): a byte of the form (`AL`).
 const FORM_BYTE: u32 = 0x0051_4410;
 /// `00726070` (`thiscall`, no stack word): the word at +4 of `this`.
+#[cfg(test)]
 const WORD_AT_4: u32 = 0x0072_6070;
 /// `MiddleHighProcess::GetLastBoundWeapon` (engine map name of the folded
 /// body, `008d85e0`, `thiscall`, no stack word).
@@ -146,8 +147,16 @@ pub fn fn_0047bb50(e: &mut Engine, form: u32, other: u32) -> bool {
             if mine != theirs {
                 return false;
             }
-            let mine = e.call(WORD_AT_4, &args![form.wrapping_add(0x154)]).u32();
-            let theirs = e.call(WORD_AT_4, &args![other.wrapping_add(0x154)]).u32();
+            let mine = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, form.wrapping_add(0x154))
+            );
+            let theirs = typed_call!(
+                leaf::FAMILY,
+                0x0072_6070,
+                leaf::word_at_4(e, other.wrapping_add(0x154))
+            );
             mine == theirs
         }
         0x28 => {

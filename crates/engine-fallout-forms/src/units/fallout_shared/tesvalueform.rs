@@ -37,6 +37,7 @@ pub fn fn_0048e960(e: &mut Engine, this: Ptr, value: u32) {
 const TYPE_MAGIC_ITEM: u32 = 0x0118_3140;
 const TYPE_ALCHEMY_ITEM: u32 = 0x0118_30cc;
 /// `00726070`: the value of a `TESValueForm` component (`thiscall`, a word).
+#[cfg(test)]
 const VALUE_FORM_VALUE: u32 = 0x0072_6070;
 /// `_ftol2` (`00ec62c0`): truncates ST0 to an integer (a leading `f64`
 /// argument in the uniform form).
@@ -56,7 +57,9 @@ pub fn tes_value_form_get_form_value(e: &mut Engine, form: Ptr) -> i32 {
         )
         .u32();
     if value_form != 0 {
-        return e.call(VALUE_FORM_VALUE, &args![value_form]).i32();
+        return typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, value_form))
+            .into_ret()
+            .i32();
     }
     for (target, component) in [(TYPE_MAGIC_ITEM, 0x0cu32), (TYPE_ALCHEMY_ITEM, 0x3c)] {
         let item = e
@@ -110,7 +113,7 @@ pub fn tes_value_form_copy_component(e: &mut Engine, this: Ptr, other: u32) {
     if source == 0 {
         return;
     }
-    let value = e.call(VALUE_FORM_VALUE, &args![source]).u32();
+    let value = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source));
     fn_0048e960(e, this, value);
 }
 
@@ -123,8 +126,8 @@ pub fn tes_value_form_compare_component(e: &mut Engine, this: Ptr, other: u32) -
     if source == 0 {
         return true;
     }
-    let mine = e.call(VALUE_FORM_VALUE, &args![this]).u32();
-    mine != e.call(VALUE_FORM_VALUE, &args![source]).u32()
+    let mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this));
+    mine != typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, source))
 }
 
 // Translated from 0048e9b0 (decompiled, FalloutNV.exe 1.4.0.525)

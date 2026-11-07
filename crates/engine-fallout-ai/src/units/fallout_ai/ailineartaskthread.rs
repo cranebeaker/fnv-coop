@@ -42,6 +42,7 @@ const SLOT_ALLOCATE: u32 = 0x04;
 const SLOT_DEALLOCATE: u32 = 0x08;
 const SET_ROUTER_A: u32 = 0x0041_fd00;
 const SET_ROUTER_B: u32 = 0x0098_4f60;
+#[cfg(test)]
 const STACK_RANGE: u32 = 0x0068_15c0;
 const STORE_WORD: u32 = 0x0053_7e90;
 const ADD: u32 = 0x005e_0b50;
@@ -80,7 +81,7 @@ pub fn ai_linear_task_thread_on_startup(e: &mut Engine, this: Ptr) {
     let block = e.vcall(router, SLOT_ALLOCATE, &args![STACK_SIZE]).u32();
     e.mem.set_u32(this.wrapping_add(STACK_BLOCK), block);
     let block = e.mem.u32(this.wrapping_add(STACK_BLOCK));
-    let range = e.call(STACK_RANGE, &args![record]).u32();
+    let range = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, record));
     fn_008c70c0(e, Ptr::new(range), block, STACK_SIZE);
     let data_handler = e.mem.u32(DATA_HANDLER);
     e.call(CREATE_THREAD_SAFE_FILES, &args![data_handler]);
@@ -115,7 +116,7 @@ pub fn ai_linear_task_thread_on_shutdown(e: &mut Engine, this: Ptr) {
     let memory = e.call(MEMORY_SYSTEM_INSTANCE, &args![]).u32();
     let flags = flags_word(e);
     e.vcall(memory, SLOT_QUIT_THREAD, &args![record, flags]);
-    let range = e.call(STACK_RANGE, &args![record]).u32();
+    let range = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, record));
     fn_008c70c0(e, Ptr::new(range), 0, 0);
 }
 

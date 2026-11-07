@@ -69,6 +69,7 @@ const SAVE_NUMERIC_ID: u32 = 0x0048_4d20;
 const LOAD_DATA: u32 = 0x0048_4d00;
 const LOAD_NUMERIC_ID: u32 = 0x0048_4d40;
 /// `0084e3a0` (`thiscall` on a form): the id it is saved under.
+#[cfg(test)]
 const FORM_SAVE_ID: u32 = 0x0084_e3a0;
 /// `004839c0` (cdecl `(id)`): the form with that id.
 const LOOKUP_FORM: u32 = 0x0048_39c0;
@@ -98,6 +99,7 @@ const REFERENCE_TYPE: u32 = 0x0118_41cc;
 const MOBILE_OBJECT_TYPE: u32 = 0x0118_4920;
 const ARROW_PROJECTILE_TYPE: u32 = 0x011a_28e0;
 /// `0045cd60` (`thiscall` on a process): its level (word at +0x28).
+#[cfg(test)]
 const PROCESS_LEVEL: u32 = 0x0045_cd60;
 /// `ProcessLists::RemoveReference` (`0096d470`, `thiscall(reference, level)`)
 /// and `ProcessLists::AddReference` (`0096d450`, `thiscall`, five words),
@@ -110,6 +112,7 @@ const CURRENT_PROCESS_TYPE: u32 = 0x0093_1850;
 const OPERATOR_NEW: u32 = 0x0040_1000;
 const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// The no-op constructor of an `NiPoint3`/`NiQuaternion` (`006815c0`).
+#[cfg(test)]
 const CONSTRUCT_IN_PLACE: u32 = 0x0068_15c0;
 /// `0043fcd0` (`thiscall` on a reference): its loaded 3D.
 const REFERENCE_3D: u32 = 0x0043_fcd0;
@@ -191,7 +194,7 @@ fn matching_arrow(
         .u32();
     if arrow == 0
         || e.call(0x0085_f810, &args![arrow]).u32() != reference
-        || e.call(0x007a_f430, &args![arrow]).u32() != item
+        || typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, arrow)) != item
     {
         return None;
     }
@@ -336,7 +339,7 @@ pub fn fn_008ce610(e: &mut Engine, this: Ptr, flags: u32) {
             e.mem.set_u32(id, 0);
             let form = e.mem.u32(at + field);
             if form != 0 {
-                let saved = e.call(FORM_SAVE_ID, &args![form]).u32();
+                let saved = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                 e.mem.set_u32(id, saved);
             }
             e.call(SAVE_NUMERIC_ID, &args![this, id, 4u32]);
@@ -353,7 +356,7 @@ pub fn fn_008ce610(e: &mut Engine, this: Ptr, flags: u32) {
                 e.call(SAVE_DATA, &args![this, record + offset, 0xcu32]);
             }
             if save_version(e) >= 0x50 {
-                e.call(CONSTRUCT_IN_PLACE, &args![quaternion]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, quaternion));
                 let record = e.mem.u32(at + COLLISION);
                 e.call(0x00a6_df40, &args![quaternion, record + COLLISION_ROTATION]);
                 let save_load_game = e.mem.u32(SAVE_LOAD_GAME);
@@ -397,7 +400,7 @@ fn save_collidee(e: &mut Engine, this: Ptr, id: u32, halves: u32) {
     e.mem.set_u32(id, 0);
     let collidee = e.mem.u32(record(e) + COLLISION_COLLIDEE);
     if collidee != 0 {
-        let saved = e.call(FORM_SAVE_ID, &args![collidee]).u32();
+        let saved = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, collidee));
         e.mem.set_u32(id, saved);
     }
     e.call(SAVE_NUMERIC_ID, &args![this, id, 4u32]);
@@ -618,10 +621,10 @@ fn load_record(e: &mut Engine, this: Ptr, quaternion: u32, matrix: u32, halves: 
         e.call(LOAD_DATA, &args![this, destination, 0xcu32]);
     }
     if save_version(e) >= 0x50 {
-        e.call(CONSTRUCT_IN_PLACE, &args![quaternion]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, quaternion));
         let save_load_game = e.mem.u32(SAVE_LOAD_GAME);
         e.call(SAVE_READ, &args![save_load_game, quaternion, 0x10u32]);
-        e.call(CONSTRUCT_IN_PLACE, &args![matrix]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
         let destination = record(e) + COLLISION_ROTATION;
         e.call(0x004f_0180, &args![quaternion, destination]);
     }
@@ -726,9 +729,9 @@ pub fn fn_008cf440(e: &mut Engine, this: Ptr, a: u32, b: u32) {
     if e.call(REFERENCE_3D, &args![this]).u32() == 0 {
         if record(e) != 0 && e.mem.u32(record(e) + COLLISION_COLLIDEE) != 0 {
             let collidee = e.mem.u32(record(e) + COLLISION_COLLIDEE);
-            if e.call(0x0044_0da0, &args![collidee]).bool() {
+            if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, collidee)) {
                 let collidee = e.mem.u32(record(e) + COLLISION_COLLIDEE);
-                if e.call(0x0044_0d80, &args![collidee]).bool() {
+                if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, collidee)) {
                     e.vcall(at, 0xc4, &args![1u32]);
                     let record = record(e);
                     e.mem.set_u32(record + COLLISION_CLOSEST_OBJECT, 0);
@@ -758,7 +761,8 @@ pub fn fn_008cf440(e: &mut Engine, this: Ptr, a: u32, b: u32) {
                     let count = e.call(0x004b_66d0, &args![node, actor, actor, 1u32]).u16();
                     if high != u32::from(count) {
                         let collidee = e.mem.u32(record(e) + COLLISION_COLLIDEE);
-                        let id = e.call(FORM_SAVE_ID, &args![collidee]).u32();
+                        let id =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, collidee));
                         let collidee = e.mem.u32(record(e) + COLLISION_COLLIDEE);
                         let name = e.vcall(collidee, 0x130, &[]).u32();
                         print(e, PRINT_MESSAGE, &[0x0108_5d9c, name, id]);
@@ -769,7 +773,8 @@ pub fn fn_008cf440(e: &mut Engine, this: Ptr, a: u32, b: u32) {
                             .call(0x004b_6980, &args![node, word, actor, actor, 1u32])
                             .u32();
                         if object != 0 {
-                            let closest = e.call(0x0044_ddc0, &args![object]).u32();
+                            let closest =
+                                typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object));
                             let target = record(e);
                             e.mem.set_u32(target + COLLISION_CLOSEST_OBJECT, closest);
                         }
@@ -826,11 +831,12 @@ pub fn fn_008cf740(e: &mut Engine, this: Ptr, flags: u32) {
 fn move_to_process(e: &mut Engine, this: Ptr, level: u32, size: u32, constructor: u32) -> bool {
     let at = this.addr();
     let process = e.mem.u32(at + PROCESS);
-    if process != 0 && e.call(PROCESS_LEVEL, &args![process]).u32() == level {
+    if process != 0 && typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == level
+    {
         return true;
     }
     let process = e.mem.u32(at + PROCESS);
-    let current = e.call(PROCESS_LEVEL, &args![process]).u32();
+    let current = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process));
     e.call(REMOVE_REFERENCE, &args![PROCESS_LISTS, this, current]);
     let block = e.call(OPERATOR_NEW, &args![size]).u32();
     let created = if block == 0 {

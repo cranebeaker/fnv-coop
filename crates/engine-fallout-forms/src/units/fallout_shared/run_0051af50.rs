@@ -172,6 +172,7 @@ const CLOSE_FORM: u32 = 0x0048_5680;
 const MODEL_SAVE: u32 = 0x0048_a520;
 const WRITE_CHUNK_BYTE: u32 = 0x0048_58f0;
 const WRITE_CHUNK_WORD: u32 = 0x0048_5910;
+#[cfg(test)]
 const MEMBER_0084E3A0: u32 = 0x0084_e3a0;
 
 /// `form` cast to `TESObjectMISC`, or 0.
@@ -269,7 +270,7 @@ pub fn fn_0051b4b0(e: &mut Engine, this: Ptr) {
     e.call(WRITE_CHUNK_BYTE, &args![BRUS, byte]);
     let member = e.mem.u32(at + 0x54);
     if member != 0 {
-        let value = e.call(MEMBER_0084E3A0, &args![member]).u32();
+        let value = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, member));
         e.call(WRITE_CHUNK_WORD, &args![RNAM, value]);
     }
     e.call(CLOSE_FORM, &args![this]);

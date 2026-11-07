@@ -60,8 +60,11 @@ const OPERATOR_DELETE: u32 = 0x0040_1030;
 /// (`004702f0(flags)`), set a node's item (`00726c60(item pointer)`) and
 /// remove the head (`0063f7b0`).
 const LIST_CONSTRUCT: u32 = 0x0096_a2d0;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
+#[cfg(test)]
 const LIST_EMPTY: u32 = 0x0082_56d0;
 const LIST_COUNT: u32 = 0x005a_e380;
 const LIST_CONTAINS: u32 = 0x005f_65d0;
@@ -111,6 +114,7 @@ const CRIME_LIST: u32 = 0x0041_cf00;
 /// `0047eb90(0)` on a faction the process lists let go.
 const FACTION_RELEASE: u32 = 0x0047_eb90;
 /// `0044ddc0` (`thiscall`: the word at +8, the crime's target).
+#[cfg(test)]
 const CRIME_TARGET: u32 = 0x0044_ddc0;
 /// `Actor::IsAlarmed` and `Actor::EndInterruptPackage` (engine map;
 /// `008a61b0`, `00881680(word)`).
@@ -140,6 +144,7 @@ const SAVE_DEBUG_SETTING: u32 = 0x011d_e4e8;
 const SETTING_VALUE: u32 = 0x0040_8d60;
 /// A form's id (`0084e3a0`, `thiscall`) and the form of an id
 /// (`004839c0`, `cdecl(id)`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 const FORM_OF_ID: u32 = 0x0048_39c0;
 /// `"KOLB"` read as a word: the block tag.
@@ -154,6 +159,7 @@ const BLOCK_TAG: u32 = 0x424c_4f4b;
 /// error) Block Header"` messages (`01015718` with a record, `010156a8`
 /// without) and the over- and underrun messages (`01015588`, `01015500`
 /// with a record; `010154a0`, `01015440` without).
+#[cfg(test)]
 const ERROR_PRINT: u32 = 0x0040_fbe0;
 const DEBUG_PRINT: u32 = 0x005b_5e40;
 const SOURCE_FILE: u32 = 0x0109_2b94;
@@ -257,12 +263,9 @@ fn report_written(e: &mut Engine, amount: u32, line: u32, with_record: u32, plai
         let flags = e.mem.u32(record + 5);
         let name = e.vcall(form, 0x130, &[]).u32();
         let id = e.mem.u32(record);
-        e.call(
-            ERROR_PRINT,
-            &args![with_record, amount, id, name, flags, line, SOURCE_FILE],
-        );
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words with_record, amount, id, name, flags, line, SOURCE_FILE);
     } else {
-        e.call(ERROR_PRINT, &args![plain, amount, line, SOURCE_FILE]);
+        typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words plain, amount, line, SOURCE_FILE);
     }
 }
 
@@ -421,8 +424,8 @@ pub fn crime_destructor(e: &mut Engine, this: Ptr<Crime>) {
             }
         }
         let mut node = e.get(this, Crime::pListofEnemyFactions);
-        while node != 0 && !e.call(LIST_EMPTY, &args![node]).bool() {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let faction = e.mem.u32(slot);
             if !e
                 .call(LISTS_FACTION_CHECK, &args![PROCESS_LISTS, faction, base])
@@ -430,9 +433,9 @@ pub fn crime_destructor(e: &mut Engine, this: Ptr<Crime>) {
             {
                 e.call(FACTION_RELEASE, &args![faction, 0u32]);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
-        let holder = e.call(CRIME_TARGET, &args![base]).u32();
+        let holder = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, base));
         if holder != 0 && e.vcall(holder, 0x100, &[]).bool() {
             leave_crime_list(e, holder, base);
         }
@@ -442,7 +445,7 @@ pub fn crime_destructor(e: &mut Engine, this: Ptr<Crime>) {
         if node != 0 {
             // The exe's loop tests the same, unchanged node each time round.
             loop {
-                let slot = e.call(NODE_ITEM, &args![node]).u32();
+                let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let actor = e.mem.u32(slot);
                 if e.call(IS_ALARMED, &args![actor]).bool() {
                     e.call(END_INTERRUPT_PACKAGE, &args![actor, 0u32]);
@@ -479,21 +482,21 @@ pub fn crime_should_crime_be_removed(e: &mut Engine, this: Ptr<Crime>) -> bool {
         return true;
     }
     let mut node = this.addr().wrapping_add(KNOWN_ACTORS);
-    if node == 0 || e.call(LIST_EMPTY, &args![node]).bool() {
+    if node == 0 || typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
         return true;
     }
     let mut all = true;
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 || !all {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let actor = e.mem.u32(slot);
         if !e.vcall(actor, 0x22c, &args![0u32]).bool() {
             all = false;
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     all
 }
@@ -537,14 +540,14 @@ pub fn crime_clear_actor_know_list(e: &mut Engine, this: Ptr<Crime>) {
     let base = this.addr();
     let mut node = base.wrapping_add(KNOWN_ACTORS);
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let actor = e.mem.u32(slot);
         leave_crime_list(e, actor, base);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.set(this, Crime::iRefCount, 0);
 }
@@ -554,7 +557,7 @@ pub fn crime_clear_actor_know_list(e: &mut Engine, this: Ptr<Crime>) {
 /// for an empty list).
 pub fn fn_009ebab0(e: &mut Engine, this: Ptr<Crime>) -> u32 {
     let list = this.addr() + KNOWN_ACTORS;
-    if e.call(LIST_EMPTY, &args![list]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         return 0;
     }
     e.call(LIST_COUNT, &args![list]).u32()
@@ -631,7 +634,7 @@ pub fn fn_009ebca0(e: &mut Engine, this: Ptr<Crime>) {
         for field in [0x08, 0x0c, 0x14, 0x24] {
             let form = e.mem.u32(base + field);
             let id = if form != 0 {
-                e.call(FORM_ID, &args![form]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
             } else {
                 0
             };
@@ -641,14 +644,14 @@ pub fn fn_009ebca0(e: &mut Engine, this: Ptr<Crime>) {
         let count_at = write_position(e);
         write(e, count, 2);
         let mut node = base.wrapping_add(KNOWN_ACTORS);
-        while node != 0 && !e.call(LIST_EMPTY, &args![node]).bool() {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let actor = e.mem.u32(slot);
-            let id = e.call(FORM_ID, &args![actor]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, actor));
             save_numeric_id(e, id);
             let counted = e.mem.u16(count).wrapping_add(1);
             e.mem.set_u16(count, counted);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let counted = e.mem.u16(count);
         e.mem.set_u16(count_at, counted);
@@ -704,26 +707,26 @@ pub fn crime_save_game(e: &mut Engine, this: Ptr<Crime>, buffer: u32) {
     let mark = e.call(BUFFER_START_SIZE, &args![buffer]).u32();
     let mut node = base.wrapping_add(KNOWN_ACTORS);
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let actor = e.mem.u32(slot);
         if actor != 0 {
             e.call(BUFFER_SAVE_FORM, &args![buffer, actor, 0u32]);
             count = count.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(BUFFER_SAVE_SIZE, &args![buffer, count, mark]);
     let mut count = 0u32;
     let mark = e.call(BUFFER_START_SIZE, &args![buffer]).u32();
     let mut node = e.get(this, Crime::pListofEnemyFactions);
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let faction = e.mem.u32(slot);
         if faction != 0 {
             e.call(BUFFER_SAVE_FORM, &args![buffer, faction, 0u32]);
             count = count.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(BUFFER_SAVE_SIZE, &args![buffer, count, mark]);
 }
@@ -785,7 +788,7 @@ pub fn crime_load_game(e: &mut Engine, this: Ptr<Crime>, buffer: u32) {
         }
     }
     let list = e.get(this, Crime::pListofEnemyFactions);
-    let slot = e.call(NODE_ITEM, &args![list]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
     if e.mem.u32(slot) == 0 {
         let list = e.get(this, Crime::pListofEnemyFactions);
         if list != 0 {
@@ -827,8 +830,8 @@ pub fn fn_009ec400(e: &mut Engine, this: Ptr<Crime>, _unused_1: u32) {
     e.set(this, Crime::pOwnership, ownership);
     let mut node = this.addr().wrapping_add(KNOWN_ACTORS);
     let mut previous = 0u32;
-    while node != 0 && !e.call(LIST_EMPTY, &args![node]).bool() {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let id = e.mem.u32(slot);
         let mut remove = false;
         if id != 0 {
@@ -843,15 +846,15 @@ pub fn fn_009ec400(e: &mut Engine, this: Ptr<Crime>, _unused_1: u32) {
         }
         if remove {
             if previous != 0 {
-                let item = e.call(NODE_ITEM, &args![node]).u32();
+                let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 e.call(LIST_REMOVE, &args![previous, item]);
-                node = e.call(NODE_NEXT, &args![previous]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));
             } else {
                 e.call(LIST_REMOVE_HEAD, &args![node]);
             }
         } else {
             previous = node;
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     let target = e.get(this, Crime::pcrimetarget);
@@ -925,13 +928,13 @@ pub fn fn_009ec780(e: &mut Engine, this: Ptr, form: u32) {
     }
     let mut node = e.call(PACKAGE_CRIMES, &args![source]).u32();
     while node != 0 {
-        let slot = e.call(NODE_ITEM, &args![node]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(slot) == 0 {
             break;
         }
-        let item = e.call(NODE_ITEM, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         e.call(LIST_ADD, &args![this.addr() + CRIMES, item]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -953,7 +956,11 @@ pub fn fn_009ec830(e: &mut Engine, this: Ptr, crime: u32) {
 /// `actor`.
 pub fn alarm_package_remove_crime(e: &mut Engine, this: Ptr, crime: u32, actor: u32) {
     with_word(e, LIST_REMOVE, this.addr() + CRIMES, crime);
-    if e.call(LIST_EMPTY, &args![this.addr() + CRIMES]).bool() {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.addr() + CRIMES)
+    ) {
         e.call(END_INTERRUPT_PACKAGE, &args![actor, 0u32]);
     }
 }
@@ -1002,10 +1009,12 @@ pub fn fn_009ec990(e: &mut Engine, this: Ptr) {
         write(e, count, 2);
         // The exe sets the node to 0 before testing it.
         let mut node = 0u32;
-        while node != 0 && !e.call(LIST_EMPTY, &args![node]).bool() {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let crime = e.mem.u32(slot);
-            let crime_type = e.call(NODE_NEXT, &args![crime]).u8();
+            let crime_type = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, crime))
+                .into_ret()
+                .u8();
             e.mem.set_u8(entry, crime_type);
             write(e, entry, 1);
             let index = e
@@ -1018,7 +1027,7 @@ pub fn fn_009ec990(e: &mut Engine, this: Ptr) {
             write(e, entry + 2, 2);
             let counted = e.mem.u16(count).wrapping_add(1);
             e.mem.set_u16(count, counted);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         let counted = e.mem.u16(count);
         e.mem.set_u16(count_at, counted);
@@ -1156,10 +1165,12 @@ pub fn alarm_package_save_game(e: &mut Engine, this: Ptr, buffer: u32) {
     e.with_stack(4, |e, entry| {
         let entry = entry.addr();
         while node != 0 {
-            let slot = e.call(NODE_ITEM, &args![node]).u32();
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let crime = e.mem.u32(slot);
             if crime != 0 {
-                let crime_type = e.call(NODE_NEXT, &args![crime]).u8();
+                let crime_type = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, crime))
+                    .into_ret()
+                    .u8();
                 e.mem.set_u8(entry + 1, crime_type);
                 let index = e
                     .call(
@@ -1172,7 +1183,7 @@ pub fn alarm_package_save_game(e: &mut Engine, this: Ptr, buffer: u32) {
                 e.call(BUFFER_WRITE, &args![buffer, entry + 2, 2u32, 0u32]);
                 count = count.wrapping_add(1);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
     e.call(BUFFER_SAVE_SIZE, &args![buffer, count, mark]);

@@ -80,7 +80,9 @@ pub fn tes_region_list_scalar_deleting_destructor(e: &mut Engine, this: Ptr, fla
 
 /// List helpers: the item pointer's address of a node (`006815c0`) and the
 /// next node (`00726070`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `0063f7b0` (thiscall on the list base, no stack words); `004f6640` runs
 /// it once per first item until the first item is null, so it removes the
@@ -97,13 +99,16 @@ const LIST_ADD_005AE3D0: u32 = 0x005a_e3d0;
 /// The list's item count (`005ae380`, engine map `VATS::GetCount`, folded).
 const LIST_COUNT_005AE380: u32 = 0x005a_e380;
 /// A form's id (`0084e3a0`, the word at +0x0c).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The game's allocator (`00401000`, cdecl, the size).
 const ALLOCATE: u32 = 0x0040_1000;
 /// Region queries (thiscall on the region): a skip test (`00440d80`, a
 /// `bool`), the region's worldspace word (`007af430`), its data list
 /// (`009611e0`), its point lists (`00441110`).
+#[cfg(test)]
 const REGION_SKIP_00440D80: u32 = 0x0044_0d80;
+#[cfg(test)]
 const REGION_WORLDSPACE_007AF430: u32 = 0x007a_f430;
 const REGION_DATA_LIST_009611E0: u32 = 0x0096_11e0;
 const REGION_POINT_LISTS_00441110: u32 = 0x0044_1110;
@@ -145,7 +150,7 @@ fn list_base(list: u32) -> u32 {
 
 /// The item a list node holds (`*006815c0(node)`).
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let slot = e.call(NODE_ITEM, &args![node]).u32();
+    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(slot)
 }
 
@@ -219,11 +224,11 @@ pub fn fn_004f66c0(e: &mut Engine, this: Ptr<TESRegionList>, form_id: u32) -> u3
     while node != 0 {
         if node_item(e, node) != 0 {
             let region = node_item(e, node);
-            if e.call(FORM_ID, &args![region]).u32() == form_id {
+            if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, region)) == form_id {
                 return node_item(e, node);
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     0
 }
@@ -239,13 +244,13 @@ pub fn fn_004f6730(e: &mut Engine, this: Ptr<TESRegionList>, other: u32) -> bool
         return false;
     }
     while mine != 0 {
-        let my_slot = e.call(NODE_ITEM, &args![mine]).u32();
-        let their_slot = e.call(NODE_ITEM, &args![theirs]).u32();
+        let my_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, mine));
+        let their_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, theirs));
         if e.mem.u32(my_slot) != e.mem.u32(their_slot) {
             return false;
         }
-        mine = e.call(NODE_NEXT, &args![mine]).u32();
-        theirs = e.call(NODE_NEXT, &args![theirs]).u32();
+        mine = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, mine));
+        theirs = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, theirs));
         if mine == 0 && theirs == 0 {
             return true;
         }
@@ -317,19 +322,25 @@ pub fn fn_004f6850(
 
     while node != 0 && node_item(e, node) != 0 {
         let region = node_item(e, node);
-        if e.call(REGION_SKIP_00440D80, &args![region]).u32() & 0xff != 0 {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+        if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, region))
+            .into_ret()
+            .u32()
+            & 0xff
+            != 0
+        {
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
-        if worldspace != 0 && worldspace != e.call(REGION_WORLDSPACE_007AF430, &args![region]).u32()
+        if worldspace != 0
+            && worldspace != typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, region))
         {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         let data_list = e.call(REGION_DATA_LIST_009611E0, &args![region]).u32();
         let data = e.call(REGION_DATA_LIST_FIND, &args![data_list, kind]).u32();
         if data == 0 || e.call(DATA_IGNORED_004F6DE0, &args![data]).u32() & 0xff != 0 {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         if point != 0 {
@@ -344,12 +355,12 @@ pub fn fn_004f6850(
                     fn_004f6600(e, Ptr::new(new_list), region);
                     break;
                 }
-                lists = e.call(NODE_NEXT, &args![lists]).u32();
+                lists = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, lists));
             }
         } else {
             fn_004f6600(e, Ptr::new(new_list), region);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 
     let slot = pair_slot(kind);
@@ -370,7 +381,7 @@ pub fn fn_004f6850(
         let data_list = e.call(REGION_DATA_LIST_009611E0, &args![region]).u32();
         let data = e.call(REGION_DATA_LIST_FIND, &args![data_list, kind]).u32();
         if data == 0 {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             continue;
         }
         if e.call(DATA_OVERRIDE_004F1540, &args![data]).u32() & 0xff != 0 {
@@ -395,7 +406,7 @@ pub fn fn_004f6850(
                 result = e.vcall(data, DATA_COPY_SLOT, &args![]).u32();
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if overriding {
         result = e.vcall(best_data, DATA_COPY_SLOT, &args![]).u32();

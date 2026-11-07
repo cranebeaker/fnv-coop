@@ -43,6 +43,7 @@ pub fn fn_0044f3b0(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 /// `0044ed50` (`thiscall`, one word: the flags, 1 here): the entries' deleting destructor.
 const ENTRY_DELETE: u32 = 0x0044_ed50;
 /// `00559450` (`thiscall`, no stack words): answers the word the object holds.
+#[cfg(test)]
 const HOLDER_GET: u32 = 0x0055_9450;
 /// The allocation and free used here (`cdecl`, one word).
 const ALLOCATE: u32 = 0x0040_1000;
@@ -56,6 +57,7 @@ const COPY: u32 = 0x0040_1460;
 const SCOPE_BEGIN: u32 = 0x0040_4eb0;
 const SCOPE_END: u32 = 0x0040_4ee0;
 /// `00726070` (`thiscall`, no stack words): answers the next entry of a retired list.
+#[cfg(test)]
 const ENTRY_NEXT: u32 = 0x0072_6070;
 /// `006ecd40` (`thiscall`, one word): sets an entry's link (the engine map's name for it,
 /// `CombatProcedureAttackMelee::Initialize`, is folded code).
@@ -89,7 +91,7 @@ pub fn fn_0044ee20(e: &mut Engine, this: u32, index: u32) -> u32 {
 /// and passes the word at +0x4 to `0044e360`.
 pub fn fn_0044ee40(e: &mut Engine, this: u32) {
     let mut index = 0u32;
-    while index < e.call(HOLDER_GET, &args![this]).u32() {
+    while index < typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this)) {
         let pairs = e.mem.u32(this + 8);
         let object = e
             .mem
@@ -110,7 +112,7 @@ pub fn fn_0044ee40(e: &mut Engine, this: u32) {
 /// +0x14 (the map's bucket count, by its use in the rebuilds).
 pub fn fn_0044f3e0(e: &mut Engine, this: u32) -> u32 {
     let holder = e.mem.u32(this + 0x14);
-    e.call(HOLDER_GET, &args![holder]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder))
 }
 
 /// How a rebuild drops an entry that is no longer referenced from a bucket.
@@ -159,7 +161,7 @@ fn rebuild(
         let mut kept = 0u32;
         while e.mem.u32(this + list) != 0 {
             let entry = e.mem.u32(this + list);
-            let next = e.call(ENTRY_NEXT, &args![entry]).u32();
+            let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, entry));
             e.mem.set_u32(this + list, next);
             let mut found = false;
             let mut j = 0u32;

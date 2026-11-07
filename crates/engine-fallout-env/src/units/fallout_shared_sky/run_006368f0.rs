@@ -13,6 +13,7 @@ use crate::units::fallout_shared_sky::skyobject::{
 };
 
 /// The sky's current climate (`0084e3a0`, `thiscall`: `+0xc`).
+#[cfg(test)]
 const SKY_CURRENT_CLIMATE: u32 = 0x0084_e3a0;
 /// The calendar (`011de7b8`) and its day count (`00867de0`, `thiscall`).
 const CALENDAR: u32 = 0x011d_e7b8;
@@ -54,18 +55,18 @@ layout! {
 /// `(days % (8 * length)) / length` from the calendar's day count; answers 1 and remembers
 /// it when it differs from the phase last seen (`011cca80`), else 0.
 pub fn fn_006368f0(e: &mut Engine, sky: u32) -> bool {
-    if e.call(SKY_CURRENT_CLIMATE, &args![sky]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sky)) == 0 {
         return false;
     }
-    let climate = e.call(SKY_CURRENT_CLIMATE, &args![sky]).u32();
+    let climate = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sky));
     if fn_00636980(e, climate) == 0 {
         return false;
     }
     let days = e.call(CALENDAR_GET_DAYS, &args![CALENDAR]).u32();
-    let climate = e.call(SKY_CURRENT_CLIMATE, &args![sky]).u32();
+    let climate = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sky));
     let cycle = fn_00636980(e, climate) << 3;
     let rest = days % cycle;
-    let climate = e.call(SKY_CURRENT_CLIMATE, &args![sky]).u32();
+    let climate = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sky));
     let phase = rest / fn_00636980(e, climate);
     if phase == e.global::<u32>(LAST_MOON_PHASE) {
         return false;

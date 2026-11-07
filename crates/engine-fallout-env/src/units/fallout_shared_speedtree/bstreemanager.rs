@@ -35,6 +35,7 @@ const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 /// `NiPointer` destructor (`0045cec0`).
 const NI_POINTER_DESTRUCT: u32 = 0x0045_cec0;
 /// `*this` of a `NiPointer` (`00559450`, thiscall: the stored word).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 /// `operator new` (`00401000`), `operator delete` (`00401030`) and the
 /// allocator used by `new NiObject` (`00aa13e0`).
@@ -90,6 +91,7 @@ const MODEL_SLOT_CONSTRUCT: u32 = 0x0066_94e0;
 const MODEL_ARRAY_DELETE: u32 = 0x0066_7120;
 /// Reference count word of a counted object (`00726070`, reads `+4`) and the
 /// seed of a model (`008d6f30`, reads `+0x40`).
+#[cfg(test)]
 const REFERENCE_COUNT: u32 = 0x0072_6070;
 const MODEL_SEED: u32 = 0x008d_6f30;
 /// `BSTreeModel::InitAsInstance` (`0066a650`, Xbox PDB name) and
@@ -175,6 +177,7 @@ const SWAY_TERM: u32 = 0x0040_8840;
 /// vector in `ECX`), `0045bb80` (pointer to the position at `+0x8c`),
 /// `0045bba0` (direction, out pointer), `004a3760` (scalar times vector,
 /// out pointer first).
+#[cfg(test)]
 const VECTOR_CONSTRUCT: u32 = 0x0068_15c0;
 const OBJECT_POSITION: u32 = 0x0045_bb80;
 const OBJECT_DIRECTION: u32 = 0x0045_bba0;
@@ -185,6 +188,7 @@ const SCALED_VECTOR: u32 = 0x004a_3760;
 /// `004536e0` (a float of the object in `ECX`, returned in `ST0`),
 /// `00450570`, `00891170` (pointer to three floats) and the three material
 /// colour setters.
+#[cfg(test)]
 const TES_FIELD_68: u32 = 0x008d_8520;
 const TES_INTERIOR_CELL: u32 = 0x005f_36f0;
 const FLOAT_OF_OBJECT: u32 = 0x0045_36e0;
@@ -198,6 +202,7 @@ const COLOR_SETTER: u32 = 0x004b_c450;
 /// reference), `00567400` (scale of the reference, returned in `ST0`).
 const TREES_ENABLED: u32 = 0x0051_d740;
 const FORM_MODEL_CHECK: u32 = 0x0048_cee0;
+#[cfg(test)]
 const REFERENCE_BASE_FORM: u32 = 0x007a_f430;
 const REFERENCE_SEED: u32 = 0x0056_92d0;
 const REFERENCE_SCALE: u32 = 0x0056_7400;
@@ -234,7 +239,7 @@ fn manager(e: &mut Engine) -> Ptr<BSTreeManager> {
 
 /// The word a `NiPointer` at `address` holds (`00559450`).
 fn pointer_get(e: &mut Engine, address: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![address]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, address))
 }
 
 /// The manager's model map, read through a fresh singleton access.
@@ -401,7 +406,9 @@ pub fn fn_00664cd0(e: &mut Engine, only_unreferenced: u8) {
                         let slot_address = array + slot * 4;
                         if pointer_get(e, slot_address) != 0 {
                             let model = pointer_get(e, slot_address);
-                            if e.call(REFERENCE_COUNT, &args![model]).u32() <= 1 {
+                            if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, model))
+                                <= 1
+                            {
                                 e.call(NI_POINTER_ASSIGN, &args![slot_address, 0u32]);
                             } else {
                                 all_free = false;
@@ -501,7 +508,9 @@ fn build_tree_node(
     if e.call(FORM_MODEL_CHECK, &args![form + 0x30]).u32() == 0 {
         return 0;
     }
-    if reference != 0 && e.call(REFERENCE_BASE_FORM, &args![reference]).u32() != form {
+    if reference != 0
+        && typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference)) != form
+    {
         return 0;
     }
     let loaded = e.with_stack(4, |e, loaded| {
@@ -529,7 +538,7 @@ fn build_tree_node(
         return 0;
     }
     let shared = pointer_get(e, model_pointer);
-    let model = if e.call(REFERENCE_COUNT, &args![shared]).u32() > 2 {
+    let model = if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, shared)) > 2 {
         let memory = e.call(NI_ALLOCATE, &args![0x50u32]).u32();
         let instance = if memory != 0 {
             fn_00666650(e, Ptr::new(memory)).addr()
@@ -605,7 +614,7 @@ pub fn fn_006652e0(e: &mut Engine, camera: u32, skip_update: u8) {
         let direction = block.addr() + 0x24;
         let position = block.addr() + 0x30;
         let colour = block.addr() + 0x3c;
-        e.call(VECTOR_CONSTRUCT, &args![vector]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, vector));
         if skip_update == 0 {
             let frame_time = e.call(FRAME_TIME, &args![FRAME_TIME_SOURCE]).f32();
             let total = (frame_time as f64 + e.global::<f32>(TIME_ACCUMULATOR) as f64) as f32;
@@ -659,14 +668,14 @@ fn update_from_tes(e: &mut Engine, colour: u32) {
     if tes == 0 {
         return;
     }
-    if e.call(TES_FIELD_68, &args![tes]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes)) == 0 {
         return;
     }
     if e.call(TES_INTERIOR_CELL, &args![tes]).u32() != 0 {
         let this = manager(e);
         e.set(this, BSTreeManager::fWindSpeed, 0.0);
     } else {
-        let object = e.call(TES_FIELD_68, &args![tes]).u32();
+        let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes));
         let speed = e.call(FLOAT_OF_OBJECT, &args![object]).f32();
         let this = manager(e);
         e.set(this, BSTreeManager::fWindSpeed, speed);
@@ -676,11 +685,11 @@ fn update_from_tes(e: &mut Engine, colour: u32) {
     if pointer_get(e, material_slot) == 0 {
         return;
     }
-    let object = e.call(TES_FIELD_68, &args![tes]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes));
     if e.call(OBJECT_OF_OBJECT, &args![object]).u32() == 0 {
         return;
     }
-    let object = e.call(TES_FIELD_68, &args![tes]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes));
     let inner = e.call(OBJECT_OF_OBJECT, &args![object]).u32();
     let source = e.call(COLOR_POINTER, &args![inner]).u32();
     for lane in 0..3u32 {

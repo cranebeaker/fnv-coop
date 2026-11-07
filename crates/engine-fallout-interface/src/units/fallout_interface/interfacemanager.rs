@@ -77,14 +77,17 @@ const SCOPE_GUARD_END: u32 = 0x0040_4ee0;
 /// `get` and destructor.
 const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 const NI_POINTER_DESTROY: u32 = 0x0045_cec0;
 /// An empty member constructor (the body only returns `this`).
+#[cfg(test)]
 const MEMBER_CONSTRUCTOR_EMPTY: u32 = 0x0068_15c0;
 /// Constructor / destructor of an embedded `BSSimpleList`.
 const SIMPLE_LIST_CONSTRUCT: u32 = 0x0096_a2d0;
 const SIMPLE_LIST_DESTROY: u32 = 0x0046_ffb0;
 /// `NiPoint3::NiPoint3(x, y, z)`: stores the three floats, returns `this`.
+#[cfg(test)]
 const NI_POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// Constructor of the struct the node update takes: `(this, float, byte,
 /// byte)` stores the float and the two bytes and zeroes the rest (the
@@ -471,7 +474,7 @@ fn tile_set_float(e: &mut Engine, tile: u32, trait_id: u32, value: f32) {
 
 /// The object a `NiPointer` member at `member` holds.
 fn ni_pointer_get(e: &mut Engine, member: u32) -> u32 {
-    e.call(NI_POINTER_GET, &args![member]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, member))
 }
 
 // Addresses used by the functions of this file (see each function).
@@ -556,7 +559,9 @@ const GAME_STATE_ID: u32 = 0x0045_8030;
 const CONDITION_CHECK_005A03F0: u32 = 0x005a_03f0;
 const PLAYER_FLAG_00950090: u32 = 0x0095_0090;
 const ACTOR_GET_IRON_SIGHTS: u32 = 0x008b_bc10;
+#[cfg(test)]
 const WEAPON_STATE_GETTER: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const FORM_GETTER_0044DDC0: u32 = 0x0044_ddc0;
 const WEAPON_STATE_OBJECT: u32 = 0x011f_2250;
 const HUD_SET_MENU_MODE: u32 = 0x0077_1700;
@@ -599,6 +604,7 @@ const TILE_GET_POSITION_Y: u32 = 0x00a0_1440;
 const TILE_PLAY_TILE_SOUND: u32 = 0x00a0_b110;
 const TILE_CHILD_LIST_FIND: u32 = 0x0049_c680;
 const CLEAR_MOUSE_OVER_TARGET: u32 = 0x0070_6cb0;
+#[cfg(test)]
 const TILE_PARENT: u32 = 0x0045_cd60;
 const GET_WHEEL_STEPS: u32 = 0x0070_ec70;
 const PICK_LIST_COUNT: u32 = 0x005a_e380;
@@ -626,6 +632,7 @@ const FORMAT_PC_BUTTON: u32 = 0x0106_f04c;
 const PC_BUTTON_PREFIX: u32 = 0x0106_f054;
 /// `[this + 4]` of the object (a plain getter used on tiles, lists and
 /// menus).
+#[cfg(test)]
 const GET_FIELD_AT_4: u32 = 0x0072_6070;
 const TILE_GET_STRING: u32 = 0x00a0_11f0;
 const TILE_GET_CHILD_BY_NAME: u32 = 0x00a0_3da0;
@@ -681,6 +688,7 @@ const PLAYER_IS_PIPBOY_ACTIVE: u32 = 0x0096_7ae0;
 const ANIMATION_GROUP_ID: u32 = 0x0043_01b0;
 const MAP_MENU_CLEAR_MAP_MEMORY: u32 = 0x007a_1490;
 const RELOAD_DYNAMIC_IDLE_ON_1ST_PERSON: u32 = 0x0092_1250;
+#[cfg(test)]
 const GET_SAVED_ACQUIRE_OBJECT: u32 = 0x008d_8520;
 const ACTOR_IS_WEAPON_DRAWN: u32 = 0x008a_16d0;
 const WEAPON_TYPE_INDEX: u32 = 0x0044_6390;
@@ -728,6 +736,7 @@ const LIST_CONTAINS: u32 = 0x005f_65d0;
 const NI_PICK_CONSTRUCT: u32 = 0x00e9_8f20;
 const NI_PICK_DESTRUCT: u32 = 0x00e9_8fa0;
 const NI_PICK_SET_FLAG: u32 = 0x0045_8b30;
+#[cfg(test)]
 const GET_PICK_ROOT: u32 = 0x0084_e3a0;
 const PICK_ROOT_OWNER: u32 = 0x011d_ea10;
 const NI_PICK_SET_ROOT: u32 = 0x0070_5fc0;
@@ -751,6 +760,7 @@ const FONT_MANAGER_GET: u32 = 0x005b_d5b0;
 const FONT_MANAGER_GET_FONT: u32 = 0x005b_d5c0;
 const FONT_HEIGHT: u32 = 0x005b_d580;
 const SET_PICK_REF_DISPLAY: u32 = 0x0071_4d70;
+#[cfg(test)]
 const FORM_ID_GETTER: u32 = 0x0084_e3a0;
 const REFR_NAME: u32 = 0x0055_d520;
 const FORMAT_INTO_STRING: u32 = 0x0040_6f60;
@@ -781,6 +791,7 @@ const RADIANS_TO_DEGREES: u32 = 0x0102_f248;
 const HEADING_FORMAT: u32 = 0x0106_f1d4;
 const MARKER_CONSTRUCT: u32 = 0x0050_9890;
 const REFR_GET_MARKER_AT_INDEX: u32 = 0x0056_8500;
+#[cfg(test)]
 const REFR_GET_FURNITURE_DATA: u32 = 0x007a_f430;
 const MARKER_KIND: u32 = 0x0050_94b0;
 const FURNITURE_GET_MARKER_ENABLED: u32 = 0x0050_9450;
@@ -994,7 +1005,9 @@ const ARRAY_ADD: u32 = 0x007c_b2e0;
 const ARRAY_FIND_INDEX: u32 = 0x0071_9b20;
 const ARRAY_COMPARE: u32 = 0x009a_3830;
 const ARRAY_REMOVE_AT: u32 = 0x009a_4320;
+#[cfg(test)]
 const WORD_AT_8: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const ARRAY_ELEMENT: u32 = 0x0087_7a30;
 const ARRAY_CLEAR: u32 = 0x0084_54f0;
 /// The setting object `0043d4d0` is called on: a pointer to an `int`.
@@ -1096,6 +1109,7 @@ const RENDER_COUNTER_011FFA0C: u32 = 0x011f_fa0c;
 const RENDER_COUNTER_011FFA10: u32 = 0x011f_fa10;
 const RENDER_COUNTER_011FF9E4: u32 = 0x011f_f9e4;
 const RENDER_COUNTER_011FFA20: u32 = 0x011f_fa20;
+#[cfg(test)]
 const WORD_AT_C: u32 = 0x0084_e3a0;
 
 pub fn funcs() -> Vec<(u32, AbiFn)> {
@@ -1382,13 +1396,13 @@ pub fn interface_manager_construct(
     let base = this.addr();
     e.call(NI_POINTER_CONSTRUCT, &args![base + 0x4, 0u32]);
     e.call(NI_POINTER_CONSTRUCT, &args![base + 0x8, 0u32]);
-    e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![base + 0x2c]);
-    e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![base + 0x38]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x2c));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x38));
     e.call(SIMPLE_LIST_CONSTRUCT, &args![base + 0x70]);
     e.call(NI_POINTER_CONSTRUCT, &args![base + 0x8c, 0u32]);
     e.call(NI_POINTER_CONSTRUCT, &args![base + 0x90, 0u32]);
     e.call(NI_POINTER_CONSTRUCT, &args![base + 0xac, 0u32]);
-    e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![base + 0x104]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x104));
     e.call(HUD_EFFECT_MANAGER_CONSTRUCT, &args![base + 0x178]);
     e.call(VATS_EFFECT_MANAGER_CONSTRUCT, &args![base + 0x1dc]);
     e.call(SIMPLE_LIST_CONSTRUCT, &args![base + 0x4c4]);
@@ -1405,9 +1419,11 @@ pub fn interface_manager_construct(
         // `NiPoint3(0, 0, 0)` built in a temporary and copied into the
         // activate pick location (`+0x104`) word by word.
         let origin = e.with_stack(0xc, |e, temp| {
-            let at = e
-                .call(NI_POINT3_CONSTRUCT, &args![temp, 0.0f32, 0.0f32, 0.0f32])
-                .u32();
+            let at = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, temp, 0.0f32, 0.0f32, 0.0f32)
+            );
             [e.mem.u32(at), e.mem.u32(at + 4), e.mem.u32(at + 8)]
         });
         for (i, word) in origin.iter().enumerate() {
@@ -2329,15 +2345,18 @@ fn idle_hud_mode(e: &mut Engine, this: Ptr<InterfaceManager>) {
         } else {
             let iron_sights = e.call(ACTOR_GET_IRON_SIGHTS, &args![player]).bool();
             if iron_sights
-                && e.call(WEAPON_STATE_GETTER, &args![WEAPON_STATE_OBJECT])
-                    .u32()
-                    == 0
+                && typed_call!(
+                    leaf::FAMILY,
+                    0x0044_ddc0,
+                    leaf::word_at_8(e, WEAPON_STATE_OBJECT)
+                ) == 0
             {
                 0x16
-            } else if e
-                .call(WEAPON_STATE_GETTER, &args![WEAPON_STATE_OBJECT])
-                .u32()
-                == 4
+            } else if typed_call!(
+                leaf::FAMILY,
+                0x0044_ddc0,
+                leaf::word_at_8(e, WEAPON_STATE_OBJECT)
+            ) == 4
             {
                 8
             } else {
@@ -2939,9 +2958,9 @@ fn idle_button_and_wheel(e: &mut Engine, this: Ptr<InterfaceManager>, state: &mu
             // that wants the wheel (`0xff2`), walking up through
             // `Tile::GetParent`.
             while !e.call(TILE_IS_TRUE, &args![tile, 0xff2u32]).bool()
-                && e.call(TILE_PARENT, &args![tile]).u32() != 0
+                && typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile)) != 0
             {
-                tile = e.call(TILE_PARENT, &args![tile]).u32();
+                tile = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             }
             if tile != 0 && e.call(TILE_IS_TRUE, &args![tile, 0xff2u32]).bool() {
                 let wheel = e.call(GET_WHEEL_STEPS, &args![this]).i32();
@@ -3169,9 +3188,9 @@ fn idle_click_key_tile(e: &mut Engine, frontmost: u32, code: u32) {
             ],
         );
         let trait_id = e.call(TILE_TEXT_TO_TRAIT, &args![buffer]).u32();
-        let root = e.call(GET_FIELD_AT_4, &args![frontmost]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, frontmost));
         let string = e.call(TILE_GET_STRING, &args![root, trait_id]).u32();
-        let root = e.call(GET_FIELD_AT_4, &args![frontmost]).u32();
+        let root = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, frontmost));
         e.call(TILE_GET_CHILD_BY_NAME, &args![root, string]).u32()
     });
     if name != 0 && e.call(TILE_IS_TRUE, &args![name, 0xfa3u32]).bool() {
@@ -3232,7 +3251,7 @@ fn idle_console_and_hot_keys(e: &mut Engine, this: Ptr<InterfaceManager>, state:
     // compiled code (guarded by a local that is always 0) is omitted.
     e.set_global(MENU_LOOP_ABORT, 0u8);
     let root = e.get(this, InterfaceManager::pMenusRoot);
-    let first = e.call(NI_POINTER_GET, &args![root + 4]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, root + 4));
     e.with_stack(4, |e, cursor| {
         e.mem.set_u32(cursor.addr(), first);
         while e.mem.u32(cursor.addr()) != 0 && e.global::<u8>(MENU_LOOP_ABORT) == 0 {
@@ -3273,9 +3292,11 @@ fn idle_console_and_hot_keys(e: &mut Engine, this: Ptr<InterfaceManager>, state:
     if key_down && e.get(this, InterfaceManager::field_4bc) == 0 {
         fn_0070f4e0(e, this, 0, 0);
     } else {
-        let weapon_state = e
-            .call(WEAPON_STATE_GETTER, &args![WEAPON_STATE_OBJECT])
-            .u32();
+        let weapon_state = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, WEAPON_STATE_OBJECT)
+        );
         let player = e.global::<u32>(PLAYER_SINGLETON);
         let anything = weapon_state != 0 || e.vcall(player, 0x22c, &args![0u32]).bool() || key_down;
         let mode_word = e.get(this, InterfaceManager::field_4bc) as i32;
@@ -3398,7 +3419,7 @@ pub fn inventory_menu_is_keyring_open(e: &mut Engine) -> bool {
         return false;
     }
     let trait_id = e.global::<u32>(KEYRING_TRAIT);
-    let tile = e.call(GET_FIELD_AT_4, &args![menu]).u32();
+    let tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
     e.call(TILE_IS_TRUE, &args![tile, trait_id]).bool()
 }
 
@@ -3474,7 +3495,8 @@ pub fn interface_manager_update_pipboy(e: &mut Engine, this: Ptr<InterfaceManage
                 let pipboy = e.call(GET_PIPBOY_STATIC, &args![]).u32();
                 e.call(PIPBOY_FADE_LIGHT_EFFECT, &args![pipboy, 0u32]);
                 if e.vcall(player, 0x214, &args![]).i32() == 4 {
-                    let process = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![player]).u32();
+                    let process =
+                        typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
                     e.call(RELOAD_DYNAMIC_IDLE_ON_1ST_PERSON, &args![process, player]);
                 }
                 let animation = e.call(PLAYER_GET_ANIMATION, &args![player, 0u32]).u32();
@@ -3572,13 +3594,13 @@ fn pipboy_pose_reached(
 ) {
     e.call(HUD_SET_MENU_MODE, &args![3u32]);
     if e.call(ACTOR_IS_WEAPON_DRAWN, &args![player]).bool() {
-        let process = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![player]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
         let weapon = if e.vcall(process, 0x148, &args![]).u32() == 0 {
             0
         } else {
-            let process = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![player]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
             let object = e.vcall(process, 0x148, &args![]).u32();
-            e.call(FORM_GETTER_0044DDC0, &args![object]).u32()
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, object))
         };
         if weapon != 0 && e.call(PLAYER_GET_ANIMATION, &args![player, 1u32]).u32() != 0 {
             let first = e.call(PLAYER_GET_ANIMATION, &args![player, 1u32]).u32();
@@ -3616,7 +3638,7 @@ fn pipboy_pose_reached(
         &args![*animation],
     );
     e.set_global(IDLE_MANAGER_BUSY, 1u8);
-    let process = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![player]).u32();
+    let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, player));
     if e.vcall(process, 0x4d8, &args![player]).bool() {
         let first = e.call(PLAYER_GET_ANIMATION, &args![player, 0u32]).u32();
         e.call(ANIMATION_CLEAR_GROUP, &args![first, 0u32, 0.0f32]);
@@ -3690,9 +3712,11 @@ pub fn fn_0070f4e0(e: &mut Engine, this: Ptr<InterfaceManager>, callback: u32, v
     if e.vcall(player, 0x230, &args![]).bool() {
         return;
     }
-    if e.call(FORM_GETTER_0044DDC0, &args![WEAPON_STATE_OBJECT])
-        .u32()
-        != 0
+    if typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, WEAPON_STATE_OBJECT)
+    ) != 0
     {
         return;
     }
@@ -3754,7 +3778,7 @@ pub fn interface_manager_do_gamepad_event(e: &mut Engine, this: Ptr<InterfaceMan
     let mut event = event;
     let mut released = false;
     let root = e.call(GET_MENUS_ROOT, &args![this]).u32();
-    let mut tail = e.call(GET_FIELD_AT_4, &args![root + 4]).u32();
+    let mut tail = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, root + 4));
     // Every visible root child gets `DoGamepad(menu, -1, 0.0)` first, from
     // the last child to the first; the first that takes it ends the event.
     while tail != 0 {
@@ -3812,7 +3836,7 @@ pub fn interface_manager_do_gamepad_event(e: &mut Engine, this: Ptr<InterfaceMan
     let menu_manager = e.call(MENU_MANAGER_INSTANCE, &args![1u32]).u32();
     let frontmost = e.call(GET_FRONTMOST_MENU, &args![menu_manager]).u32();
     let frontmost_tile = if frontmost != 0 {
-        e.call(GET_FIELD_AT_4, &args![frontmost]).u32()
+        typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, frontmost))
     } else {
         0
     };
@@ -4002,7 +4026,7 @@ fn gamepad_button_event(
 ) {
     let mut event = event;
     let root = e.call(GET_MENUS_ROOT, &args![this]).u32();
-    let mut tail = e.call(GET_FIELD_AT_4, &args![root + 4]).u32();
+    let mut tail = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, root + 4));
     while tail != 0 {
         let child = e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), tail);
@@ -4046,7 +4070,7 @@ fn gamepad_button_event(
         focus = root_tile;
     }
     while focus != 0 && !e.call(TILE_IS_VISIBLE, &args![focus]).bool() {
-        focus = e.call(TILE_PARENT, &args![focus]).u32();
+        focus = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, focus));
     }
     if focus == 0 {
         return;
@@ -4062,7 +4086,7 @@ fn gamepad_button_event(
             .u32();
         let mut walker = focus;
         while candidate == 0 && walker != 0 {
-            walker = e.call(TILE_PARENT, &args![walker]).u32();
+            walker = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, walker));
             if walker != 0 {
                 candidate = e
                     .call(
@@ -4315,15 +4339,17 @@ pub fn fn_00710880(e: &mut Engine, this: Ptr<InterfaceManager>) {
         e.with_stack(0xc, |e, origin| {
             e.with_stack(0xc, |e, direction| {
                 e.with_stack(8, |e, list| {
-                    e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![origin]);
-                    e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![direction]);
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
+                    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
                     e.call(NI_PICK_CONSTRUCT, &args![pick, 0u32, 8u32]);
                     e.call(SIMPLE_LIST_CONSTRUCT, &args![list]);
                     let mut same_as_before = true;
                     e.call(NI_PICK_SET_FLAG, &args![pick, 1u32]);
-                    let root = e
-                        .call(GET_PICK_ROOT, &args![e.global::<u32>(PICK_ROOT_OWNER)])
-                        .u32();
+                    let root = typed_call!(
+                        leaf::FAMILY,
+                        0x0084_e3a0,
+                        leaf::word_at_c(e, e.global::<u32>(PICK_ROOT_OWNER))
+                    );
                     e.call(NI_PICK_SET_ROOT, &args![pick, root]);
                     e.call(NI_PICK_SET_MODE, &args![pick, 0u32]);
                     let player = e.global::<u32>(PLAYER_SINGLETON);
@@ -4366,13 +4392,21 @@ pub fn fn_00710880(e: &mut Engine, this: Ptr<InterfaceManager>) {
                             });
                             if !seen {
                                 let same_item = node == 0 || {
-                                    let item = e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![node]).u32();
+                                    let item = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0068_15c0,
+                                        leaf::same_word(e, node)
+                                    );
                                     e.mem.u32(item) == reference
                                 };
                                 if !same_item {
                                     same_as_before = false;
                                 } else if same_as_before && node != 0 {
-                                    node = e.call(GET_FIELD_AT_4, &args![node]).u32();
+                                    node = typed_call!(
+                                        leaf::FAMILY,
+                                        0x0072_6070,
+                                        leaf::word_at_4(e, node)
+                                    );
                                 }
                             }
                             index += 1;
@@ -4383,13 +4417,15 @@ pub fn fn_00710880(e: &mut Engine, this: Ptr<InterfaceManager>) {
                     if !same_as_before {
                         let mut node = list.addr();
                         while node != 0 {
-                            let item = e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![node]).u32();
+                            let item =
+                                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                             if e.mem.u32(item) == 0 {
                                 break;
                             }
-                            let item = e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![node]).u32();
+                            let item =
+                                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                             e.call(LIST_ADD, &args![base + 0x70, item]);
-                            node = e.call(GET_FIELD_AT_4, &args![node]).u32();
+                            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                         }
                     }
                     e.call(LIST_CLEAR, &args![list]);
@@ -4425,13 +4461,13 @@ pub fn interface_manager_display_current_pick_ref(e: &mut Engine, this: Ptr<Inte
     let mut index = 0i32;
     let mut node = base + 0x70;
     while node != 0 {
-        let item = e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 || e.get(this, InterfaceManager::iCurrentPickIndex) < index {
             break;
         }
         pick = e.mem.u32(item);
         index += 1;
-        node = e.call(GET_FIELD_AT_4, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if pick == 0 {
         e.set(this, InterfaceManager::pPickRef, 0);
@@ -4444,7 +4480,7 @@ pub fn interface_manager_display_current_pick_ref(e: &mut Engine, this: Ptr<Inte
         with_string(e, |e, text| {
             e.call(SET_PICK_REF_DISPLAY, &args![this, pick]);
             e.set(this, InterfaceManager::pPickRef, pick);
-            let form_id = e.call(FORM_ID_GETTER, &args![pick]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, pick));
             let name = e.call(REFR_NAME, &args![pick]).u32();
             e.call(
                 FORMAT_INTO_STRING,
@@ -4536,7 +4572,7 @@ fn pick_ref_full_help(
         let script = e.call(EXTRA_GET_SCRIPT, &args![extra]).u32();
         let extra = e.call(REFR_EXTRA_DATA_LIST, &args![pick]).u32();
         let script_again = e.call(EXTRA_GET_SCRIPT, &args![extra]).u32();
-        let id = e.call(FORM_ID_GETTER, &args![script_again]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, script_again));
         let name = e.vcall(script, 0x130, &args![]).u32();
         pick_line(
             e,
@@ -4547,15 +4583,15 @@ fn pick_ref_full_help(
         );
     }
     if e.vcall(pick, 0x100, &args![]).bool() {
-        let process = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![pick]).u32();
+        let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, pick));
         if process != 0 {
-            let process = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![pick]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, pick));
             if e.vcall(process, 0x4c8, &args![]).u32() != 0 {
-                let first = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![pick]).u32();
-                let second = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![pick]).u32();
+                let first = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, pick));
+                let second = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, pick));
                 let furniture_a = e.vcall(second, 0x4c8, &args![]).u32();
                 let furniture_b = e.vcall(first, 0x4c8, &args![]).u32();
-                let id = e.call(FORM_ID_GETTER, &args![furniture_b]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, furniture_b));
                 let name = e.vcall(furniture_a, 0x130, &args![]).u32();
                 pick_line(e, text, y, line_height, &args![FURNITURE_FORMAT, name, id]);
             }
@@ -4564,7 +4600,7 @@ fn pick_ref_full_help(
     if e.call(REFR_GET_OWNER, &args![pick]).u32() != 0 {
         let owner = e.call(REFR_GET_OWNER, &args![pick]).u32();
         let owner_again = e.call(REFR_GET_OWNER, &args![pick]).u32();
-        let id = e.call(FORM_ID_GETTER, &args![owner_again]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, owner_again));
         let name = e.vcall(owner, 0x130, &args![]).u32();
         pick_line(e, text, y, line_height, &args![OWNER_FORMAT, name, id]);
     }
@@ -4582,19 +4618,19 @@ fn pick_ref_full_help(
             )
             .u32();
         if e.vcall(actor, 0x214, &args![]).u32() != 0 {
-            let process = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
             if e.vcall(process, 0x4c8, &args![]).u32() == 0 {
-                let process = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+                let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 let word = e.vcall(process, 0x4d0, &args![]).u32();
                 pick_line(e, text, y, line_height, &args![ACTOR_PACKAGE_FORMAT, word]);
             } else {
-                let a = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
-                let b = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
-                let c = e.call(GET_SAVED_ACQUIRE_OBJECT, &args![actor]).u32();
+                let a = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+                let b = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
+                let c = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                 let furniture = e.vcall(c, 0x4c8, &args![]).u32();
                 let word = e.vcall(a, 0x4d0, &args![]).u32();
                 let other = e.vcall(b, 0x4c8, &args![]).u32();
-                let id = e.call(FORM_ID_GETTER, &args![other]).u32();
+                let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, other));
                 let name = e.vcall(furniture, 0x130, &args![]).u32();
                 pick_line(
                     e,
@@ -4626,7 +4662,7 @@ fn pick_furniture_lines(e: &mut Engine, text: Ptr, pick: u32, y: &mut i32, line_
             .call(REFR_GET_MARKER_AT_INDEX, &args![pick, index, marker])
             .bool()
         {
-            let furniture = e.call(REFR_GET_FURNITURE_DATA, &args![pick]).u32();
+            let furniture = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, pick));
             let marker_kind = e.call(MARKER_KIND, &args![marker]).u32();
             let enabled = e
                 .call(FURNITURE_GET_MARKER_ENABLED, &args![furniture, index])
@@ -5098,8 +5134,8 @@ fn pick_tile_search(
     let base = this.addr();
     e.with_stack(0xc, |e, origin| {
         e.with_stack(0xc, |e, direction| {
-            e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![origin]);
-            e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![direction]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, origin));
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, direction));
             // The pointer position (`+0x38`, `+0x40`) kept inside the
             // desktop.
             let desktop_width = e.call(GET_DESKTOP_WIDTH, &args![]).f32();
@@ -5210,7 +5246,7 @@ fn pick_tile_results(
         {
             // The tile's menu tile says whether the position is scaled.
             let menu = e.call(TILE_GET_MENU, &args![tile]).u32();
-            let menu_tile = e.call(GET_FIELD_AT_4, &args![menu]).u32();
+            let menu_tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu));
             let value = tile_get_float(e, menu_tile, 0xfaa);
             let scaled = value == e.global::<f64>(PICK_SCALED_TILE_VALUE);
             let image = e.call(TILE_IMAGE_NODE, &args![tile]).u32();
@@ -5271,9 +5307,9 @@ fn pick_tile_results(
         }
         let mut chosen = tile;
         if !keep_exact_tile && e.call(TILE_GET_VALUE_Q, &args![tile, 0xfaau32]).u32() == 0 {
-            let mut ancestor = e.call(TILE_PARENT, &args![tile]).u32();
+            let mut ancestor = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             while ancestor != 0 && e.call(TILE_GET_VALUE_Q, &args![ancestor, 0xfaau32]).u32() == 0 {
-                ancestor = e.call(TILE_PARENT, &args![ancestor]).u32();
+                ancestor = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, ancestor));
             }
             if ancestor != 0 {
                 chosen = ancestor;
@@ -5330,7 +5366,7 @@ pub fn interface_manager_create_scene_graph(
         }
         let renderer = e.call(RENDERER_GET, &args![]).u32();
         e.with_stack(0x24, |e, matrix| {
-            e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![matrix]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
             fn_007133b0(e, matrix, 0, 0.0, 0.0, 1.0);
             fn_007133b0(e, matrix, 1, 1.0, 0.0, 0.0);
             fn_007133b0(e, matrix, 2, 0.0, 1.0, 0.0);
@@ -5365,9 +5401,11 @@ pub fn interface_manager_create_scene_graph(
         let across = (-(right as f64) * half) as f32;
         let down = (-(top as f64) * half) as f32;
         e.with_stack(0xc, |e, position| {
-            let position = e
-                .call(NI_POINT3_CONSTRUCT, &args![position, across, 0.0f32, down])
-                .u32();
+            let position = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, position, across, 0.0f32, down)
+            );
             let camera = e.call(SCENE_GRAPH_GET_CAMERA, &args![graph]).u32();
             e.call(NODE_SET_TRANSLATE_VECTOR, &args![camera, position]);
         });
@@ -5430,12 +5468,11 @@ fn attach_root(
     e.call(NODE_TRANSLATION, &args![node]);
     let distance = e.get(this, InterfaceManager::fOneToOneDistance);
     e.with_stack(0xc, |e, position| {
-        let position = e
-            .call(
-                NI_POINT3_CONSTRUCT,
-                &args![position, 0.0f32, distance, 0.0f32],
-            )
-            .u32();
+        let position = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, position, 0.0f32, distance, 0.0f32)
+        );
         e.call(NODE_SET_TRANSLATE_VECTOR, &args![node, position]);
     });
 }
@@ -5774,8 +5811,12 @@ pub fn fn_00713de0(e: &mut Engine, _this: Ptr<InterfaceManager>, tile: u32) {
 /// (`Clear(1)`).
 pub fn fn_00713e20(e: &mut Engine, _this: Ptr<InterfaceManager>) {
     let mut index = 0u32;
-    while index < e.call(WORD_AT_8, &args![UPDATE_ARRAY]).u32() {
-        let slot = e.call(ARRAY_ELEMENT, &args![UPDATE_ARRAY, index]).u32();
+    while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, UPDATE_ARRAY)) {
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, UPDATE_ARRAY, index)
+        );
         let tile = e.mem.u32(slot);
         let node = if tile != 0 {
             e.call(TILE_IMAGE_NODE, &args![tile]).u32()
@@ -5863,10 +5904,10 @@ fn render_device(e: &mut Engine) -> u32 {
 fn set_viewport_from_rect(e: &mut Engine) {
     let renderer = e.call(RENDERER_GET, &args![]).u32();
     let target = e.vcall(renderer, 0xd4, &args![]).u32();
-    let width = e.call(WORD_AT_8, &args![target]).u32();
+    let width = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, target));
     let renderer = e.call(RENDERER_GET, &args![]).u32();
     let target = e.vcall(renderer, 0xd4, &args![]).u32();
-    let height = e.call(WORD_AT_C, &args![target]).u32();
+    let height = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, target));
     let rect: Vec<f64> = (0..4)
         .map(|i| e.global::<f32>(VIEWPORT_RECT + 4 * i) as f64)
         .collect();
@@ -6036,7 +6077,7 @@ pub fn fn_00713fb0(e: &mut Engine, this: Ptr<InterfaceManager>, _unused_1: u32, 
             return;
         }
         let source = e.call(CULLING_SOURCE_GET, &args![scene]).u32();
-        let word = e.call(WORD_AT_8, &args![source]).u32();
+        let word = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, source));
         e.with_stack(0xc8, |e, culling| {
             e.call(CULLING_PROCESS_CONSTRUCT, &args![culling, word]);
             e.with_stack(4, |e, holder| {
@@ -6628,7 +6669,11 @@ pub fn fn_007151b0(e: &mut Engine, this: Ptr<InterfaceManager>, x_fraction: f32,
     if e.global::<u32>(LAST_CURSOR_POINT_GUARD) & 1 == 0 {
         let guard = e.global::<u32>(LAST_CURSOR_POINT_GUARD);
         e.set_global(LAST_CURSOR_POINT_GUARD, guard | 1);
-        e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![LAST_CURSOR_POINT]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, LAST_CURSOR_POINT)
+        );
     }
     let base = this.addr();
     let two: f64 = e.global(TWO);
@@ -6660,7 +6705,7 @@ pub fn fn_007151b0(e: &mut Engine, this: Ptr<InterfaceManager>, x_fraction: f32,
         e.call(NODE_UPDATE, &args![node, update_data]);
     });
     e.with_stack(12, |e, point| {
-        e.call(MEMBER_CONSTRUCTOR_EMPTY, &args![point]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, point));
         let offset: f64 = e.global(CURSOR_X_OFFSET);
         let shifted_x = e.mem.f32(base + 0x2c) as f64 + offset;
         let desktop_width = e.call(GET_DESKTOP_WIDTH, &args![]).f64();
@@ -7148,7 +7193,7 @@ pub fn interface_manager_scan_for_max_focus(
         if frontmost == 0 {
             return 0;
         }
-        tile = e.call(GET_FIELD_AT_4, &args![frontmost]).u32();
+        tile = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, frontmost));
         if e.vcall(tile, 0xc, &args![]).u32() == 0x389 {
             let menu = e.call(TILE_GET_MENU, &args![tile]).u32();
             if e.call(MENU_STATE, &args![menu]).u32() != 1 {
@@ -7163,7 +7208,7 @@ pub fn interface_manager_scan_for_max_focus(
         return 0;
     }
     let children = tile + 4;
-    let first = e.call(NI_POINTER_GET, &args![children]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, children));
     e.with_stack(8, |e, cells| {
         let cursor = cells.addr();
         let child_best = cells.addr() + 4;
@@ -7224,9 +7269,13 @@ pub fn interface_manager_update_all_timers(e: &mut Engine, this: Ptr<InterfaceMa
     while timer != 0 {
         let frame_time = |e: &mut Engine| e.call(FRAME_TIME_GETTER, &args![FADE_CLOCK]).f64();
         let elapsed = e.mem.f32(timer + 4) as f64;
-        let state = e
-            .call(WEAPON_STATE_GETTER, &args![WEAPON_STATE_OBJECT])
-            .i32();
+        let state = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, WEAPON_STATE_OBJECT)
+        )
+        .into_ret()
+        .i32();
         let elapsed = if state == 4 {
             let time = frame_time(e);
             let rate = fn_00716440(e) as f64;
@@ -7528,7 +7577,7 @@ fn text_entry_copy_text(e: &mut Engine, this: Ptr<TextEntry>, buffer: u32) -> i3
     if e.call(STRING_LENGTH, &args![this]).u32() == 0 {
         e.call(TEXT_COPY, &args![buffer, EMPTY_TEXT]);
     } else {
-        let text = e.call(NI_POINTER_GET, &args![this]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         e.call(TEXT_COPY, &args![buffer, text]);
     }
     e.call(STRING_LENGTH, &args![this]).i32()
@@ -7683,7 +7732,7 @@ pub fn fn_007170a0(e: &mut Engine, this: Ptr<TextEntry>) -> u32 {
         if e.call(STRING_LENGTH, &args![this]).u32() == 0 {
             e.call(TEXT_COPY, &args![source, EMPTY_TEXT]);
         } else {
-            let text = e.call(NI_POINTER_GET, &args![this]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
             e.call(TEXT_COPY, &args![source, text]);
         }
         let mut out = 0u32;
@@ -7707,7 +7756,7 @@ pub fn fn_007170a0(e: &mut Engine, this: Ptr<TextEntry>) -> u32 {
         if e.call(STRING_LENGTH, &args![display]).u32() == 0 {
             e.call(STRING_SET, &args![display, DISPLAY_FALLBACK_STRING]);
         }
-        e.call(NI_POINTER_GET, &args![display]).u32()
+        typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, display))
     })
 }
 

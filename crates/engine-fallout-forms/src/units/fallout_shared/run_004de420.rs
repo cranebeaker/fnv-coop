@@ -107,6 +107,7 @@ const ONE: u32 = 0x0101_2070;
 const FLARE_FADE_IN_SECONDS: u32 = 0x0102_28a0;
 
 /// `NiPointer` dereference (`*this`).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// Child count of a `NiNode` (the 16-bit count of its child array).
 const NODE_CHILD_COUNT: u32 = 0x0043_b480;
@@ -234,7 +235,7 @@ fn setting_float(e: &mut Engine, setting: u32) -> f32 {
 
 /// `NiPointer<NiNode>` dereference of `ScreenCustomSplatter::spRoot`.
 fn splatter_root(e: &mut Engine) -> u32 {
-    e.call(POINTER_GET, &args![SPLATTER_ROOT]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, SPLATTER_ROOT))
 }
 
 // Translated from 004de600 (decompiled, FalloutNV.exe 1.4.0.525)

@@ -131,6 +131,7 @@ const FORM_BY_ID: u32 = 0x0048_39c0;
 /// target type, is-reference).
 const RT_DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `005b5e40` (`cdecl` format, ...): the log print.
 const PRINT: u32 = 0x005b_5e40;
@@ -229,7 +230,7 @@ fn resolve_form(e: &mut Engine, this: Ptr<TESWaterForm>, field: u32, target: u32
             .u32();
         e.mem.set_u32(field, cast);
         if e.mem.u32(field) == 0 {
-            let form_id = e.call(FORM_ID, &args![this]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(this.addr(), NAME_SLOT, &[]).u32();
             let id = e.mem.u32(id_at.addr());
             e.call(PRINT, &args![message, id, name, form_id]);
@@ -471,12 +472,18 @@ pub fn teswaterform_init_item(e: &mut Engine, this: Ptr<TESWaterForm>) {
     if e.get(this, TESWaterForm::pSpellItem) != 0 {
         resolve_form(e, this, base + 0x178, TYPE_SPELL_ITEM, MISSING_SPELL);
         let spell = e.get(this, TESWaterForm::pSpellItem);
-        if spell != 0 && !e.call(0x0082_56d0, &args![spell + 0x28]).bool() {
+        if spell != 0
+            && !typed_call!(
+                leaf::FAMILY,
+                0x0082_56d0,
+                leaf::both_words_zero(e, spell + 0x28)
+            )
+        {
             let mut node = spell + 0x24;
             let mut radiation = 0u32;
             let mut health = 0u32;
             while node != 0 && (radiation == 0 || health == 0) {
-                let item_at = e.call(0x0068_15c0, &args![node + 4]).u32();
+                let item_at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node + 4));
                 let effect = e.mem.u32(item_at);
                 let mut matched = false;
                 if e.call(0x0040_3ea0, &args![effect]).u32() == 0x36 {
@@ -496,7 +503,7 @@ pub fn teswaterform_init_item(e: &mut Engine, this: Ptr<TESWaterForm>) {
                         e.set(this, TESWaterForm::iHealthRestoration, magnitude);
                     }
                 }
-                let next = e.call(0x0072_6070, &args![node + 4]).u32();
+                let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node + 4));
                 node = if next != 0 { next.wrapping_sub(4) } else { 0 };
             }
         }
@@ -692,6 +699,7 @@ const SAVE_SWAPS_ENDIAN: u32 = 0x0040_1500;
 const STRING_LENGTH: u32 = 0x0040_48e0;
 /// `00559450` (`ECX`): the pointer word at the object (here the material
 /// string's text).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `""` (`01011584`).
 const EMPTY_TEXT: u32 = 0x0101_1584;
@@ -754,12 +762,12 @@ pub fn teswaterform_save(e: &mut Engine, this: Ptr<TESWaterForm>) {
     e.call(ADD_CHUNK_ARRAY, &args![SIG_MNAM, text, length]);
     let sound = e.get(this, TESWaterForm::pWaterSound);
     if sound != 0 {
-        let id = e.call(FORM_ID, &args![sound]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
         e.call(ADD_CHUNK_WORD, &args![SIG_SNAM, id]);
     }
     let spell = e.get(this, TESWaterForm::pSpellItem);
     if spell != 0 {
-        let id = e.call(FORM_ID, &args![spell]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, spell));
         e.call(ADD_CHUNK_WORD, &args![SIG_XNAM, id]);
     }
     e.call(SAVE_DATA, &args![this]);
@@ -776,7 +784,7 @@ pub fn teswaterform_save(e: &mut Engine, this: Ptr<TESWaterForm>) {
             let id = if form == 0 {
                 0
             } else {
-                e.call(FORM_ID, &args![form]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
             };
             e.mem.set_u32(ids.addr() + 4 * i, id);
         }
@@ -791,10 +799,10 @@ pub fn teswaterform_save(e: &mut Engine, this: Ptr<TESWaterForm>) {
 /// (`01011584`) when it has none.
 pub fn fn_0057fda0(e: &mut Engine, this: Ptr<TESWaterForm>) -> u32 {
     let string = this.addr() + WATER_MATERIAL_ID;
-    if e.call(POINTER_GET, &args![string]).u32() == 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string)) == 0 {
         return EMPTY_TEXT;
     }
-    e.call(POINTER_GET, &args![string]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string))
 }
 
 // Translated from 0057fde0 (decompiled, FalloutNV.exe 1.4.0.525)

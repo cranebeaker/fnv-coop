@@ -33,6 +33,7 @@ const TES_GET_NAV_MESH_INFO_MAP: u32 = 0x0045_af00;
 /// thiscall `(portal, info map, file, data)`).
 const EDGE_PORTAL_LOAD: u32 = 0x0069_dfd0;
 /// `006815c0(point)`: the constructor run on an `NiPoint3` member.
+#[cfg(test)]
 const POINT_CONSTRUCTOR: u32 = 0x0068_15c0;
 /// The `float` the grid's minimum x bound is reset to (`FLT_MAX` in the
 /// exe's data).
@@ -54,6 +55,7 @@ const CLAMP_INT: u32 = 0x0064_7ba0;
 /// place.
 const CLAMP_UINT: u32 = 0x0064_7bd0;
 /// `0044ddc0(array)`: an array's `iSize`.
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `0069dec0(array, index)`: the address of element `index` of a
 /// `BSSimpleArray<unsigned short>`.
@@ -74,6 +76,7 @@ const INDEX_ARRAY_DESTRUCTOR: u32 = 0x0043_8690;
 const INDEX_ARRAY_ADD: u32 = 0x007c_b2e0;
 /// `00877a30(array, index)`: the address of element `index` of a 4-byte
 /// element array.
+#[cfg(test)]
 const WORD_ELEMENT: u32 = 0x0087_7a30;
 /// `0069add0(list, index, keep_order)`: removes element `index`.
 const LIST_REMOVE_AT: u32 = 0x0069_add0;
@@ -84,6 +87,7 @@ const VECTOR_DIVIDE: u32 = 0x0049_41c0;
 /// `00408840(value)` (cdecl, `float` argument): `fabs`, result in ST0.
 const FABS: u32 = 0x0040_8840;
 /// `00416870(point, x, y, z)`: `NiPoint3` constructor from three floats.
+#[cfg(test)]
 const POINT_FROM_FLOATS: u32 = 0x0041_6870;
 /// `00ec782f(array, element size, count, constructor, destructor)`: the
 /// compiler's vector constructor iterator.
@@ -199,8 +203,16 @@ pub fn fn_0069d240(e: &mut Engine, this: Ptr<EdgeExtraInfo>, file: Ptr, data: u3
 /// Returns `this`.
 pub fn fn_0069d280(e: &mut Engine, this: Ptr<NavMeshGrid>) -> Ptr<NavMeshGrid> {
     e.set(this, NavMeshGrid::iGridSize, 0);
-    e.call(POINT_CONSTRUCTOR, &args![this.addr().wrapping_add(0xc)]);
-    e.call(POINT_CONSTRUCTOR, &args![this.addr().wrapping_add(0x18)]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr().wrapping_add(0xc))
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr().wrapping_add(0x18))
+    );
     e.set(this, NavMeshGrid::GridData, Ptr::NULL);
     let bound = x87_quiet(e.global::<f32>(GRID_RESET_BOUND));
     e.set(this, NavMeshGrid::GridBoundsMin_x, bound);
@@ -334,7 +346,7 @@ pub fn fn_0069d4b0(e: &mut Engine, this: Ptr<NavMeshGrid>, point: Ptr, _unused_2
             while column <= e.mem.u32(high_column) as i32 {
                 let cell = e.call(GRID_CELL, &args![this, column, row]).u32();
                 let mut index = 0u32;
-                while index < e.call(ARRAY_SIZE, &args![cell]).u32() {
+                while index < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, cell)) {
                     let triangle = e.call(SHORT_ELEMENT, &args![cell, index]).u32();
                     e.call(LIST_ADD_TRIANGLE, &args![list, triangle]);
                     index += 1;
@@ -350,7 +362,9 @@ pub fn fn_0069d4b0(e: &mut Engine, this: Ptr<NavMeshGrid>, point: Ptr, _unused_2
         e.call(LIST_SORT, &args![list, COMPARE_TRIANGLES]);
         e.call(INDEX_ARRAY_CONSTRUCTOR, &args![duplicates]);
         let mut index = 0u32;
-        while index < e.call(ARRAY_SIZE, &args![list]).u32().wrapping_sub(1) {
+        while index
+            < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, list)).wrapping_sub(1)
+        {
             let next = e.call(SHORT_ELEMENT, &args![list, index + 1]).u32();
             let next = e.mem.u16(next);
             let current = e.call(SHORT_ELEMENT, &args![list, index]).u32();
@@ -361,10 +375,14 @@ pub fn fn_0069d4b0(e: &mut Engine, this: Ptr<NavMeshGrid>, point: Ptr, _unused_2
             index += 1;
         }
         if !e.call(ARRAY_IS_EMPTY, &args![duplicates]).bool() {
-            let count = e.call(ARRAY_SIZE, &args![duplicates]).u32();
+            let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, duplicates));
             let mut position = count.wrapping_sub(1) as i32;
             while position >= 0 {
-                let slot = e.call(WORD_ELEMENT, &args![duplicates, position]).u32();
+                let slot = typed_call!(
+                    leaf::FAMILY,
+                    0x0087_7a30,
+                    leaf::array_element(e, duplicates, position)
+                );
                 let removed = e.mem.u32(slot);
                 e.call(LIST_REMOVE_AT, &args![list, removed, 1u32]);
                 position -= 1;
@@ -387,9 +405,10 @@ pub fn fn_0069d790(e: &mut Engine, this: Ptr<NavMeshGrid>, out: Ptr, column: u32
     let column_length = e.get(this, NavMeshGrid::fColumnSectionLen);
     let min_x = e.get(this, NavMeshGrid::GridBoundsMin_x);
     let x = (f64::from(column) * f64::from(column_length) + f64::from(min_x)) as f32;
-    e.call(
-        POINT_FROM_FLOATS,
-        &args![out, x87_quiet(x), x87_quiet(y), z],
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, out, x87_quiet(x), x87_quiet(y), z)
     );
     out
 }

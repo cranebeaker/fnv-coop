@@ -57,8 +57,10 @@ use crate::types::{BSSimpleList, BSStringT, NiTArray, NiTPointerMap};
 
 /// `BSSimpleList` node accessor (`006815c0`, returns its `ECX`): the node's
 /// own address, which is the address of its item slot.
+#[cfg(test)]
 pub(crate) const LIST_ITEM_SLOT: u32 = 0x0068_15c0;
 /// `BSSimpleList` next node (`00726070`): the word at `node + 4`.
+#[cfg(test)]
 pub(crate) const LIST_NEXT: u32 = 0x0072_6070;
 /// `BSSimpleList` removal of the head node (`0063f7b0`).
 const LIST_REMOVE_HEAD: u32 = 0x0063_f7b0;
@@ -175,6 +177,7 @@ const SCALAR_DELETE: u32 = 0x0046_01a0;
 /// `BSSimpleList::AddHead(list; &item)` (`005ae3d0`).
 const LIST_ADD_HEAD: u32 = 0x005a_e3d0;
 /// `BSSimpleList::IsEmpty(list)` (`008256d0`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `BSFile` write `(file; data, size, &one, 1)` (`0044e120`); answers the
 /// number of bytes written.
@@ -182,7 +185,9 @@ const BSFILE_WRITE: u32 = 0x0044_e120;
 /// `TESForm` accessors used by the writer: the form type index (the byte at
 /// `+4`), the flags word, and the form id (`+0xC`).
 const FORM_TYPE_INDEX: u32 = 0x0040_1170;
+#[cfg(test)]
 const FORM_FLAGS: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `TESForm` calls made by `LoadForm`, described by their arguments.
 const FORM_SET_TYPE: u32 = 0x004f_15a0;
@@ -247,6 +252,7 @@ const FLAG_REGISTERED: u32 = 0x20;
 /// element slot) and its `SetAtGrow` (`00470000`, `(array; index,
 /// &element)`, the element passed by address).
 const FILE_MAP_REMOVE_AT: u32 = 0x0040_5430;
+#[cfg(test)]
 const KEY_ARRAY_ELEMENT: u32 = 0x0087_7a30;
 const KEY_ARRAY_SET_AT_GROW: u32 = 0x0047_0000;
 /// The scope guard around the decompression: `00404eb0(guard; kind, 1,
@@ -547,7 +553,7 @@ layout! {
 
 /// The address of the item slot of a list node (`006815c0`).
 fn list_item_slot(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_ITEM_SLOT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node))
 }
 
 /// The item of a list node.
@@ -558,7 +564,7 @@ fn list_item(e: &mut Engine, node: u32) -> u32 {
 
 /// The node after `node` (`00726070`).
 fn list_next(e: &mut Engine, node: u32) -> u32 {
-    e.call(LIST_NEXT, &args![node]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
 /// `listMasters` of `this` (`00464df0`).
@@ -1797,12 +1803,12 @@ pub fn tes_file_read_chunk_header(e: &mut Engine, this: Ptr<TESFile>) -> bool {
 pub fn tes_file_start_form(e: &mut Engine, this: Ptr<TESFile>, form: Ptr) {
     tes_file_start_and_end_groups_for_form(e, this, form);
     let save = this.at(TESFile::m_saveform);
-    let flags = e.call(FORM_FLAGS, &args![form]).u32();
+    let flags = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, form));
     e.set(save, Form::flags, flags & SAVED_FORM_FLAGS_MASK);
     let type_index = e.call(FORM_TYPE_INDEX, &args![form]).u32();
     let tag = e.mem.u32(FORM_TAG_TABLE + type_index.wrapping_mul(12));
     e.set(save, Form::form, tag);
-    let form_id = e.call(FORM_ID, &args![form]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     e.set(save, Form::iFormID, form_id);
     let version = fn_00470bb0(e) as u16;
     e.set(save, Form::sFormVersion, version);
@@ -1959,7 +1965,7 @@ pub fn fn_00473250(e: &mut Engine, this: Ptr<TESFile>) -> u8 {
 /// item (a non-null one through its scalar deleting destructor) and removes
 /// the head.
 pub fn fn_00473270(e: &mut Engine, list: Ptr) {
-    while !e.call(LIST_IS_EMPTY, &args![list]).bool() {
+    while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
         let item = list_item(e, list.addr());
         if item != 0 {
             e.call(SCALAR_DELETE, &args![item, 1u32]);
@@ -2084,7 +2090,7 @@ pub fn tes_file_find_form(e: &mut Engine, this: Ptr<TESFile>, form: Ptr) -> bool
     }
     let type_index = e.vcall(form.addr(), 0x8c, &args![]).u32();
     let wanted_tag = e.mem.u32(FORM_TAG_TABLE + type_index.wrapping_mul(12));
-    let wanted_id = e.call(FORM_ID, &args![form]).u32();
+    let wanted_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
     loop {
         let tag = e.get(current, Form::form);
         if tag == 0 {
@@ -2185,7 +2191,7 @@ pub fn tes_file_start_and_end_groups_for_form(e: &mut Engine, this: Ptr<TESFile>
             }
         });
         if !made {
-            let form_id = e.call(FORM_ID, &args![form]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             let name = e.vcall(form.addr(), 0x130, &args![]).u32();
             let type_name = e.call(FORM_TYPE_NAME, &args![form]).u32();
             log(
@@ -2484,7 +2490,11 @@ pub fn fn_00473d90(e: &mut Engine, this: Ptr<TESFile>) {
             }
         }
         for index in 0..count {
-            let slot = e.call(KEY_ARRAY_ELEMENT, &args![array, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, array, index)
+            );
             let removed_key = e.mem.u32(slot);
             let map: u32 = e.global(GLOBAL_FILE_MAP);
             e.call(FILE_MAP_REMOVE_AT, &args![map, removed_key]);

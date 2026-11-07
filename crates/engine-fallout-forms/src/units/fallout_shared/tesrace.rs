@@ -8,11 +8,15 @@
 use crate::prelude::*;
 
 /// The form id (the word at `form + 0x0c`), `__thiscall`.
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// A list node's data address, and the next node.
+#[cfg(test)]
 const NODE_DATA: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// Whether a list node ends the walk (an empty node).
+#[cfg(test)]
 const NODE_IS_END: u32 = 0x0082_56d0;
 /// Adds the word at the pointer argument to a list (`__thiscall`, `RET 4`).
 const LIST_ADD_005AE3D0: u32 = 0x005a_e3d0;
@@ -26,6 +30,7 @@ const EYE_LIST: u32 = 0x0050_3650;
 const GET_SEX: u32 = 0x005f_0cc0;
 /// `BGSSaveFormBuffer::GetForm` (engine map) on the global at `011dea3c`:
 /// compared with the actor base, so it gives the player's base form.
+#[cfg(test)]
 const GET_BASE_FORM: u32 = 0x007a_f430;
 const PLAYER: u32 = 0x011d_ea3c;
 /// The face-generation switch string (`00408d60` gives its text).
@@ -42,6 +47,7 @@ const FORMAT: u32 = 0x0040_6d00;
 /// The error printer (`005b5e40`, cdecl, format and arguments).
 const PRINT_ERROR: u32 = 0x005b_5e40;
 /// The pointer held by a reference-counted holder (`00559450`).
+#[cfg(test)]
 const HELD: u32 = 0x0055_9450;
 /// A reference-counted holder: constructed empty (`00633c90` with 0),
 /// assigned (`0066b0d0`) and released (`0045cec0`).
@@ -194,17 +200,17 @@ pub fn fn_00613b20(_e: &mut Engine, this: Ptr, sex: i32, part: i32) -> Ptr {
 fn find_by_form_id(e: &mut Engine, list: u32, id: u32) -> u32 {
     let mut node = list;
     while node != 0 {
-        let data = e.call(NODE_DATA, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(data) == 0 {
             break;
         }
-        let data = e.call(NODE_DATA, &args![node]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let element = e.mem.u32(data);
-        if e.call(FORM_ID, &args![element]).u32() == id {
-            let data = e.call(NODE_DATA, &args![node]).u32();
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, element)) == id {
+            let data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             return e.mem.u32(data);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     0
 }
@@ -241,7 +247,7 @@ pub fn fn_00613810(e: &mut Engine, this: Ptr, hair: u32) {
     if hair == 0 {
         return;
     }
-    let id = e.call(FORM_ID, &args![hair]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, hair));
     if fn_006137b0(e, this, id) != 0 {
         return;
     }
@@ -257,7 +263,7 @@ pub fn fn_00613910(e: &mut Engine, this: Ptr, eyes: u32) {
     if eyes == 0 {
         return;
     }
-    let id = e.call(FORM_ID, &args![eyes]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, eyes));
     if fn_006138b0(e, this, id) != 0 {
         return;
     }
@@ -330,7 +336,7 @@ pub fn tes_race_init_item(e: &mut Engine, this: Ptr) {
                 .u32();
             e.mem.set_u32(base + offset, cast);
             if e.mem.u32(base + offset) == 0 {
-                let form_id = e.call(FORM_ID, &args![this]).u32();
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 let name = e.vcall(base, 0x130, &args![]).u32();
                 e.call(PRINT_ERROR, &args![message, id, name, form_id]);
             }
@@ -380,7 +386,7 @@ pub fn tes_race_get_face_gen_data(
         e.call(0x0060_3ad0, &args![npc, data]);
         sex = e.call(GET_SEX, &args![npc]).u32();
         let player = e.global::<u32>(PLAYER);
-        if npc == e.call(GET_BASE_FORM, &args![player]).u32() {
+        if npc == typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player)) {
             e.mem.set_u8(data + 0xd5, 1);
             let player = e.global::<u32>(PLAYER);
             if e.call(0x0060_47a0, &args![player]).bool() {
@@ -454,19 +460,21 @@ pub fn tes_race_get_face_gen_data(
     e.mem.set_u32(data + 0xe0, value);
     if npc != 0 && !players_own {
         let mut node = e.call(0x0060_2170, &args![npc]).u32();
-        while node != 0 && !e.call(NODE_IS_END, &args![node]).bool() {
-            let item_data = e.call(NODE_DATA, &args![node]).u32();
+        while node != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node)) {
+            let item_data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let item = e.mem.u32(item_data);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             e.with_stack(4, |e, slot| {
                 e.mem.set_u32(slot.addr(), item);
                 e.call(LIST_ADD_005AE3D0, &args![data + 0xe4, slot]);
             });
             let mut extra = e.call(0x0062_4700, &args![item]).u32();
-            while extra != 0 && !e.call(NODE_IS_END, &args![extra]).bool() {
-                let extra_data = e.call(NODE_DATA, &args![extra]).u32();
+            while extra != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, extra))
+            {
+                let extra_data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, extra));
                 let part = e.mem.u32(extra_data);
-                extra = e.call(NODE_NEXT, &args![extra]).u32();
+                extra = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, extra));
                 e.with_stack(4, |e, slot| {
                     e.mem.set_u32(slot.addr(), part);
                     e.call(LIST_ADD_005AE3D0, &args![data + 0xe4, slot]);
@@ -480,15 +488,15 @@ pub fn tes_race_get_face_gen_data(
     e.mem.set_u32(data + 0xdc, model);
     if e.mem.u32(data + 0x8c) == 0 {
         let list = e.call(EYE_LIST, &args![race]).u32();
-        if list != 0 && !e.call(NODE_IS_END, &args![list]).bool() {
-            let first = e.call(NODE_DATA, &args![list]).u32();
+        if list != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+            let first = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let eyes = e.mem.u32(first);
             e.mem.set_u32(data + 0x8c, eyes);
         } else {
             let loaded = e.global::<u32>(0x011c_3f2c);
             let mut node = e.call(0x0043_c490, &args![loaded]).u32();
             while node != 0 {
-                let node_data = e.call(NODE_DATA, &args![node]).u32();
+                let node_data = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let eyes = e.mem.u32(node_data);
                 if eyes != 0 {
                     let texture = e.call(PATH_TEXT, &args![eyes + 0x24]).u32();
@@ -497,7 +505,7 @@ pub fn tes_race_get_face_gen_data(
                         break;
                     }
                 }
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         }
     }
@@ -579,7 +587,7 @@ pub fn fn_00613c50(
                 let node = e.mem.u32(skinned_out);
                 e.call(0x0065_5fa0, &args![node, face]);
             }
-            if npc != 0 && e.call(FORM_ID, &args![npc]).u32() == 7 {
+            if npc != 0 && typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, npc)) == 7 {
                 let node = e.mem.u32(biped_out);
                 fn_00613fb0(e, Ptr::new(node), 1);
                 let node = e.mem.u32(skinned_out);
@@ -606,7 +614,7 @@ fn meshes_path(e: &mut Engine, path: Ptr, model: u32) {
 fn kill_model_egt(e: &mut Engine, egt: Ptr, path: Ptr, model: u32) {
     meshes_path(e, path, model);
     e.call(EGT_PATH, &args![egt, path]);
-    let text = e.call(HELD, &args![egt]).u32();
+    let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, egt));
     let cache = e.call(0x0065_2110, &args![]).u32();
     e.call(0x0065_0780, &args![cache, text]);
 }
@@ -680,7 +688,9 @@ pub fn fn_00614640(e: &mut Engine, this: Ptr, npc: u32, part: u32, path: Ptr) ->
     e.call(STRING_APPEND, &args![path, 0x104u32, text]);
     if npc != 0 {
         let player = e.global::<u32>(PLAYER);
-        if npc == e.call(GET_BASE_FORM, &args![player]).u32() && (index == 1 || index == 2) {
+        if npc == typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player))
+            && (index == 1 || index == 2)
+        {
             let text = e.call(PATH_TEXT, &args![texture(index)]).u32();
             let extension = e.call(0x00ec_6e30, &args![text, 0x2eu32]).u32();
             let dot = e.call(0x0040_ab30, &args![path, 0x2eu32]).u32();
@@ -724,8 +734,10 @@ pub fn tes_race_get_body_mod_texture_name(e: &mut Engine, this: Ptr, npc: u32, n
             0x0104_a0f4
         };
         e.call(0x00ec_623a, &args![sex_name, text]);
-        let race_id = e.call(FORM_ID, &args![this]).u32() & 0x00ff_ffff;
-        let template_id = e.call(FORM_ID, &args![template]).u32() & 0x00ff_ffff;
+        let race_id =
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) & 0x00ff_ffff;
+        let template_id =
+            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, template)) & 0x00ff_ffff;
         if e.vcall(npc + 0x30, 0x2c, &args![]).bool() {
             e.call(
                 FORMAT,
@@ -863,7 +875,7 @@ pub fn tes_race_get_body_texture(
     e.call(HOLDER_SET, &args![texture_out, 0u32]);
     if from_scratch == 0 {
         let player = e.global::<u32>(PLAYER);
-        if npc != e.call(GET_BASE_FORM, &args![player]).u32() {
+        if npc != typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player)) {
             let default = e.call(0x0060_45f0, &args![]).u32();
             e.call(HOLDER_SET, &args![mod_out, default]);
         }
@@ -877,7 +889,7 @@ pub fn tes_race_get_body_texture(
             0x0045_68c0,
             &args![tes, texture_path, texture_out, 0u32, 0u32],
         );
-        if e.call(HELD, &args![texture_out]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture_out)) == 0 {
             break 'body false;
         }
         let text = e.call(STRING_TEXT, &args![FACEGEN_SWITCH]).u32();
@@ -896,8 +908,8 @@ pub fn tes_race_get_body_texture(
         }
         if from_scratch == 0 {
             let player = e.global::<u32>(PLAYER);
-            if npc != e.call(GET_BASE_FORM, &args![player]).u32() {
-                let form_id = e.call(FORM_ID, &args![this]).u32();
+            if npc != typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player)) {
+                let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
                 let race_name = e.vcall(race, 0x130, &args![]).u32();
                 e.call(
                     PRINT_ERROR,
@@ -912,9 +924,9 @@ pub fn tes_race_get_body_texture(
         }
         if from_scratch == 0 {
             let player = e.global::<u32>(PLAYER);
-            if npc != e.call(GET_BASE_FORM, &args![player]).u32() {
+            if npc != typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, player)) {
                 e.call(0x00a6_1b90, &args![mod_name, mod_out]);
-                if e.call(HELD, &args![mod_out]).u32() != 0 {
+                if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mod_out)) != 0 {
                     break 'body true;
                 }
             }
@@ -928,7 +940,7 @@ pub fn tes_race_get_body_texture(
             )
             .u32();
         e.call(HOLDER_SET, &args![holder_a, mesh]);
-        if e.call(HELD, &args![holder_a]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder_a)) == 0 {
             break 'body false;
         }
         if npc != 0 {
@@ -950,16 +962,16 @@ pub fn tes_race_get_body_texture(
             e.call(0x00a6_1fb0, &args![mod_path]);
         }
         let palette_flag = e.call(0x0061_51d0, &args![]).u32();
-        let mesh = e.call(HELD, &args![holder_a]).u32();
+        let mesh = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, holder_a));
         e.call(0x0065_b410, &args![mesh, coords, mod_out, palette_flag]);
-        if e.call(HELD, &args![mod_out]).u32() == 0 {
+        if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mod_out)) == 0 {
             break 'body false;
         }
         let file_name = e.call(0x0043_8170, &args![fixed, mod_path]).u32();
-        let texture = e.call(HELD, &args![mod_out]).u32();
+        let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mod_out));
         e.call(0x00a5_fba0, &args![texture, file_name]);
         e.call(0x0043_81b0, &args![fixed]);
-        let texture = e.call(HELD, &args![mod_out]).u32();
+        let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, mod_out));
         e.call(0x00a6_1c50, &args![texture, 0u32]);
         true
     };
@@ -1105,7 +1117,7 @@ fn load_form_list(
         if cast != 0 {
             add(e, this, cast);
         } else {
-            let form_id = e.call(FORM_ID, &args![this]).u32();
+            let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let name = e.vcall(this.addr(), 0x130, &args![]).u32();
             let id = e.mem.u32(slot);
             e.call(PRINT_ERROR, &args![message, id, name, form_id]);
@@ -1542,16 +1554,16 @@ fn save_form_list(e: &mut Engine, list: u32, tag: u32) {
         .call(ALLOCATE, &args![if overflow { 0xffff_ffff } else { size }])
         .u32();
     while node != 0 {
-        let at = e.call(NODE_DATA, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(at) == 0 {
             break;
         }
-        let at = e.call(NODE_DATA, &args![node]).u32();
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let form = e.mem.u32(at);
-        let id = e.call(FORM_ID, &args![form]).u32();
+        let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.mem.set_u32(block.wrapping_add(index.wrapping_mul(4)), id);
         index = index.wrapping_add(1);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(ADD_CHUNK_ARRAY_OV2, &args![tag, block, count]);
     e.call(FREE, &args![block]);
@@ -1607,7 +1619,7 @@ fn save_form_pair(e: &mut Engine, this: u32, offset: u32, tag: u32) {
         for i in 0..2u32 {
             let form = e.mem.u32(this + offset + 4 * i);
             let id = if form != 0 {
-                e.call(FORM_ID, &args![form]).u32()
+                typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
             } else {
                 0
             };
@@ -1651,7 +1663,7 @@ pub fn fn_00611e50(e: &mut Engine, this: Ptr) {
     for (offset, tag) in [(0x504u32, CHUNK_ONAM), (0x508, CHUNK_YNAM)] {
         let form = e.mem.u32(base + offset);
         if form != 0 {
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(ADD_CHUNK_WORD, &args![tag, id]);
         }
     }
@@ -1817,14 +1829,14 @@ pub fn fn_00612c90(e: &mut Engine, this: Ptr, other: u32) {
         let mut node = e.call(list_of, &args![source]).u32();
         clear(e, this);
         while node != 0 {
-            let at = e.call(NODE_DATA, &args![node]).u32();
+            let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(at) == 0 {
                 break;
             }
-            let at = e.call(NODE_DATA, &args![node]).u32();
+            let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let list = e.call(list_of, &args![this]).u32();
             e.call(LIST_ADD_00905820, &args![list, at]);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     for sex in 0..2u32 {
@@ -1992,17 +2004,17 @@ pub fn fn_006131c0(e: &mut Engine, this: Ptr, other: u32) -> bool {
             return true;
         }
         while node != 0 {
-            let at = e.call(NODE_DATA, &args![node]).u32();
+            let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             if e.mem.u32(at) == 0 {
                 break;
             }
-            let at = e.call(NODE_DATA, &args![node]).u32();
+            let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
             let form = e.mem.u32(at);
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             if holds(e, this, id) == 0 {
                 return true;
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
     for sex in 0..2u32 {

@@ -14,7 +14,11 @@ pub fn fn_004f0770(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
     e.call(0x0048_3370, &args![this]);
     e.mem.set_u32(base, 0x0102_397c);
-    e.call(0x0041_6870, &args![base + 0x2c, 0x0u32, 0x0u32, 0x0u32]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0041_6870,
+        leaf::point3_new(e, base + 0x2c, 0x0u32, 0x0u32, 0x0u32)
+    );
     let v3 = e.call(0x0040_1000, &args![0xcu32]).u32();
     let v5 = if v3 != 0 {
         e.call(0x004f_3330, &args![v3, 0x1u32]).u32()
@@ -150,7 +154,7 @@ pub fn fn_004f08c0(e: &mut Engine, this: Ptr) {
     }
     loop {
         let list = e.mem.u32(object + 0x1c);
-        let slot = e.call(0x0068_15c0, &args![list]).u32();
+        let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
         let element = e.mem.u32(slot);
         if element == 0 {
             break;
@@ -194,8 +198,11 @@ pub fn fn_004f06d0(e: &mut Engine, this: Ptr, object: u32) {
 const CHUNK_WNAM: u32 = 0x4d41_4e57;
 /// The list helpers: whether a node is empty (`008256d0`, `AL`), its item word's address
 /// (`006815c0`) and the next node (`00726070`).
+#[cfg(test)]
 const NODE_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0068_15c0;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 
 // Translated from 004f0a40 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -207,24 +214,34 @@ const NODE_NEXT: u32 = 0x0072_6070;
 /// `TESForm::CloseForm`.
 pub fn fn_004f0a40(e: &mut Engine, this: Ptr) {
     e.call(0x0048_55a0, &args![this]);
-    let form = e.call(0x007a_f430, &args![this]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
     if form != 0 {
-        let word = e.call(0x0084_e3a0, &args![form]).u32();
+        let word = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
         e.call(0x0048_5910, &args![CHUNK_WNAM, word]);
     }
     let mut node = e.call(0x0044_1110, &args![this]).u32();
-    while node != 0 && e.call(NODE_EMPTY, &args![node]).u8() == 0 {
-        let item_address = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            == 0
+    {
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         e.call(0x004f_77c0, &args![item]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     let mut node = e.call(0x0096_11e0, &args![this]).u32();
-    while node != 0 && e.call(NODE_EMPTY, &args![node]).u8() == 0 {
-        let item_address = e.call(NODE_ITEM, &args![node]).u32();
+    while node != 0
+        && typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            .into_ret()
+            .u8()
+            == 0
+    {
+        let item_address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = e.mem.u32(item_address);
         e.vcall(item, 4, &args![]);
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     e.call(0x0048_5680, &args![this]);
 }

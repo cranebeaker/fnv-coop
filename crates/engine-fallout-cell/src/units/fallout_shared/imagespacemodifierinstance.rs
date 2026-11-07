@@ -49,10 +49,13 @@ const LIST_OWNER: u32 = 0x011d_ea10;
 /// Returns the owner's list (its address, `owner + 0x6c`).
 const LIST_OF_OWNER: u32 = 0x0043_b5d0;
 /// A list node's own address (`this`).
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
 /// A pointer's or list node's item (`*this`, `00559450`).
+#[cfg(test)]
 const NODE_ITEM: u32 = 0x0055_9450;
 /// A list node's next node (`node->next`, at `+4`).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// `BSSimpleList<NiPointer<..>>::Remove` (`00631620`): list node, `NiPointer*`.
 const LIST_REMOVE: u32 = 0x0063_1620;
@@ -107,10 +110,12 @@ const GET_FIELD_1C: u32 = 0x0044_1110;
 /// Getter of the dword at `+0x18` (`009611e0`).
 const GET_FIELD_18: u32 = 0x0096_11e0;
 /// Getter of the dword at `+0xc` (the form id of the form it is called on).
+#[cfg(test)]
 const GET_FIELD_0C: u32 = 0x0084_e3a0;
 /// The object the `Apply` functions of the depth-of-field family call (`004e3270` returns `[011f91ac]`).
 const EFFECT_MANAGER: u32 = 0x004e_3270;
 /// The target's data or the shared default when it has none (`0043d450`).
+#[cfg(test)]
 const TARGET_OR_DEFAULT: u32 = 0x0043_d450;
 /// Depth of field, no target: strength, mode, mask constant, distance, range.
 const MANAGER_DOF_WITHOUT_TARGET: u32 = 0x00b8_b0d0;
@@ -256,7 +261,7 @@ fn quiet(value: f32) -> f32 {
 
 /// `NiPointer::operator*` (`00559450`) on the pointer or list node at `pointer`.
 fn pointer_value(e: &mut Engine, pointer: u32) -> u32 {
-    e.call(NODE_ITEM, &args![pointer]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer))
 }
 
 /// The first node of the list of running instances.
@@ -290,7 +295,7 @@ fn remove_from_list(e: &mut Engine, node: u32, item: u32) {
 /// on the stack.
 fn play_sound(e: &mut Engine, getter: u32, form: Ptr) {
     let sound = e.call(getter, &args![form]).u32();
-    let id = e.call(GET_FIELD_0C, &args![sound]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, sound));
     e.with_stack(12, |e, handle| {
         let audio = e.call(AUDIO_INSTANCE, &args![]).u32();
         e.call(GET_SOUND_HANDLE, &args![audio, handle, id, 0x0020_0000u32]);
@@ -345,12 +350,12 @@ fn fix_start_time(e: &mut Engine, this: Ptr<Base>) {
 pub fn image_space_modifier_instance_stop(e: &mut Engine, instance: Ptr<Base>) {
     let mut node = list_head(e);
     while node != 0 {
-        let node_self = e.call(NODE_SELF, &args![node]).u32();
+        let node_self = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = pointer_value(e, node_self);
         if item == instance.addr() {
             remove_from_list(e, node, item);
         } else {
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     }
 }
@@ -596,7 +601,7 @@ pub fn form_trigger_if_not_active(e: &mut Engine, form: Ptr, strength: f32, targ
     }
     let mut node = list_head(e);
     while node != 0 {
-        let node_self = e.call(NODE_SELF, &args![node]).u32();
+        let node_self = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = pointer_value(e, node_self);
         if item != 0 && e.vcall(item, SLOT_AS_FORM, &args![]).u32() != 0 {
             let as_form = e.vcall(item, SLOT_AS_FORM, &args![]).u32();
@@ -604,7 +609,7 @@ pub fn form_trigger_if_not_active(e: &mut Engine, form: Ptr, strength: f32, targ
                 return Ptr::NULL;
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     start_instance(e, form, strength, target)
 }
@@ -620,7 +625,7 @@ pub fn form_stop(e: &mut Engine, form: Ptr) {
     let mut played = false;
     let mut node = list_head(e);
     while node != 0 {
-        let node_self = e.call(NODE_SELF, &args![node]).u32();
+        let node_self = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let item = pointer_value(e, node_self);
         if item != 0 && e.vcall(item, SLOT_AS_FORM, &args![]).u32() != 0 {
             let as_form = e.vcall(item, SLOT_AS_FORM, &args![]).u32();
@@ -633,7 +638,7 @@ pub fn form_stop(e: &mut Engine, form: Ptr) {
                 continue;
             }
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 
@@ -785,7 +790,7 @@ pub fn dof_apply(e: &mut Engine, this: Ptr<Dof>) {
         let target = pointer_value(e, this.addr() + 0x10);
         e.vcall(target, SLOT_TARGET_PREPARE, &args![]);
         let target = pointer_value(e, this.addr() + 0x10);
-        let data = e.call(TARGET_OR_DEFAULT, &args![target]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, target));
         let mask = quiet(e.get(this, Dof::fMaskConst));
         let mode = e.get(this, Dof::Mode);
         let strength = quiet(e.get(base, Base::fStrength));
@@ -919,7 +924,7 @@ pub fn rb_apply(e: &mut Engine, this: Ptr<RadialBlur>) {
         let target = pointer_value(e, this.addr() + 0x10);
         e.vcall(target, SLOT_TARGET_PREPARE, &args![]);
         let target = pointer_value(e, this.addr() + 0x10);
-        let data = e.call(TARGET_OR_DEFAULT, &args![target]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, target));
         let down_start = quiet(e.get(this, RadialBlur::fDownStart));
         let rampdown = quiet(e.get(this, RadialBlur::fRampdown));
         let start = quiet(e.get(this, RadialBlur::fStart));
@@ -1082,7 +1087,7 @@ pub fn drb_apply(e: &mut Engine, this: Ptr<DepthRadialBlur>) {
         let target = pointer_value(e, this.addr() + 0x10);
         e.vcall(target, SLOT_TARGET_PREPARE, &args![]);
         let target = pointer_value(e, this.addr() + 0x10);
-        let data = e.call(TARGET_OR_DEFAULT, &args![target]).u32();
+        let data = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, target));
         let start = quiet(e.get(this, DepthRadialBlur::fStart));
         let rampup = quiet(e.get(this, DepthRadialBlur::fRampup));
         let mode = e.get(this, DepthRadialBlur::Mode);

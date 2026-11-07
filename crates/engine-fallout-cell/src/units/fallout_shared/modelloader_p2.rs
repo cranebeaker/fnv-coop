@@ -59,6 +59,7 @@ const MODEL_LOADER_SOURCE: u32 = 0x0101_6840;
 /// `NiPointer<T>` functions: `operator T*` (`00559450`),
 /// `operator=(T*)` (`0066b0d0`), `NiPointer(T*)` (`00633c90`) and
 /// `~NiPointer` (`0045cec0`).
+#[cfg(test)]
 const NI_POINTER_GET: u32 = 0x0055_9450;
 const NI_POINTER_ASSIGN: u32 = 0x0066_b0d0;
 const NI_POINTER_CONSTRUCT: u32 = 0x0063_3c90;
@@ -143,8 +144,10 @@ const REFERENCE_TEST_00564E60: u32 = 0x0056_4e60;
 const REFERENCE_TEST_00564F00: u32 = 0x0056_4f00;
 /// `BGSSaveFormBuffer::GetForm` (the engine map's name for the getter of the
 /// dword at +0x20; of a reference it gives the base form).
+#[cfg(test)]
 const GET_BASE_FORM: u32 = 0x007a_f430;
 /// The getter of the dword at +0xC of a form, its form ID (`0084e3a0`).
+#[cfg(test)]
 const GET_FORM_ID: u32 = 0x0084_e3a0;
 /// The form type byte of a form (`00401170`, `this + 4` zero-extended).
 const FORM_TYPE: u32 = 0x0040_1170;
@@ -155,11 +158,15 @@ const EXTRA_GET_DISMEMBERMENT: u32 = 0x0042_e8c0;
 /// Singly linked list node helpers: `IsEmpty` (`008256d0`: no item and no
 /// next node), the address of the item (`006815c0`, the node itself) and the
 /// next node (`00726070`, `node + 4`).
+#[cfg(test)]
 const LIST_NODE_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const LIST_NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
+#[cfg(test)]
 const LIST_NODE_NEXT: u32 = 0x0072_6070;
 /// The element count of a `BSSimpleArray` (the dword at +8, `0044ddc0`) and
 /// the element address getter (`006a7ad0`, `__thiscall(index)`).
+#[cfg(test)]
 const ARRAY_COUNT_AT_8: u32 = 0x0044_ddc0;
 const ARRAY_ELEMENT_ADDRESS: u32 = 0x006a_7ad0;
 /// `BGSTextureSet::QueueTextureSet` (Xbox PDB, `005930e0`),
@@ -358,6 +365,7 @@ const FILE_INDEX_OF_KIND: u32 = 0x0044_9050;
 /// The getter of the file name of a `QueuedFileEntry` (`0045cd60`, the dword
 /// at +0x28) and the loader's loaded-file lookup (`004483a0(name)` on the
 /// loader, named `LoadedFile::IncRefCount` in the engine map).
+#[cfg(test)]
 const QUEUED_FILE_ENTRY_GET_NAME: u32 = 0x0045_cd60;
 const MODEL_LOADER_FIND_LOADED_FILE: u32 = 0x0044_83a0;
 /// The log function, `__cdecl(format, ...)` (`005b5e40`).
@@ -384,10 +392,12 @@ const THREAD_WAKE: u32 = 0x0044_2600;
 /// (`0040b460`).
 const INTERLOCKED_INCREMENT: u32 = 0x0040_b460;
 /// An empty function (`0040fbe0`, named `Error` in the engine map).
+#[cfg(test)]
 const EMPTY_FUNCTION: u32 = 0x0040_fbe0;
 /// `BSTask` state getter (`0084e3a0`, the dword at +0xC) and the function
 /// `00449190(from, to)` that changes the state when it is `from` (true when
 /// it did).
+#[cfg(test)]
 const TASK_GET_STATE: u32 = 0x0084_e3a0;
 const TASK_CHANGE_STATE: u32 = 0x0044_9190;
 /// The virtual function of a task that says whether it needs post processing.
@@ -566,7 +576,7 @@ fn in_context<R>(
 
 /// The `NiPointer` stored at `slot`, dereferenced (`00559450`).
 fn ni_pointer_value(e: &mut Engine, slot: Ptr) -> u32 {
-    e.call(NI_POINTER_GET, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 /// The priority byte of a task (`0043cc60`), as the word the game pushes.
@@ -600,16 +610,19 @@ pub fn queued_reference_queue_me(e: &mut Engine, this: Ptr<QueuedReference>) {
         if !reference.is_null() {
             let extra = e.call(REFERENCE_EXTRA_LIST, &args![reference]).u32();
             let mut node = e.call(EXTRA_GET_DECAL_REFS, &args![extra]).u32();
-            while node != 0 && !e.call(LIST_NODE_IS_EMPTY, &args![node]).bool() {
-                let item_slot = e.call(LIST_NODE_ITEM_ADDRESS, &args![node]).u32();
+            while node != 0
+                && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, node))
+            {
+                let item_slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                 let item = e.mem.u32(item_slot);
-                node = e.call(LIST_NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 if e.mem.u32(item) != 0 {
                     let holder = e.mem.u32(item);
-                    let form = e.call(GET_BASE_FORM, &args![holder]).u32();
+                    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, holder));
                     if e.call(FORM_TYPE, &args![form]).u32() == 4 {
                         let holder = e.mem.u32(item);
-                        let texture_set = e.call(GET_BASE_FORM, &args![holder]).u32();
+                        let texture_set =
+                            typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, holder));
                         let priority = fn_0043cc80(e, this.cast()) as u8 as u32;
                         e.call(QUEUE_TEXTURE_SET, &args![texture_set, priority, this, 0u32]);
                     }
@@ -640,7 +653,7 @@ pub fn queued_reference_queue_models(e: &mut Engine, this: Ptr<QueuedReference>)
     let context = e.get(this, QueuedReference::eContext);
     in_context(e, context, QUEUE_MODELS_SOURCE_LINE, |e| {
         let reference = e.get(this, QueuedReference::pRef);
-        let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let tes_model = e.call(REFERENCE_GET_TES_MODEL, &args![reference]).u32();
         if tes_model == 0 {
             return;
@@ -697,7 +710,7 @@ pub fn queued_reference_queue_models(e: &mut Engine, this: Ptr<QueuedReference>)
 /// translated.
 pub fn queued_reference_use_distant_3d(e: &mut Engine, this: Ptr<QueuedReference>) {
     let reference = e.get(this, QueuedReference::pRef);
-    let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     e.with_stack(0x108, |e, name| {
         e.call(GET_DISTANT_MODEL_NAME, &args![name, form]);
         // The `NiPointer<Model>` of the game's stack frame.
@@ -1208,9 +1221,9 @@ pub fn queued_reference_get_description(
         return false;
     }
     let reference = e.get(this, QueuedReference::pRef);
-    let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let type_name = fn_00440e30(e, Ptr::new(form));
-    let form_id = e.call(GET_FORM_ID, &args![reference]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
     let text = e.vcall(reference.addr(), 0x130, &args![]).u32();
     e.call(
         FORMAT_STRING,
@@ -1274,7 +1287,7 @@ pub fn queued_tree_queue_models(e: &mut Engine, this: Ptr<QueuedReference>) {
     let context = e.get(this, QueuedReference::eContext);
     in_context(e, context, TREE_QUEUE_MODELS_SOURCE_LINE, |e| {
         let reference = e.get(this, QueuedReference::pRef);
-        let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+        let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let mut lod_mult = e.call(GET_LOD_MULT, &args![form]).u32();
         let reference = e.get(this, QueuedReference::pRef);
         if !reference.is_null() && e.call(REFERENCE_TEST_00564E60, &args![reference]).bool() {
@@ -1306,7 +1319,7 @@ pub fn queued_tree_queue_models(e: &mut Engine, this: Ptr<QueuedReference>) {
 /// handed to the task's virtual function `0x34` (`AttachDistant3D`).
 pub fn queued_tree_use_distant_3d(e: &mut Engine, this: Ptr<QueuedReference>) {
     let reference = e.get(this, QueuedReference::pRef);
-    let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     let node = e.call(BUILD_DISTANT_3D, &args![form, 0u32]).u32();
     if node == 0 {
         return;
@@ -1434,10 +1447,17 @@ pub fn queued_actor_queue_models(e: &mut Engine, this: Ptr<QueuedReference>) {
         if dismember != 0 {
             let priority = task_priority(e, this.cast());
             let mut index = 0;
-            while index < e.call(ARRAY_COUNT_AT_8, &args![dismember + 0x20]).u32() {
+            while index
+                < typed_call!(
+                    leaf::FAMILY,
+                    0x0044_ddc0,
+                    leaf::word_at_8(e, dismember + 0x20)
+                )
+            {
                 let entry = fn_00441420(e, Ptr::new(dismember), index);
                 let mut inner = 0;
-                while inner < e.call(ARRAY_COUNT_AT_8, &args![entry + 4]).u32() {
+                while inner < typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry + 4))
+                {
                     let slot = e
                         .call(ARRAY_ELEMENT_ADDRESS, &args![entry + 4, inner])
                         .u32();
@@ -1540,7 +1560,7 @@ pub fn queued_character_queue_models(e: &mut Engine, this: Ptr<QueuedCharacter>)
     let context = e.get(this, QueuedCharacter::eContext);
     in_context(e, context, CHARACTER_QUEUE_MODELS_SOURCE_LINE, |e| {
         let reference = e.get(this, QueuedCharacter::pRef);
-        let base_form = e.call(GET_BASE_FORM, &args![reference]).u32();
+        let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let mut biped = e.vcall(reference.addr(), 0x1e8, &args![]).u32();
         if biped == 0 {
             let reference = e.get(this, QueuedCharacter::pRef);
@@ -1728,7 +1748,7 @@ pub fn queued_creature_queue_models(e: &mut Engine, this: Ptr<QueuedReference>) 
     let context = e.get(this, QueuedReference::eContext);
     in_context(e, context, CREATURE_QUEUE_MODELS_SOURCE_LINE, |e| {
         let reference = e.get(this, QueuedReference::pRef);
-        let base_form = e.call(GET_BASE_FORM, &args![reference]).u32();
+        let base_form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
         let reference = e.get(this, QueuedReference::pRef);
         let mut flag = 1u32;
         let package = e.call(GET_CURRENT_PACKAGE, &args![reference]).u32();
@@ -1947,7 +1967,7 @@ pub fn queued_file_load_run(e: &mut Engine, this: Ptr<QueuedFileLoad>) {
     let context = e.get(this, QueuedFileLoad::eContext);
     in_context(e, context, FILE_LOAD_RUN_SOURCE_LINE, |e| {
         let file_slot = this.byte_add(QueuedFileLoad::spLoadedFile.off);
-        let name = e.call(QUEUED_FILE_ENTRY_GET_NAME, &args![this]).u32();
+        let name = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
         let loader = e.global::<u32>(MODEL_LOADER);
         let found = e
             .call(MODEL_LOADER_FIND_LOADED_FILE, &args![loader, name])
@@ -1964,7 +1984,7 @@ pub fn queued_file_load_run(e: &mut Engine, this: Ptr<QueuedFileLoad>) {
         if file != 0 {
             let block = e.call(NI_ALLOC, &args![0x10u32]).u32();
             let loaded = if block != 0 {
-                let name = e.call(QUEUED_FILE_ENTRY_GET_NAME, &args![this]).u32();
+                let name = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
                 e.call(LOADED_FILE_CONSTRUCT, &args![block, name, file])
                     .u32()
             } else {
@@ -1972,7 +1992,7 @@ pub fn queued_file_load_run(e: &mut Engine, this: Ptr<QueuedFileLoad>) {
             };
             e.call(LOADED_FILE_POINTER_ASSIGN, &args![file_slot, loaded]);
         } else {
-            let name = e.call(QUEUED_FILE_ENTRY_GET_NAME, &args![this]).u32();
+            let name = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
             e.call(LOG_MESSAGE, &args![FILE_LOAD_ERROR_FORMAT, name]);
         }
     });
@@ -2182,9 +2202,9 @@ pub fn background_clone_thread_thread_update(e: &mut Engine, this: Ptr<Backgroun
             } else {
                 while ni_pointer_value(e, slot) != 0 {
                     e.call(THREAD_BEFORE_TASK, &args![this]);
-                    e.call(EMPTY_FUNCTION, &args![]);
+                    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
                     let task = ni_pointer_value(e, slot);
-                    let state = e.call(TASK_GET_STATE, &args![task]).u32();
+                    let state = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, task));
                     if !e.call(TASK_STATE_IS_6, &args![task]).bool()
                         && e.call(TASK_CHANGE_STATE, &args![task, state, 3u32]).bool()
                     {
@@ -2195,7 +2215,7 @@ pub fn background_clone_thread_thread_update(e: &mut Engine, this: Ptr<Backgroun
                     }
                     let queue = e.get(this, BackgroundCloneThread::pCloneReferencesQueue);
                     e.call(CLONE_QUEUE_POP, &args![queue, slot]);
-                    e.call(EMPTY_FUNCTION, &args![]);
+                    typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
                     e.call(THREAD_AFTER_TASK, &args![this]);
                 }
             }
@@ -2726,8 +2746,8 @@ pub fn model_loader_output_model_map_contents(
                 };
                 let model: Ptr = Ptr::new(model);
                 if fn_00443190(e, model.cast()) > 0 || show_all != 0 {
-                    let manual = e.call(ARRAY_COUNT_AT_8, &args![model]).u32();
-                    let count = e.call(LIST_NODE_NEXT, &args![model]).u32();
+                    let manual = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, model));
+                    let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, model));
                     let sum = fn_00443190(e, model.cast());
                     e.with_stack(REPORT_LINE_SIZE, |e, line| {
                         e.call(
@@ -2772,7 +2792,8 @@ pub fn model_loader_output_model_map_contents(
                     e.with_stack(8, |e, text| {
                         e.call(STRING_CONSTRUCT, &args![text]);
                         let manual = e.call(OWNER_THREAD_ID, &args![model]).u32();
-                        let count = e.call(TASK_GET_STATE, &args![model]).u32();
+                        let count =
+                            typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, model));
                         let sum = fn_004431b0(e, model.cast());
                         e.call(
                             STRING_FORMAT,
@@ -2818,7 +2839,9 @@ pub fn fn_00443540(
             return false;
         }
         let task = ni_pointer_value(e, holder);
-        let state = e.call(TASK_GET_STATE, &args![task]).i32();
+        let state = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, task))
+            .into_ret()
+            .i32();
         if state >= 3 {
             return false;
         }
@@ -2935,8 +2958,8 @@ fn queue_texture_by_name(
         e.with_stack(8, |e, first| {
             e.with_stack(8, |e, second| {
                 // `006815c0` gives the address of each piece back.
-                e.call(LIST_NODE_ITEM_ADDRESS, &args![first]);
-                e.call(LIST_NODE_ITEM_ADDRESS, &args![second]);
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, first));
+                typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, second));
                 e.call(SPLIT_FILE_PATH, &args![path, first, second]);
                 let entry = e
                     .call(FIND_FILE_ENTRY, &args![1u32, first, second, path])
@@ -3504,7 +3527,7 @@ pub fn model_loader_queue_reference(
     {
         return;
     }
-    let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+    let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     if e.call(FORM_TYPE, &args![form]).u32() == 0xd {
         return;
     }
@@ -3530,7 +3553,7 @@ pub fn model_loader_queue_reference(
                     })
                 })
             } else {
-                let form = e.call(GET_BASE_FORM, &args![reference]).u32();
+                let form = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
                 match e.call(FORM_TYPE, &args![form]).u32() {
                     0x25 => construct_object(e, 0x40, |e, block| {
                         e.call(REFERENCE_TASK_TREE, &args![block, reference, priority])

@@ -5,12 +5,17 @@
 use crate::prelude::*;
 
 /// The function `fn_006b5a90` calls on the member (`0044ddc0`).
+#[cfg(test)]
 const CALLEE_0044DDC0: u32 = 0x0044_ddc0;
 
 // Translated from 006b5a90 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Thin wrapper: calls `0044ddc0` with `ECX` = `this + 0x58` and passes on its result.
 pub fn fn_006b5a90(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(CALLEE_0044DDC0, &args![this.byte_add(0x58)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0044_ddc0,
+        leaf::word_at_8(e, this.byte_add(0x58))
+    )
 }
 
 // Translated from 006b5ab0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -61,6 +66,7 @@ pub fn fn_006b5ab0(e: &mut Engine, this: Ptr, destination: Ptr) {
 /// names where it has one).
 mod info_build {
     /// `0084e3a0`: the word at the object's `+0xc`.
+    #[cfg(test)]
     pub const WORD_AT_C: u32 = 0x0084_e3a0;
     /// `NavMesh::GetParentSpace` (engine map, `0068ef70`).
     pub const NAV_MESH_GET_PARENT_SPACE: u32 = 0x0068_ef70;
@@ -69,6 +75,7 @@ mod info_build {
     /// `006b4850`: the scalar deleting destructor of the object at `+0x58`.
     pub const EXTRA_DELETE: u32 = 0x006b_4850;
     /// `00440da0`: a byte of the navmesh.
+    #[cfg(test)]
     pub const NAV_MESH_FLAG_00440DA0: u32 = 0x0044_0da0;
     /// `00693ef0` (`RET 4`): run on `this` with 1 when that byte is set.
     pub const INFO_00693EF0: u32 = 0x0069_3ef0;
@@ -95,12 +102,16 @@ mod info_build {
     /// `00690860` (`RET 4`, the local): a byte; fills the local.
     pub const REFERENCE_FILL: u32 = 0x0069_0860;
     /// `00559450`: the local's object.
+    #[cfg(test)]
     pub const LOCAL_OBJECT: u32 = 0x0055_9450;
     /// `00440d80`: a byte of that object.
+    #[cfg(test)]
     pub const OBJECT_FLAG_00440D80: u32 = 0x0044_0d80;
     /// `0044ddc0`: an array's element count.
+    #[cfg(test)]
     pub const COUNT: u32 = 0x0044_ddc0;
     /// `00877a30` (`RET 4`, index): the address of an element.
+    #[cfg(test)]
     pub const ELEMENT: u32 = 0x0087_7a30;
     /// `BSSimpleArray<BGSBodyPart_P_1024>::_MoveItems` (engine map,
     /// `009a4320`, `RET 8`: index, 1).
@@ -146,25 +157,33 @@ fn keep_entry(e: &mut Engine, this: u32, reference: u32, flag: bool, local: u32)
     if !e.call(REFERENCE_FILL, &args![target, local]).bool() {
         return false;
     }
-    let object = e.call(LOCAL_OBJECT, &args![local]).u32();
-    if e.call(OBJECT_FLAG_00440D80, &args![object]).bool() {
+    let object = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, local));
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, object)) {
         return false;
     }
     if flag {
-        let count = e.call(COUNT, &args![this + 0x24]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this + 0x24));
         let mut index = 0u32;
         while index < count {
-            let slot = e.call(ELEMENT, &args![this + 0x24, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, this + 0x24, index)
+            );
             if e.mem.u32(slot) == e.mem.u32(reference) {
                 e.call(MOVE_ITEMS, &args![this + 0x24, index, 1u32]);
                 break;
             }
             index += 1;
         }
-        let count = e.call(COUNT, &args![this + 0x34]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this + 0x34));
         let mut index = 0u32;
         while index < count {
-            let slot = e.call(ELEMENT, &args![this + 0x34, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, this + 0x34, index)
+            );
             if e.mem.u32(slot) == e.mem.u32(reference) {
                 keep = false;
                 break;
@@ -172,10 +191,14 @@ fn keep_entry(e: &mut Engine, this: u32, reference: u32, flag: bool, local: u32)
             index += 1;
         }
     } else {
-        let count = e.call(COUNT, &args![this + 0x24]).u32();
+        let count = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this + 0x24));
         let mut index = 0u32;
         while index < count {
-            let slot = e.call(ELEMENT, &args![this + 0x24, index]).u32();
+            let slot = typed_call!(
+                leaf::FAMILY,
+                0x0087_7a30,
+                leaf::array_element(e, this + 0x24, index)
+            );
             if e.mem.u32(slot) == e.mem.u32(reference) {
                 keep = false;
                 break;
@@ -224,12 +247,12 @@ pub fn fn_006b5560(e: &mut Engine, this: Ptr, nav_mesh: Ptr) {
     let base = this.addr();
     let mesh = nav_mesh.addr();
 
-    let id = e.call(WORD_AT_C, &args![mesh]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, mesh));
     e.mem.set_u32(base, id);
     let parent = e.call(NAV_MESH_GET_PARENT_SPACE, &args![mesh]).u32();
     e.mem.set_u32(base + 0x1c, parent);
     let parent = e.call(NAV_MESH_GET_PARENT_SPACE, &args![mesh]).u32();
-    let id = e.call(WORD_AT_C, &args![parent]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, parent));
     e.mem.set_u32(base + 4, id);
     for array in [0x24, 0x34, 0x44] {
         e.call(ARRAY_RESET, &args![base + array, 1u32]);
@@ -242,7 +265,7 @@ pub fn fn_006b5560(e: &mut Engine, this: Ptr, nav_mesh: Ptr) {
         }
         e.mem.set_u32(base + 0x58, 0);
     }
-    if e.call(NAV_MESH_FLAG_00440DA0, &args![mesh]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, mesh)) {
         e.call(INFO_00693EF0, &args![this, 1u32]);
     }
 

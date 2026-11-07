@@ -42,7 +42,7 @@ fn resolve_member(e: &mut Engine, this: Ptr, offset: u32, target_type: u32, warn
     if e.mem.u32(base + offset) != 0 {
         return;
     }
-    let form_id = e.call(0x0084_e3a0, &args![this]).u32();
+    let form_id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let name = e.vcall(base, 0x130, &args![]).u32();
     e.call(0x005b_5e40, &args![warning, id, name, form_id]);
 }
@@ -99,6 +99,7 @@ const NO_DECAL_DATA: u32 = 0x0058_de80;
 /// `DecalData::Save` (`00593320`, `RET 4`: the chunk signature).
 const DECAL_DATA_SAVE: u32 = 0x0059_3320;
 /// `0084e3a0` (`ECX` = form): the word at +0xC (`TESForm::iFormID`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// `00485910` (`cdecl`: chunk signature, word): saves a chunk holding one word.
 const ADD_CHUNK_WORD: u32 = 0x0048_5910;
@@ -138,7 +139,7 @@ pub fn bgs_impact_data_save(e: &mut Engine, this: Ptr) {
     for (offset, chunk) in [(0x48, CHUNK_DNAM), (0x4c, CHUNK_SNAM), (0x50, CHUNK_NAM1)] {
         let form = e.mem.u32(base + offset);
         if form != 0 {
-            let id = e.call(FORM_ID, &args![form]).u32();
+            let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
             e.call(ADD_CHUNK_WORD, &args![chunk, id]);
         }
     }

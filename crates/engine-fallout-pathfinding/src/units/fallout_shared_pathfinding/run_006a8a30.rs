@@ -21,6 +21,7 @@ const VTABLE_CLOSE_POINT: u32 = 0x0106_b6fc;
 const BASE_CONSTRUCT: u32 = 0x006a_7b10;
 /// `006815c0`: returns `this` (the trivial constructor of the three
 /// members at `+0x2074`, `+0x2080`, `+0x208c`).
+#[cfg(test)]
 const SELF: u32 = 0x0068_15c0;
 /// `006d2c40`, `006d2c20`: two floats of the actor (`thiscall`, ST0).
 const ACTOR_VALUE_006D2C40: u32 = 0x006d_2c40;
@@ -83,9 +84,9 @@ pub fn fn_006a8a80(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
     e.call(BASE_CONSTRUCT, &args![base]);
     e.mem.set_u32(base, VTABLE_CLOSE_POINT);
-    e.call(SELF, &args![base + 0x2074]);
-    e.call(SELF, &args![base + 0x2080]);
-    e.call(SELF, &args![base + 0x208c]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x2074));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x2080));
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x208c));
     e.mem.set_u32(base + 0x2058, 0);
     this
 }

@@ -13,6 +13,7 @@ use crate::prelude::*;
 /// `00402d00` (`ECX` = object): the base at +0.
 const BASE_CONSTRUCT: u32 = 0x0040_2d00;
 /// `006815c0` (`ECX` = the point at +0x18).
+#[cfg(test)]
 const POINT_PREPARE: u32 = 0x0068_15c0;
 /// `0096a2d0` (`ECX` = the list at +0x2c).
 const LIST_CONSTRUCT: u32 = 0x0096_a2d0;
@@ -36,7 +37,7 @@ const ORIGIN: u32 = 0x011f_426c;
 pub fn fn_00589450(e: &mut Engine, this: Ptr) -> Ptr {
     let base = this.addr();
     e.call(BASE_CONSTRUCT, &args![this]);
-    e.call(POINT_PREPARE, &args![base + 0x18]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + 0x18));
     e.call(LIST_CONSTRUCT, &args![base + 0x2c]);
     let first = x87_quiet_bits(e.mem.u32(FIRST_FLOAT));
     e.mem.set_u32(base + 0xc, first);

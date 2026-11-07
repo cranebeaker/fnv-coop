@@ -11,7 +11,9 @@ use crate::prelude::*;
 /// type (`Ptr`) is that of `006815c0`'s translated signature `fn_006815c0(Ptr) -> Ptr` (its
 /// doc: `mov eax, ecx`).
 pub fn fn_0097b940(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(0x0068_15c0, &args![this]).ptr()
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, this))
+        .into_ret()
+        .ptr()
 }
 
 // Translated from 0097c470 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -997,7 +999,11 @@ pub fn fn_0097be60(e: &mut Engine, this: Ptr, mask: u32) -> bool {
 /// Unnamed in the engine map (`thiscall(out)`): copies the three words at
 /// `006815c0(this + 0x14)` to `out` and returns `out`.
 pub fn fn_0097be80(e: &mut Engine, this: Ptr, out: u32) -> u32 {
-    let point = e.call(0x0068_15c0, &args![this.addr() + 0x14]).u32();
+    let point = typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0x14)
+    );
     for offset in [0, 4, 8] {
         let word = e.mem.u32(point + offset);
         e.mem.set_u32(out + offset, word);

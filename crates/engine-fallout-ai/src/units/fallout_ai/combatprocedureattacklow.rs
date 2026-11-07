@@ -89,6 +89,7 @@ const HIT_POINTER_CONSTRUCT: u32 = 0x008c_1c30;
 /// `NiPointer<HitData>::~NiPointer<HitData>` (Xbox PDB).
 const HIT_POINTER_DESTRUCT: u32 = 0x008c_1c60;
 /// `00559450` (`__thiscall`): the word at `+0` (the smart pointer's object).
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// `HitData::InitializeHitData_ov5` (Xbox PDB): `__cdecl`, four words
 /// (hit data, attacker, target, damage `float`).
@@ -246,9 +247,9 @@ pub fn update(e: &mut Engine, this: Ptr<CombatProcedureAttackLow>) {
             let pointer = pointer.addr();
             e.call(HIT_POINTER_CONSTRUCT, &args![pointer, hit]);
             let dps = x87_quiet_bits(e.mem.u32(t + 0x14));
-            let raw = e.call(POINTER_GET, &args![pointer]).u32();
+            let raw = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             e.call(INITIALIZE_HIT_DATA, &args![raw, attacker, target, dps]);
-            let raw = e.call(POINTER_GET, &args![pointer]).u32();
+            let raw = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, pointer));
             e.call(HIT_ME, &args![target, raw, 0u32]);
             e.call(HIT_POINTER_DESTRUCT, &args![pointer]);
         });

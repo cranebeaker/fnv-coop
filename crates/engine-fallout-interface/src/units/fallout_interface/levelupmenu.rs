@@ -93,8 +93,10 @@ const VALUE_ADD_ACTION_FLOAT: u32 = 0x00a0_9080;
 const VALUE_CALCULATE: u32 = 0x00a0_9410;
 /// Thiscall on a list node: returns the node itself (`run_006815c0.rs`); the
 /// list box code calls it to reach the node's item word.
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
 /// Thiscall on a list node: the next node (`menumanager.rs`).
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 /// Thiscall on a list node (word), `RET 4`: the `RemoveAll` loop passes 0
 /// before deleting the node.
@@ -260,7 +262,7 @@ fn static_trait(e: &mut Engine, which: StaticTrait) -> u32 {
 /// The item word of a list node, reached through `006815c0` as the code
 /// does.
 fn node_item(e: &mut Engine, node: u32) -> u32 {
-    let node = e.call(NODE_SELF, &args![node]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
     e.mem.u32(node)
 }
 
@@ -495,7 +497,7 @@ pub fn list_box_bgs_perk_remove_all(e: &mut Engine, this: Ptr<ListBox>) {
             break;
         }
         let second = e.mem.u32(base + 8);
-        let next = e.call(NODE_NEXT, &args![second]).u32();
+        let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, second));
         delete_item(e, this, |e| {
             let node = e.mem.u32(base + 8);
             node_item(e, node)
@@ -657,7 +659,7 @@ pub fn fn_007878d0(e: &mut Engine, this: Ptr<ListBox>) -> u32 {
         if fn_007877a0(e, this, tile) {
             count = count.wrapping_add(1);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     count
 }
@@ -720,7 +722,7 @@ pub fn list_box_bgs_perk_synchronize(e: &mut Engine, this: Ptr<ListBox>) {
             let tile = e.mem.u32(item);
             e.call(INIT_TILE_POSITION, &args![this, tile]);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     list_box_bgs_perk_set_total_list_height(e, this);
     list_box_bgs_perk_update_highlight_box_pos(e, this);
@@ -1049,8 +1051,6 @@ const PERK_EFFECT_LIST: u32 = 0x011d_a050;
 /// The player (`PlayerCharacter *`).
 const LEVEL_UP_PLAYER: u32 = 0x011d_ea3c;
 
-/// Callees outside this unit, by address (`thiscall` unless noted).
-const MENU_TILE_00726070: u32 = 0x0072_6070;
 const TILE_GET_STRING: u32 = 0x00a0_11f0;
 const TILE_GET_CHILD_BY_ID: u32 = 0x00a0_3eb0;
 const TILE_PLAY_TILE_SOUND: u32 = 0x00a0_b110;
@@ -1070,6 +1070,7 @@ const LIST_BOX_ITEM_DATA_007E1110: u32 = 0x007e_1110;
 const SKILL_LIST_ADD_ITEM: u32 = 0x0075_4690;
 const SKILL_LIST_NUM_UNFILTERED: u32 = 0x0072_6660;
 const TILE_SET_LABEL_00707E10: u32 = 0x0070_7e10;
+#[cfg(test)]
 const TILE_PARENT_0045CD60: u32 = 0x0045_cd60;
 const PLAY_MENU_SOUND: u32 = 0x0070_6f30;
 const SHOW_TUTORIAL: u32 = 0x0071_8630;
@@ -1119,6 +1120,7 @@ const SOUND_HANDLE_PLAY: u32 = 0x00ad_8830;
 const SOUND_HANDLE_DESTROY: u32 = 0x0048_3710;
 const ACTOR_GET_CLASS: u32 = 0x0088_4350;
 const CLASS_TAGS_005A5F40: u32 = 0x005a_5f40;
+#[cfg(test)]
 const ARRAY_SIZE_0044DDC0: u32 = 0x0044_ddc0;
 const ARRAY_ELEMENT_006B3160: u32 = 0x006b_3160;
 const ARRAY_CLEAR_008454F0: u32 = 0x0084_54f0;
@@ -1191,7 +1193,7 @@ fn menu_tile(e: &Engine, menu: u32, index: u32) -> u32 {
 
 /// `Menu`'s tile (`00726070`, the word at +4).
 fn menu_root(e: &mut Engine, menu: u32) -> u32 {
-    e.call(MENU_TILE_00726070, &args![menu]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, menu))
 }
 
 fn page_slot(e: &Engine, this: u32, table: u32) -> u32 {
@@ -1468,7 +1470,7 @@ fn collect_available_perks(e: &mut Engine) {
                 let me = level_up_me(e);
                 e.call(LIST_APPEND_00905820, &args![me + AVAILABLE_PERKS, local]);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 }
@@ -1642,9 +1644,9 @@ pub fn level_up_menu_do_enter(e: &mut Engine, this: Ptr, id: u32, tile: u32) {
             e.call(PLAY_MENU_SOUND, &args![4u32]);
         }
         0xd | 0xe => {
-            let parent = e.call(TILE_PARENT_0045CD60, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             e.vcall(base + SKILLS_LIST, 0, &args![parent]);
-            let parent = e.call(TILE_PARENT_0045CD60, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             e.vcall(base, 0x10, &args![0xbu32, parent]);
         }
         _ => {}
@@ -1753,7 +1755,7 @@ pub fn level_up_menu_init_lists(e: &mut Engine, this: Ptr) {
             set_int(e, item, 0xfaa, 0xc);
             let rank_trait = e.mem.u32(UT_RANK);
             set_int(e, item, rank_trait, rank.wrapping_add(1) as u32);
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
     });
 }
@@ -1936,7 +1938,7 @@ pub fn level_up_menu_do_click(e: &mut Engine, this: Ptr, id: u32, tile: u32) {
             if !e.call(TILE_IS_TRUE, &args![tile, 0xfa3u32]).bool() {
                 return;
             }
-            let parent = e.call(TILE_PARENT_0045CD60, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             let value = e
                 .call(
                     LIST_BOX_ITEM_DATA_007E1110,
@@ -1955,11 +1957,11 @@ pub fn level_up_menu_do_click(e: &mut Engine, this: Ptr, id: u32, tile: u32) {
                 step = step.wrapping_mul(e.mem.i32(setting));
             }
             let added_trait = e.mem.u32(UT_ADDED_VALUE);
-            let parent = e.call(TILE_PARENT_0045CD60, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             let added = get_float(e, parent, added_trait);
             let added = x87_store32(x87_add(added, f64::from(step)));
             let added_trait = e.mem.u32(UT_ADDED_VALUE);
-            let parent = e.call(TILE_PARENT_0045CD60, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             set_float(e, parent, added_trait, added);
             let current = e.with_stack(4, |e, flag| {
                 e.mem.set_u8(flag.addr(), 0);
@@ -1969,7 +1971,7 @@ pub fn level_up_menu_do_click(e: &mut Engine, this: Ptr, id: u32, tile: u32) {
             let current = x87_store32(x87_add(current, f64::from(step)));
             let player = level_up_player(e);
             e.vcall(player, 0x394, &args![value, current]);
-            let parent = e.call(TILE_PARENT_0045CD60, &args![tile]).u32();
+            let parent = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, tile));
             level_up_menu_set_display_string(e, this, parent);
             level_up_menu_update_point_counter(e, this);
         }
@@ -2145,7 +2147,11 @@ pub fn level_up_menu_reset_perks_func(e: &mut Engine, tile: u32, _unused_1: u32)
 pub fn level_up_menu_perk_update_func(e: &mut Engine, tile: u32, value: u32) {
     let mut index = 0u32;
     loop {
-        let size = e.call(ARRAY_SIZE_0044DDC0, &args![PERK_EFFECT_LIST]).u32();
+        let size = typed_call!(
+            leaf::FAMILY,
+            0x0044_ddc0,
+            leaf::word_at_8(e, PERK_EFFECT_LIST)
+        );
         if index >= size {
             break;
         }
@@ -2365,9 +2371,9 @@ pub fn level_up_menu_apply_perk_effects(e: &mut Engine, this: Ptr, tile: u32) {
         0
     };
     if entry != 0 && e.vcall(entry, 0x10, &args![]).u32() == 1 {
-        let effects = e.call(ARRAY_SIZE_0044DDC0, &args![entry]).u32();
+        let effects = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, entry));
         let previous_effects = if previous != 0 {
-            e.call(ARRAY_SIZE_0044DDC0, &args![previous]).u32()
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, previous))
         } else {
             0
         };
@@ -2386,7 +2392,7 @@ pub fn level_up_menu_apply_perk_effects(e: &mut Engine, this: Ptr, tile: u32) {
                 if e.mem.u32(data + 0x10) != 0xffff_ffff {
                     perk_effect_element(e, tile, node, data, previous_effects);
                 }
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
         });
     }
@@ -2409,7 +2415,7 @@ fn perk_effect_element(e: &mut Engine, tile: u32, node: u32, data: u32, previous
             let left = e.mem.u32(data).wrapping_sub(magnitude);
             e.mem.set_u32(data, left);
         }
-        other = e.call(NODE_NEXT, &args![other]).u32();
+        other = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, other));
     }
     let selected = e.mem.u32(UT_SELECTED);
     if !e.call(TILE_IS_TRUE, &args![tile, selected]).bool() {
@@ -2579,7 +2585,7 @@ fn highlight_search(e: &mut Engine, this: Ptr<ListBox>, step: i32) -> u32 {
                 let item = node_item(e, node);
                 found = e.mem.u32(item);
             }
-            node = e.call(NODE_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
         }
         if found == 0 || tile_enabled(e, found) {
             return found;
@@ -2635,7 +2641,7 @@ pub fn fn_00787850(e: &mut Engine, this: Ptr<ListBox>, unfiltered: u8) {
             let tile = e.mem.u32(item);
             fn_00787c20(e, this, tile);
         }
-        node = e.call(NODE_NEXT, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
 }
 

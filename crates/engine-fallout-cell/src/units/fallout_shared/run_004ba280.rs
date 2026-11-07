@@ -13,6 +13,7 @@ const GRID_ARRAY_CTOR: u32 = 0x004b_9e00;
 const GRID_CELL_ARRAY_VTABLE: u32 = 0x0102_0698;
 /// Initializes the `NiPoint3` at `WorldCenter` (`006815c0`, `__thiscall`,
 /// returns `this`).
+#[cfg(test)]
 const POINT_INIT: u32 = 0x0068_15c0;
 /// Smart-pointer constructor from a raw pointer (`00633c90`, `RET 4`).
 const SMART_POINTER_CTOR: u32 = 0x0063_3c90;
@@ -29,6 +30,7 @@ const SETTING_GRIDS_TO_LOAD: u32 = 0x011c_63cc;
 /// `GridArray::iDimension`.
 const SET_WORD_AT_0C: u32 = 0x0041_fd00;
 /// Reads the word at `+0xC` (`0084e3a0`): the grid's dimension.
+#[cfg(test)]
 const GRID_DIMENSION: u32 = 0x0084_e3a0;
 /// `operator new` (`00401000`, cdecl).
 const OPERATOR_NEW: u32 = 0x0040_1000;
@@ -36,6 +38,7 @@ const OPERATOR_NEW: u32 = 0x0040_1000;
 const MEMSET: u32 = 0x0040_3d30;
 /// `NiPoint3` constructor from three floats (`00416870`, `RET 0xC`, returns
 /// `this`).
+#[cfg(test)]
 const POINT_CTOR: u32 = 0x0041_6870;
 /// `GridCellArray::bRecreateCanopyShadowMaskTexture` (Xbox PDB, static).
 const RECREATE_CANOPY_SHADOW_MASK_TEXTURE: u32 = 0x0118_9184;
@@ -58,7 +61,7 @@ pub fn grid_cell_array_ctor(e: &mut Engine, this: Ptr<GridCellArray>) -> Ptr<Gri
     e.call(GRID_ARRAY_CTOR, &args![this]);
     e.set(this, GridCellArray::vfptr, GRID_CELL_ARRAY_VTABLE);
     // GridCellArray::WorldCenter (Xbox PDB) +0x14
-    e.call(POINT_INIT, &args![t + 0x14]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, t + 0x14));
     // GridCellArray::spTexRendered (Xbox PDB) +0x24
     e.call(SMART_POINTER_CTOR, &args![t + 0x24, 0u32]);
     e.call(FUNCTION_004BC4C0, &args![]);
@@ -69,8 +72,8 @@ pub fn grid_cell_array_ctor(e: &mut Engine, this: Ptr<GridCellArray>) -> Ptr<Gri
     // `IMUL` of the two dimensions (32-bit), then an unsigned `MUL` by 4;
     // a carry out of the low word asks for 0xFFFFFFFF bytes (`SETO`, `NEG`,
     // `OR`).
-    let first = e.call(GRID_DIMENSION, &args![this]).u32();
-    let second = e.call(GRID_DIMENSION, &args![this]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
+    let second = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let bytes = u64::from(first.wrapping_mul(second)) * 4;
     let request = if bytes >> 32 != 0 {
         u32::MAX
@@ -81,8 +84,8 @@ pub fn grid_cell_array_ctor(e: &mut Engine, this: Ptr<GridCellArray>) -> Ptr<Gri
     e.set(this, GridCellArray::pGridCellA, Ptr::new(cells));
 
     // `SHL` by 2, then `IMUL`: both wrap at 32 bits.
-    let first = e.call(GRID_DIMENSION, &args![this]).u32();
-    let second = e.call(GRID_DIMENSION, &args![this]).u32();
+    let first = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
+    let second = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let size = (first << 2).wrapping_mul(second);
     let cells = e.get(this, GridCellArray::pGridCellA);
     e.call(MEMSET, &args![cells, 0u32, size]);
@@ -91,7 +94,11 @@ pub fn grid_cell_array_ctor(e: &mut Engine, this: Ptr<GridCellArray>) -> Ptr<Gri
     // into `WorldCenter`.
     e.with_stack(12, |e, temp| {
         let zero = 0.0f32.to_bits();
-        let point = e.call(POINT_CTOR, &args![temp, zero, zero, zero]).u32();
+        let point = typed_call!(
+            leaf::FAMILY,
+            0x0041_6870,
+            leaf::point3_new(e, temp, zero, zero, zero)
+        );
         for offset in [0u32, 4, 8] {
             let word = e.mem.u32(point + offset);
             e.mem.set_u32(t + 0x14 + offset, word);

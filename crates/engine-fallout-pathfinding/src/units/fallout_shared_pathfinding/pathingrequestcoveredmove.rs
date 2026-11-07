@@ -69,6 +69,7 @@ const PATHING_REQUEST_SAVE_GAME: u32 = 0x006e_3230;
 /// `PathingRequest::LoadGame` (`006e34f0`, Xbox PDB; thiscall `(this, buffer)`).
 const PATHING_REQUEST_LOAD_GAME: u32 = 0x006e_34f0;
 /// `006815c0` (thiscall): the constructor run on both `NiPoint3` members.
+#[cfg(test)]
 const POINT_CONSTRUCTOR: u32 = 0x0068_15c0;
 /// `00438660` (thiscall): the constructor run on `UnreachableCoverLocations`.
 const UNREACHABLE_ARRAY_CONSTRUCTOR: u32 = 0x0043_8660;
@@ -113,8 +114,10 @@ const POINT_ARRAY_COPY_TO: u32 = 0x0069_cfe0;
 const POINT_ARRAY_SET_SIZE: u32 = 0x0069_cea0;
 /// `00877a30` (thiscall `(array, index)`): address of element `index` of a
 /// 4-byte-element array.
+#[cfg(test)]
 const WORD_ARRAY_ELEMENT: u32 = 0x0087_7a30;
 /// `0044ddc0` (thiscall): an array's `iSize`.
+#[cfg(test)]
 const ARRAY_SIZE: u32 = 0x0044_ddc0;
 /// `006a7ad0` (thiscall `(array, index)`): address of a 4-byte element.
 const UNREACHABLE_ELEMENT: u32 = 0x006a_7ad0;
@@ -134,8 +137,16 @@ const LOAD_VARIABLE_SIZED_VALUE: u32 = 0x0086_4a60;
 /// The member constructors both constructors run after the base.
 fn construct_members(e: &mut Engine, t: u32) {
     e.mem.set_u32(t, VTABLE);
-    e.call(POINT_CONSTRUCTOR, &args![t + COVER_LOCATION]);
-    e.call(POINT_CONSTRUCTOR, &args![t + TARGET_LOCATION]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, t + COVER_LOCATION)
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, t + TARGET_LOCATION)
+    );
     e.call(
         UNREACHABLE_ARRAY_CONSTRUCTOR,
         &args![t + UNREACHABLE_COVER_LOCATIONS],
@@ -405,7 +416,7 @@ pub fn pathing_request_covered_move_save_game(
         let count = if array == 0 {
             0
         } else {
-            e.call(ARRAY_SIZE, &args![array]).u32()
+            typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
         };
         e.call(SAVE_VARIABLE_SIZED_VALUE, &args![buffer, count]);
         let mut index = 0u32;
@@ -478,7 +489,11 @@ pub fn bs_simple_array_unsigned_int_copy_to(
     let mut index = 0u32;
     while index < e.get(this, BSSimpleArray::iSize) {
         let buffer = e.get(this, BSSimpleArray::pBuffer);
-        let slot = e.call(WORD_ARRAY_ELEMENT, &args![dest, index]).u32();
+        let slot = typed_call!(
+            leaf::FAMILY,
+            0x0087_7a30,
+            leaf::array_element(e, dest, index)
+        );
         let value = e.mem.u32(buffer.wrapping_add(index.wrapping_mul(4)));
         e.mem.set_u32(slot, value);
         index += 1;

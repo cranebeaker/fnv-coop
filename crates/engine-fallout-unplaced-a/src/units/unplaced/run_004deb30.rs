@@ -47,6 +47,7 @@ const NODE_CONSTRUCT: u32 = 0x00a5_ecb0;
 /// Smart pointer assignment (`0066b0d0`): this (the pointer), new object.
 const POINTER_ASSIGN: u32 = 0x0066_b0d0;
 /// Smart pointer read (`00559450`): this (the pointer); the object.
+#[cfg(test)]
 const POINTER_GET: u32 = 0x0055_9450;
 /// String setting read (`00403df0`): this (the setting); its value.
 const SETTING_STRING: u32 = 0x0040_3df0;
@@ -57,6 +58,7 @@ const SETTING_FLOAT: u32 = 0x0040_3e20;
 /// name).
 const TEXTURE_LOAD: u32 = 0x0063_fb70;
 /// Point constructor (`00416870`): this, x, y, z; returns this.
+#[cfg(test)]
 const POINT3_CONSTRUCT: u32 = 0x0041_6870;
 /// Two-float constructor (`00452dc0`): this, x, y; returns this.
 const POINT2_CONSTRUCT: u32 = 0x0045_2dc0;
@@ -170,17 +172,19 @@ pub fn fn_004deb30(e: &mut Engine) {
             e.call(POINTER_ASSIGN, &args![CAMERA, camera]);
 
             let camera_z = fld_copy(e.global::<f32>(CAMERA_Z_01022960));
-            let point = e
-                .call(POINT3_CONSTRUCT, &args![at(0x60), 0.0f32, 0.0f32, camera_z])
-                .u32();
-            let camera = e.call(POINTER_GET, &args![CAMERA]).u32();
+            let point = typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, at(0x60), 0.0f32, 0.0f32, camera_z)
+            );
+            let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, CAMERA));
             e.call(0x0044_0460, &args![camera, point]);
 
             e.call(0x0043_d410, &args![at(0x28), 0.0f32, 0u32, 0u32]);
-            let camera = e.call(POINTER_GET, &args![CAMERA]).u32();
+            let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, CAMERA));
             e.call(0x00a5_9c60, &args![camera, at(0x28)]);
 
-            let camera = e.call(POINTER_GET, &args![CAMERA]).u32();
+            let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, CAMERA));
             // `NiCamera::LookAtWorldPoint` (Xbox PDB).
             e.call(0x00a7_01b0, &args![camera, 0x011f_426cu32, 0x011a_9478u32]);
 
@@ -200,12 +204,12 @@ pub fn fn_004deb30(e: &mut Engine) {
             let far = fld_copy(e.global::<f32>(FAR_01022958));
             e.mem.set_f32(frustum + 0x14, far);
             e.mem.set_f32(frustum + 0x10, 1.0);
-            let camera = e.call(POINTER_GET, &args![CAMERA]).u32();
+            let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, CAMERA));
             // `NiCamera::SetViewFrustum` (Xbox PDB).
             e.call(0x00a6_faf0, &args![camera, frustum]);
 
             e.call(0x0043_d410, &args![at(0x1c), 0.0f32, 0u32, 0u32]);
-            let camera = e.call(POINTER_GET, &args![CAMERA]).u32();
+            let camera = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, CAMERA));
             e.call(0x00a5_9c60, &args![camera, at(0x1c)]);
 
             let right = fld_copy(e.mem.f32(frustum + 0x04));
@@ -239,7 +243,7 @@ pub fn fn_004dee10(e: &mut Engine, this: Ptr) -> u32 {
     if second == 0 {
         return 0;
     }
-    e.call(0x0044_ddc0, &args![second]).u32()
+    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, second))
 }
 
 // Translated from 004dee70 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -254,7 +258,7 @@ pub fn fn_004dee70(e: &mut Engine, this: Ptr) -> u32 {
     if second == 0 {
         return 0;
     }
-    e.call(0x0084_e3a0, &args![second]).u32()
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, second))
 }
 
 // Translated from 004deed0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -282,7 +286,7 @@ pub fn fn_004def00(e: &mut Engine, fade_time: f32, flag: u8) -> bool {
 /// clears the enabled flag and releases the three textures.
 pub fn fn_004def20(e: &mut Engine) {
     if e.global::<u8>(ENABLED) != 0 {
-        let node = e.call(POINTER_GET, &args![ROOT]).u32();
+        let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, ROOT));
         fn_004def90(e, Ptr::new(node));
         e.call(POINTER_ASSIGN, &args![ROOT, 0u32]);
         e.call(POINTER_ASSIGN, &args![CAMERA, 0u32]);
@@ -308,7 +312,7 @@ pub fn fn_004defb0(e: &mut Engine) {
     if e.global::<u8>(ENABLED) == 0 {
         return;
     }
-    let node = e.call(POINTER_GET, &args![ROOT]).u32();
+    let node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, ROOT));
     fn_004def90(e, Ptr::new(node));
     e.set_global(COUNT, 0u32);
     e.set_global(FADE_TIME, 0.0f32);
@@ -468,9 +472,10 @@ pub fn fn_004df040(e: &mut Engine, count: u32, width_scale: f32, depth_scale: f3
             let x = (random as f64 * e.global::<f32>(WIDTH_RADIUS) as f64) as f32;
             let random = fn_004dfea0(e);
             let y = (random as f64 * e.global::<f32>(HEIGHT_RADIUS) as f64) as f32;
-            e.call(
-                POINT3_CONSTRUCT,
-                &args![translation, fld_copy(x), fld_copy(y), 0.0f32],
+            typed_call!(
+                leaf::FAMILY,
+                0x0041_6870,
+                leaf::point3_new(e, translation, fld_copy(x), fld_copy(y), 0.0f32)
             );
 
             let high = float_setting(e, 0x011c_faa0);
@@ -486,7 +491,7 @@ pub fn fn_004df040(e: &mut Engine, count: u32, width_scale: f32, depth_scale: f3
             depth = (depth as f64 * depth_scale as f64) as f32;
             let other_depth = (other_depth as f64 * depth_scale as f64) as f32;
 
-            e.call(0x0068_15c0, &args![matrix]);
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, matrix));
             fn_004dfdd0(e, Ptr::new(matrix));
             let chance = float_setting(e, 0x011c_efe4);
             if fn_004dff00(e, chance) {
@@ -516,12 +521,11 @@ pub fn fn_004df040(e: &mut Engine, count: u32, width_scale: f32, depth_scale: f3
 
             let first = i << 2;
             let corner = |e: &mut Engine, x: f32, y: f32, temps: [u32; 3], to: u32| {
-                let point = e
-                    .call(
-                        POINT3_CONSTRUCT,
-                        &args![at(temps[0]), fld_copy(x), fld_copy(y), fld_copy(depth)],
-                    )
-                    .u32();
+                let point = typed_call!(
+                    leaf::FAMILY,
+                    0x0041_6870,
+                    leaf::point3_new(e, at(temps[0]), fld_copy(x), fld_copy(y), fld_copy(depth))
+                );
                 let rotated = e
                     .call(0x004b_4500, &args![matrix, at(temps[1]), point])
                     .u32();
@@ -604,16 +608,16 @@ pub fn fn_004df040(e: &mut Engine, count: u32, width_scale: f32, depth_scale: f3
 
     let shape = new_tri_shape(e, count, positions, uvs, triangles);
     let property = new_property(e);
-    let texture = e.call(POINTER_GET, &args![TEXTURES + 4]).u32();
+    let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, TEXTURES + 4));
     fn_004dfe80(e, Ptr::new(property), 0, Ptr::new(texture));
-    let texture = e.call(POINTER_GET, &args![TEXTURES]).u32();
+    let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, TEXTURES));
     fn_004dfe80(e, Ptr::new(property), 1, Ptr::new(texture));
     attach_shape(e, node, shape, property);
 
     if second_layer(e) {
         let shape = new_tri_shape(e, count, second_positions, second_uvs, second_triangles);
         let property = new_property(e);
-        let texture = e.call(POINTER_GET, &args![TEXTURES + 8]).u32();
+        let texture = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, TEXTURES + 8));
         fn_004dfe80(e, Ptr::new(property), 0, Ptr::new(texture));
         attach_shape(e, node, shape, property);
     }

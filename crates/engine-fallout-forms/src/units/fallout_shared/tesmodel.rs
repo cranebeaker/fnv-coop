@@ -98,6 +98,7 @@ const TES_OBJECT_REFR_TYPE: u32 = 0x0118_41cc;
 const GET_WORLD_TES_MODEL: u32 = 0x0048_1010;
 /// The first word of an object (`00559450`, `thiscall`): a `BSStringT`'s
 /// text.
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `BSStringT` members: set (`004037f0(text, length)`), destructor
 /// (`004037d0`).
@@ -141,6 +142,7 @@ const WARN_FLAG: u32 = 0x0048_98e0;
 const FIND_FILE_ENTRY: u32 = 0x00af_6540;
 /// The form-id getter (`0084e3a0`, the word at +0xc) and the log call
 /// (`005b5e40`, cdecl with a format; does nothing in this build).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 const LOG: u32 = 0x005b_5e40;
 /// The three "MASTERFILE: Failed to find archive file entry ..." formats
@@ -165,7 +167,7 @@ fn model_name(e: &mut Engine, model: u32) -> u32 {
 /// has text (`004037f0(null, 0)`) and clears `cFlags`.
 pub fn tes_model_initialize_data_component(e: &mut Engine, this: Ptr<TESModel>) {
     let name = this.addr() + 4;
-    if e.call(FIRST_WORD, &args![name]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, name)) != 0 {
         e.call(STRING_SET, &args![name, 0u32, 0u32]);
     }
     e.set(this, TESModel::cFlags, 0);
@@ -400,7 +402,7 @@ pub fn tes_texture_list_load_from_buffer(
             let array = e.get(this, TESTextureList::pTextureOffsetArray);
             if e.mem.u32(array.wrapping_add(index.wrapping_mul(4))) == 0 {
                 if form != 0 && name != 0 {
-                    let id = e.call(FORM_ID, &args![form]).u32();
+                    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form));
                     let form_name = e.vcall(form, 0x130, &[]).u32();
                     e.call(LOG, &args![MISSING_WITH_FORM, name, form_name, id]);
                 } else if name != 0 {
@@ -452,12 +454,12 @@ pub fn fn_004898c0(e: &mut Engine, this: Ptr, mask: u32) -> u32 {
 /// set there, else from the one at `011f81b4`.
 pub fn fn_004898f0(e: &mut Engine, index: u32) -> u32 {
     let primary = PRIMARY_TABLE.wrapping_add(index.wrapping_mul(4));
-    let slot = if e.call(FIRST_WORD, &args![primary]).u32() != 0 {
+    let slot = if typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, primary)) != 0 {
         PRIMARY_TABLE.wrapping_add(index.wrapping_mul(4))
     } else {
         FALLBACK_TABLE.wrapping_add(index.wrapping_mul(4))
     };
-    e.call(FIRST_WORD, &args![slot]).u32()
+    typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
 }
 
 // Translated from 00489940 (decompiled, FalloutNV.exe 1.4.0.525)

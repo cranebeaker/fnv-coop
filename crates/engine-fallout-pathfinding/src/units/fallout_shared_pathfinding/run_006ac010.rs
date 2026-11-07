@@ -23,6 +23,7 @@ const SEARCH_BASE_CONSTRUCT: u32 = 0x006a_6a40;
 /// `006dcbb0(this)`: the `PathingLocation` constructor.
 const PATHING_LOCATION_CONSTRUCT: u32 = 0x006d_cbb0;
 /// `006815c0(this)`: constructor of the 12-byte member (three of them).
+#[cfg(test)]
 const MEMBER_CONSTRUCT: u32 = 0x0068_15c0;
 /// The vtable of `NavMeshSearchSLPoint` (RTTI name).
 const SEARCH_SL_POINT_VTABLE: u32 = 0x0106_b96c;
@@ -86,7 +87,11 @@ pub fn fn_006ac0e0(e: &mut Engine, this: Ptr) -> Ptr {
         &args![this.addr().wrapping_add(0x20a4)],
     );
     for offset in [0x20cc_u32, 0x20d8, 0x20e4] {
-        e.call(MEMBER_CONSTRUCT, &args![this.addr().wrapping_add(offset)]);
+        typed_call!(
+            leaf::FAMILY,
+            0x0068_15c0,
+            leaf::same_word(e, this.addr().wrapping_add(offset))
+        );
     }
     this
 }

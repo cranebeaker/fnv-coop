@@ -49,9 +49,11 @@ const TYPE_TES_OBJECT_REFR: u32 = 0x0118_41cc;
 const TYPE_MAGIC_ITEM: u32 = 0x0118_3140;
 /// `00726070` (`ECX` = object): the word at +4 (on a `TESScriptableForm`
 /// part, its script).
+#[cfg(test)]
 const WORD_AT_FOUR: u32 = 0x0072_6070;
 /// `007af430` (`ECX` = object): the word at +0x20 (on a reference, its base
 /// object).
+#[cfg(test)]
 const WORD_AT_0X20: u32 = 0x007a_f430;
 /// `TESScriptableForm::GetFormScript` (`004826d0`, cdecl: form).
 const GET_FORM_SCRIPT: u32 = 0x0048_26d0;
@@ -74,6 +76,7 @@ const STRING_DESTRUCT: u32 = 0x0040_37d0;
 /// The size of a `BSString` on the stack.
 const STRING_SIZE: u32 = 8;
 /// `00559450` (`ECX` = string): the string's characters.
+#[cfg(test)]
 const STRING_CHARS: u32 = 0x0055_9450;
 /// The owner's virtual slot 0x90 (one word: a string to describe it in).
 const SLOT_DESCRIBE_0X90: u32 = 0x90;
@@ -117,7 +120,7 @@ fn warn_with_owner(e: &mut Engine, owner: Ptr, format: u32, before: &[u32]) {
     e.with_stack(STRING_SIZE, |e, string| {
         e.call(STRING_CONSTRUCT, &args![string]);
         e.vcall(owner.addr(), SLOT_DESCRIBE_0X90, &args![string]);
-        let chars = e.call(STRING_CHARS, &args![string]).u32();
+        let chars = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
         let mut words = vec![format];
         words.extend_from_slice(before);
         words.push(chars);
@@ -194,7 +197,8 @@ pub fn tes_parameters_init_item(e: &mut Engine, owner: Ptr, data: Ptr) {
                     e.with_stack(STRING_SIZE, |e, string| {
                         e.call(STRING_CONSTRUCT, &args![string]);
                         e.vcall(owner.addr(), SLOT_DESCRIBE_0X90, &args![string]);
-                        let chars = e.call(STRING_CHARS, &args![string]).u32();
+                        let chars =
+                            typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, string));
                         let name = e.vcall(script.addr(), SLOT_NAME_0X130, &args![]).u32();
                         let variable = e.mem.u32(param_slot(data, index));
                         e.call(
@@ -274,7 +278,9 @@ pub fn fn_006823d0(e: &mut Engine, index: u32, data: Ptr) -> Ptr {
         )
         .u32();
     if scriptable != 0 {
-        return e.call(WORD_AT_FOUR, &args![scriptable]).ptr();
+        return typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, scriptable))
+            .into_ret()
+            .ptr();
     }
     let reference = e
         .call(
@@ -285,7 +291,7 @@ pub fn fn_006823d0(e: &mut Engine, index: u32, data: Ptr) -> Ptr {
     if reference == 0 {
         return Ptr::NULL;
     }
-    let base = e.call(WORD_AT_0X20, &args![reference]).u32();
+    let base = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, reference));
     e.call(GET_FORM_SCRIPT, &args![base]).ptr()
 }
 

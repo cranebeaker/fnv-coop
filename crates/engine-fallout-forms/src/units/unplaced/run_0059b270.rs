@@ -300,15 +300,15 @@ pub fn fn_0059ba80(e: &mut Engine, this: Ptr) {
     e.call(0x0048_7010, &args![base + 0x18]);
     let mut node = e.call(0x0059_bb30, &args![this]).u32();
     while node != 0 {
-        let item = e.call(0x0068_15c0, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         if e.mem.u32(item) == 0 {
             break;
         }
-        let item = e.call(0x0068_15c0, &args![node]).u32();
+        let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
         let card = e.mem.u32(item);
-        let word = e.call(0x0084_e3a0, &args![card]).u32();
+        let word = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, card));
         e.call(0x0048_5910, &args![0x4452_4143u32, word]);
-        node = e.call(0x0072_6070, &args![node]).u32();
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
     }
     if e.call(0x0040_1500, &args![]).u8() != 0 {
         e.call(0x0050_3210, &args![base + 0x28]);

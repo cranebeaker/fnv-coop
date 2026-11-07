@@ -37,8 +37,11 @@ const FREE: u32 = 0x0040_1030;
 /// Folded word getters (`thiscall`, unnamed in the engine map): the words
 /// at `+0x4` (`00726070`), `+0x8` (`0044ddc0`) and `+0xc` (`0084e3a0`; for a
 /// reference `TESForm::iFormID`, which the reference lists keep).
+#[cfg(test)]
 const GET_WORD_4: u32 = 0x0072_6070;
+#[cfg(test)]
 const GET_WORD_8: u32 = 0x0044_ddc0;
+#[cfg(test)]
 const GET_WORD_C: u32 = 0x0084_e3a0;
 /// `004839c0` (`cdecl`, one word: a form id): the form with that id, or
 /// null.
@@ -145,7 +148,7 @@ pub fn fn_0062d5c0(e: &mut Engine, this: Ptr) -> Ptr {
 /// Unnamed in the engine map (`thiscall`, plain `RET`): the next trap entry,
 /// the word getter `00726070` on `this`.
 pub fn fn_0062d990(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(GET_WORD_4, &args![this]).u32()
+    typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, this))
 }
 
 // Translated from 0062d2f0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -348,7 +351,7 @@ pub fn fn_0062cb90(e: &mut Engine, this: Ptr) {
 /// the old block freed), a kind-1 event with the id is queued, and it
 /// answers false.
 pub fn fn_0062c9d0(e: &mut Engine, this: Ptr, reference: Ptr) -> bool {
-    let id = e.call(GET_WORD_C, &args![reference]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
     let mut i = 0i32;
     while i < e.mem.i32(at(this, 4)) {
         let entry = ref_entry(e, this, i as u32);
@@ -396,7 +399,7 @@ pub fn fn_0062c9d0(e: &mut Engine, this: Ptr, reference: Ptr) -> bool {
 /// Unnamed in the engine map (`thiscall`, `RET 4`; a reference list):
 /// whether the reference's id (`0084e3a0`) is listed.
 pub fn fn_0062d570(e: &mut Engine, this: Ptr, reference: Ptr) -> bool {
-    let id = e.call(GET_WORD_C, &args![reference]).u32();
+    let id = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, reference));
     let mut i = 0i32;
     while i < e.mem.i32(at(this, 4)) {
         if e.mem.u32(ref_entry(e, this, i as u32)) == id {
@@ -550,7 +553,9 @@ pub fn fn_0062d510(e: &mut Engine, this: Ptr) {
     let object = e.mem.u32(OBJECT_POINTER_011DDF38);
     let list = Ptr::new(at(this, ENTRY_REF_LIST));
     if !e.call(OBJECT_TEST, &args![object]).bool() {
-        let trigger = e.call(GET_WORD_C, &args![this]).ptr();
+        let trigger = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this))
+            .into_ret()
+            .ptr();
         trigger_entry_ref_list_force_leave_trigger(e, list, trigger);
     }
     fn_0062c980(e, list);
@@ -563,7 +568,7 @@ pub fn fn_0062d510(e: &mut Engine, this: Ptr) {
 pub fn tes_trap_listener_clear_current_refs(e: &mut Engine, this: Ptr, key: u32) {
     let mut entry = e.mem.u32(at(this, 0x20));
     while entry != 0 {
-        if e.call(GET_WORD_C, &args![entry]).u32() == key {
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, entry)) == key {
             fn_0062d510(e, Ptr::new(entry));
             return;
         }
@@ -644,7 +649,7 @@ pub fn hkp_cd_body_pair_collector_reset(e: &mut Engine, this: Ptr) {
 /// `this + 4`, then `reset`. Returns `this`.
 pub fn fn_0062d3c0(e: &mut Engine, this: Ptr) -> Ptr {
     e.mem.set_u32(this.addr(), PAIR_COLLECTOR_VTABLE);
-    e.call(0x0068_15c0, &args![at(this, 4)]);
+    typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, at(this, 4)));
     hkp_cd_body_pair_collector_reset(e, this);
     this
 }
@@ -739,7 +744,7 @@ pub fn fn_0062ddb0(e: &mut Engine, object: Ptr) -> u32 {
     if second == 0 {
         return 0;
     }
-    let third = e.call(0x007a_f430, &args![second]).u32();
+    let third = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, second));
     if third != 0 {
         third.wrapping_sub(8)
     } else {
@@ -881,7 +886,7 @@ fn trap_body_entered(e: &mut Engine, this: Ptr, body: u32) -> u8 {
     if !fn_0062c9d0(e, Ptr::new(at(this, ENTRY_REF_LIST)), Ptr::new(reference)) {
         return 0;
     }
-    let owner = e.call(GET_WORD_C, &args![this]).u32();
+    let owner = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     let word = e.call(REFERENCE_SCRIPT_WORD, &args![owner]).u32();
     e.call(SET_ACTION_FLAG, &args![reference, word, 0x1000_0000u32])
         .u8()
@@ -920,17 +925,17 @@ fn nothing_to_check(e: &mut Engine, list: u32) -> bool {
 /// `SetActionFlag` calls return.
 pub fn fn_0062cc90(e: &mut Engine, this: Ptr, _unused_1: u32) -> u8 {
     let mut changed = 0u8;
-    let reference = e.call(GET_WORD_C, &args![this]).u32();
+    let reference = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
     if reference == 0
-        || e.call(0x0044_0da0, &args![reference]).bool()
-        || e.call(0x0044_0d80, &args![reference]).bool()
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, reference))
+        || typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, reference))
         || e.vcall(reference, 0x1d0, &[]).u32() == 0
     {
         return changed;
     }
-    let world = e.call(GET_WORD_8, &args![this]).u32();
+    let world = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, this));
     let phantom = e.call(0x004b_59d0, &args![world]).u32();
-    let lock = e.call(GET_WORD_8, &args![phantom]).u32();
+    let lock = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, phantom));
     let lock_step = |e: &mut Engine| {
         if lock != 0 {
             e.call(CALL_00483710, &args![lock]);
@@ -950,7 +955,9 @@ pub fn fn_0062cc90(e: &mut Engine, this: Ptr, _unused_1: u32) -> u8 {
                 lock_step(e);
                 let hits = e.call(0x0041_3f40, &args![collector]).u32();
                 if !nothing_to_check(e, hits) {
-                    let count = e.call(GET_WORD_4, &args![hits]).i32();
+                    let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, hits))
+                        .into_ret()
+                        .i32();
                     let mut i = 0i32;
                     while i < count {
                         let hit = fn_0062e150(e, Ptr::new(hits), i as u32);
@@ -965,7 +972,9 @@ pub fn fn_0062cc90(e: &mut Engine, this: Ptr, _unused_1: u32) -> u8 {
     } else if e.vcall(phantom, 0x14, &[]).u32() == 0 {
         let list = e.call(0x0045_c650, &args![phantom]).u32();
         if !nothing_to_check(e, list) {
-            let count = e.call(GET_WORD_4, &args![list]).i32();
+            let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, list))
+                .into_ret()
+                .i32();
             let mut i = 0i32;
             while i < count {
                 let slot = e.call(0x0062_9ab0, &args![list, i as u32]).u32();
@@ -988,10 +997,10 @@ pub fn fn_0062cc90(e: &mut Engine, this: Ptr, _unused_1: u32) -> u8 {
         let form = e.call(LOOKUP_FORM, &args![id]).u32();
         e.call(FREE, &args![event]);
         if form != 0 {
-            let owner = e.call(GET_WORD_C, &args![this]).u32();
+            let owner = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             let word = e.call(REFERENCE_SCRIPT_WORD, &args![owner]).u32();
             changed |= e.call(SET_ACTION_FLAG, &args![form, word, flag]).u8();
-            let owner = e.call(GET_WORD_C, &args![this]).u32();
+            let owner = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this));
             e.call(0x0057_2e10, &args![owner, form]);
         }
     }
@@ -1906,7 +1915,11 @@ pub fn trap_entry_run(e: &mut Engine, this: Ptr) {
     let mut target = e.call(FIRST_TARGET_00825C00, &args![this]).u32();
     while target != 0 {
         e.vcall(target, 0, &args![this]);
-        let next = e.call(GET_WORD_4, &args![target.wrapping_add(0x10)]).u32();
+        let next = typed_call!(
+            leaf::FAMILY,
+            0x0072_6070,
+            leaf::word_at_4(e, target.wrapping_add(0x10))
+        );
         target = if next == 0 {
             0
         } else {
@@ -1920,7 +1933,11 @@ pub fn trap_entry_run(e: &mut Engine, this: Ptr) {
 /// (`0084e3a0` of `this + 0x10`) runs its virtual slot `+0x18c` with
 /// `trap` and `this`.
 pub fn trap_target_entry_run(e: &mut Engine, this: Ptr, trap: u32) {
-    let target = e.call(GET_WORD_C, &args![at(this, 0x10)]).u32();
+    let target = typed_call!(
+        leaf::FAMILY,
+        0x0084_e3a0,
+        leaf::word_at_c(e, at(this, 0x10))
+    );
     e.vcall(target, 0x18c, &args![trap, this]);
 }
 
@@ -1995,7 +2012,7 @@ pub fn fn_0062d470(e: &mut Engine, block: u32) {
 /// `RET 4`): when the phantom's word at `+8` (`0044ddc0`) is not zero, the
 /// listener's virtual slots `+8` and then `+4` run with the phantom.
 pub fn hkp_phantom_listener_phantom_shape_set_callback(e: &mut Engine, this: Ptr, phantom: u32) {
-    if e.call(GET_WORD_8, &args![phantom]).u32() != 0 {
+    if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, phantom)) != 0 {
         e.vcall(this.addr(), 8, &args![phantom]);
         e.vcall(this.addr(), 4, &args![phantom]);
     }
@@ -2121,7 +2138,7 @@ pub fn fn_0062dd20(e: &mut Engine, this: Ptr, pair: u32) -> bool {
 pub fn fn_0062dee0(e: &mut Engine, this: Ptr, key: u32) -> bool {
     let mut entry = e.mem.u32(at(this, 0x20));
     while entry != 0 {
-        if e.call(GET_WORD_C, &args![entry]).u32() == key {
+        if typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, entry)) == key {
             return true;
         }
         entry = fn_0062d990(e, Ptr::new(entry));

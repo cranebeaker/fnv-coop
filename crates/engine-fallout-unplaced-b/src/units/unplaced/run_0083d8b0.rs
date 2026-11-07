@@ -55,6 +55,7 @@ const BS_STRING_SET_004037F0: u32 = 0x0040_37f0;
 /// `BSStringT<char>::Set` (engine map; `00438470`, `thiscall`, one word).
 const BS_STRING_SET: u32 = 0x0043_8470;
 /// `00559450`: the word at `this` (a string's text, a list's head).
+#[cfg(test)]
 const FIRST_WORD: u32 = 0x0055_9450;
 /// `004039c0`: stores a string's length (`thiscall`, one word; clamped to
 /// `0xffff`).
@@ -66,8 +67,10 @@ const RESPONSE_LIST_CONSTRUCT: u32 = 0x0096_a2d0;
 /// `0046ffb0`: the response list's destructor (`thiscall`).
 const RESPONSE_LIST_DESTRUCT: u32 = 0x0046_ffb0;
 /// `008256d0`: a list's emptiness check (`thiscall`, `bool`).
+#[cfg(test)]
 const LIST_IS_EMPTY: u32 = 0x0082_56d0;
 /// `006815c0`: the address of a list's first item (`thiscall`).
+#[cfg(test)]
 const LIST_FIRST_ITEM: u32 = 0x0068_15c0;
 /// `0063f7b0`: removes a list's first node (`thiscall`).
 const LIST_POP_FRONT: u32 = 0x0063_f7b0;
@@ -112,6 +115,7 @@ const INFO_QUEST_006733E0: u32 = 0x0067_33e0;
 const TES_TOPIC_GET_OWNER_TOPIC: u32 = 0x0061_a310;
 /// `0084e3a0`: `thiscall`, no arguments, a word (compared with form ids
 /// `0xfd` and `0x118`).
+#[cfg(test)]
 const VALUE_0084E3A0: u32 = 0x0084_e3a0;
 /// `0044dee0`: constructs the one-word response data list (`thiscall`).
 const DATA_LIST_CONSTRUCT: u32 = 0x0044_dee0;
@@ -120,6 +124,7 @@ const DATA_LIST_DESTRUCT: u32 = 0x0061_f440;
 /// `TESTopicInfo::CloneResponseList` (engine map), `thiscall`, one word.
 const CLONE_RESPONSE_LIST: u32 = 0x0061_e760;
 /// `0045cd60`: a response data node's next node (`+0x28`).
+#[cfg(test)]
 const DATA_NEXT: u32 = 0x0045_cd60;
 /// `00401000`: the game's allocator (`cdecl`, size).
 const ALLOCATE: u32 = 0x0040_1000;
@@ -143,23 +148,23 @@ pub fn fn_0083d8b0(e: &mut Engine, this: Ptr, result: Ptr) -> Ptr {
         let mut count = 0u32;
         let mut depth = 0u32;
         e.call(BS_STRING_CONSTRUCT, &args![temp]);
-        let text = e.call(FIRST_WORD, &args![this]).u32();
+        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
         e.call(BS_STRING_SET_004037F0, &args![temp, text, 0u32]);
         let mut index = 0u32;
         while index < e.call(CALLEE_004048E0, &args![this]).u32() {
-            let text = e.call(FIRST_WORD, &args![this]).u32();
+            let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
             if e.mem.u8(text.wrapping_add(index)) == 0x7b {
                 depth = depth.wrapping_add(1);
             } else {
-                let text = e.call(FIRST_WORD, &args![this]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
                 if e.mem.u8(text.wrapping_add(index)) == 0x7d {
                     depth = if depth == 0 { 0 } else { depth - 1 };
                 }
             }
             if depth == 0 {
-                let text = e.call(FIRST_WORD, &args![this]).u32();
+                let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
                 if e.mem.u8(text.wrapping_add(index)) != 0x7d {
-                    let source = e.call(FIRST_WORD, &args![this]).u32();
+                    let source = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, this));
                     let target = fn_0083da30(e, Ptr::new(temp), count);
                     let byte = e.mem.u8(source.wrapping_add(index));
                     e.mem.set_u8(target, byte);
@@ -286,7 +291,7 @@ pub fn fn_0083db00(
                 let current_info = e.get(this, MenuTopic::pInfo);
                 let object = e.call(INFO_OBJECT_009E32D0, &args![current_info]).u32();
                 let list = e.call(OBJECT_LIST_00413F40, &args![object]).u32();
-                if !e.call(LIST_IS_EMPTY, &args![list]).bool() {
+                if !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
                     choice = 1;
                 }
             }
@@ -325,8 +330,8 @@ pub fn fn_0083de40(e: &mut Engine, this: Ptr) -> bool {
 /// No map name: whether `0084e3a0` of `this` (a topic) is `0xfd` or
 /// `0x118` (asked again for the second comparison).
 pub fn fn_0083de60(e: &mut Engine, this: Ptr) -> bool {
-    e.call(VALUE_0084E3A0, &args![this]).u32() == 0xfd
-        || e.call(VALUE_0084E3A0, &args![this]).u32() == 0x118
+    typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == 0xfd
+        || typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, this)) == 0x118
 }
 
 // Translated from 0083dec0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -339,8 +344,8 @@ pub fn fn_0083dec0(e: &mut Engine, this: Ptr<MenuTopic>) {
     let base = this.addr();
     if e.get(this, MenuTopic::bGeneralTopic) == 0 {
         let list = base.wrapping_add(0xc);
-        while list != 0 && !e.call(LIST_IS_EMPTY, &args![list]).bool() {
-            let slot = e.call(LIST_FIRST_ITEM, &args![list]).u32();
+        while list != 0 && !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
+            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
             let item = e.mem.u32(slot);
             if item != 0 {
                 e.call(RESPONSE_DELETING_DESTRUCTOR, &args![item, 1u32]);
@@ -372,7 +377,7 @@ pub fn fn_0083df80(
         e.call(DATA_LIST_CONSTRUCT, &args![data]);
         let current_info = e.get(this, MenuTopic::pInfo);
         e.call(CLONE_RESPONSE_LIST, &args![current_info, data]);
-        let mut node = e.call(FIRST_WORD, &args![data]).u32();
+        let mut node = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, data));
         let mut count = 0u32;
         while node != 0 {
             if fn_0083e0a0(e, Ptr::new(node)) != 0
@@ -394,7 +399,7 @@ pub fn fn_0083df80(
                 });
                 count = count.wrapping_add(1);
             }
-            node = e.call(DATA_NEXT, &args![node]).u32();
+            node = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, node));
         }
         e.call(DATA_LIST_DESTRUCT, &args![data]);
     });

@@ -8,8 +8,10 @@ use crate::prelude::*;
 /// (`00726c60`, `RET 4`: the address of the word; stores it unless 0) and the next node
 /// (`00726070`).
 const LIST_COUNT: u32 = 0x005a_e380;
+#[cfg(test)]
 const NODE_SELF: u32 = 0x0068_15c0;
 const NODE_STORE: u32 = 0x0072_6c60;
+#[cfg(test)]
 const NODE_NEXT: u32 = 0x0072_6070;
 
 // Translated from 007a8790 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -33,10 +35,10 @@ pub fn fn_007a8790(e: &mut Engine, this: Ptr, compare: u32) {
             swapped = false;
             while node != 0 {
                 if previous != 0 {
-                    let slot = e.call(NODE_SELF, &args![node]).u32();
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
                     let value = e.mem.u32(slot);
                     e.mem.set_u32(item, value);
-                    let slot = e.call(NODE_SELF, &args![previous]).u32();
+                    let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, previous));
                     let value = e.mem.u32(slot);
                     e.mem.set_u32(before, value);
                     let (a, b) = (e.mem.u32(before), e.mem.u32(item));
@@ -47,7 +49,7 @@ pub fn fn_007a8790(e: &mut Engine, this: Ptr, compare: u32) {
                     }
                 }
                 previous = node;
-                node = e.call(NODE_NEXT, &args![node]).u32();
+                node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
             }
             count = count.wrapping_sub(1);
         }

@@ -84,6 +84,7 @@ const SET_MOVEMENT_PROCEDURE: u32 = 0x0098_01b0;
 /// (`0097ede0`), `0097ee60` (`thiscall`, one word) (engine map names).
 const LOCATION_INIT_0097EE20: u32 = 0x0097_ee20;
 const COMBAT_LOCATION_SET_REF: u32 = 0x0099_7400;
+#[cfg(test)]
 const LOCATION_ADDRESS_006815C0: u32 = 0x0068_15c0;
 const LOCATION_INIT_0097EDE0: u32 = 0x0097_ede0;
 const LOCATION_SET_0097EE60: u32 = 0x0097_ee60;
@@ -253,7 +254,7 @@ pub fn fn_0097e4b0(e: &mut Engine, this: Ptr) {
                 e.call(LOCATION_INIT_0097EE20, &args![location]);
                 let target = e.mem.u32(at + 0xc0);
                 e.call(COMBAT_LOCATION_SET_REF, &args![location, target]);
-                let address = e.call(LOCATION_ADDRESS_006815C0, &args![location]).u32();
+                let address = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, location));
                 let state_object = e.mem.u32(at + 0x9c);
                 if e.call(
                     COMBAT_STATE_CHECK_MOVEMENT,

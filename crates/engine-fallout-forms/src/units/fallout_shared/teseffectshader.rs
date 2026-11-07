@@ -24,10 +24,12 @@ pub fn fn_00505c40(e: &mut Engine, this: Ptr) -> Ptr {
 }
 
 /// `006815c0` (`ECX`, answers `this`).
+#[cfg(test)]
 const IDENTITY_006815C0: u32 = 0x0068_15c0;
 /// `00500940` (`ECX`): answers `this + 0x18` (here the shader data).
 const DATA_00500940: u32 = 0x0050_0940;
 /// The `NiPoint3` constructor (`00416870`, `ECX`, three float words), answers `this`.
+#[cfg(test)]
 const POINT3_CTOR: u32 = 0x0041_6870;
 
 /// One store of `00506510`, in the exe's order.
@@ -143,7 +145,11 @@ pub fn fn_00506510(e: &mut Engine, this: Ptr) {
             Store::Point(offset) => {
                 let zero = x87_store32(0.0);
                 e.with_stack(0xc, |e, point| {
-                    let made = e.call(POINT3_CTOR, &args![point, zero, zero, zero]).u32();
+                    let made = typed_call!(
+                        leaf::FAMILY,
+                        0x0041_6870,
+                        leaf::point3_new(e, point, zero, zero, zero)
+                    );
                     for word in 0..3u32 {
                         let value = e.mem.u32(made + word * 4);
                         e.mem.set_u32(base + offset + word * 4, value);
@@ -159,8 +165,16 @@ pub fn fn_00506510(e: &mut Engine, this: Ptr) {
 /// `TESEffectShader` constructor runs it on its +0x18): `006815c0` on the two `NiPoint3`s
 /// (+0x94, +0xa0), then the defaults ([`fn_00506510`]); answers `this`.
 pub fn fn_005064d0(e: &mut Engine, this: Ptr) -> Ptr {
-    e.call(IDENTITY_006815C0, &args![this.addr() + 0x94]);
-    e.call(IDENTITY_006815C0, &args![this.addr() + 0xa0]);
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0x94)
+    );
+    typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr() + 0xa0)
+    );
     fn_00506510(e, this);
     this
 }
@@ -325,6 +339,7 @@ const TEXTURE_PATH_LENGTH: u32 = 0x0048_cee0;
 const TEXTURE_PATH_TEXT: u32 = 0x0040_8da0;
 const TEXTURE_SAVE: u32 = 0x0048_e370;
 /// The getter of the form id at +0xC (`0084e3a0`, `thiscall`).
+#[cfg(test)]
 const FORM_ID: u32 = 0x0084_e3a0;
 /// The byte `00401500` answers (`011c54ba`): whether saving swaps bytes.
 const SAVE_SWAPS: u32 = 0x0040_1500;
@@ -392,14 +407,17 @@ const EFFECT_DATA_CTOR: u32 = 0x00b6_68b0;
 /// The getters `00507830` calls on the shader (`thiscall`, no words): two
 /// colours (`0045cd60`, `0068a830`), then four words (`00441110`,
 /// `004fd3a0`, `007af430`, `0059bb30`).
+#[cfg(test)]
 const SHADER_COLOR_A: u32 = 0x0045_cd60;
 const SHADER_COLOR_B: u32 = 0x0068_a830;
 const SHADER_GETTER_00441110: u32 = 0x0044_1110;
 const SHADER_GETTER_004FD3A0: u32 = 0x004f_d3a0;
+#[cfg(test)]
 const SHADER_GETTER_007AF430: u32 = 0x007a_f430;
 const SHADER_GETTER_0059BB30: u32 = 0x0059_bb30;
 /// `NiAVObject::GetWorldBound` (`0043d450`) and the float `0084d030`
 /// answers of it (`ST0`).
+#[cfg(test)]
 const NODE_WORLD_BOUND: u32 = 0x0043_d450;
 const BOUND_RADIUS_0084D030: u32 = 0x0084_d030;
 /// `NiAVObject::GetProperty` (`00a59d30`, one word: the property type),
@@ -462,7 +480,7 @@ pub fn fn_005060f0(e: &mut Engine, this: Ptr) {
     let saved = e.mem.u32(base + 0x10c);
     let id = if e.mem.u32(base + 0x10c) != 0 {
         let form = e.mem.u32(base + 0x10c);
-        e.call(FORM_ID, &args![form]).u32()
+        typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, form))
     } else {
         0
     };
@@ -856,7 +874,7 @@ pub fn fn_00507830(e: &mut Engine, this: Ptr, node: u32, first: u32, second: u32
     } else {
         0
     };
-    let color_a = e.call(SHADER_COLOR_A, &args![this]).u32();
+    let color_a = typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, this));
     let color_b = e.call(SHADER_COLOR_B, &args![this]).u32();
     e.call(SET_POINTER, &args![data.wrapping_add(8), 0u32]);
     e.with_stack(0x40, |e, locals| {
@@ -883,7 +901,7 @@ pub fn fn_00507830(e: &mut Engine, this: Ptr, node: u32, first: u32, second: u32
     e.mem.set_u32(data.wrapping_add(0x50), 0);
     let value = fn_00507b00(e, this).to_bits();
     e.mem.set_u32(data.wrapping_add(0x54), value);
-    let bound = e.call(NODE_WORLD_BOUND, &args![node]).u32();
+    let bound = typed_call!(leaf::FAMILY, 0x0043_d450, leaf::world_bound(e, node));
     let radius = e.call(BOUND_RADIUS_0084D030, &args![bound]).f64();
     e.mem.set_u32(
         data.wrapping_add(0x58),
@@ -893,7 +911,7 @@ pub fn fn_00507830(e: &mut Engine, this: Ptr, node: u32, first: u32, second: u32
     e.mem.set_u32(data.wrapping_add(0x5c), value);
     let value = e.call(SHADER_GETTER_004FD3A0, &args![this]).u32();
     e.mem.set_u32(data.wrapping_add(0x60), value);
-    let value = e.call(SHADER_GETTER_007AF430, &args![this]).u32();
+    let value = typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, this));
     e.mem.set_u32(data.wrapping_add(0x64), value);
     let value = e.call(SHADER_GETTER_0059BB30, &args![this]).u32();
     e.mem.set_u32(data.wrapping_add(0x68), value);

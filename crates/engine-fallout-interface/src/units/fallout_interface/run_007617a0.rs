@@ -12,6 +12,7 @@ const DIALOG_MENU_VTABLE: u32 = 0x0107_257c;
 /// at +0x74, and `006815c0` (which only answers its `this`) on +0x110, +0x118, +0x120.
 const MEMBER_CONSTRUCTOR_007642F0: u32 = 0x0076_42f0;
 const MEMBER_CONSTRUCTOR_0041A250: u32 = 0x0041_a250;
+#[cfg(test)]
 const MEMBER_006815C0: u32 = 0x0068_15c0;
 /// A global byte the constructor sets (`011d9514`).
 const FLAG_011D9514: u32 = 0x011d_9514;
@@ -38,7 +39,7 @@ pub fn fn_007617a0(e: &mut Engine, this: Ptr) -> Ptr {
     e.call(MEMBER_CONSTRUCTOR_007642F0, &args![base + 0x40]);
     e.call(MEMBER_CONSTRUCTOR_0041A250, &args![base + 0x74]);
     for offset in [0x110u32, 0x118, 0x120] {
-        e.call(MEMBER_006815C0, &args![base + offset]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, base + offset));
     }
     e.mem.set_u32(base + 0x80, 0);
     e.mem.set_u8(FLAG_011D9514, 1);

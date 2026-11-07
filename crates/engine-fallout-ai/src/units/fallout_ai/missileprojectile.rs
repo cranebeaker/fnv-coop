@@ -56,12 +56,16 @@ const UPDATE_DETACHED_3D: u32 = 0x009b_abe0;
 const FIELD_110_GETTER: u32 = 0x0050_8070;
 const FIELD_D4_GETTER: u32 = 0x0097_9260;
 const END_FLIGHT: u32 = 0x009b_c8f0;
+#[cfg(test)]
 const FLAG_8_BIT_20: u32 = 0x0044_0d80;
+#[cfg(test)]
 const FLAG_8_BIT_800: u32 = 0x0044_0da0;
 /// `00444d00` [mask]: whether the word at +0xc8 has any bit of the mask.
 const FLAGS_C8_HAVE: u32 = 0x0044_4d00;
 /// `008256d0` (on a list node): empty; `006815c0`: the node's item address.
+#[cfg(test)]
 const NODE_IS_EMPTY: u32 = 0x0082_56d0;
+#[cfg(test)]
 const NODE_ITEM_ADDRESS: u32 = 0x0068_15c0;
 /// `00460140` (on a collidable's holder) and `GetAVObjectForCollidable`
 /// (`004b5820`, `cdecl`).
@@ -167,16 +171,20 @@ fn d4_below_110(e: &mut Engine, this: Ptr) -> bool {
 
 /// Whether the list at +0x88 is empty or the byte at +0x90 is set.
 fn no_hits_or_flag_90(e: &mut Engine, this: Ptr) -> bool {
-    e.call(NODE_IS_EMPTY, &args![this.addr().wrapping_add(0x88)])
-        .bool()
-        || e.mem.u8(this.addr().wrapping_add(0x90)) != 0
+    typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, this.addr().wrapping_add(0x88))
+    ) || e.mem.u8(this.addr().wrapping_add(0x90)) != 0
 }
 
 /// The first item of the list at +0x88.
 fn first_hit(e: &mut Engine, this: Ptr) -> u32 {
-    let item = e
-        .call(NODE_ITEM_ADDRESS, &args![this.addr().wrapping_add(0x88)])
-        .u32();
+    let item = typed_call!(
+        leaf::FAMILY,
+        0x0068_15c0,
+        leaf::same_word(e, this.addr().wrapping_add(0x88))
+    );
     e.mem.u32(item)
 }
 
@@ -231,7 +239,9 @@ pub fn missile_projectile_update_projectile(e: &mut Engine, this: Ptr, time: f32
     if d4_below_110(e, this) && no_hits_or_flag_90(e, this) {
         e.call(END_FLIGHT, &args![this]);
     }
-    if e.call(FLAG_8_BIT_20, &args![this]).bool() || e.call(FLAG_8_BIT_800, &args![this]).bool() {
+    if typed_call!(leaf::FAMILY, 0x0044_0d80, leaf::form_flag_20(e, this))
+        || typed_call!(leaf::FAMILY, 0x0044_0da0, leaf::form_flag_800(e, this))
+    {
         return;
     }
     if e.mem.u32(base.wrapping_add(0x150)) == 4 {
@@ -354,13 +364,14 @@ fn update_moving(e: &mut Engine, this: Ptr, time_bits: u32, zero: f64) {
             e.call(MOVE_STEP, &args![this, time_bits]);
         }
     }
-    let held = e
-        .call(NODE_IS_EMPTY, &args![base.wrapping_add(0x88)])
-        .bool()
-        || {
-            let hit = first_hit(e, this);
-            e.mem.u8(hit.wrapping_add(0x28)) != 0
-        };
+    let held = typed_call!(
+        leaf::FAMILY,
+        0x0082_56d0,
+        leaf::both_words_zero(e, base.wrapping_add(0x88))
+    ) || {
+        let hit = first_hit(e, this);
+        e.mem.u8(hit.wrapping_add(0x28)) != 0
+    };
     if !held {
         let skip = e.call(FLAGS_C8_HAVE, &args![this, 1u32]).bool() && !d4_below_110(e, this);
         if !skip {
@@ -384,7 +395,7 @@ fn update_moving(e: &mut Engine, this: Ptr, time_bits: u32, zero: f64) {
         let spin = locals.addr();
         let rotate = spin + 0x24;
         let product = spin + 0x48;
-        e.call(NODE_ITEM_ADDRESS, &args![spin]);
+        typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, spin));
         for (rate, make) in [
             (SPIN_RATE_X, MAKE_X_ROTATION),
             (SPIN_RATE_Y, MAKE_Y_ROTATION),

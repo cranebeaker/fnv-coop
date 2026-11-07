@@ -45,6 +45,7 @@ const TERRAIN_MANAGER_TEST: u32 = 0x0045_4b70;
 const TES_INTERIOR_CELL: u32 = 0x005f_36f0;
 /// `MiddleHighProcess::GetSavedAcquireObject` (name from the map, a folded
 /// body; here it is called on the `TES`).
+#[cfg(test)]
 const TES_FOLDED_GETTER: u32 = 0x008d_8520;
 /// `00476c90`: a test on what `008d8520` returned (an integer).
 const FOLDED_GETTER_TEST: u32 = 0x0047_6c90;
@@ -139,7 +140,7 @@ fn interior_cell_distance(e: &mut Engine, tes: u32) -> Option<f32> {
     if tes == 0 || e.call(TES_INTERIOR_CELL, &args![tes]).u32() == 0 {
         return None;
     }
-    let object = e.call(TES_FOLDED_GETTER, &args![tes]).u32();
+    let object = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, tes));
     if e.call(FOLDED_GETTER_TEST, &args![object]).u32() != 1 {
         return None;
     }

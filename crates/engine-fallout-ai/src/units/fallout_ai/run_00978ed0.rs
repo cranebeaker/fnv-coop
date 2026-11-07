@@ -5,12 +5,17 @@
 use crate::prelude::*;
 
 /// The function `fn_00978ef0` calls on the member (`00559450`).
+#[cfg(test)]
 const CALLEE_00559450: u32 = 0x0055_9450;
 
 // Translated from 00978ef0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Thin wrapper: calls `00559450` with `ECX` = `this + 0x120` and passes on its result.
 pub fn fn_00978ef0(e: &mut Engine, this: Ptr) -> u32 {
-    e.call(CALLEE_00559450, &args![this.byte_add(0x120)]).u32()
+    typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, this.byte_add(0x120))
+    )
 }
 
 // Translated from 00978ed0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -196,9 +201,18 @@ pub fn fn_00979280(e: &mut Engine, this: Ptr) {
         e.call(0x005d_e0a0, &args![this, flag, on]);
     }
     e.call(0x009b_da10, &args![this]);
-    if e.call(CALLEE_00559450, &args![at + BEAM_POINTER]).u32() != 0 {
+    if typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, at + BEAM_POINTER)
+    ) != 0
+    {
         let value = fn_00979260(e, this).to_bits();
-        let object = e.call(CALLEE_00559450, &args![at + BEAM_POINTER]).u32();
+        let object = typed_call!(
+            leaf::FAMILY,
+            0x0055_9450,
+            leaf::word_at_0(e, at + BEAM_POINTER)
+        );
         e.call(0x005b_fbd0, &args![object, value]);
     }
 }

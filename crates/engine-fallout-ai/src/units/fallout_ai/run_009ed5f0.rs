@@ -55,6 +55,7 @@ const LOADED_FORM: u32 = 0x004f_d3c0;
 const FORM_FOR_ID: u32 = 0x0048_39c0;
 /// `Error` (`0040fbe0`, engine map) and `005b5e40` (unnamed): `cdecl` reports
 /// (format, ...).
+#[cfg(test)]
 const ERROR: u32 = 0x0040_fbe0;
 const REPORT: u32 = 0x005b_5e40;
 /// `008df040` (unnamed, `highprocess.cpp`): `thiscall`; a byte for the report.
@@ -147,23 +148,9 @@ pub fn fn_009ed5f0(e: &mut Engine, this: Ptr) -> u16 {
             let word = e.mem.u32(form + 0x5);
             let name = e.vcall(named, 0x130, &[]).u32();
             let id = e.mem.u32(form);
-            e.call(
-                ERROR,
-                &args![
-                    GET_SAVE_SIZE_FORM,
-                    added,
-                    id,
-                    name,
-                    word,
-                    0xd3u32,
-                    SOURCE_FILE
-                ],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words GET_SAVE_SIZE_FORM, added, id, name, word, 0xd3u32, SOURCE_FILE);
         } else {
-            e.call(
-                ERROR,
-                &args![GET_SAVE_SIZE_LINE, added, 0xd3u32, SOURCE_FILE],
-            );
+            typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words GET_SAVE_SIZE_LINE, added, 0xd3u32, SOURCE_FILE);
         }
     }
     size
@@ -220,23 +207,9 @@ pub fn fn_009ed700(e: &mut Engine, this: Ptr) {
                 let word = e.mem.u32(form + 0x5);
                 let name = e.vcall(named, 0x130, &[]).u32();
                 let id = e.mem.u32(form);
-                e.call(
-                    ERROR,
-                    &args![
-                        SAVE_GAME_FORM,
-                        written,
-                        id,
-                        name,
-                        word,
-                        0x106u32,
-                        SOURCE_FILE
-                    ],
-                );
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words SAVE_GAME_FORM, written, id, name, word, 0x106u32, SOURCE_FILE);
             } else {
-                e.call(
-                    ERROR,
-                    &args![SAVE_GAME_LINE, written, 0x106u32, SOURCE_FILE],
-                );
+                typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words SAVE_GAME_LINE, written, 0x106u32, SOURCE_FILE);
             }
         }
         let save_load = e.mem.u32(SAVE_LOAD);
