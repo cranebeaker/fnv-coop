@@ -191,8 +191,7 @@ impl Regions {
         self.tables.iter().flat_map(|t| t.values())
     }
 
-    /// Every address and its entry (the checks of the tests).
-    #[cfg(test)]
+    /// Every address and its entry (the checks of the tests, the heap census).
     pub(super) fn iter(&self) -> impl Iterator<Item = (&u32, &u32)> + '_ {
         self.tables.iter().flat_map(|t| t.iter())
     }

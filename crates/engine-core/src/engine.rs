@@ -287,6 +287,15 @@ impl Engine {
                 mem.enable_freed_check(stop);
             }
         }
+        // The typed migration's census tools (diagnostics): `NV_CENSUS` needs the block check's
+        // allocation paths and turns it on (at frees, reporting) when `NV_BLOCK_CHECK` didn't;
+        // `NV_TOUCH` tags the objects its spec names (`mem/touch.rs`, `census.rs`).
+        if crate::census::settings().is_some() && !mem.block_check_on() {
+            mem.enable_block_check(false, false);
+        }
+        if let Some(spec) = crate::census::touch_spec() {
+            mem.enable_touch(spec);
+        }
         // The C runtime words its string and memory routines read first, as the image
         // holds them before the CRT start-up: `__sse2_available` (`01270a6c`) and
         // `__locale_changed` (`0126fdf4`) lie in `.data` past its file contents, so they
@@ -688,10 +697,10 @@ impl Engine {
             _ => None,
         };
         // The block check (`NV_BLOCK_CHECK`) names the function running at a finding.
-        let checked = self
-            .mem
-            .block_check_on()
-            .then(|| self.mem.set_check_fn(addr));
+        let checked = self.mem.block_check_on().then(|| {
+            let caller = self.call_stack.last().copied().unwrap_or(0);
+            self.mem.set_check_frame(addr, caller)
+        });
         // `NV_PROFILE` (a diagnostic): the sampler's shadow of the call stack.
         let profiled = crate::profile::on();
         if profiled {
@@ -706,8 +715,8 @@ impl Engine {
         if profiled {
             crate::profile::pop();
         }
-        if let Some(caller) = checked {
-            self.mem.set_check_fn(caller);
+        if let Some((running, caller)) = checked {
+            self.mem.set_check_frame(running, caller);
         }
         if let (Some(seq), Some(t)) = (traced, &self.call_trace) {
             let thread = crate::call_trace::thread_of(self);
@@ -730,6 +739,17 @@ impl Engine {
             trace.push_back((addr, words, ret.eax));
         }
         ret
+    }
+
+    /// The block check's running function and its caller follow the call stack again: a thread
+    /// switch swapped it (the touch census names both, `mem/touch.rs`).
+    pub(crate) fn sync_check_frame(&mut self) {
+        if self.mem.block_check_on() {
+            let mut top = self.call_stack.iter().rev().copied();
+            let running = top.next().unwrap_or(0);
+            let caller = top.next().unwrap_or(0);
+            self.mem.set_check_frame(running, caller);
+        }
     }
 
     /// [`Engine::call`] with the result converted.

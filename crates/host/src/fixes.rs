@@ -235,6 +235,9 @@ const TEST_VARIABLES: &[&str] = &[
     "NV_HKMEM_CHECK",
     "NV_HEAD_CHECK",
     "NV_BLOCK_CHECK",
+    "NV_CENSUS",
+    "NV_TOUCH",
+    "NV_PROFILE_THREAD_CALLS",
     "NV_AUDIO_CHECK",
     "NV_PASS_CHECK",
 ];

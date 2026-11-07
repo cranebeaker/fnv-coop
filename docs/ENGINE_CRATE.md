@@ -620,6 +620,20 @@ marker, and `docs/LEDGER.md` has a `typed` column. CI runs the ledger's own test
 --check`: the ledger holds line numbers, which every merge moves, so regenerate it by hand and check
 before a merge that touches markers.
 
+**The census tools** (ADR-0014's step T3; diagnostics, all off by default). They say what a family's
+move out of guest memory needs, and what precision a typed function's floats take:
+
+| Variable | What it does |
+| --- | --- |
+| `NV_TOUCH=<spec>` | The touch census (`mem/touch.rs`). The spec tags objects: `vtable <addr> <size> <tag>` tags the object each store of that vtable starts (its constructor's store; size 0 for the heap block it starts), `alloc <addr> <tag>` tags every block that function allocates (a family's buckets and nodes), `made <addr> <tag>` every block not from the game's allocator made while it ran (a platform buffer). Pages holding a tagged object get the page state `TOUCH`, which the fast path of every load and store misses as it misses an unmapped page; the slow path does the access and counts it by running function, caller, tag, class, offset, length and read or write. With nothing tagged no page has the state and no access changes. Tags end when the block is freed. |
+| `NV_CENSUS=<folder>,<frame>,..` | At the end of each listed frame of main's (`census.rs`): `heap-<frame>.tsv`, the live heap blocks by allocating function (the first of the allocation path past `operator new` and the memory manager), its caller and class (named from the exe's RTTI by the block's first word), in bytes and blocks; `touch-<frame>.tsv` with `NV_TOUCH`; `threads-<frame>.tsv` when `NV_PROFILE=1` and `NV_PROFILE_THREAD_CALLS` are also set. Limits of the touch census: a tag overlapping an older one replaces it (an embedded member's constructor drops its outer object's tag), only 4-byte stores of a vtable tag (bulk copies and 8-byte stores don't), and a spec size larger than the real block spills into the next block: it can undercount, never change the game. |
+| `NV_PROFILE_THREAD_CALLS=<file>` | With `NV_PROFILE=1`: each target's calls by game thread, written with every profile table; a row says whether the function ran on main only, the other game threads only, or both (`profile.rs`). |
+
+`NV_TOUCH` and `NV_CENSUS` need the block check's running function and allocation paths, so they turn it
+on (checking at frees, reporting without stopping) when `NV_BLOCK_CHECK` didn't; that also makes every
+`with_stack` local a heap block, so a tagged stack object's tag ends with its frame. The block check now
+keeps the running function's caller too (the touch census names both).
+
 ## Checking against the real exe
 
 Pure functions can be compared with the real CPU through `nv-call`

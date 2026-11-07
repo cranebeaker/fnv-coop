@@ -81,6 +81,10 @@
 use std::collections::{BTreeMap, HashMap};
 
 mod heap;
+mod touch;
+
+use touch::TOUCH;
+pub use touch::{allocating_function, TouchHit, TouchSpec, ALLOC_WRAPPERS};
 
 const PAGE_BITS: u32 = 12;
 const PAGE: usize = 1 << PAGE_BITS;
@@ -513,8 +517,25 @@ pub struct Mem {
     check: Option<Box<BlockCheck>>,
     /// The block check looks at every store ([`Mem::enable_block_check`] with `store`).
     check_store: bool,
-    /// A store diagnostic is on: the write watch or the block check's store mode.
+    /// A store diagnostic is on: the write watch, the block check's store mode or the touch census.
     store_diag: bool,
+    /// The touch census ([`Mem::enable_touch`], `mem/touch.rs`); `None` in normal runs.
+    touch: Option<Box<touch::Touch>>,
+}
+
+/// A live heap block as the heap census sees it ([`Mem::for_each_census_block`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CensusBlock<'a> {
+    pub addr: u32,
+    /// The bytes the heap holds for it (rounded, without the block check's guard) and the bytes
+    /// asked for.
+    pub held: u32,
+    pub asked: u32,
+    /// The function running when it was allocated (0 unknown).
+    pub running: u32,
+    /// The engine's calls when the game's allocator handed it out, innermost first (empty for a
+    /// block made another way).
+    pub path: &'a [u32],
 }
 
 /// What a watched range saw ([`Mem::watch`]).
@@ -573,8 +594,10 @@ struct BlockCheck {
     guards: BTreeMap<u32, (u32, u32)>,
     /// Guard ranges per page (the store's quick test).
     pages: Vec<u16>,
-    /// The innermost function entered through `Engine::call` (the engine keeps it up to date).
+    /// The innermost function entered through `Engine::call` and the one that called it (the
+    /// engine keeps them up to date).
     current_fn: u32,
+    caller_fn: u32,
     /// Findings not yet taken ([`Mem::take_block_reports`]).
     reports: Vec<String>,
     /// With [`Mem::enable_freed_check`]: freed blocks held back from reuse, oldest first
@@ -621,6 +644,7 @@ impl Mem {
             guards: BTreeMap::new(),
             pages: if store { vec![0; PAGES] } else { Vec::new() },
             current_fn: 0,
+            caller_fn: 0,
             reports: Vec::new(),
             quarantine: None,
             quarantine_bytes: 0,
@@ -720,6 +744,59 @@ impl Mem {
         }
     }
 
+    /// Sets the function the block check names as running and its caller (the touch census names
+    /// both); returns the two before.
+    pub fn set_check_frame(&mut self, f: u32, caller: u32) -> (u32, u32) {
+        match self.check.as_deref_mut() {
+            Some(c) => (
+                std::mem::replace(&mut c.current_fn, f),
+                std::mem::replace(&mut c.caller_fn, caller),
+            ),
+            None => (0, 0),
+        }
+    }
+
+    /// The running function and its caller as the block check knows them ((0, 0) when it is off).
+    fn check_frame(&self) -> (u32, u32) {
+        self.check
+            .as_deref()
+            .map_or((0, 0), |c| (c.current_fn, c.caller_fn))
+    }
+
+    /// The size asked for of the live block that starts at `addr`, as the block check knows it.
+    fn check_block_asked(&self, addr: u32) -> Option<u32> {
+        self.check
+            .as_deref()
+            .and_then(|c| c.blocks.get(&addr))
+            .map(|&(asked, _)| asked)
+    }
+
+    /// Calls `f` with every live heap block (the heap census, `crate::census`). The sizes asked
+    /// for, running functions and paths come from the block check; without it a block's asked size
+    /// is its held size and the rest is unknown.
+    pub fn for_each_census_block(&self, mut f: impl FnMut(CensusBlock<'_>)) {
+        let c = self.check.as_deref();
+        for (&addr, &size) in self.live.iter() {
+            let info = c.and_then(|c| c.blocks.get(&addr)).copied();
+            let (asked, running) = info.unwrap_or((size, 0));
+            let held = if info.is_some() {
+                size.saturating_sub(GUARD)
+            } else {
+                size
+            };
+            let path = c
+                .and_then(|c| c.alloc_paths.get(&addr))
+                .map_or(&[][..], Vec::as_slice);
+            f(CensusBlock {
+                addr,
+                held,
+                asked,
+                running,
+                path,
+            });
+        }
+    }
+
     /// Takes the block check's findings, oldest first.
     pub fn take_block_reports(&mut self) -> Vec<String> {
         self.check
@@ -752,6 +829,11 @@ impl Mem {
         if !c.pending_path.is_empty() {
             let path = std::mem::take(&mut c.pending_path);
             c.alloc_paths.insert(addr, path);
+        } else if c.current_fn != 0 {
+            // A block the game's allocator didn't hand out (a `VirtualAlloc`, a platform object's
+            // buffer, the C runtime's `malloc`, a `with_stack` local): the running function and its
+            // caller are its path, so the heap census can name who asked for it.
+            c.alloc_paths.insert(addr, vec![c.current_fn, c.caller_fn]);
         }
         c.guards.insert(start, (end, addr));
         if c.store {
@@ -860,6 +942,7 @@ impl Mem {
             check: None,
             check_store: false,
             store_diag: false,
+            touch: None,
         }
     }
 
@@ -1003,7 +1086,7 @@ impl Mem {
             }
             let (at, bytes) = (self.host_page(run), (p - run) << PAGE_BITS);
             match state {
-                MAPPED => continue,
+                MAPPED | TOUCH => continue,
                 KEPT => {
                     // SAFETY: pages `run..p` lie inside the block and are committed (kept);
                     // written under `&mut self`.
@@ -1037,6 +1120,11 @@ impl Mem {
             addr % PAGE as u32 == 0 && len % PAGE as u32 == 0,
             "unmap of {addr:08x}+{len:x}: not whole pages"
         );
+        // Tagged objects in the range lose their tags (the touch census), so its pages are plainly
+        // mapped again first.
+        if self.touch.is_some() {
+            self.touch_forget(addr, len);
+        }
         let first = (addr >> PAGE_BITS) as usize;
         let end = first + (len >> PAGE_BITS) as usize;
         let stop = end.min(PAGES);
@@ -1183,7 +1271,7 @@ impl Mem {
     /// Hands back to the system each run of the pages `from..to` that the table marks [`KEPT`]
     /// or [`MAPPED`], one host call per run, and marks them [`UNMAPPED`].
     fn hand_back(&mut self, from: usize, to: usize) {
-        let held = |s: u8| s == KEPT || s == MAPPED;
+        let held = |s: u8| s == KEPT || s == MAPPED || s == TOUCH;
         let mut p = from;
         while p < to {
             if !held(self.page_state(p)) {
@@ -1249,7 +1337,7 @@ impl Mem {
                 let state = self.page_state(p);
                 assert_eq!(
                     committed,
-                    state == MAPPED || state == KEPT,
+                    state == MAPPED || state == KEPT || state == TOUCH,
                     "page {:08x} (table {state})",
                     p << PAGE_BITS
                 );
@@ -1276,7 +1364,7 @@ impl Mem {
                 continue;
             }
             for (i, state) in stretch.iter().enumerate() {
-                if *state == MAPPED {
+                if *state == MAPPED || *state == TOUCH {
                     out.push(((k * STRETCH + i) << PAGE_BITS) as u32);
                 }
             }
@@ -1307,10 +1395,11 @@ impl Mem {
         unsafe { *self.space.flag(p) }
     }
 
-    /// Whether page `p` (below [`PAGES`]) is mapped.
+    /// Whether page `p` (below [`PAGES`]) is mapped: [`MAPPED`], or [`TOUCH`] (mapped, holding part of
+    /// an object the touch census tagged), whose low bit is the same.
     #[inline(always)]
     fn page_is_mapped(&self, p: usize) -> bool {
-        self.page_state(p) == MAPPED
+        self.page_state(p) & MAPPED != 0
     }
 
     /// The host address of page `p`'s first byte (`p` at most [`PAGES`]).
@@ -1358,13 +1447,30 @@ impl Mem {
 
     /// Reads `buf.len()` bytes; faults on the first unmapped byte.
     pub fn try_read(&self, addr: u32, buf: &mut [u8]) -> Result<(), Fault> {
+        self.read_pages(addr, buf, true)
+    }
+
+    /// [`Mem::try_read`] for a diagnostic that looks at memory without the touch census counting it
+    /// (the census itself, a dump).
+    pub fn peek(&self, addr: u32, buf: &mut [u8]) -> Result<(), Fault> {
+        self.read_pages(addr, buf, false)
+    }
+
+    /// [`Mem::try_read`]; `count`: a read of a page the touch census marked is counted.
+    fn read_pages(&self, addr: u32, buf: &mut [u8], count: bool) -> Result<(), Fault> {
         let mut a = addr;
         let mut done = 0;
         while done < buf.len() {
             let off = (a as usize) & (PAGE - 1);
             let n = (PAGE - off).min(buf.len() - done);
-            if !self.mapped_at(a) {
-                return Err(Fault(a));
+            let state = self.page_state((a >> PAGE_BITS) as usize);
+            if state != MAPPED {
+                if state != TOUCH {
+                    return Err(Fault(a));
+                }
+                if count {
+                    self.touch_note(a, n, false);
+                }
             }
             // SAFETY: `[a, a + n)` lies in one mapped page; `buf` is host memory of its own (no
             // reference into the guest space leaves this module), and nothing writes the guest
@@ -1395,8 +1501,12 @@ impl Mem {
         while done < data.len() {
             let off = (a as usize) & (PAGE - 1);
             let n = (PAGE - off).min(data.len() - done);
-            if !self.mapped_at(a) {
-                return Err(Fault(a));
+            let state = self.page_state((a >> PAGE_BITS) as usize);
+            if state != MAPPED {
+                if state != TOUCH {
+                    return Err(Fault(a));
+                }
+                self.touch_note(a, n, true);
             }
             // SAFETY: `[a, a + n)` lies in one mapped page, written under `&mut self`; `data` is
             // host memory of its own (no reference into the guest space leaves this module).
@@ -1427,8 +1537,12 @@ impl Mem {
         while left > 0 {
             let off = (a as usize) & (PAGE - 1);
             let n = (PAGE - off).min(left);
-            if !self.mapped_at(a) {
-                panic!("write to unmapped memory at {a:08x}");
+            let state = self.page_state((a >> PAGE_BITS) as usize);
+            if state != MAPPED {
+                if state != TOUCH {
+                    panic!("write to unmapped memory at {a:08x}");
+                }
+                self.touch_note(a, n, true);
             }
             // SAFETY: `[a, a + n)` lies in one mapped page, written under `&mut self`.
             unsafe { std::ptr::write_bytes(self.host_at(a), 0, n) };
@@ -1520,7 +1634,9 @@ impl Mem {
     /// the last mapped page of a range (whose next page is not mapped).
     #[inline(always)]
     fn in_one_mapped_page(&self, a: u32, n: usize) -> bool {
-        (a as usize & (PAGE - 1)) <= PAGE - n && self.mapped_at(a)
+        // Plainly mapped only: an access to a [`TOUCH`] page goes on to the slow path that counts it.
+        (a as usize & (PAGE - 1)) <= PAGE - n
+            && self.page_state((a >> PAGE_BITS) as usize) == MAPPED
     }
 
     /// The `N` bytes at `a` (`N` at most 8): one fixed-size host load at `base + a` when
@@ -1575,6 +1691,9 @@ impl Mem {
     #[cold]
     #[inline(never)]
     fn store_diagnostics(&mut self, a: u32, b: &[u8]) {
+        if let (true, &[b0, b1, b2, b3]) = (self.touch.is_some(), b) {
+            self.touch_store_word(a, u32::from_le_bytes([b0, b1, b2, b3]));
+        }
         if self.check_store {
             self.check_store_at(a, b.len() as u32);
         }
@@ -1704,7 +1823,11 @@ impl Mem {
             // SAFETY: `[p, p + n)` is the rest of one mapped page, and nothing writes the guest
             // space while `&self` lives; the slice ends with this pass of the loop.
             let bytes = unsafe { std::slice::from_raw_parts(self.host_at(p), n) };
-            match bytes.iter().position(|&c| c == 0) {
+            let found = bytes.iter().position(|&c| c == 0);
+            if self.page_state((p >> PAGE_BITS) as usize) == TOUCH {
+                self.touch_note(p, found.map_or(n, |len| len + 1), false);
+            }
+            match found {
                 Some(len) => {
                     out.extend_from_slice(&bytes[..len]);
                     return out;
@@ -1760,6 +1883,15 @@ impl Mem {
         if guard != 0 {
             self.check_guard_block(addr, asked, size);
         }
+        if self.touch.is_some() {
+            let path = self
+                .check
+                .as_deref()
+                .and_then(|c| c.alloc_paths.get(&addr))
+                .cloned()
+                .unwrap_or_default();
+            self.touch_alloc(addr, asked, &path);
+        }
         addr
     }
 
@@ -1774,6 +1906,10 @@ impl Mem {
             .live
             .remove(&addr)
             .unwrap_or_else(|| panic!("free of {addr:08x}, which is not a live heap block"));
+        // Tagged objects in the block lose their tags before the freed check fills it.
+        if self.touch.is_some() {
+            self.touch_forget(addr, size);
+        }
         // The watch sees the bytes the block held, before the freed check fills it.
         if self.watched_page(addr, size) {
             self.watch_note(addr, size, None, WatchKind::Free);

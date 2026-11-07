@@ -39,6 +39,9 @@
 //! Every call through `Engine::call` (and `Engine::vcall`, which dispatches through the same body)
 //! is also counted by its exe address ([`count_target`]: an open-addressed table hashed like the
 //! call cache, written only by the thread holding the engine; `NV_PROFILE_CALLS=0` turns it off).
+//! With `NV_PROFILE_THREAD_CALLS=<file>` each target's calls are also counted by game thread, and the
+//! table of where each function runs (main only, the other game threads only, both) goes to the file
+//! ([`thread_calls_tsv`]).
 //!
 //! The profiler on, every call takes `Engine::call_full` (the shadow stack, the count): calls cost
 //! more than in a run without it, and `call_full` stands in the native tables for the fast path
@@ -137,6 +140,117 @@ static TARGET_ADDR: [AtomicU32; TARGET_SLOTS] = [ZERO; TARGET_SLOTS];
 static TARGET_CALLS: [AtomicU64; TARGET_SLOTS] = [ZERO64; TARGET_SLOTS];
 /// Calls [`count_target`] found no slot for (address 0, or the probes ran out).
 static TARGET_UNCOUNTED: AtomicU64 = AtomicU64::new(0);
+/// `NV_PROFILE_THREAD_CALLS=<file>` (with `NV_PROFILE=1`): [`count_target`] also counts each target's
+/// calls by the game thread holding the engine, and the table ([`thread_calls_tsv`], written to the
+/// file with every profile table and by `NV_CENSUS`) says which functions run on main only, on the other game threads only, or on both (the typed migration's
+/// float rule picks the precision by that, ADR-0014). Off, [`count_target`] pays one relaxed load.
+static COUNT_THREADS: AtomicBool = AtomicBool::new(false);
+/// Per target slot: calls on main, calls on the other game threads, and a bit per game thread id
+/// that called it (ids of 63 and more share the top bit).
+static TARGET_MAIN: [AtomicU64; TARGET_SLOTS] = [ZERO64; TARGET_SLOTS];
+static TARGET_OTHER: [AtomicU64; TARGET_SLOTS] = [ZERO64; TARGET_SLOTS];
+static TARGET_THREADS: [AtomicU64; TARGET_SLOTS] = [ZERO64; TARGET_SLOTS];
+
+/// `NV_PROFILE_THREAD_CALLS`: the file the per-thread table goes to.
+fn thread_calls_file() -> Option<&'static str> {
+    static FILE: OnceLock<Option<String>> = OnceLock::new();
+    FILE.get_or_init(|| {
+        std::env::var("NV_PROFILE_THREAD_CALLS")
+            .ok()
+            .filter(|v| !v.is_empty() && v != "0")
+    })
+    .as_deref()
+}
+
+/// Whether calls are counted by thread too (`NV_PROFILE_THREAD_CALLS`).
+pub fn counting_threads() -> bool {
+    on() && COUNT_THREADS.load(Relaxed)
+}
+
+/// Counts a call in slot `slot` for the game thread holding the engine.
+#[inline]
+fn count_thread(slot: usize) {
+    let id = GAME_THREAD.load(Relaxed);
+    let n = if id == crate::thread_host::MAIN_THREAD_ID {
+        &TARGET_MAIN[slot]
+    } else {
+        &TARGET_OTHER[slot]
+    };
+    n.store(n.load(Relaxed).wrapping_add(1), Relaxed);
+    let bit = 1u64 << id.min(63);
+    let t = &TARGET_THREADS[slot];
+    let held = t.load(Relaxed);
+    if held & bit == 0 {
+        t.store(held | bit, Relaxed);
+    }
+}
+
+/// Each target counted by thread so far: (address, calls on main, calls elsewhere, thread bits).
+pub fn thread_calls() -> Vec<(u32, u64, u64, u64)> {
+    let mut v: Vec<_> = (0..TARGET_SLOTS)
+        .filter_map(|s| {
+            let a = TARGET_ADDR[s].load(Relaxed);
+            let (m, o) = (TARGET_MAIN[s].load(Relaxed), TARGET_OTHER[s].load(Relaxed));
+            (a != 0 && m + o > 0).then(|| (a, m, o, TARGET_THREADS[s].load(Relaxed)))
+        })
+        .collect();
+    v.sort_by(|a, b| (b.1 + b.2).cmp(&(a.1 + a.2)).then(a.0.cmp(&b.0)));
+    v
+}
+
+/// Game thread id -> its start address, as the thread host makes them ([`name_thread`]).
+fn thread_starts() -> &'static Mutex<std::collections::BTreeMap<u32, u32>> {
+    static STARTS: OnceLock<Mutex<std::collections::BTreeMap<u32, u32>>> = OnceLock::new();
+    STARTS.get_or_init(Default::default)
+}
+
+/// Game thread `id` starts at exe address `start` (named in `threads.tsv`).
+pub fn name_thread(id: u32, start: u32) {
+    if !on() {
+        return;
+    }
+    if let Ok(mut s) = thread_starts().lock() {
+        s.insert(id, start);
+    }
+}
+
+/// [`thread_calls`] as a table: the game threads' starts, then one row a target with its calls on
+/// main and elsewhere, the threads, and where it runs (`main`, `other` or `both`).
+pub fn thread_calls_tsv() -> String {
+    use std::fmt::Write;
+    let mut out = String::from("# game threads (id start):");
+    if let Ok(s) = thread_starts().lock() {
+        for (id, start) in s.iter() {
+            let _ = write!(out, " {id} {start:08x};");
+        }
+    }
+    out.push_str("\naddr\tcalls\tmain\tother\tthreads\twhere\n");
+    for (a, m, o, bits) in thread_calls() {
+        let ids: Vec<String> = (0..64)
+            .filter(|i| bits >> i & 1 != 0)
+            .map(|i| {
+                if i == 63 {
+                    "63+".to_string()
+                } else {
+                    i.to_string()
+                }
+            })
+            .collect();
+        let place = match (m > 0, o > 0) {
+            (true, false) => "main",
+            (false, true) => "other",
+            _ => "both",
+        };
+        let _ = writeln!(
+            out,
+            "{a:08x}\t{}\t{m}\t{o}\t{}\t{place}",
+            m + o,
+            ids.join(",")
+        );
+    }
+    out
+}
+
 /// Whether [`push`] counts calls by target: from [`start`] on, unless `NV_PROFILE_CALLS=0` (the
 /// count costs the profiled run about a millisecond a frame, inside `Engine::call_full`).
 static COUNT_TARGETS: AtomicBool = AtomicBool::new(false);
@@ -181,6 +295,7 @@ pub fn init_from_env() {
     READ.get_or_init(|| {
         let wanted = std::env::var("NV_PROFILE").is_ok_and(|v| !v.is_empty() && v != "0");
         ON.store(wanted, Relaxed);
+        COUNT_THREADS.store(wanted && thread_calls_file().is_some(), Relaxed);
     });
 }
 
@@ -216,11 +331,17 @@ pub fn count_target(addr: u32) {
             if held == addr {
                 let n = &TARGET_CALLS[slot];
                 n.store(n.load(Relaxed).wrapping_add(1), Relaxed);
+                if COUNT_THREADS.load(Relaxed) {
+                    count_thread(slot);
+                }
                 return;
             }
             if held == 0 {
                 TARGET_CALLS[slot].store(1, Relaxed);
                 TARGET_ADDR[slot].store(addr, Relaxed);
+                if COUNT_THREADS.load(Relaxed) {
+                    count_thread(slot);
+                }
                 return;
             }
             slot = (slot + 1) & (TARGET_SLOTS - 1);
@@ -590,6 +711,11 @@ fn sampler(settings: Settings) {
                 "== NV_PROFILE: the game's frames {frames_at} to {frames}, \
                  {per_frame} calls through Engine::call a frame ({misses} not in its cache)\n{text}"
             );
+            if let (Some(file), true) = (thread_calls_file(), counting_threads()) {
+                if let Err(e) = std::fs::write(file, thread_calls_tsv()) {
+                    println!("NV_PROFILE_THREAD_CALLS: {file}: {e}");
+                }
+            }
             table = Table::default();
             started = Instant::now();
             frames_at = FRAMES.load(Relaxed);
@@ -3742,6 +3868,38 @@ mod tests {
         assert_eq!(calls.get(&a), Some(&3));
         assert_eq!(calls.get(&b), Some(&1));
         assert_eq!(calls.get(&0), None);
+    }
+
+    /// With the thread count on, a target's calls are split between main and the other game
+    /// threads, with the threads that called it, and the table says where it runs.
+    #[test]
+    fn calls_are_counted_by_thread() {
+        let (both, main_only, other_only) = (0x00c5_6780u32, 0x00c5_6790u32, 0x00c5_67a0u32);
+        let was = COUNT_THREADS.swap(true, Relaxed);
+        let thread = GAME_THREAD.load(Relaxed);
+        GAME_THREAD.store(crate::thread_host::MAIN_THREAD_ID, Relaxed);
+        count_target(both);
+        count_target(both);
+        count_target(main_only);
+        GAME_THREAD.store(7, Relaxed);
+        count_target(both);
+        count_target(other_only);
+        GAME_THREAD.store(70, Relaxed);
+        count_target(other_only);
+        GAME_THREAD.store(thread, Relaxed);
+        COUNT_THREADS.store(was, Relaxed);
+        let rows = thread_calls();
+        let row = |a: u32| rows.iter().find(|r| r.0 == a).copied();
+        assert_eq!(row(both), Some((both, 2, 1, 1 << 1 | 1 << 7)));
+        assert_eq!(row(main_only), Some((main_only, 1, 0, 1 << 1)));
+        assert_eq!(row(other_only), Some((other_only, 0, 2, 1 << 7 | 1 << 63)));
+        let text = thread_calls_tsv();
+        assert!(text.contains("\n00c56780\t3\t2\t1\t1,7\tboth\n"), "{text}");
+        assert!(text.contains("\n00c56790\t1\t1\t0\t1\tmain\n"), "{text}");
+        assert!(
+            text.contains("\n00c567a0\t2\t0\t2\t7,63+\tother\n"),
+            "{text}"
+        );
     }
 
     /// The call-target table: calls a frame, share, self time a frame and a call, inclusive.

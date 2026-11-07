@@ -823,6 +823,7 @@ fn switch_to(e: &mut Engine, i: usize) {
         Some(link) => link,
         None => {
             let t = &e.kernel.threads.list[i];
+            crate::profile::name_thread(t.id, t.start);
             spawn(t.id, t.start, t.parameter)
         }
     };
@@ -842,6 +843,7 @@ fn switch_to(e: &mut Engine, i: usize) {
     }
     let baton = Baton(e as *mut Engine);
     // `NV_PROFILE`: the hand-off, with the thread's own call stack.
+    e.sync_check_frame();
     crate::profile::resync(&e.call_stack);
     crate::profile::set_phase(crate::profile::Phase::Switch);
     let reply = match link.resume.send(baton) {
@@ -856,6 +858,7 @@ fn switch_to(e: &mut Engine, i: usize) {
     if let Some(order) = &mut e.kernel.threads.order {
         order.push((MAIN_THREAD_ID, calls));
     }
+    e.sync_check_frame();
     crate::profile::resync(&e.call_stack);
     crate::profile::holding(MAIN_THREAD_ID);
     load_fpu(e);
@@ -1229,6 +1232,7 @@ pub fn begin_main_frame(e: &mut Engine, main: &mut MainThread) -> bool {
     main.host_stack = std::mem::replace(&mut e.call_stack, std::mem::take(&mut main.call_stack));
     // `NV_PROFILE`: the sampler starts with the first frame; the hand-off to main.
     crate::profile::start();
+    e.sync_check_frame();
     crate::profile::resync(&e.call_stack);
     crate::profile::set_phase(crate::profile::Phase::Switch);
     let baton = Baton(e as *mut Engine);
@@ -1251,6 +1255,7 @@ pub fn finish_main_frame(e: &mut Engine, main: &mut MainThread) -> MainTurn {
     main.in_flight = false;
     let reply = main.link.yielded.recv().ok();
     main.call_stack = std::mem::replace(&mut e.call_stack, std::mem::take(&mut main.host_stack));
+    e.sync_check_frame();
     crate::profile::resync(&e.call_stack);
     crate::profile::back_to_host();
     load_fpu(e);

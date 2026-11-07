@@ -120,7 +120,8 @@ fn caught<R>(
     unwound_to(e, mark);
     if e.mem.block_check_on() {
         let running = e.call_stack.last().copied().unwrap_or(0);
-        e.mem.set_check_fn(running);
+        let caller = e.call_stack.iter().rev().nth(1).copied().unwrap_or(0);
+        e.mem.set_check_frame(running, caller);
     }
     let outcome = {
         let _handling = Handling::begin(thrown);
