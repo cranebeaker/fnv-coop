@@ -37,6 +37,7 @@ pub static FIXES: &[Fix] = &[
     crate::uncap::GRAB_FIX,
     crate::phys_blend::FIX,
     crate::mod_fit_worn::FIX,
+    crate::topic_index::FIX,
 ];
 
 /// Menus' frames a second at most when nothing says otherwise (the maintainer, 2026-11-07).
@@ -275,6 +276,7 @@ const TEST_VARIABLES: &[&str] = &[
     "NV_PROFILE_THREAD_CALLS",
     "NV_AUDIO_CHECK",
     "NV_PASS_CHECK",
+    "NV_TOPIC_INDEX_CHECK",
 ];
 
 /// The settings file's text: a UTF-8 byte order mark is dropped and UTF-16 (what PowerShell 5.1's

@@ -57,6 +57,7 @@ The game's own `iFPSClamp` ignores `FrameLimit`: a clamp is a fixed step with no
 | Dragged bodies by time | `0095f6c0`, `009613c0`, `00960520` | `NV_GRAB_PUSH` | The grab update (`00960520`) pulls a held body that is more than `fZKeyComplexHelperMinDistance` (6) units from its place by adding `(distance - 6) x fZKeyComplexHelperScale (2) / distance x -1.0 x` a weight factor (`fZKeyComplexHelperWeightMin` 0 to `Max` 100) to its velocity, once a rendered frame (`AddVelocity` for a ragdoll or a flagged body, the velocity plus the pull for others), so at 144 frames a second it is pulled 2.4 times as hard as at 60. Its three entries (the player's grab handling and the dropped-object spring, which call it in Rust, and the grab update itself, which telekinesis calls) run with `fZKeyComplexHelperScale` scaled by the frame's seconds times 60, at most 4 (TEMPO's rule in Fallout 3), and the setting back afterwards; the grab update is its only reader. The spring itself is a Havok action on the 16 ms steps and is left alone |
 | Smooth physics drawing | `00c65a80`, `008706b0` | `NV_PHYS_BLEND` | Free bodies (dropped and thrown items, ragdolls, debris) are drawn between Havok's 16 ms steps instead of frozen on frames without a step: around the frame's drawing only, each moving body's node shows the body at the game's time minus one step, blended with Havok's own swept-transform formula, and is put back after. The simulation and what game logic reads are the original's. Bodies are drawn one step (16 ms) behind the clock, about 5 ms later than the original on average. Below |
 | Mod fit worn question | `007838a0` | `NV_MOD_WORN` | Fitting a weapon mod asks whether the mod is worn before the mod is removed from the inventory, not after. The original asks after (a slip: it means the weapon), through the mod's extra list the removal has just deleted; it nearly always answers no, but a yes rebuilds the inventory list, which frees the weapon entry the mod menu keeps, and closing the menu then re-equips through it and the game stops. A mod is never worn, so the answer is the original's usual no, and no released memory is read. Every other click of the menu is the original's. Below |
+| Dialogue topic index | `00619820`, `0061a310`, `0061a380`, `0061a5a0`, `0045dfe0` | `NV_TOPIC_INDEX` | Finding which topic holds a dialogue info (`TESTopic::GetOwnerTopic`) no longer walks the topic list and every info in it: the original does that for each info a plugin changes (YUP and the add-ons: 5,837 times), so a dialogue mod's load grew with its size times the game's. Every topic `TESTopic::InsertInfo` links an info into (the one place an info enters a topic) is kept beside it; a search asks only those topics, with the original's own search (`00619e10`), which hold this info first by its id, and takes the first of them in the topic list's order, from a copy of the list's order that is made again whenever the list may have changed in a way that matters (its sort, the data handler's `ClearData`, an insert of a topic the copy holds, which can list it again earlier, a changed head node, or a topic inserted since that the copy doesn't hold). So the answer is the walk's, tie-breaks included (an info in two topics, a twin id, the list's order and end). `NV_TOPIC_INDEX_CHECK=1` with `NV_TOPIC_INDEX=1` (alone it is a test variable, which makes the run vanilla) runs the original's walk beside every search and stops the game at the first difference. With the fix on, the typed `topic_search` family (the walk) goes by address for the run, since the fix registers over one of its members. Below |
 
 ### What high frame rates do to the original's code
 
@@ -179,6 +180,37 @@ The fix runs the list's click as the original's, step for step, with the worn qu
 before the removal (`crates/host/src/mod_fit_worn.rs`). A mod is never worn, so the answer is the original's usual
 "no" and nothing more happens; no released memory is read. Tests: with the fix the click reads nothing released and
 rebuilds nothing; vanilla still asks after the removal and rebuilds on a "yes".
+
+### Dialogue topic index
+
+`TESTopic::GetOwnerTopic` (`0061a310`) walks the data handler's topic list and asks each topic (`00619e10`, first to
+last) for the info's id until a topic answers with this very info. Loading a plugin that changes an existing info
+asks it once per such info (`TESTopicInfo::ClearData`, to take the info out of its owner): with YUP and the add-ons
+5,837 searches of about 68,000 infos each. The fix (`crates/host/src/topic_index.rs`) notes every topic
+`TESTopic::InsertInfo` (`00619820`, the one place an info enters a topic) links the info into, asks only those with
+the same `00619e10`, and of the ones answering this info takes the first in the list's order. The order comes from a
+copy of the list, made again after the sort (`0061a5a0`), the data handler's `ClearData` (`0045dfe0`), an insert
+(`0061a380`) of a topic the copy already holds (it can list the topic again, earlier), a changed head node, or when
+an answer is missing from it after an insert. So the answer is the walk's, tie-breaks included. JIP LN answers from
+a word set as the load links the info, which is the last topic linked, not always the walk's answer. With the fix on,
+the typed `topic_search` family goes by address for the run (the fix registers over its member `0061a310`).
+
+Measured 2026-11-07 (measure/topic-index; YUP, the five add-ons and SR556, vanilla preset with only `NV_TOPIC_INDEX`
+switched, default typed families, so "off" is the typed walk):
+
+- `NV_TOPIC_INDEX_CHECK=1` with `NV_TOPIC_INDEX=1`: over 5,000 searches (the load, the main menu and Continue), the
+  index gave the walk's answer every time; the list was copied twice.
+- Profiled load (`NV_PROFILE`): the search goes from 27 of 32 profiled seconds to too small to list. The profiler
+  slows every call, so this says where the time was, not how much.
+- The final build, fix on, four runs: the first main frame 4.39-5.01 s from the process start every time, the load
+  done (its last sort) at 3.2-3.8 s. The index's counters, the same in all four: 5,837 searches, each answered by
+  the one topic holding the info, 3 copies of the list's order, 54 ms in all (7 ms of it copying).
+- Off (the typed walk), six runs: 7.85-8.61 s. Add-ons only, no YUP, is 4.3 s (measure/yup-load).
+- Five earlier runs with the fix on (builds before the counters' line printed) took 7.86-8.02 s, as slow as off;
+  three took 4.49-4.64 s. Why is not known. The review suspects a wait before the first main frame that has
+  nothing to do with the index: even in the fast runs the first main frame comes about 1.2 s after the load's
+  end. So no fixed saving is claimed here.
+- Continue (save to world) 3.2-4.0 s with the fix on and off.
 
 ## Credits
 

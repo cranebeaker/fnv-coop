@@ -8,6 +8,7 @@
 0041af70	0	YUP,xNVSE
 004512a0	0	xNVSE
 00455490	0	script or frame function
+0045dfe0	1	nv-rs dialogue topic index
 00474cb0	0	JG
 00482090	0	JIP
 00483a00	0	JG
@@ -49,7 +50,10 @@
 005e4810	2	ITR
 006047c0	1	JIP
 006155f0	1	ITR
-0061a310	1	JIP
+00619820	1	nv-rs dialogue topic index
+0061a310	2	JIP, nv-rs dialogue topic index
+0061a380	2	nv-rs dialogue topic index
+0061a5a0	1	nv-rs dialogue topic index
 00623cb0	0	ITR
 00646260	0	JIP
 00646360	0	JIP

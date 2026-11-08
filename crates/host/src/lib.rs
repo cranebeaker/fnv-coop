@@ -24,6 +24,7 @@ pub mod mod_fit_worn;
 pub mod phys_blend;
 pub mod player_move;
 pub mod save_out;
+pub mod topic_index;
 pub mod uncap;
 
 use engine::Engine;
