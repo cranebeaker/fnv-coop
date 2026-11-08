@@ -36,9 +36,14 @@ each function belongs to.
   races are undefined behaviour in Rust's model and the game's own
   synchronisation (interlocked operations, locks, waits: calls the compiler
   cannot see through) must order them; the table of mapped pages changes
-  only through `&mut self` (`map`, `unmap`, the heap). Real threads need a
-  real stop-the-world for it (`mem.rs`, "Threads"). The diagnostics (write
-  watch, block check, touch census) run stepped only.
+  only through `&mut self` (`map`, `unmap`, the heap). With real threads
+  (`NV_THREADS=real`, below) each thread's engine holds a view of one shared
+  `Mem` (`Mem::start_sharing`): loads and stores are its own, the same
+  instructions; the heap, the asked sizes `_msize` reads and the page table
+  change on the shared one under one lock; pages unmapped stay committed and
+  go back to the system only at a barrier with every game thread stopped
+  (`Mem::hand_back_deferred`). The diagnostics (write watch, block check,
+  touch census) run stepped only.
 - **The exe's data**: `Engine::with_exe(path)` maps `.rdata`, `.data`,
   `.tls` and `CONST` of the player's installed FalloutNV.exe (checked
   against 1.4.0.525) at their addresses. Constants, strings, vtables and
@@ -69,7 +74,27 @@ each function belongs to.
   `Sleep`; the main thread's wait runs the runnable threads in creation
   order until its object is signalled, a game thread's wait hands back to
   the main thread, `SetEvent`/`ReleaseSemaphore` wake waiters, and a wait no
-  thread can satisfy stops the run naming the object. So runs are
+  thread can satisfy stops the run naming the object. **Real threads**
+  (`NV_THREADS=real`, off by default; `engine_core::real_threads`, ADR-0015):
+  each game thread runs on its own OS thread with its own `Engine` (call
+  stack, call cache, TLS block and values, x87 word, last error, guest stack:
+  `Engine::real`), sharing memory, the kernel objects (`KernelRef`) and the
+  function table (copied from a template; later registrations reach every
+  engine). The interlocked imports are real atomics (the exe has no inline
+  `lock` instruction outside the C runtime's exception cache), critical
+  sections a real owner table, `Sleep` a real sleep; waits block on a
+  condition variable under the re-entrant kernel lock every other platform
+  function runs under (Direct3D, sound, files, windows: the exe creates its
+  device `D3DCREATE_MULTITHREADED`). The host holds the kernel lock between
+  frames. A thread-local storage index freed or handed out again reads 0 on
+  every thread, as on Windows (the lock-free maps keep per-thread accessors
+  there). `SuspendThread` parks a running game thread at its next platform
+  call, wait or sleep until it is resumed. Diagnostics keep threads stepped, except the block check
+  (`NV_BLOCK_CHECK`, allocations and frees named with their thread) and
+  `NV_REAL_DUMP` (every thread's function, last calls and waits printed when
+  one stops; stale thread-local reads reported). The stepped host also has a
+  seeded `NV_THREADS=shuffle:SEED` (each turn's length and wake delay drawn
+  at random, so an order-dependent bug reproduces from its seed). So stepped runs are
   deterministic (for one processor count, which `iNumHWThreads` follows).
   This avoids unsafe stack switching; it costs an OS thread per game thread
   and a channel round trip per switch.

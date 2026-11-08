@@ -264,6 +264,8 @@ pub struct Threads {
     /// [`Threads::calls`], with a [`FRAME_ENDED`] at the end of each of main's frames. Off (`None`)
     /// outside that diagnostic.
     pub order: Option<Vec<(u32, u64)>>,
+    /// [`Scheme::shuffle`]'s generator (xorshift64*), seeded from it on first use; 0 before.
+    shuffle_state: u64,
 }
 
 /// What [`Threads::order`] holds for the end of a frame of main's.
@@ -283,7 +285,28 @@ impl Default for Threads {
             calls: 0,
             slice_set: 0,
             order: None,
+            shuffle_state: 0,
         }
+    }
+}
+
+impl Threads {
+    /// [`Scheme::shuffle`]: the next number from the generator `seed` starts, below `n` (`n` at
+    /// least 1).
+    fn shuffled(&mut self, seed: u64, n: u64) -> u64 {
+        if self.shuffle_state == 0 {
+            // splitmix64 of the seed, so nearby seeds start far apart (never 0).
+            let mut z = seed.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            self.shuffle_state = (z ^ (z >> 31)) | 1;
+        }
+        let mut x = self.shuffle_state;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.shuffle_state = x;
+        x.wrapping_mul(0x2545_f491_4f6c_dd1d) % n.max(1)
     }
 }
 
@@ -317,6 +340,14 @@ pub struct Scheme {
     pub switch_at: SwitchAt,
     /// A game thread's timed wait times out at its deadline.
     pub timed_waits: bool,
+    /// `NV_THREADS=real`: the game's threads run as real threads, side by side
+    /// ([`crate::real_threads`]); the host starts them so ([`crate::real_threads::start`]) and the
+    /// other parts here then don't apply. Off by default.
+    pub real: bool,
+    /// `NV_THREADS=shuffle:SEED`: the stepped host's switch points are drawn at random from this
+    /// seed: each turn's length and each wake's delay ([`Threads::shuffled`]). So an
+    /// order-dependent bug reproduces from its seed (the race tests). `None`: the fixed lengths.
+    pub shuffle: Option<u64>,
 }
 
 impl Default for Scheme {
@@ -331,34 +362,53 @@ impl Scheme {
         wake: true,
         switch_at: SwitchAt::Blocking,
         timed_waits: true,
+        real: false,
+        shuffle: None,
     };
     /// The scheme before: every part off.
     pub const SLICE: Scheme = Scheme {
         wake: false,
         switch_at: SwitchAt::Any,
         timed_waits: false,
+        real: false,
+        shuffle: None,
     };
 
     /// The scheme the host's `NV_THREADS` names: unset or empty [`Scheme::WAKE`]; `slice`
     /// [`Scheme::SLICE`]; otherwise [`Scheme::WAKE`] changed by the words of a
     /// comma-separated list (`nowake`; `platformcall` or `anycall` for [`Scheme::switch_at`];
-    /// `notimeout`; `wake` changes nothing). Case and spaces are ignored; an unknown word is
-    /// an error.
+    /// `notimeout`; `wake` changes nothing; `real` for real threads, [`Scheme::real`];
+    /// `shuffle:SEED` for [`Scheme::shuffle`], the seed a decimal number). Case and spaces are
+    /// ignored; an unknown word is an error.
     pub fn from_name(name: Option<&str>) -> Result<Scheme, String> {
         let mut scheme = Scheme::WAKE;
         for word in name.unwrap_or("").split(',').map(str::trim) {
-            match word.to_ascii_lowercase().as_str() {
+            let word = word.to_ascii_lowercase();
+            if let Some(seed) = word.strip_prefix("shuffle:") {
+                let seed = seed
+                    .trim()
+                    .parse()
+                    .map_err(|_| format!("NV_THREADS: shuffle:{seed}: the seed is not a number"))?;
+                scheme.shuffle = Some(seed);
+                continue;
+            }
+            match word.as_str() {
                 "" | "wake" => {}
                 "slice" => scheme = Scheme::SLICE,
                 "nowake" => scheme.wake = false,
                 "platformcall" => scheme.switch_at = SwitchAt::Platform,
                 "anycall" => scheme.switch_at = SwitchAt::Any,
                 "notimeout" => scheme.timed_waits = false,
+                "real" => scheme.real = true,
                 other => {
-                    let known = "slice, wake, nowake, platformcall, anycall, notimeout";
+                    let known =
+                        "slice, wake, nowake, platformcall, anycall, notimeout, real, shuffle:SEED";
                     return Err(format!("NV_THREADS: unknown part {other:?} ({known})"));
                 }
             }
+        }
+        if scheme.real && scheme.shuffle.is_some() {
+            return Err("NV_THREADS: shuffle is the stepped host's; real threads take none".into());
         }
         Ok(scheme)
     }
@@ -372,7 +422,8 @@ thread_local! {
 /// Whether an object can let a waiter go on, without taking it.
 pub type Signalled = fn(&Engine, u32) -> bool;
 
-/// The seam: how game threads run. The cooperative host is the one in use.
+/// The seam: how game threads run: the cooperative host ([`Cooperative`], stepped threads, the
+/// default) or real threads ([`crate::real_threads::Real`], `NV_THREADS=real`).
 pub trait ThreadHost {
     /// The current thread would wait on `handles` (all or any); `deadline` is
     /// the clock time ([`Engine::clock_now_us`]) a timed wait ends at, `None`
@@ -396,12 +447,18 @@ pub trait ThreadHost {
 /// The cooperative host (module documentation).
 pub struct Cooperative;
 
-/// The host the platform imports use.
-pub fn host() -> &'static dyn ThreadHost {
-    &Cooperative
+/// The host the platform imports use for `e`: real threads when `e` is a real thread's engine
+/// ([`Engine::real`]), else the cooperative host. The only way to a host: a wait or sleep on the
+/// cooperative host from a real thread would yield from a thread that has no coroutine.
+pub fn host_for(e: &Engine) -> &'static dyn ThreadHost {
+    if e.real.is_some() {
+        &crate::real_threads::Real
+    } else {
+        &Cooperative
+    }
 }
 
-fn ensure_main(e: &mut Engine) {
+pub(crate) fn ensure_main(e: &mut Engine) {
     if e.kernel.threads.list.is_empty() {
         e.kernel.threads.list.push(GameThread {
             id: MAIN_THREAD_ID,
@@ -503,6 +560,9 @@ pub fn take_order(e: &mut Engine) -> String {
 
 /// The running thread's id.
 pub fn current_id(e: &Engine) -> u32 {
+    if let Some(r) = &e.real {
+        return r.id;
+    }
     e.kernel
         .threads
         .list
@@ -512,7 +572,7 @@ pub fn current_id(e: &Engine) -> u32 {
 
 /// Whether the main thread is running.
 pub fn on_main(e: &Engine) -> bool {
-    e.kernel.threads.current == 0
+    e.thread_index() == 0
 }
 
 /// Records a new thread (it runs at the next switch point once its suspend
@@ -533,6 +593,11 @@ pub fn create(e: &mut Engine, handle: u32, start: u32, parameter: u32, suspended
         link: None,
         turns: 0,
     });
+    if !suspended && e.real.is_some() {
+        // Real threads: it starts now, on its own OS thread.
+        let i = e.kernel.threads.list.len() - 1;
+        crate::real_threads::start_thread(e, i);
+    }
     id
 }
 
@@ -555,9 +620,13 @@ pub fn thread_ended(e: &Engine, handle: u32) -> Option<bool> {
         .map(|t| matches!(t.state, RunState::Finished { .. } | RunState::Stopped(_)))
 }
 
-/// Notes a change that can let a waiter go on.
+/// Notes a change that can let a waiter go on (with real threads its waiters then look again:
+/// [`crate::real_threads`]).
 pub fn signal(e: &mut Engine) {
     e.kernel.threads.signals = e.kernel.threads.signals.wrapping_add(1);
+    if let Some(r) = &e.real {
+        r.changed();
+    }
 }
 
 fn runnable(e: &mut Engine, i: usize, signalled: Signalled) -> bool {
@@ -614,7 +683,7 @@ const WAKE_ROUNDS: usize = 64;
 /// [`Scheme::wake`].
 pub fn request_wake(e: &mut Engine, signalled: Signalled) {
     let threads = &e.kernel.threads;
-    if !threads.scheme.wake || threads.list.is_empty() || !on_main(e) {
+    if e.real.is_some() || !threads.scheme.wake || threads.list.is_empty() || !on_main(e) {
         return;
     }
     if !(1..e.kernel.threads.list.len()).any(|i| waiting_signalled(e, i, signalled)) {
@@ -636,7 +705,12 @@ fn mark_wake(e: &mut Engine) {
         e.slice_hook = Some(preempt);
         set_slice(e, u64::MAX);
     }
-    set_slice(e, e.slice_left.min(e.kernel.threads.wake_delay));
+    let mut delay = e.kernel.threads.wake_delay;
+    if let Some(seed) = e.kernel.threads.scheme.shuffle {
+        // Shuffled: anywhere from at once to twice the delay.
+        delay = e.kernel.threads.shuffled(seed, 2 * delay + 1);
+    }
+    set_slice(e, e.slice_left.min(delay));
 }
 
 /// Whether a thread other than main could run now ([`runnable`]): started, waiting on objects
@@ -782,7 +856,8 @@ pub fn run_threads(e: &mut Engine, signalled: Signalled) {
 /// Swaps the running thread's TLS block and call stack for thread `to`'s.
 fn swap_context(e: &mut Engine, from: usize, to: usize) {
     // A thread switched to starts a whole time slice.
-    set_slice(e, turn_len(e));
+    let len = turn_len(e);
+    set_slice(e, len);
     e.kernel.threads.overrun = false;
     let mut to_tls = e.kernel.threads.list[to].tls;
     if to_tls == 0 {
@@ -841,6 +916,9 @@ fn switch_to(e: &mut Engine, i: usize) {
     if let RunState::Waiting { handles, .. } = std::mem::replace(&mut t.state, RunState::Running) {
         t.spare_handles = handles;
     }
+    if let Some(r) = e.mem.race_census() {
+        r.set_thread(id);
+    }
     let baton = Baton(e as *mut Engine);
     // `NV_PROFILE`: the hand-off, with the thread's own call stack.
     e.sync_check_frame();
@@ -852,6 +930,9 @@ fn switch_to(e: &mut Engine, i: usize) {
     };
     // Back on the main thread.
     e.kernel.threads.current = 0;
+    if let Some(r) = e.mem.race_census() {
+        r.set_thread(MAIN_THREAD_ID);
+    }
     trace_switch(e, id, MAIN_THREAD_ID);
     swap_context_back(e, i);
     let calls = e.kernel.threads.calls;
@@ -1128,6 +1209,9 @@ pub struct MainThread {
     host_stack: Vec<u32>,
     /// A frame was handed to main and not finished yet.
     in_flight: bool,
+    /// Real threads: the host holds the kernel lock (taken at a frame's end, given back at the
+    /// next frame's begin).
+    host_holds_kernel: bool,
 }
 
 impl MainThread {
@@ -1168,9 +1252,16 @@ pub fn start_main_thread(start: u32, words: Vec<u32>) -> MainThread {
             let e = unsafe { &mut *engine };
             crate::profile::holding(MAIN_THREAD_ID);
             load_fpu(e);
+            // Real threads: main runs game code (counted for the barrier) until it ends.
+            if let Some(r) = &e.real {
+                r.main_runs(true);
+            }
             let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 e.call(start, &words).eax
             }));
+            if let Some(r) = &e.real {
+                r.main_runs(false);
+            }
             let reply = match out {
                 Ok(code) => Yield::Finished(code),
                 Err(payload) => {
@@ -1184,11 +1275,14 @@ pub fn start_main_thread(start: u32, words: Vec<u32>) -> MainThread {
                         .map(|a| format!("{a:08x}"))
                         .collect();
                     let first = panic_line(payload);
-                    if path.is_empty() {
-                        Yield::Stopped(first)
+                    let why = if path.is_empty() {
+                        first
                     } else {
-                        Yield::Stopped(format!("{first} (in {})", path.join(" < ")))
-                    }
+                        format!("{first} (in {})", path.join(" < "))
+                    };
+                    // `NV_REAL_DUMP`: what every game thread was doing.
+                    crate::real_threads::main_stopped(e, &why);
+                    Yield::Stopped(why)
                 }
             };
             let _ = yields.send(reply);
@@ -1200,6 +1294,7 @@ pub fn start_main_thread(start: u32, words: Vec<u32>) -> MainThread {
         last: None,
         host_stack: Vec::new(),
         in_flight: false,
+        host_holds_kernel: false,
     }
 }
 
@@ -1229,6 +1324,12 @@ pub fn begin_main_frame(e: &mut Engine, main: &mut MainThread) -> bool {
     }
     ensure_main(e);
     e.kernel.threads.current = 0;
+    if let Some(r) = &e.real {
+        // Real threads: main runs again (counted for the barrier), and the kernel lock the host
+        // took at the last frame's end goes back to it.
+        r.frame_begins(main.host_holds_kernel);
+        main.host_holds_kernel = false;
+    }
     main.host_stack = std::mem::replace(&mut e.call_stack, std::mem::take(&mut main.call_stack));
     // `NV_PROFILE`: the sampler starts with the first frame; the hand-off to main.
     crate::profile::start();
@@ -1254,12 +1355,24 @@ pub fn finish_main_frame(e: &mut Engine, main: &mut MainThread) -> MainTurn {
     }
     main.in_flight = false;
     let reply = main.link.yielded.recv().ok();
+    // Real threads: main waits now; the host takes the kernel lock while it has the engine, and
+    // hands back deferred pages while every game thread is stopped. A game thread that stopped
+    // ends the run as main's stop does.
+    let mut stopped = None;
+    if let Some(r) = &e.real {
+        stopped = r.frame_ended(&mut e.mem);
+        main.host_holds_kernel = true;
+    }
+    if let Some(r) = e.mem.race_census() {
+        r.frame_ended();
+    }
     main.call_stack = std::mem::replace(&mut e.call_stack, std::mem::take(&mut main.host_stack));
     e.sync_check_frame();
     crate::profile::resync(&e.call_stack);
     crate::profile::back_to_host();
     load_fpu(e);
     let turn = match reply {
+        _ if stopped.is_some() => MainTurn::Stopped(stopped.unwrap_or_default()),
         Some(Yield::Paused) => MainTurn::Frame,
         Some(Yield::Finished(code)) => MainTurn::Finished(code),
         Some(Yield::Stopped(why)) => MainTurn::Stopped(why),
@@ -1278,6 +1391,9 @@ pub fn end_main_frame(e: &mut Engine) -> bool {
     if !on_coroutine || !on_main(e) {
         return false;
     }
+    // Real threads: the kernel lock goes to the host while main waits for its next frame
+    // ([`finish_main_frame`] takes it, [`begin_main_frame`] gives it back).
+    let held = e.real.as_ref().map(|r| r.release_kernel());
     crate::profile::set_phase(crate::profile::Phase::Switch);
     MAIN_COROUTINE.with(|c| {
         let c = c.borrow();
@@ -1289,6 +1405,9 @@ pub fn end_main_frame(e: &mut Engine) -> bool {
             }
         }
     });
+    if let (Some(depth), Some(r)) = (held, &e.real) {
+        r.take_kernel(depth);
+    }
     crate::profile::holding(MAIN_THREAD_ID);
     load_fpu(e);
     true
@@ -1316,7 +1435,8 @@ pub fn preempt(e: &mut Engine, addr: u32) {
         }
         // The main thread's wake delay is over ([`request_wake`]): the woken threads run, and
         // main starts a new turn.
-        set_slice(e, turn_len(e));
+        let len = turn_len(e);
+        set_slice(e, len);
         e.kernel.threads.overrun = false;
         wake_waiters(e, crate::units::platform::signalled);
         return;
@@ -1353,7 +1473,10 @@ pub fn preempt(e: &mut Engine, addr: u32) {
 /// `EnterCriticalSection` switch by themselves). A turn that has used up its slice
 /// ([`Threads::overrun`]) ends here, before the call.
 pub fn blocking_call(e: &mut Engine) {
-    if e.kernel.threads.overrun && e.kernel.threads.scheme.switch_at == SwitchAt::Blocking {
+    if e.real.is_none()
+        && e.kernel.threads.overrun
+        && e.kernel.threads.scheme.switch_at == SwitchAt::Blocking
+    {
         end_turn(e);
     }
 }
@@ -1362,7 +1485,8 @@ pub fn blocking_call(e: &mut Engine) {
 /// other than main gives its turn back, runnable at the next pass as after `Sleep(0)`; the
 /// main thread gives the others one pass.
 fn end_turn(e: &mut Engine) {
-    set_slice(e, turn_len(e));
+    let len = turn_len(e);
+    set_slice(e, len);
     e.kernel.threads.overrun = false;
     if e.kernel.threads.list.is_empty() {
         return;
@@ -1381,7 +1505,8 @@ fn end_turn(e: &mut Engine) {
 
 /// The main thread starts a new turn: a whole slice, or a pending wake's delay at most.
 fn start_main_turn(e: &mut Engine) {
-    set_slice(e, turn_len(e));
+    let len = turn_len(e);
+    set_slice(e, len);
     e.kernel.threads.overrun = false;
     // A wake still pending is decided again: only while another thread can run now (the
     // switch may have run the ones it was for).
@@ -1389,10 +1514,13 @@ fn start_main_turn(e: &mut Engine) {
     wake_parked(e);
 }
 
-/// The calls a turn starts with: the slice, or no end without one (`slice_len` 0).
-fn turn_len(e: &Engine) -> u64 {
+/// The calls a turn starts with: the slice, or no end without one (`slice_len` 0). Shuffled
+/// ([`Scheme::shuffle`]): anywhere from 1 call to twice the slice.
+fn turn_len(e: &mut Engine) -> u64 {
     if e.slice_len == 0 {
         u64::MAX
+    } else if let Some(seed) = e.kernel.threads.scheme.shuffle {
+        1 + e.kernel.threads.shuffled(seed, 2 * e.slice_len)
     } else {
         e.slice_len
     }

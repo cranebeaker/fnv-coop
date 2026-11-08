@@ -256,6 +256,18 @@ impl State {
         self.allowed != 0
     }
 
+    /// The same families for a real thread's engine (`crate::real_threads`): what is on and
+    /// allowed, none of the differential test's state.
+    pub(crate) fn for_thread(&self) -> State {
+        State {
+            direct: self.direct,
+            allowed: self.allowed,
+            dual: self.dual,
+            members: self.members.clone(),
+            ..State::default()
+        }
+    }
+
     /// Something was registered over `addr`. A member's family then goes by address for the rest
     /// of this engine's life, so what was registered is what runs.
     #[inline]

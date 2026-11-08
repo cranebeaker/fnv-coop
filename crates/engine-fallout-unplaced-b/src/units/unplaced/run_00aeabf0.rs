@@ -3043,7 +3043,7 @@ pub mod audio_check {
                 .collect::<Vec<_>>()
                 .join(" ")
         };
-        let live = |block: u32| e.kernel.crt_block_sizes.get(&block).copied();
+        let live = |block: u32| e.mem.asked_size(block);
         let f = frees();
         let freed = |block: u32| match f.1.get(&block) {
             None => "never freed while the check ran".to_string(),

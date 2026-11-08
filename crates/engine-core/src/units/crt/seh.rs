@@ -890,11 +890,17 @@ fn cached_image_is_valid(e: &mut Engine, node: u32, table: u32, highest: u32, im
         != 0
 }
 
-/// `XCHG [0127073c], value`: the lock word's old value.
+/// `XCHG [0127073c], value`: the lock word's old value, swapped atomically as the exe's `XCHG`
+/// with memory is (it matters with real threads, `crate::real_threads`).
 fn swap_lock(e: &mut Engine, value: u32) -> u32 {
-    let old = e.mem.u32(EH3_CACHE_LOCK);
-    e.mem.set_u32(EH3_CACHE_LOCK, value);
-    old
+    match e.mem.atomic_u32(EH3_CACHE_LOCK) {
+        Some(word) => word.swap(value, std::sync::atomic::Ordering::SeqCst),
+        None => {
+            let old = e.mem.u32(EH3_CACHE_LOCK);
+            e.mem.set_u32(EH3_CACHE_LOCK, value);
+            old
+        }
+    }
 }
 
 /// `__ValidateEH3RN` for a page found in the cache at `slot` (`00edf802`): the entry moves to

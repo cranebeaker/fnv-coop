@@ -1361,8 +1361,10 @@ mod ntdll {
 /// not provided, nor a search of a folder the game changed since its `FindFirstFileA`
 /// ([`Search::folder`]).
 pub fn find_next_file_a(e: &mut Engine, handle: u32, data: Ptr) -> u32 {
-    let disk = &state!(e).disk;
-    let next = match e.kernel.objects.get_mut(&handle) {
+    // The kernel borrowed once: its platform state and its objects side by side.
+    let kernel = &mut *e.kernel;
+    let disk = &crate::state_mut(&mut kernel.platform).disk;
+    let next = match kernel.objects.get_mut(&handle) {
         Some(KernelObject::FindFile(search)) => {
             let search = search
                 .get_mut::<Search>()

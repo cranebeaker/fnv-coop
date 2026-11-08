@@ -154,7 +154,7 @@ pub struct Engine {
     pub real_clock: Option<std::time::Instant>,
     /// The Windows kernel objects the platform imports hand out (events,
     /// semaphores, threads, `VirtualAlloc` regions; `units/platform.rs`).
-    pub kernel: crate::units::platform::Kernel,
+    pub kernel: crate::units::platform::KernelRef,
     /// The functions entered through [`Engine::call`] that haven't returned,
     /// innermost last: the nearest caller entered by address of whatever
     /// runs now (calls within one unit file are direct and not on it). A
@@ -218,6 +218,10 @@ pub struct Engine {
     /// The typed migration's seam on this engine: which families are on and may go direct
     /// ([`crate::typed`]).
     pub(crate) typed: crate::typed::State,
+    /// Real threads (`NV_THREADS=real`, [`crate::real_threads`]): this engine is one game thread's
+    /// own context (the main thread's or another's), sharing memory and kernel objects with the
+    /// others. `None` with stepped threads.
+    pub real: Option<Box<crate::real_threads::Ctx>>,
     /// The built-in extenders' state: extension slots, wrap chains and seam handlers
     /// ([`crate::extend`]); empty unless an extender installs.
     pub(crate) extend: crate::extend::ExtendState,
@@ -299,6 +303,14 @@ impl Engine {
         if let Some(spec) = crate::census::touch_spec() {
             mem.enable_touch(spec);
         }
+        // `NV_RACE_CENSUS=FILE` (a diagnostic of the stepped host): which words two threads write
+        // (`race_census.rs`); it names the running function through the block check.
+        if let Some(path) = crate::race_census::path_from_env() {
+            if !mem.block_check_on() {
+                mem.enable_block_check(false, false);
+            }
+            mem.enable_race_census(path);
+        }
         // The C runtime words its string and memory routines read first, as the image
         // holds them before the CRT start-up: `__sse2_available` (`01270a6c`) and
         // `__locale_changed` (`0126fdf4`) lie in `.data` past its file contents, so they
@@ -343,6 +355,7 @@ impl Engine {
             stack_frames: Vec::new(),
             guest_stacks: Vec::new(),
             typed: Default::default(),
+            real: None,
             extend: Default::default(),
         };
         // The platform layer's state, when the program links the layer (`units::platform::Layer`:
@@ -385,12 +398,13 @@ impl Engine {
             if self.mem.is_mapped(i.slot) {
                 self.mem.set_u32(i.slot, i.slot);
             }
-            if let Some((_, _, f)) = table
+            if let Some((_, import, f)) = table
                 .iter()
                 .find(|(d, name, _)| d.eq_ignore_ascii_case(&i.dll) && *name == i.name)
             {
                 self.register(i.slot, *f);
                 self.platform_calls.insert(i.slot);
+                self.kernel.import_names.insert(i.slot, import);
                 crate::profile::name_import(i.slot, &i.dll, &i.name);
                 n += 1;
             }
@@ -528,6 +542,91 @@ impl Engine {
         self.funcs.insert(addr, Callable::Abi(f));
         self.call_cache[cache_slot(addr)] = Cached::empty(cache_slot(addr));
         self.typed.replaced(addr);
+        if self.real.is_some() {
+            // Real threads: every thread's engine gets it (`crate::real_threads::registered`).
+            crate::real_threads::registered(self, addr, f);
+        }
+    }
+
+    /// [`Engine::register`] on this engine alone, as given (real threads' own bookkeeping:
+    /// `crate::real_threads`).
+    pub(crate) fn register_here(&mut self, addr: u32, f: AbiFn) {
+        self.funcs.insert(addr, Callable::Abi(f));
+        self.call_cache[cache_slot(addr)] = Cached::empty(cache_slot(addr));
+        self.typed.replaced(addr);
+    }
+
+    /// What is registered at `addr` when it is a plain function (not a test double).
+    pub(crate) fn registered_fn(&self, addr: u32) -> Option<AbiFn> {
+        match self.funcs.get(&addr) {
+            Some(Callable::Abi(f)) => Some(*f),
+            _ => None,
+        }
+    }
+
+    /// The addresses of every plain function registered (real threads' set-up).
+    pub(crate) fn registered_addrs(&self) -> Vec<u32> {
+        self.funcs
+            .iter()
+            .filter(|(_, f)| matches!(f, Callable::Abi(_)))
+            .map(|(&a, _)| a)
+            .collect()
+    }
+
+    /// The index of the running game thread in the thread host's list (`crate::thread_host`):
+    /// with real threads this engine's own thread ([`Engine::real`]).
+    #[inline]
+    pub fn thread_index(&self) -> usize {
+        match &self.real {
+            Some(r) => r.index,
+            None => self.kernel.threads.current,
+        }
+    }
+
+    /// A new engine for a real thread (`crate::real_threads`), made from this one (the real
+    /// threads' template): the same functions (plain ones; test doubles stay with their engine),
+    /// typed families, clock and platform slots, a view of the same memory and the same kernel
+    /// objects; its own call cache, call stack, TLS block (none yet), guest stack and time slice
+    /// (none). No diagnostic. `real` is the new thread's context.
+    pub(crate) fn thread_context(&self, real: crate::real_threads::Ctx) -> Engine {
+        Engine {
+            mem: self.mem.view(),
+            funcs: self
+                .funcs
+                .iter()
+                .filter(|(_, f)| matches!(f, Callable::Abi(_)))
+                .map(|(&a, f)| (a, f.clone()))
+                .collect(),
+            call_cache: (0..CALL_CACHE_LEN)
+                .map(Cached::empty)
+                .collect::<Box<[Cached]>>()
+                .try_into()
+                .unwrap_or_else(|_| unreachable!("the call cache has CALL_CACHE_LEN entries")),
+            call_log: None,
+            tls: 0,
+            clock_ms: self.clock_ms,
+            clock_us: self.clock_us,
+            real_clock: self.real_clock,
+            kernel: self.kernel.alias(),
+            call_stack: Vec::with_capacity(256),
+            on_open: None,
+            trace: None,
+            trace_keep: self.trace_keep,
+            call_budget: None,
+            call_counts: None,
+            slice_left: 0,
+            slice_len: 0,
+            slice_hook: None,
+            call_hook: None,
+            free_hook: None,
+            platform_calls: self.platform_calls.clone(),
+            call_trace: None,
+            stack_frames: Vec::new(),
+            guest_stacks: Vec::new(),
+            typed: self.typed.for_thread(),
+            extend: self.extend.for_thread(),
+            real: Some(Box::new(real)),
+        }
     }
 
     /// What is registered at `addr`: a plain function, `Err` for a test double, `None` for
@@ -657,6 +756,14 @@ impl Engine {
         }
         if crate::profile::on() {
             crate::profile::cache_miss();
+        }
+        if self.real.is_some()
+            && !self.funcs.contains_key(&addr)
+            && crate::real_threads::sync_registered(self)
+            && self.funcs.contains_key(&addr)
+        {
+            // Registered on another thread's engine since this one last looked.
+            return self.call_full(addr, args);
         }
         let Some(f) = self.funcs.get(&addr).cloned() else {
             if let Some(row) = crate::static_exit::row(addr) {
@@ -923,7 +1030,7 @@ impl Engine {
     pub fn with_stack<R>(&mut self, size: u32, f: impl FnOnce(&mut Engine, Ptr) -> R) -> R {
         // It goes back the way it came, even if the check is switched on meanwhile.
         let checked = self.mem.block_check_on();
-        let thread = self.kernel.threads.current;
+        let thread = self.thread_index();
         let (block, top) = if checked {
             (self.mem.alloc(size), 0)
         } else {
@@ -948,7 +1055,7 @@ impl Engine {
     /// The address the next [`Engine::with_stack`] of `size` bytes on the running thread takes
     /// (block check off), for tests that need to know a local's address beforehand.
     pub fn next_stack_local(&mut self, size: u32) -> u32 {
-        let thread = self.kernel.threads.current;
+        let thread = self.thread_index();
         let (block, top) = self.push_frame(thread, size);
         if let Some(Some(stack)) = self.guest_stacks.get_mut(thread) {
             stack.1 = top;
@@ -960,7 +1067,7 @@ impl Engine {
     /// through `with_stack` frames, [`Engine::guest_stack_restore`] with this mark gives them
     /// back (the exe's frames go with ESP however a frame ends).
     pub fn guest_stack_mark(&self) -> (usize, Option<u32>) {
-        let thread = self.kernel.threads.current;
+        let thread = self.thread_index();
         let top = self
             .guest_stacks
             .get(thread)
@@ -1007,7 +1114,7 @@ impl Engine {
     pub(crate) fn guest_stack_region(&self) -> Option<(u32, u32)> {
         let (base, _) = self
             .guest_stacks
-            .get(self.kernel.threads.current)
+            .get(self.thread_index())
             .copied()
             .flatten()?;
         Some((base, base + GUEST_STACK_SIZE))

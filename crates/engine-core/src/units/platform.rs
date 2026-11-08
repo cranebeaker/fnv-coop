@@ -159,9 +159,7 @@ pub fn memory_manager_allocate(e: &mut Engine, _this: Ptr, size: u32) -> Ptr {
     if e.mem.block_check_on() {
         e.mem.note_path(&e.call_stack);
     }
-    let block = e.mem.alloc(size);
-    e.kernel.crt_block_sizes.insert(block, size.max(1));
-    Ptr::new(block)
+    Ptr::new(e.mem.alloc_asked(size))
 }
 
 // Platform: replaces 00aa4060 (MemoryManager::Deallocate (Xbox PDB), FalloutNV.exe 1.4.0.525)
@@ -173,8 +171,7 @@ pub fn memory_manager_deallocate(e: &mut Engine, _this: Ptr, block: Ptr) {
     if e.mem.block_check_on() {
         e.mem.note_path(&e.call_stack);
     }
-    e.kernel.crt_block_sizes.remove(&block.addr());
-    e.mem.free(block.addr());
+    e.mem.free_asked(block.addr());
 }
 
 /// `BSSystemUtility` singleton (`bssystemutility_xenon.cpp`, Xbox PDB): its
@@ -579,31 +576,43 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
 // the interlocked operations are plain memory operations and the critical
 // sections do nothing.
 
+/// The store of an interlocked import: the race census (`NV_RACE_CENSUS`) doesn't count it.
+fn interlocked_store(e: &Engine, at: u32, value: i32) {
+    match e.mem.race_census() {
+        Some(r) => {
+            r.interlocked(true);
+            e.mem.set_i32(at, value);
+            r.interlocked(false);
+        }
+        None => e.mem.set_i32(at, value),
+    }
+}
+
 // Platform: replaces KERNEL32.DLL InterlockedIncrement (import)
 fn interlocked_increment(e: &mut Engine, target: Ptr) -> i32 {
     let v = e.mem.i32(target.addr()).wrapping_add(1);
-    e.mem.set_i32(target.addr(), v);
+    interlocked_store(e, target.addr(), v);
     v
 }
 
 // Platform: replaces KERNEL32.DLL InterlockedDecrement (import)
 fn interlocked_decrement(e: &mut Engine, target: Ptr) -> i32 {
     let v = e.mem.i32(target.addr()).wrapping_sub(1);
-    e.mem.set_i32(target.addr(), v);
+    interlocked_store(e, target.addr(), v);
     v
 }
 
 // Platform: replaces KERNEL32.DLL InterlockedExchange (import)
 fn interlocked_exchange(e: &mut Engine, target: Ptr, value: i32) -> i32 {
     let old = e.mem.i32(target.addr());
-    e.mem.set_i32(target.addr(), value);
+    interlocked_store(e, target.addr(), value);
     old
 }
 
 // Platform: replaces KERNEL32.DLL InterlockedExchangeAdd (import)
 fn interlocked_exchange_add(e: &mut Engine, target: Ptr, value: i32) -> i32 {
     let old = e.mem.i32(target.addr());
-    e.mem.set_i32(target.addr(), old.wrapping_add(value));
+    interlocked_store(e, target.addr(), old.wrapping_add(value));
     old
 }
 
@@ -611,7 +620,7 @@ fn interlocked_exchange_add(e: &mut Engine, target: Ptr, value: i32) -> i32 {
 fn interlocked_compare_exchange(e: &mut Engine, target: Ptr, exchange: i32, comparand: i32) -> i32 {
     let old = e.mem.i32(target.addr());
     if old == comparand {
-        e.mem.set_i32(target.addr(), exchange);
+        interlocked_store(e, target.addr(), exchange);
     }
     if crate::queue_check::enabled() {
         // Diagnostic only (`NV_QUEUE_CHECK`, not exe behaviour).
@@ -655,6 +664,9 @@ fn critical_section_reset(e: &mut Engine, section: Ptr) {
 fn enter_critical_section(e: &mut Engine, section: Ptr) {
     let handle = critical_section_mutex(e, section);
     wait_one(e, handle, INFINITE);
+    if let Some(r) = e.mem.race_census() {
+        r.lock_taken();
+    }
 }
 
 // Platform: replaces KERNEL32.DLL LeaveCriticalSection (import)
@@ -678,6 +690,9 @@ fn leave_critical_section(e: &mut Engine, section: Ptr) {
     if freed {
         crate::thread_host::signal(e);
     }
+    if let Some(r) = e.mem.race_census() {
+        r.lock_released();
+    }
 }
 
 // Platform: replaces KERNEL32.DLL TryEnterCriticalSection (import)
@@ -686,6 +701,9 @@ fn try_enter_critical_section(e: &mut Engine, section: Ptr) -> i32 {
     let handle = critical_section_mutex(e, section);
     if signalled(e, handle) {
         take(e, handle);
+        if let Some(r) = e.mem.race_census() {
+            r.lock_taken();
+        }
         1
     } else {
         0
@@ -756,7 +774,7 @@ fn get_current_thread_id(e: &mut Engine) -> u32 {
 /// (`Engine::wait_clock_until_us`: really, with the real clock on) and the others get a pass;
 /// another thread sleeps until the clock reaches its wake time, without moving it.
 fn sleep(e: &mut Engine, ms: u32) {
-    crate::thread_host::host().sleep(e, ms, signalled);
+    crate::thread_host::host_for(e).sleep(e, ms, signalled);
 }
 
 /// The exception code of the debugger thread-naming convention (`SetThreadName`, `00aa2740`).
@@ -1119,15 +1137,85 @@ pub struct Kernel {
     pub platform: Option<Box<dyn std::any::Any>>,
     /// Fiber-local storage ([`loader`]).
     pub fls: loader::Fls,
-    /// The sizes the CRT's heap blocks were asked for (`malloc`, `realloc`, `__calloc_crt` on
-    /// the platform allocator), as `HeapSize` answers them for `_msize` (`crate::units::crt`).
-    pub crt_block_sizes: std::collections::HashMap<u32, u32>,
     /// The threads that called `CoInitializeEx`, with their concurrency mode.
     pub com_threads: std::collections::BTreeMap<u32, u32>,
     /// The critical sections by address: the mutex object standing for each.
     pub critical_sections: crate::engine::AddrMap<u32, u32>,
-    /// The thread's last-error code (`GetLastError`/`SetLastError`).
+    /// The thread's last-error code (`GetLastError`/`SetLastError`). With real threads each
+    /// thread keeps its own (`crate::real_threads`), swapped in here around each platform call.
     pub last_error: u32,
+    /// The import slots [`crate::Engine::register_imports`] filled, with the function's name:
+    /// real threads (`crate::real_threads`) put their own versions of the synchronisation imports
+    /// there.
+    pub import_names: crate::engine::AddrMap<u32, &'static str>,
+}
+
+/// The kernel objects an engine uses (`Engine::kernel`): its own, or, for a real thread's engine,
+/// the main engine's ([`KernelRef::alias`], `crate::real_threads`), which every thread then changes
+/// only under the real threads' kernel lock. Reads and writes as a [`Kernel`].
+pub struct KernelRef {
+    kernel: std::ptr::NonNull<Kernel>,
+    /// Whether this one owns the kernel (frees it when dropped).
+    owned: bool,
+}
+
+impl Default for KernelRef {
+    fn default() -> Self {
+        KernelRef {
+            kernel: std::ptr::NonNull::from(Box::leak(Box::default())),
+            owned: true,
+        }
+    }
+}
+
+impl KernelRef {
+    /// Another reference to this kernel, for a real thread's engine. Made only after
+    /// [`KernelRef::leak`], so it never outlives the kernel.
+    pub(crate) fn alias(&self) -> KernelRef {
+        KernelRef {
+            kernel: self.kernel,
+            owned: false,
+        }
+    }
+
+    /// Real threads (`crate::real_threads::start`): the kernel lives for good, as the shared
+    /// memory and the threads' world do, since game threads may still use it after the main
+    /// engine is gone.
+    pub(crate) fn leak(&mut self) {
+        self.owned = false;
+    }
+}
+
+impl std::ops::Deref for KernelRef {
+    type Target = Kernel;
+    fn deref(&self) -> &Kernel {
+        // SAFETY: the kernel lives while its owner does, and for good once real threads use it (an
+        // alias is made only after `leak`); with real threads every thread reaches it only under the
+        // kernel lock.
+        unsafe { self.kernel.as_ref() }
+    }
+}
+
+impl std::ops::DerefMut for KernelRef {
+    fn deref_mut(&mut self) -> &mut Kernel {
+        // SAFETY: as for `deref`.
+        unsafe { self.kernel.as_mut() }
+    }
+}
+
+impl Drop for KernelRef {
+    fn drop(&mut self) {
+        if self.owned {
+            // SAFETY: an owning reference made the box (`default`) and nothing uses it after this.
+            drop(unsafe { Box::from_raw(self.kernel.as_ptr()) });
+        }
+    }
+}
+
+impl std::fmt::Debug for KernelRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        (**self).fmt(f)
+    }
 }
 
 impl Kernel {
@@ -1585,7 +1673,7 @@ fn wait_one(e: &mut Engine, handle: u32, timeout: u32) -> u32 {
             Some(true) => return WAIT_OBJECT_0,
             Some(false) => {}
         }
-        if crate::thread_host::host().block(e, &[handle], false, deadline, signalled) {
+        if crate::thread_host::host_for(e).block(e, &[handle], false, deadline, signalled) {
             continue;
         }
         if finite {
@@ -1644,7 +1732,7 @@ fn wait_for_multiple_objects(
             take(e, list[i]);
             return WAIT_OBJECT_0 + i as u32;
         }
-        if crate::thread_host::host().block(e, list, all, deadline, signalled) {
+        if crate::thread_host::host_for(e).block(e, list, all, deadline, signalled) {
             continue;
         }
         if finite {
@@ -1814,8 +1902,20 @@ fn change_suspend_count(e: &mut Engine, handle: u32, delta: i32) -> u32 {
         }
         _ => return 0xffff_ffff,
     };
+    let mut start = None;
     if let Some(t) = crate::thread_host::by_handle(e, handle) {
         t.suspend_count = previous.saturating_add_signed(delta);
+        start = (t.suspend_count == 0 && t.state == crate::thread_host::RunState::NotStarted)
+            .then_some(t.id);
+    }
+    // Real threads: a thread made suspended starts once resumed to 0, on its own OS thread; one
+    // that runs parks at its next platform call, wait or sleep while suspended.
+    if e.real.is_some() {
+        if let Some(i) = start.and_then(|id| e.kernel.threads.list.iter().position(|t| t.id == id))
+        {
+            crate::real_threads::start_thread(e, i);
+        }
+        crate::real_threads::suspends_changed(e);
     }
     previous
 }
@@ -1830,7 +1930,8 @@ fn resume_thread(e: &mut Engine, handle: u32) -> u32 {
 // Platform: replaces KERNEL32.DLL SuspendThread (import)
 /// Raises a thread's suspend count and returns the previous one. (A thread
 /// suspends another only between switch points here, so it never stops one
-/// in the middle of its work.)
+/// in the middle of its work; with real threads the target stops at its next
+/// platform call, wait or sleep, `crate::real_threads`.)
 fn suspend_thread(e: &mut Engine, handle: u32) -> u32 {
     change_suspend_count(e, handle, 1)
 }
@@ -1865,7 +1966,7 @@ fn get_exit_code_thread(e: &mut Engine, handle: u32, code: Ptr) -> u32 {
 // Platform: replaces KERNEL32.DLL ExitThread (import)
 /// Ends the running game thread with `code` (its handle becomes signalled).
 fn exit_thread(e: &mut Engine, code: u32) {
-    crate::thread_host::host().exit(e, code);
+    crate::thread_host::host_for(e).exit(e, code);
 }
 
 /// Thread-local storage indexes Windows provides (`TLS_MINIMUM_AVAILABLE`
@@ -1884,6 +1985,7 @@ fn tls_alloc(e: &mut Engine) -> u32 {
     match used.iter().position(|u| !u) {
         Some(i) => {
             used[i] = true;
+            crate::real_threads::tls_index_reset(e, i as u32);
             i as u32
         }
         None => TLS_OUT_OF_INDEXES,
@@ -1907,7 +2009,23 @@ fn tls_free(e: &mut Engine, index: u32) -> i32 {
     }
     e.kernel.tls_allocated[index as usize] = false;
     e.kernel.tls_values.retain(|&(_, i), _| i != index);
+    crate::real_threads::tls_index_reset(e, index);
     1
+}
+
+/// Thread `thread`'s thread-local storage values by index (0 where none was set): real threads
+/// take the main thread's over at their start (`crate::real_threads::start`).
+pub(crate) fn tls_values_of(e: &Engine, thread: u32) -> Vec<u32> {
+    let mut out = Vec::new();
+    for (&(t, index), &value) in e.kernel.tls_values.iter() {
+        if t == thread {
+            if out.len() <= index as usize {
+                out.resize(index as usize + 1, 0);
+            }
+            out[index as usize] = value;
+        }
+    }
+    out
 }
 
 // Platform: replaces KERNEL32.DLL TlsGetValue (import)
@@ -2989,7 +3107,7 @@ mod tests {
         let heap = heap_create(&mut e, 0, 0x1000, 0);
         let block = heap_alloc(&mut e, heap, 0, 0x20);
         assert_ne!(block, 0);
-        assert_eq!(e.kernel.crt_block_sizes.get(&block), Some(&0x20));
+        assert_eq!(e.mem.asked_size(block), Some(0x20));
         e.mem.set_u32(block, 0xdead_beef);
         crate::units::crt::free(&mut e, Ptr::new(block));
         let zeroed = heap_alloc(&mut e, heap, 8, 0x10);
@@ -3286,8 +3404,25 @@ mod tests {
                 wake: false,
                 switch_at: SwitchAt::Blocking,
                 timed_waits: false,
+                ..Scheme::WAKE
             })
         );
+        assert_eq!(
+            Scheme::from_name(Some("real")),
+            Ok(Scheme {
+                real: true,
+                ..Scheme::WAKE
+            })
+        );
+        assert_eq!(
+            Scheme::from_name(Some("Shuffle:42")),
+            Ok(Scheme {
+                shuffle: Some(42),
+                ..Scheme::WAKE
+            })
+        );
+        assert!(Scheme::from_name(Some("shuffle:x")).is_err());
+        assert!(Scheme::from_name(Some("real,shuffle:1")).is_err());
         assert_eq!(
             Scheme::from_name(Some("platformcall")),
             Ok(Scheme {

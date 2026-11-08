@@ -189,7 +189,7 @@ pub fn heap_free(e: &mut Engine, heap: u32, flags: u32, block: u32) -> u32 {
         return 1;
     }
     assert!(
-        e.kernel.crt_block_sizes.remove(&block).is_some(),
+        e.mem.forget_asked(block).is_some(),
         "HeapFree of {block:08x}, which the CRT's heap did not hand out: not provided"
     );
     e.mem.free(block);
@@ -208,7 +208,7 @@ pub fn heap_re_alloc(e: &mut Engine, heap: u32, flags: u32, block: u32, size: u3
         is_heap(e, heap) && flags & !HEAP_ZERO_MEMORY == 0,
         "HeapReAlloc(heap {heap:#x}, flags {flags:#x}) is not provided"
     );
-    let Some(old) = e.kernel.crt_block_sizes.get(&block).copied() else {
+    let Some(old) = e.mem.asked_size(block) else {
         panic!("HeapReAlloc of {block:08x}, which the CRT's heap did not hand out: not provided");
     };
     let new = e.mem.alloc(size);
@@ -217,9 +217,9 @@ pub fn heap_re_alloc(e: &mut Engine, heap: u32, flags: u32, block: u32, size: u3
     if flags & HEAP_ZERO_MEMORY != 0 && size > old {
         e.mem.write(new + old, &vec![0u8; (size - old) as usize]);
     }
-    e.kernel.crt_block_sizes.remove(&block);
+    e.mem.forget_asked(block);
     e.mem.free(block);
-    e.kernel.crt_block_sizes.insert(new, size);
+    e.mem.set_asked(new, size);
     new
 }
 
@@ -499,13 +499,13 @@ mod tests {
         let grown = heap_re_alloc(&mut e, heap, HEAP_ZERO_MEMORY, block, 0x40);
         assert_eq!(e.mem.bytes(grown, 0x20), pattern);
         assert!(e.mem.bytes(grown + 0x20, 0x20).iter().all(|&b| b == 0));
-        assert_eq!(e.kernel.crt_block_sizes.get(&grown), Some(&0x40));
-        assert!(!e.kernel.crt_block_sizes.contains_key(&block) || grown == block);
+        assert_eq!(e.mem.asked_size(grown), Some(0x40));
+        assert!(e.mem.asked_size(block).is_none() || grown == block);
         let shrunk = heap_re_alloc(&mut e, heap, 0, grown, 0);
-        assert_eq!(e.kernel.crt_block_sizes.get(&shrunk), Some(&0));
+        assert_eq!(e.mem.asked_size(shrunk), Some(0));
         assert_eq!(heap_free(&mut e, heap, 0, 0), 1);
         assert_eq!(heap_free(&mut e, heap, 0, shrunk), 1);
-        assert!(!e.kernel.crt_block_sizes.contains_key(&shrunk));
+        assert!(e.mem.asked_size(shrunk).is_none());
         assert_eq!(e.kernel.last_error, 0x1234);
     }
 }

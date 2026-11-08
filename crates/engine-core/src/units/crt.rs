@@ -90,9 +90,7 @@ pub fn memset_wrapper(e: &mut Engine, dst: Ptr, c: i32, n: u32) -> Ptr {
 /// (`HeapSize` answers the size `HeapAlloc` was asked for; 0 is asked as 1, as the exe's
 /// `malloc` body does on the system heap).
 pub(crate) fn crt_alloc(e: &mut Engine, n: u32) -> u32 {
-    let block = e.mem.alloc(n);
-    e.kernel.crt_block_sizes.insert(block, n.max(1));
-    block
+    e.mem.alloc_asked(n)
 }
 
 // Platform: replaces 00ed0cdf (malloc, LIBCMT)
@@ -105,8 +103,7 @@ pub fn free(e: &mut Engine, p: Ptr) {
     if let (Some(hook), true) = (e.free_hook, p.addr() != 0) {
         hook(e, p.addr());
     }
-    e.kernel.crt_block_sizes.remove(&p.addr());
-    e.mem.free(p.addr())
+    e.mem.free_asked(p.addr())
 }
 
 // Platform: replaces 00ed0d24 (__calloc_crt, LIBCMT)
@@ -140,7 +137,7 @@ pub fn realloc(e: &mut Engine, block: Ptr, size: u32) -> Ptr {
         e.mem.set_u32(slot.addr(), 0xc);
         return Ptr::new(0);
     }
-    let Some(old) = e.kernel.crt_block_sizes.get(&block.addr()).copied() else {
+    let Some(old) = e.mem.asked_size(block.addr()) else {
         panic!(
             "realloc of {:08x}, which the CRT's heap did not hand out: not provided",
             block.addr()
@@ -166,8 +163,8 @@ pub fn msize(e: &mut Engine, block: Ptr) -> u32 {
         e.call(0x00ec_7c30, &[0, 0, 0, 0, 0]);
         return 0xffff_ffff;
     }
-    match e.kernel.crt_block_sizes.get(&block.addr()) {
-        Some(size) => *size,
+    match e.mem.asked_size(block.addr()) {
+        Some(size) => size,
         None => panic!(
             "_msize of {:08x}, which the CRT's heap did not hand out: not provided",
             block.addr()
@@ -10292,7 +10289,7 @@ mod tests_realloc_msize {
         let d = e.call(0x00ec_cf5d, &args![0u32, 8u32]).u32();
         assert_ne!(d, 0);
         assert_eq!(e.call(0x00ec_cf5d, &args![d, 0u32]).u32(), 0);
-        assert!(!e.kernel.crt_block_sizes.contains_key(&d));
+        assert!(e.mem.asked_size(d).is_none());
         // Too big: the new handler, ENOMEM, null, the block kept.
         let called = std::rc::Rc::new(std::cell::Cell::new(0u32));
         let seen = called.clone();

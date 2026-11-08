@@ -543,6 +543,21 @@ pub(crate) struct ExtendState {
     pub(crate) tables: ScriptTables,
 }
 
+impl ExtendState {
+    /// The state a real thread's engine starts with ([`Engine::thread_context`]): the same wraps, seam
+    /// handlers and script tables (installed before the threads start), its own links running
+    /// and empty extension slots (a built-in's per-engine state does not cross threads).
+    pub(crate) fn for_thread(&self) -> ExtendState {
+        ExtendState {
+            slots: std::collections::HashMap::new(),
+            chains: self.chains.clone(),
+            active: std::collections::HashMap::new(),
+            sites: self.sites.clone(),
+            tables: self.tables,
+        }
+    }
+}
+
 /// The handlers at one seam: its table, and a handler or none per owner, in the table's order.
 pub(crate) type SiteHandlers = (&'static [Entry], Box<[Option<SiteFn>]>);
 
@@ -877,6 +892,33 @@ mod tests {
         assert_eq!(marks(&e), b"jnbNJ");
         assert_eq!(e.wraps_at(0x0000_1100), [Owner::Nvse, Owner::Jip]);
         assert_eq!(e.wrapped(), [(0x0000_1100, vec![Owner::Nvse, Owner::Jip])]);
+    }
+
+    /// A real thread's engine starts with the wraps installed before the threads started
+    /// ([`ExtendState::for_thread`], `Engine::thread_context`): the same chain runs there, with
+    /// its own links running and empty extension slots.
+    #[test]
+    fn a_real_threads_engine_runs_the_same_wraps() {
+        #[derive(Default)]
+        struct Slot(u32);
+        let mut e = engine();
+        e.register(0x0000_1100, base);
+        e.register(0x0000_1300, callee);
+        e.wrap(NVSE_AT, nvse_wrap);
+        e.wrap(JIP_AT, jip_wrap);
+        e.ext::<Slot>().0 = 7;
+        let mut t = engine();
+        t.register(0x0000_1300, callee);
+        t.register(
+            0x0000_1100,
+            e.callable_at(0x0000_1100).and_then(Result::ok).unwrap(),
+        );
+        t.extend = e.extend.for_thread();
+        assert_eq!(t.call(0x0000_1100, &[3]).eax, 2062);
+        assert_eq!(marks(&t), b"jnbNJ");
+        assert_eq!(t.wraps_at(0x0000_1100), [Owner::Nvse, Owner::Jip]);
+        assert_eq!(t.ext::<Slot>().0, 0);
+        assert_eq!(e.ext::<Slot>().0, 7);
     }
 
     /// The links are one call of the address: the call log, the call counts and the call stack

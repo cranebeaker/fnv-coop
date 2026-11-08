@@ -493,7 +493,7 @@ pub fn ov_read(
                 }
                 let shared = Arc::clone(&ahead.shared);
                 while !batch_ready(&shared) {
-                    crate::thread_host::host().sleep(e, 1, crate::signalled);
+                    crate::thread_host::host_for(e).sleep(e, 1, crate::signalled);
                 }
             }
         }
