@@ -3605,7 +3605,8 @@ pub fn fn_005582d0(e: &mut Engine, this: Ptr, index: u32) -> u16 {
 /// The 16-byte triangle record `triangle` of a navmesh (`fn_00558dd0` on the
 /// array at `this + 0x38`). The map has no name for it.
 pub fn fn_005582f0(e: &mut Engine, this: Ptr, triangle: u16) -> Ptr {
-    fn_00558dd0(e, Ptr::new(this.addr() + 0x38), u32::from(triangle))
+    e.call(0x0055_8dd0, &args![this.addr() + 0x38, u32::from(triangle)])
+        .ptr()
 }
 
 // Translated from 00558310 (decompiled, FalloutNV.exe 1.4.0.525)

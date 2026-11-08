@@ -9,10 +9,18 @@ use crate::prelude::*;
 /// `z*z + y*y + x*x` in ST0, stored to a `float` local and reloaded. Computed
 /// in `f64` and rounded to `f32` once, as the crate does for x87 code.
 pub fn fn_004a7290(e: &mut Engine, this: Ptr) -> f32 {
-    let x = e.mem.f32(this.addr()) as f64;
-    let y = e.mem.f32(this.addr() + 4) as f64;
-    let z = e.mem.f32(this.addr() + 8) as f64;
-    (x * x + y * y + z * z) as f32
+    use engine_core::x87::{x87_add, x87_load32, x87_m32, x87_mul, x87_store32};
+    // Each square `FLD a; FMUL a`, summed `(xx + yy) + zz` at the running precision, stored to a float.
+    let square = |w: u32| x87_mul(x87_load32(w), x87_m32(w));
+    let (x, y, z) = (
+        e.mem.u32(this.addr()),
+        e.mem.u32(this.addr() + 4),
+        e.mem.u32(this.addr() + 8),
+    );
+    f32::from_bits(x87_store32(x87_add(
+        x87_add(square(x), square(y)),
+        square(z),
+    )))
 }
 
 /// The function `fn_004a7040` calls on the member (`00457990`).

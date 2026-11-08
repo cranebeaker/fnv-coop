@@ -1214,9 +1214,14 @@ pub fn bgs_decal_manager_issue_decal_occlusion_query(
 /// Builds the negation of the vector at `this` in `result` (through the
 /// `NiPoint3` constructor) and returns `result`.
 pub fn fn_004a0bd0(e: &mut Engine, this: Ptr, result: Ptr) -> Ptr {
-    let x = -e.mem.f32(this.addr());
-    let y = -e.mem.f32(this.addr() + 4);
-    let z = -e.mem.f32(this.addr() + 8);
+    // FLD (a signalling NaN quieted), FCHS, FSTP.
+    let negated = |w: u32| {
+        use engine_core::x87::{x87_load32, x87_store32};
+        f32::from_bits(x87_store32(-x87_load32(w)))
+    };
+    let x = negated(e.mem.u32(this.addr()));
+    let y = negated(e.mem.u32(this.addr() + 4));
+    let z = negated(e.mem.u32(this.addr() + 8));
     typed_call!(
         leaf::FAMILY,
         0x0041_6870,
@@ -2697,9 +2702,16 @@ fn emit_decal(
 /// result, scalar, vector); returns `result`.
 pub fn fn_004a3760(e: &mut Engine, result: Ptr, scalar: f32, vector: Ptr) -> Ptr {
     let v = vector.addr();
-    let z = (scalar as f64 * e.mem.f32(v + 8) as f64) as f32;
-    let y = (scalar as f64 * e.mem.f32(v + 4) as f64) as f32;
-    let x = (scalar as f64 * e.mem.f32(v) as f64) as f32;
+    let scaled = |w: u32| {
+        use engine_core::x87::{x87_load32, x87_m32, x87_mul, x87_store32};
+        f32::from_bits(x87_store32(x87_mul(
+            x87_load32(scalar.to_bits()),
+            x87_m32(w),
+        )))
+    };
+    let z = scaled(e.mem.u32(v + 8));
+    let y = scaled(e.mem.u32(v + 4));
+    let x = scaled(e.mem.u32(v));
     typed_call!(
         leaf::FAMILY,
         0x0041_6870,

@@ -1084,7 +1084,13 @@ pub fn fn_00696a50(e: &mut Engine, this: Ptr<NavMesh>, point: Ptr, callback: Ptr
             if e.call(TRIANGLE_FLAGS_SET, &args![tri, 0x20u32]).bool() {
                 continue;
             }
-            if !fn_00697810(e, this, triangle, point, height_slot, callback) {
+            if !e
+                .call(
+                    0x0069_7810,
+                    &args![this, triangle, point, height_slot, callback],
+                )
+                .bool()
+            {
                 continue;
             }
             let height = e.mem.f32(height_slot.addr());
@@ -1207,7 +1213,12 @@ fn closest_candidate(
         let height_slot = scratch;
         let center_difference = scratch.byte_add(4);
         let center_slot = scratch.byte_add(16);
-        if fn_00697730(e, mesh, triangle, point, height_slot, up, down) {
+        if e.call(
+            0x0069_7730,
+            &args![mesh, triangle, point, height_slot, up, down],
+        )
+        .bool()
+        {
             let height = e.mem.f32(height_slot.addr());
             let height = e.call(FLOAT_ABS, &args![height]).f32();
             e.mem.set_f32(height_slot.addr(), height);
@@ -2091,10 +2102,12 @@ pub fn fn_006985c0(e: &mut Engine, this: Ptr) -> Ptr {
 /// `NiPoint2` copy: copies the two floats at `other` to `this`. Returns
 /// `this`.
 pub fn fn_006985f0(e: &mut Engine, this: Ptr, other: Ptr) -> Ptr {
-    let x = e.mem.f32(other.addr());
-    let y = e.mem.f32(other.addr() + 4);
-    e.mem.set_f32(this.addr(), x);
-    e.mem.set_f32(this.addr() + 4, y);
+    // FLD, FSTP: a signalling NaN is quieted on the way.
+    let through = |w: u32| engine_core::x87::x87_store32(engine_core::x87::x87_load32(w));
+    let x = through(e.mem.u32(other.addr()));
+    e.mem.set_u32(this.addr(), x);
+    let y = through(e.mem.u32(other.addr() + 4));
+    e.mem.set_u32(this.addr() + 4, y);
     this
 }
 

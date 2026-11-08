@@ -5425,10 +5425,18 @@ pub fn ni_point3_unitize_get_length(e: &mut Engine, this: Ptr<NiPoint3>) -> f32 
 /// a `float` and passed to `004579e0` (the square root); the result is that
 /// function's `ST0`.
 pub fn fn_00457990(e: &mut Engine, this: Ptr<NiPoint3>) -> f64 {
-    let x = e.get(this, NiPoint3::x) as f64;
-    let y = e.get(this, NiPoint3::y) as f64;
-    let z = e.get(this, NiPoint3::z) as f64;
-    let squared = (x * x + y * y + z * z) as f32;
+    use engine_core::x87::{x87_add, x87_load32, x87_m32, x87_mul, x87_store32};
+    // Each square `FLD a; FMUL a`, summed `(xx + yy) + zz` at the running precision, stored.
+    let square = |v: f32| x87_mul(x87_load32(v.to_bits()), x87_m32(v.to_bits()));
+    let (x, y, z) = (
+        e.get(this, NiPoint3::x),
+        e.get(this, NiPoint3::y),
+        e.get(this, NiPoint3::z),
+    );
+    let squared = f32::from_bits(x87_store32(x87_add(
+        x87_add(square(x), square(y)),
+        square(z),
+    )));
     e.call(0x0045_79e0, &args![squared]).f64()
 }
 

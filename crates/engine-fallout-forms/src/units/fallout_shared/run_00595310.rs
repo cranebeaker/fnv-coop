@@ -388,9 +388,11 @@ pub fn fn_00595600(e: &mut Engine, this: Ptr, flag: u8) -> u8 {
 /// `x * x + y * y` of the point at `this` (its first two floats), rounded to
 /// `float`.
 pub fn fn_00595c80(e: &mut Engine, this: Ptr) -> f32 {
-    let x = f64::from(e.mem.f32(this.addr()));
-    let y = f64::from(e.mem.f32(this.addr() + 4));
-    x87_quiet((x * x + y * y) as f32)
+    use engine_core::x87::{x87_add, x87_load32, x87_m32, x87_mul, x87_store32};
+    // Each square `FLD a; FMUL a`, summed at the running precision, stored to a float.
+    let square = |w: u32| x87_mul(x87_load32(w), x87_m32(w));
+    let (x, y) = (e.mem.u32(this.addr()), e.mem.u32(this.addr() + 4));
+    f32::from_bits(x87_store32(x87_add(square(x), square(y))))
 }
 
 // Translated from 00595cb0 (decompiled, FalloutNV.exe 1.4.0.525)

@@ -1037,20 +1037,23 @@ pub fn nav_mesh_search_is_goal_node(
         let radius = e.call(REQUEST_ACTOR_RADIUS, &args![request]).f64();
         let hundred: f64 = e.global(HUNDRED_DOUBLE);
         if radius > hundred {
-            let scratch = e.mem.alloc(0x24);
-            let data = e.call(NODE_DATA, &args![node]).u32();
-            let here = fn_006a6eb0(e, Ptr::new(data), Ptr::new(scratch));
-            let goal = fn_006a6eb0(e, this.byte_add(GOAL_NODE), Ptr::new(scratch + 0xc));
-            let difference = scratch + 0x18;
-            e.call(VECTOR_SUBTRACT, &args![goal, difference, here]);
-            let length = e.call(VECTOR_LENGTH_595C80, &args![difference]).f64() as f32;
-            let z = e.mem.f32(difference + 8);
-            let z_squared = (z as f64 * z as f64) as f32;
-            let quarter: f64 = e.global(QUARTER);
-            let first = e.call(REQUEST_VALUE_9B0BD0, &args![request]).f64() * quarter;
-            let second = e.call(REQUEST_VALUE_9B0BD0, &args![request]).f64();
-            e.mem.free(scratch);
-            if (length as f64) < second * first && length > z_squared {
+            // The exe's three points are stack locals (they were heap blocks here).
+            let near = e.with_stack(0x24, |e, scratch| {
+                let scratch = scratch.addr();
+                let data = e.call(NODE_DATA, &args![node]).u32();
+                let here = fn_006a6eb0(e, Ptr::new(data), Ptr::new(scratch));
+                let goal = fn_006a6eb0(e, this.byte_add(GOAL_NODE), Ptr::new(scratch + 0xc));
+                let difference = scratch + 0x18;
+                e.call(VECTOR_SUBTRACT, &args![goal, difference, here]);
+                let length = e.call(VECTOR_LENGTH_595C80, &args![difference]).f64() as f32;
+                let z = e.mem.f32(difference + 8);
+                let z_squared = (z as f64 * z as f64) as f32;
+                let quarter: f64 = e.global(QUARTER);
+                let first = e.call(REQUEST_VALUE_9B0BD0, &args![request]).f64() * quarter;
+                let second = e.call(REQUEST_VALUE_9B0BD0, &args![request]).f64();
+                (length as f64) < second * first && length > z_squared
+            });
+            if near {
                 return true;
             }
         }

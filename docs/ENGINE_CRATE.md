@@ -444,7 +444,10 @@ Then `lockfree` (`crates/engine-typed`, a crate above the core that provides its
 lock-free maps, their interfaces, iterators and holder, stage 1 (objects stay in guest memory), off by
 default (`NV_TYPED=lockfree` tries it); its differential tests are `crates/engine/tests/typed_lockfree.rs`.
 And `culling` (same crate): the culling walk, stage 1, off by default (`NV_TYPED=culling`);
-its tests are `crates/engine/tests/typed_culling.rs`.
+its tests are `crates/engine/tests/typed_culling.rs`. And `pathing` (same crate): what the AI's pathfinding threads
+run most (navmesh getters, matching edges, the triangle under a point, the search's keys, goal test and
+arrays, the point-of-view geometry, pathing locations, the point helpers), stage 1, off by default
+(`NV_TYPED=pathing`); its tests are `crates/engine/tests/typed_pathing.rs`.
 
 **The switch.** `NV_TYPED` is read once per process, and `Engine::new` runs `typed::apply` after
 all registration: each family that is on is registered over the translations with

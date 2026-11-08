@@ -1016,7 +1016,7 @@ pub fn nav_mesh_get_matching_edge_ov3(
         return false;
     }
     e.with_stack(4, |e, other_mesh| {
-        if !fn_0068f2e0(e, portal_info, other_mesh) {
+        if !e.call(0x0068_f2e0, &args![portal_info, other_mesh]).bool() {
             return false;
         }
         let other = Ptr::<NavMesh>::new(e.mem.u32(other_mesh.addr()));

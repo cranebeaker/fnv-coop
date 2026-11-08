@@ -526,7 +526,7 @@ pub fn path_location_path_location_ov7(
     world_space: u32,
 ) -> Ptr<PathingLocation> {
     start_construction(e, this);
-    path_location_setup_data(e, this, point, cell, world_space);
+    e.call(0x006d_d280, &args![this, point, cell, world_space]);
     this
 }
 
