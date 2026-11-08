@@ -1913,9 +1913,11 @@ pub fn fn_00698060(
         for corner in 0..3u32 {
             let tri = triangle_of(e, this, triangle as u32);
             let vertex = corner_pointer(e, this, tri, corner);
-            let x = e.mem.u32(vertex.addr());
-            let y = e.mem.u32(vertex.addr() + 4);
+            // FLD, FSTP of each float, as the exe copies them: a signalling NaN is quieted.
+            let through = |w: u32| engine_core::x87::x87_store32(engine_core::x87::x87_load32(w));
+            let x = through(e.mem.u32(vertex.addr()));
             e.mem.set_u32(points.addr() + 8 * corner, x);
+            let y = through(e.mem.u32(vertex.addr() + 4));
             e.mem.set_u32(points.addr() + 8 * corner + 4, y);
         }
         for edge in 0..3i32 {
