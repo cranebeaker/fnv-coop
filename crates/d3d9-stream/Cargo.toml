@@ -1,0 +1,9 @@
+[package]
+name = "d3d9-stream"
+version = "0.1.0"
+description = "The recorded Direct3D 9 call stream between the game's Direct3D 9 model and a backend that draws (the real d3d9.dll, later wgpu), run on the calling thread or on a render thread"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
