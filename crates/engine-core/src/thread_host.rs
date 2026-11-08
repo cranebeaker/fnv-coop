@@ -374,12 +374,13 @@ impl Scheme {
         shuffle: None,
     };
 
-    /// The scheme the host's `NV_THREADS` names: unset or empty [`Scheme::WAKE`]; `slice`
-    /// [`Scheme::SLICE`]; otherwise [`Scheme::WAKE`] changed by the words of a
+    /// The scheme the host's `NV_THREADS` names: unset, empty or `stepped`, [`Scheme::WAKE`];
+    /// `slice` [`Scheme::SLICE`]; otherwise [`Scheme::WAKE`] changed by the words of a
     /// comma-separated list (`nowake`; `platformcall` or `anycall` for [`Scheme::switch_at`];
-    /// `notimeout`; `wake` changes nothing; `real` for real threads, [`Scheme::real`];
-    /// `shuffle:SEED` for [`Scheme::shuffle`], the seed a decimal number). Case and spaces are
-    /// ignored; an unknown word is an error.
+    /// `notimeout`; `wake` and `stepped` change nothing; `real` for real threads,
+    /// [`Scheme::real`]; `shuffle:SEED` for [`Scheme::shuffle`], the seed a decimal number).
+    /// Case and spaces are ignored; an unknown word is an error. (The host picks the words when
+    /// `NV_THREADS` names none: `host::fixes::Choice::threads`.)
     pub fn from_name(name: Option<&str>) -> Result<Scheme, String> {
         let mut scheme = Scheme::WAKE;
         for word in name.unwrap_or("").split(',').map(str::trim) {
@@ -393,7 +394,7 @@ impl Scheme {
                 continue;
             }
             match word.as_str() {
-                "" | "wake" => {}
+                "" | "wake" | "stepped" => {}
                 "slice" => scheme = Scheme::SLICE,
                 "nowake" => scheme.wake = false,
                 "platformcall" => scheme.switch_at = SwitchAt::Platform,
@@ -401,8 +402,8 @@ impl Scheme {
                 "notimeout" => scheme.timed_waits = false,
                 "real" => scheme.real = true,
                 other => {
-                    let known =
-                        "slice, wake, nowake, platformcall, anycall, notimeout, real, shuffle:SEED";
+                    let known = "stepped, slice, wake, nowake, platformcall, anycall, notimeout, \
+                                 real, shuffle:SEED";
                     return Err(format!("NV_THREADS: unknown part {other:?} ({known})"));
                 }
             }
@@ -626,6 +627,28 @@ pub fn signal(e: &mut Engine) {
     e.kernel.threads.signals = e.kernel.threads.signals.wrapping_add(1);
     if let Some(r) = &e.real {
         r.changed();
+    }
+}
+
+/// The object `handle` became signalled (`SetEvent`, `ReleaseSemaphore`): as [`signal`]; with
+/// real threads only the threads waiting on that object wake, as Windows wakes them
+/// ([`crate::real_threads`]), not every waiting thread.
+pub fn signal_object(e: &mut Engine, handle: u32) {
+    if e.real.is_some() {
+        e.kernel.threads.signals = e.kernel.threads.signals.wrapping_add(1);
+        crate::real_threads::object_signalled(e, handle);
+    } else {
+        signal(e);
+    }
+}
+
+/// A waiter took an object (an auto-reset event, a semaphore's count, a mutex): as [`signal`] for the
+/// stepped host; with real threads nobody else can go on because of it, so nobody wakes.
+pub fn signal_taken(e: &mut Engine) {
+    if e.real.is_some() {
+        e.kernel.threads.signals = e.kernel.threads.signals.wrapping_add(1);
+    } else {
+        signal(e);
     }
 }
 
@@ -1359,8 +1382,15 @@ pub fn finish_main_frame(e: &mut Engine, main: &mut MainThread) -> MainTurn {
     // hands back deferred pages while every game thread is stopped. A game thread that stopped
     // ends the run as main's stop does.
     let mut stopped = None;
+    // `NV_LOCK_STATS` notes the clock with each frame (read only then: a reading carries the
+    // part of a microsecond over to the next).
+    let now = if e.real.is_some() && crate::real_threads::lock_stats_on() {
+        e.clock_now_us()
+    } else {
+        0
+    };
     if let Some(r) = &e.real {
-        stopped = r.frame_ended(&mut e.mem);
+        stopped = r.frame_ended(&mut e.mem, now);
         main.host_holds_kernel = true;
     }
     if let Some(r) = e.mem.race_census() {

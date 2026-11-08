@@ -1525,7 +1525,7 @@ fn take(e: &mut Engine, handle: u32) -> Option<bool> {
         None => return None,
     };
     if taken {
-        crate::thread_host::signal(e);
+        crate::thread_host::signal_taken(e);
     }
     Some(taken)
 }
@@ -1575,7 +1575,7 @@ fn set_event_state(e: &mut Engine, handle: u32, state: bool) -> i32 {
         Some(KernelObject::Event { signalled, .. }) => {
             *signalled = state;
             if state {
-                crate::thread_host::signal(e);
+                crate::thread_host::signal_object(e, handle);
             }
             1
         }
@@ -1637,7 +1637,7 @@ fn release_semaphore(e: &mut Engine, handle: u32, release: i32, previous: Ptr) -
         }
         _ => return 0,
     };
-    crate::thread_host::signal(e);
+    crate::thread_host::signal_object(e, handle);
     if !previous.is_null() {
         e.mem.set_i32(previous.addr(), old);
     }
@@ -1914,6 +1914,9 @@ fn change_suspend_count(e: &mut Engine, handle: u32, delta: i32) -> u32 {
         if let Some(i) = start.and_then(|id| e.kernel.threads.list.iter().position(|t| t.id == id))
         {
             crate::real_threads::start_thread(e, i);
+        }
+        if delta > 0 {
+            crate::real_threads::suspend_called(e, handle, previous.saturating_add_signed(delta));
         }
         crate::real_threads::suspends_changed(e);
     }
@@ -3393,8 +3396,14 @@ mod tests {
     fn nv_threads_names_the_scheme() {
         use crate::thread_host::{Scheme, SwitchAt};
         assert_eq!(Scheme::from_name(None), Ok(Scheme::WAKE));
+        assert_eq!(Scheme::from_name(Some(" ")), Ok(Scheme::WAKE));
+        assert_eq!(Scheme::from_name(Some("stepped")), Ok(Scheme::WAKE));
+        assert_eq!(
+            Scheme::default(),
+            Scheme::WAKE,
+            "the engine's own default stays stepped"
+        );
         assert_eq!(Scheme::WAKE.switch_at, SwitchAt::Blocking);
-        assert_eq!(Scheme::from_name(Some("")), Ok(Scheme::WAKE));
         assert_eq!(Scheme::from_name(Some("slice")), Ok(Scheme::SLICE));
         assert_eq!(Scheme::from_name(Some(" SLICE ")), Ok(Scheme::SLICE));
         assert_eq!(Scheme::from_name(Some("wake")), Ok(Scheme::WAKE));

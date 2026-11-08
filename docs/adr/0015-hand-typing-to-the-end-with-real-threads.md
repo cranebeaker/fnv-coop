@@ -1,6 +1,6 @@
 # ADR-0015: Every system is typed by hand to 64-bit, with real threads built in
 
-**Status:** Accepted. The maintainer decided points 1, 3 and 4 (2026-11-07); points 2, 5 and 6 are the lead's design under it, open to change.
+**Status:** Accepted. The maintainer decided points 1, 3 and 4 (2026-11-07); points 2, 5 and 6 are the lead's design under it, open to change. Amended 2026-11-08: guest memory stays plain (below).
 **Date:** 2026-11-07
 **Extends:** [ADR-0012](0012-modern-64-bit-engine.md), [ADR-0014](0014-typed-migration-in-two-stages.md)
 
@@ -41,6 +41,32 @@ frame in Goodsprings.
    traces, so exactness stays checkable. Runs with real threads are compared with the original by
    distributions over several recordings, since the original's own threads vary run to run.
 6. **Races the original itself has** get fixes in the fixes preset, switchable like its other fixes.
+
+## Guest memory stays plain (amendment, 2026-11-08)
+
+The working plan's rule R1 (the plan is kept outside the repository) made every word load and
+store of guest memory an atomic access, acquire for loads and release for stores, expecting it to
+cost nothing on x86-64. It was built and measured with real threads: one BAAB set in Goodsprings,
+real threads on both sides, atomic 51.9 and 50.7 fps against plain 55.3 and 53.8, about 6% slower.
+The evidence is weak (one set, two runs a side, t about -3.5), but every atomic run was below every
+plain one, and the plan's condition was no cost. So guest loads and stores stay plain moves through
+raw pointers, a deliberate departure from R1 (`crates/engine-core/src/mem.rs`, "Threads").
+
+**The hazard.** Two threads touching the same guest bytes without synchronisation, one writing, are
+a data race: undefined behaviour in Rust's and LLVM's model, where the exe's races were defined by
+the processor. The port relies on LLVM emitting each raw-pointer access as one move and moving none
+across a call it cannot see through. Translated code is safe so: it reaches guest memory only
+through such accesses, and the game's interlocked operations, critical sections, waits and sleeps
+are opaque calls (real atomics and real waits with real threads). Typed code is where it can break:
+a typed loop that waits on guest memory another thread writes, with no such call inside the loop,
+can have its load hoisted out of the loop by the compiler and hang forever. Every typed loop that
+waits on guest memory must make the platform call the exe makes there (the plan's R8;
+docs/ENGINE_CRATE.md, "A risk for later"), and reviews check it.
+
+**When to look again:** a hang traced to a hoisted guest access; more measurement sets that put the
+cost within noise; ARM, where the orderings cost real instructions either way; or the stage-2
+families, whose shared fields become atomic cells where the game uses interlocked operations or a
+lock (the plan's R7).
 
 ## Consequences
 

@@ -11,7 +11,7 @@ every comparison with the original, gate and recording runs on it (the maintaine
 | `Settings.cmd`'s `settings.ini` | `Preset=fixes` (the default) or `Preset=vanilla`; `FrameLimit=n` (0: none); `MenuFrameLimit=n` (120 when missing or empty, 0: none of its own) | The player |
 | `NV_PRESET=fixes` or `vanilla`, `NV_FRAME_LIMIT=n`, `NV_MENU_FRAME_LIMIT=n` | Over the file | Tests, scripts |
 | `NV_UNCAP=0` or `1`, and each fix's own variable below | That fix alone; with no `NV_PRESET` the rest of the run is vanilla | Gates, tests |
-| A recording or scripted run: `NV_TRACE_LIST`, `NV_MOVE_KEYS`, `NV_MOVE_MOUSE`, `NV_SOUND_RECORD`, `NV_SHOT`, `NV_TICK_COUNT`, `NV_FRAME_LOG`, the probes and `*_CHECK` switches (the list is `TEST_VARIABLES` in `fixes.rs`), with no `NV_PRESET` | Vanilla | A script that was never told about the preset still measures the original. `NV_SAVE_OUT` (the preview launcher's) does not pin |
+| A recording or scripted run: `NV_TRACE_LIST`, `NV_MOVE_KEYS`, `NV_MOVE_MOUSE`, `NV_SOUND_RECORD`, `NV_SHOT`, `NV_TICK_COUNT`, `NV_FRAME_LOG`, the probes and `*_CHECK` switches (the list is `TEST_VARIABLES` in `fixes.rs`), with no `NV_PRESET` | Vanilla; and, with no `NV_THREADS`, stepped threads whatever the play default is (`Choice::threads`) | A script that was never told about the preset or the threads still measures the original, and doesn't change when a play default does. `NV_SAVE_OUT` (the preview launcher's) does not pin |
 | `NV_SETTINGS=FILE` | The settings file, when it isn't `settings.ini` beside the program or in the folder above it | Launchers |
 
 It is read once at start-up and bound before the first frame (`fixes::install`): the log's `Preset ...`
@@ -38,6 +38,11 @@ NV_UNCAP=1` as before.
 without a per-call cost, so the frame rate stays the player's. The game's own `iFPSClamp` INI line
 (`[General]`, 1 to 199) gives exact frame steps at any wall rate, which is how a recording sees a
 high frame rate's steps: a trace itself holds the game near 30 frames a second.
+
+`NV_LOCK_STATS=FILE` (real threads only) writes a line per main frame with the game clock and how long
+the main thread and the other game threads waited that frame for the kernel lock, for critical
+sections, for events, semaphores and threads, and in sleeps, how often a section leave woke waiters, and
+how long the host held the kernel lock before the frame (joined with `NV_FRAME_LOG` by the clock).
 
 `NV_PHYS_BLEND_LOG=FILE`, with the smooth physics drawing on (say `NV_PRESET=fixes`: the variable pins
 vanilla otherwise), writes per drawn frame each free body's node as the original draws it and as the

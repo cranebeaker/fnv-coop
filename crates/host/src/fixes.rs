@@ -64,6 +64,11 @@ const NO_ADDRESS: &[&str] = &[crate::uncap::MENU_FIX.name, KEEP_COSAVE_PLUGINS.n
 /// Menus' frames a second at most when nothing says otherwise (the maintainer, 2026-11-07).
 pub const DEFAULT_MENU_FRAME_LIMIT: u32 = 120;
 
+/// How the game's threads run in play when `NV_THREADS` names nothing ([`Choice::threads`]):
+/// stepped, one at a time, for now; `NV_THREADS=real` runs them side by side
+/// (`engine::real_threads`). A test never takes this: it runs stepped unless it names threads.
+pub const PLAY_THREADS: &str = "stepped";
+
 /// The player's one line: the fixes set, or the original's behaviour.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Preset {
@@ -104,17 +109,23 @@ pub struct Choice {
     pub menu_frame_limit: u32,
     /// Fixes one environment variable turned on or off, by [`Fix::env`].
     overrides: Vec<(&'static str, bool)>,
+    /// How the game's threads run, in `NV_THREADS`'s words
+    /// (`engine::thread_host::Scheme::from_name`): `NV_THREADS` when it names any; else
+    /// `stepped` for a test (whatever pins vanilla pins this too, so a comparison, recording or
+    /// measurement never changes when the play default does); else [`PLAY_THREADS`].
+    pub threads: String,
 }
 
 impl Choice {
     /// The original's behaviour, whatever the environment and the settings file say: what
-    /// [`crate::Host::start`] runs.
+    /// [`crate::Host::start`] runs (stepped threads too).
     pub fn vanilla() -> Choice {
         Choice {
             preset: Preset::Vanilla,
             frame_limit: 0,
             menu_frame_limit: DEFAULT_MENU_FRAME_LIMIT,
             overrides: Vec::new(),
+            threads: "stepped".to_string(),
         }
     }
 
@@ -159,6 +170,7 @@ impl Choice {
             frame_limit: 0,
             menu_frame_limit: DEFAULT_MENU_FRAME_LIMIT,
             overrides: Vec::new(),
+            threads: PLAY_THREADS.to_string(),
         };
         for line in settings.unwrap_or("").lines() {
             let Some((key, value)) = line.split_once('=') else {
@@ -204,12 +216,19 @@ impl Choice {
         // A recording, a scripted run, a measurement or a single fix's switch is a test: with no
         // NV_PRESET of its own it runs on vanilla, so a script that was never told about the preset
         // still measures the original. Only a plain start (or the launcher, whose NV_SAVE_OUT is a
-        // real player's) gets the fixes.
-        if TEST_VARIABLES.iter().any(|name| env(name).is_some()) || !choice.overrides.is_empty() {
+        // real player's) gets the fixes. A test runs the game's threads stepped the same way,
+        // unless its NV_THREADS names them.
+        let test =
+            TEST_VARIABLES.iter().any(|name| env(name).is_some()) || !choice.overrides.is_empty();
+        if test {
             choice.preset = Preset::Vanilla;
+            choice.threads = "stepped".to_string();
         }
         if let Some(value) = env("NV_PRESET") {
             choice.preset = parse_preset(&value, "NV_PRESET")?;
+        }
+        if let Some(value) = env("NV_THREADS").filter(|v| !v.trim().is_empty()) {
+            choice.threads = value;
         }
         Ok(choice)
     }
@@ -278,6 +297,8 @@ const TEST_VARIABLES: &[&str] = &[
     "NV_SHOT",
     "NV_TICK_COUNT",
     "NV_FRAME_LOG",
+    "NV_LOCK_STATS",
+    "NV_REAL_DUMP",
     "NV_PHYS_BLEND_LOG",
     "NV_BENCH_CALLS",
     "NV_BENCH_CALL_COUNTS",
@@ -487,6 +508,42 @@ mod tests {
         }
         let choice = Choice::from_parts(None, env_of(&[("NV_SAVE_OUT", "x")])).unwrap();
         assert_eq!(choice.preset, Preset::Fixes);
+    }
+
+    /// A test runs the game's threads stepped unless its `NV_THREADS` names them, so no comparison,
+    /// recording or measurement changes when the play default does; naming a preset doesn't
+    /// unpin them. A plain start (and the launcher's) gets the play default.
+    #[test]
+    fn scripted_and_measured_runs_pin_stepped_threads() {
+        for name in TEST_VARIABLES {
+            let pairs: &'static [(&str, &str)] = Box::leak(Box::new([(*name, "x")]));
+            let choice = Choice::from_parts(None, env_of(pairs)).unwrap();
+            assert_eq!(choice.threads, "stepped", "{name}");
+            let fixes: &'static [(&str, &str)] =
+                Box::leak(Box::new([(*name, "x"), ("NV_PRESET", "fixes")]));
+            let choice = Choice::from_parts(None, env_of(fixes)).unwrap();
+            assert_eq!(choice.threads, "stepped", "{name}");
+            let real: &'static [(&str, &str)] =
+                Box::leak(Box::new([(*name, "x"), ("NV_THREADS", "real")]));
+            let choice = Choice::from_parts(None, env_of(real)).unwrap();
+            assert_eq!(choice.threads, "real", "{name}");
+        }
+        let one_fix = Choice::from_parts(None, env_of(&[("NV_UNCAP", "1")])).unwrap();
+        assert_eq!(one_fix.threads, "stepped");
+        let plain = Choice::from_parts(Some("Preset=fixes"), no_env).unwrap();
+        assert_eq!(plain.threads, PLAY_THREADS);
+        let launcher = Choice::from_parts(
+            None,
+            env_of(&[("NV_SAVE_OUT", "x"), ("NV_PRESET", "fixes")]),
+        )
+        .unwrap();
+        assert_eq!(launcher.threads, PLAY_THREADS);
+        let empty = Choice::from_parts(None, env_of(&[("NV_THREADS", " ")])).unwrap();
+        assert_eq!(empty.threads, PLAY_THREADS);
+        assert_eq!(Choice::vanilla().threads, "stepped");
+        for words in [PLAY_THREADS, "stepped"] {
+            assert!(engine::thread_host::Scheme::from_name(Some(words)).is_ok());
+        }
     }
 
     #[test]

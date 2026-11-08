@@ -60,7 +60,13 @@
 //!   an aligned address, and a guest address's alignment is known only at
 //!   run time, so every access would test it (one instruction more on every
 //!   inlined access, measured), and the compiler folds no atomic load into
-//!   the instruction that uses it. Two threads that access the same bytes
+//!   the instruction that uses it. Measured again for real threads
+//!   (2026-11-08, measure/real-threads at1): acquire and release atomics for
+//!   aligned accesses and relaxed ones for the page table cost about 6% in
+//!   town (one BAAB set with real threads, 51.3 against 54.5 fps; every
+//!   atomic run below every plain one), so they stay plain, a deliberate
+//!   departure from the migration plan's R1 (ADR-0015, "Guest memory stays
+//!   plain"). Two threads that access the same bytes
 //!   without synchronisation, one of them writing, are a data race: undefined
 //!   behaviour in Rust's and LLVM's model, where the exe's races were
 //!   defined by the processor. What we rely on: LLVM emits each raw-pointer

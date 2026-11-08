@@ -30,6 +30,13 @@ pub struct Fls {
     registered: bool,
 }
 
+/// `FlsGetValue` and `FlsSetValue` as [`get_proc_address`] gives them out: real threads answer
+/// them from the calling thread's own values, off the kernel lock (`crate::real_threads`).
+pub(crate) const FLS_GET_VALUE: u32 = PROC_CODE + 4;
+pub(crate) const FLS_SET_VALUE: u32 = PROC_CODE + 8;
+/// Fiber-local storage indexes, for real threads' own table.
+pub(crate) const FLS_INDEX_COUNT: usize = FLS_INDEXES;
+
 /// The KERNEL32 procedures provided by name, in the order of their code addresses.
 const PROCS: [&[u8]; 7] = [
     b"FlsAlloc",
@@ -152,6 +159,7 @@ fn fls_alloc(e: &mut Engine, callback: u32) -> u32 {
     match fls.allocated.iter().position(|a| a.is_none()) {
         Some(i) => {
             fls.allocated[i] = Some(callback);
+            crate::real_threads::fls_index_changed(e, i as u32, true);
             i as u32
         }
         None => FLS_OUT_OF_INDEXES,
@@ -191,6 +199,7 @@ fn fls_free(e: &mut Engine, index: u32) -> i32 {
     }
     e.kernel.fls.allocated[index as usize] = None;
     e.kernel.fls.values.retain(|&(_, i), _| i != index);
+    crate::real_threads::fls_index_changed(e, index, false);
     1
 }
 

@@ -107,16 +107,18 @@ impl Host {
         // The game's clock (`GetTickCount`, `timeGetTime`, `QueryPerformanceCounter`) runs with
         // the real time from here on, `Sleep` moving it on too (`Engine::clock_now_ms`).
         engine.start_real_clock();
-        // How the game's threads are ordered (`engine::thread_host::Scheme`): by default a
-        // signal from the main thread runs the threads it wakes soon after (`NV_WAKE_DELAY`
-        // calls later, at main's next platform call), a used-up slice ends at the next
-        // blocking call (a wait or sleep; 50 slices at most) and game threads' timed waits
-        // time out. `NV_THREADS=slice` keeps the scheme before; `NV_THREADS=` with any of
-        // `nowake`, `platformcall` (slices end at any platform call) or `anycall`, `notimeout`
-        // changes parts; `shuffle:SEED` draws the switch points from a seed (the race tests);
-        // `real` runs the threads side by side instead (started before `main`, below).
+        // How the game's threads run (`engine::thread_host::Scheme`), in `NV_THREADS`'s words
+        // (`fixes::Choice::threads`: a test without `NV_THREADS` always runs them stepped). By
+        // default stepped, one at a time: a signal from the main thread runs the threads it
+        // wakes soon after (`NV_WAKE_DELAY` calls later, at main's next platform call), a
+        // used-up slice ends at the next blocking call (a wait or sleep; 50 slices at most) and
+        // game threads' timed waits time out. `NV_THREADS=slice` keeps the stepped scheme
+        // before; `NV_THREADS=` with any of `nowake`, `platformcall` (slices end at any platform
+        // call) or `anycall`, `notimeout` changes parts; `shuffle:SEED` draws the switch points
+        // from a seed (the race tests); `real` runs the threads side by side instead (started
+        // before the C runtime, below).
         engine.kernel.threads.scheme =
-            engine::thread_host::Scheme::from_name(std::env::var("NV_THREADS").ok().as_deref())?;
+            engine::thread_host::Scheme::from_name(Some(&choice.threads))?;
         if let Some(delay) = std::env::var("NV_WAKE_DELAY")
             .ok()
             .and_then(|v| v.trim().parse().ok())
@@ -150,10 +152,10 @@ impl Host {
         // Diagnostics: with `NV_MOVE_PROBE` set, start-up's `__mtinit` and `NiInit` are probe
         // runs too (they go on past misses with zero results and record them all).
         movement.probe = std::env::var_os("NV_MOVE_PROBE").is_some();
-        // `NV_THREADS=real` (off by default): the game's threads run side by side from the C
-        // runtime's start-up on, as on Windows (the game makes one before `main`),
-        // each on its own core (`engine::real_threads`); a diagnostic keeps them stepped. Only
-        // with the game's own `main`.
+        // `NV_THREADS=real` (not yet the default): the game's threads run side by side from the C
+        // runtime's start-up on, as on Windows (the game makes one before `main`), each on its
+        // own core (`engine::real_threads`); a diagnostic keeps them stepped. Only with the
+        // game's own `main`.
         if engine.kernel.threads.scheme.real && engine.is_translated(WIN_MAIN) {
             // The movement's per-stage diagnostics go on the main thread's engine only, after
             // this: they need stepped threads, as the engine's own do.

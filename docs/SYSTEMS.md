@@ -20,7 +20,8 @@ Movement and physics first, then animation, audio, the renderer, and then
 the gameplay layer. The plan is to finish the feel, look and play in about
 six weeks and the whole game in about two months. Each step ends with a play
 build. Game threads are stepped on the main thread behind one seam in
-`units/platform.rs`, so real OS threads can replace them later.
+`units/platform.rs`; real OS threads (`real_threads.rs`, `NV_THREADS=real`) are
+available, not yet the default.
 
 ## Coverage by code group
 
@@ -134,7 +135,7 @@ translation yet.
 - **Shut-down**: the 5,020 atexit destructors. 4,790 are rows of `crates/engine-core/data/atexit_destructors.tsv` (research/initgen `--atexit`, run by `engine::static_exit`), one is translated by hand, 229 are refused for hand translation. The CRT exit path is translated too: `_atexit` records its function and `units::crt::doexit` (`00eccd99`) runs the exit functions last first, then the pre-terminator and terminator tables. Not yet connected to the host's shut-down; the exit functions' own destructors run only as far as they are translated.
 - **Video**: intro and ending Bink videos (`BSMovie` plus `crates/bink`).
 - **Settings and INI files**, debug, diagnostics.
-- **Real threads**: swap the stepped-thread seam for real OS threads to replicate the original.
+- **Real threads**: the game's threads on real OS threads, as in the original (`crates/engine-core/src/real_threads.rs`): available with `NV_THREADS=real`, not yet the default; the stepped-thread seam stays the default until the evidence for the switch is in, then one setting away.
 - **Partial markers**: turn exception-frame and cookie partials into full translations where behaviour depends on them.
 - **The 10,142 unplaced functions**: assign each to a system by its callers; the ledger tracks them.
 

@@ -65,6 +65,7 @@ point the table's folders at a scratch copy of Documents; never at a player's ow
 | `NV_REPORT_DIR=DIR`, `NV_REPORT_LOG=FILE` | F12 in the game's window makes `DIR\NNN\` with the frame, the end of FILE and a `note.txt` for the player (`crates/engine-platform/src/d3d9real.rs`) |
 | `NV_PRESET=fixes` or `vanilla` | What differs from the exe: the fixes set (the default) or the original's behaviour; comparisons and gates pin vanilla ([FIXES.md](FIXES.md)) |
 | `NV_FRAME_LIMIT=n` | Frames a second at most under the fixes preset (0: none) |
+| `NV_THREADS=real` or `stepped` | The game's threads side by side on their own cores (`real`, not yet the default) or one at a time (`stepped`, the default); a scripted or measured run without `NV_THREADS` runs them stepped whatever the default ([FIXES.md](FIXES.md)) |
 | `NV_UNCAP=0` or `1`, `NV_HF_LANDING=0` or `1` | One fix alone; with no `NV_PRESET` the rest of the run is vanilla |
 | `NV_FRAME_LOG=FILE` | One line per main frame (clock, step, player position), with no per-call cost | 
 
