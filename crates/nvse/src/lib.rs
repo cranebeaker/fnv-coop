@@ -28,6 +28,11 @@
 //! - I-10 [`cosave`], [`saveload`]: the co-save (`.nvse`), written on every save and read before
 //!   and after the `.fos` in xNVSE's file format and order (its own plugin: the file list, the
 //!   array and string variables), the new-game, delete and rename moments.
+//! - I-9 [`events`], [`event_commands`]: xNVSE's event manager (its 60 events, handlers with
+//!   filters and priorities, the deprecated and newer dispatch, deferral to the tick), the game
+//!   events the game marks (`005ac750`, wrapped), the save, load and exit messages, and the
+//!   commands (`SetEventHandler`, `SetEventHandlerAlt`, `RemoveEventHandler`, `DispatchEvent`,
+//!   `DispatchEventAlt`, `GetCurrentEventName`, `GetEventHandlers`, the priority queries).
 //! - [`commands`]: the commands built so far, by xNVSE's `Commands_*.cpp` file.
 //!
 //! [`install`] runs once per engine, after the fix rows (`host::Host::start_with`); the engine
@@ -39,6 +44,8 @@ pub mod commands;
 pub mod context;
 pub mod cosave;
 pub mod errors;
+pub mod event_commands;
+pub mod events;
 pub mod expr;
 pub mod functions;
 pub mod lambda;
@@ -173,6 +180,8 @@ pub struct Nvse {
     pub tick: tick::State,
     /// The co-save's file list mapping (I-10).
     pub saveload: saveload::State,
+    /// The event manager (I-9).
+    pub events: events::State,
     /// The first frame recorded the main thread (`s_recordedMainThreadID`): xNVSE prints to the
     /// console from then on.
     pub main_thread_recorded: bool,
@@ -203,7 +212,12 @@ pub fn install(e: &mut Engine) {
     functions::install(e);
     tick::install(e);
     saveload::install(e);
+    events::install(e);
     e.ext::<Nvse>().installed = true;
+    // The extender's state is the game's, not one engine's: real threads' engines share it
+    // (engine-core's shared slot, one lock), so an event raised or a variable used on another
+    // game thread is the same one.
+    e.share_ext::<Nvse>();
 }
 
 // The unit tests' own program: no other crate's functions are linked in.
@@ -232,20 +246,25 @@ mod tests {
             0x005e_1550,
             0x005a_ccb0,
             0x0041_af70,
+            0x005a_c750,
         ] {
             e.register(addr, base);
         }
         install(&mut e);
         assert!(e.unlisted_wraps().is_empty());
-        assert_eq!(e.wrapped().len(), 6);
+        assert_eq!(e.wrapped().len(), 7);
         for site in [
             0x005a_cb9d,
+            0x005b_6ca6,
             0x005e_16c3,
             0x005e_2329,
+            0x007d_0b17,
+            0x007d_0c3e,
             0x007d_33ce,
             0x0084_7c45,
             0x0084_7fd9,
             0x0084_8c3c,
+            0x0084_8c91,
             0x0085_0398,
             0x0085_762b,
             0x0086_b386,

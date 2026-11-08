@@ -577,6 +577,10 @@ impl World {
     /// This OS thread stops running game code (a wait, a sleep, its end); answers whether it was
     /// counted (the host's own thread never is).
     fn leave_guest(&self) -> bool {
+        // No reference into a shared extension slot is live here: give them back.
+        if crate::extend::holds_shared() {
+            crate::extend::release_held();
+        }
         if !COUNTED.with(|c| c.replace(false)) {
             return false;
         }
@@ -592,6 +596,9 @@ impl World {
     /// operations, waits and sleeps. One load when no barrier is on.
     #[inline]
     fn safe_point(&self) {
+        if crate::extend::holds_shared() {
+            crate::extend::release_held();
+        }
         if self.stop.load(Ordering::Relaxed) && self.leave_guest() {
             self.enter_guest();
         }
@@ -819,6 +826,23 @@ impl Ctx {
             w.barrier(|| mem.hand_back_deferred());
         }
         guard(&w.stopped).clone()
+    }
+}
+
+/// Runs `f`, a wait outside the platform layer (a shared extension slot another thread holds,
+/// `extend::hold`), as a thread that runs no game code meanwhile, so a barrier does not wait for
+/// it; with stepped threads (`real` none) it just runs `f`.
+pub(crate) fn blocking<R>(real: Option<&Ctx>, f: impl FnOnce() -> R) -> R {
+    match real {
+        Some(c) => {
+            let was = c.world.leave_guest();
+            let r = f();
+            if was {
+                c.world.enter_guest();
+            }
+            r
+        }
+        None => f(),
     }
 }
 

@@ -3130,6 +3130,9 @@ pub fn start_menu_choose_main_menu(e: &mut Engine) {
     e.mem.set_u8(MAIN_MENU_BYTE, 1);
     let main = e.global::<u32>(MAIN_OBJECT);
     fn_007d0b90(e, Ptr::new(main));
+    // The seam here (`0x007D0B17`, ADR-0016): the call above is where the script extender
+    // learns the game is going back to the main menu (xNVSE's `MainMenuFromIngameMenuHook`).
+    e.site(0x007d_0b17, &[]);
     let texture_owner = e.global::<u32>(TEXTURE_OWNER);
     e.call(TEXTURE_OWNER_CALL, &args![texture_owner, 1u32, 0u32, 0u32]);
     e.with_stack(0x40, |e, name| {
@@ -3455,6 +3458,9 @@ pub fn fn_007d0bf0(e: &mut Engine) {
     e.call(FN_00713FB0, &args![manager, 0u32, 0u32]);
     let main = e.global::<u32>(MAIN_OBJECT);
     e.call(FN_005B6CB0, &args![main]);
+    // The seam here (`0x007D0C3E`, ADR-0016): the call above quits; the script extender learns
+    // the game is closing (xNVSE's `ExitGameFromMenuHook`).
+    e.site(0x007d_0c3e, &[]);
 }
 
 // Translated from 007d0c50 (decompiled, FalloutNV.exe 1.4.0.525)

@@ -99,14 +99,41 @@ pub fn text(e: &mut Engine, script: u32, message: &str) -> String {
     }
 }
 
-/// `ShowRuntimeError(script, ...)`.
+/// `ShowRuntimeError(script, ...)`: the header and the message to the console, then the
+/// message (without the header) to the `RuntimeScriptError` event.
 pub fn show(e: &mut Engine, script: u32, message: &str) {
     // Made only for the console, which takes nothing before the first frame.
-    if !e.ext::<Nvse>().main_thread_recorded {
+    if e.ext::<Nvse>().main_thread_recorded {
+        let text = text(e, script, message);
+        print_long(e, text.as_bytes());
+    }
+    if e.ext::<Nvse>().events.infos.is_empty() {
         return;
     }
-    let text = text(e, script, message);
-    print_long(e, text.as_bytes());
+    // The fixes preset's row: an error raised while a `RuntimeScriptError` handler runs (the
+    // handler's own, or the call depth limit's when handlers call themselves) is not sent to the
+    // handlers again, which xNVSE does until the stack runs out.
+    // Kept per game thread: an error on another thread meanwhile is not a handler's.
+    let thread = engine_core::thread_host::current_id(e);
+    let s = &mut e.ext::<Nvse>().events;
+    let inside = s.in_error_event.contains(&thread);
+    if s.error_guard && inside {
+        return;
+    }
+    if !inside {
+        s.in_error_event.push(thread);
+    }
+    crate::events::message_text(
+        e,
+        crate::events::id::RUNTIME_SCRIPT_ERROR,
+        message.as_bytes(),
+    );
+    if !inside {
+        e.ext::<Nvse>()
+            .events
+            .in_error_event
+            .retain(|&t| t != thread);
+    }
 }
 
 /// `Console_Print_Str`: below 512 bytes in one line, else `Console_Print_Long`'s pieces.

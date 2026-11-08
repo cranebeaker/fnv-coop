@@ -22,6 +22,7 @@ pub fn all() -> Vec<&'static Command> {
         .chain(scripting::COMMANDS)
         .chain(crate::functions::COMMANDS)
         .chain(crate::tick::COMMANDS)
+        .chain(crate::event_commands::COMMANDS)
         .collect()
 }
 

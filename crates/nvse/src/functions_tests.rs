@@ -376,6 +376,7 @@ fn internal_callers_convert_their_words() {
             args: vec![3.9f32.to_bits(), 0.5f32.to_bits()],
             alt: true,
             allow_surplus: false,
+            event_types: None,
         },
     );
     seen.push((e.mem.f64(AREA + 0x7e00), e.mem.f64(AREA + 0x7e08)));

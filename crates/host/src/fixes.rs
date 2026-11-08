@@ -39,6 +39,7 @@ pub static FIXES: &[Fix] = &[
     crate::mod_fit_worn::FIX,
     crate::topic_index::FIX,
     KEEP_COSAVE_PLUGINS,
+    SCRIPT_ERROR_GUARD,
 ];
 
 /// The built-in script extender's rows (docs/FIXES.md, "The script extender"): each sets a flag
@@ -56,10 +57,26 @@ fn install_keep_cosave_plugins(e: &mut Engine) {
     nvse::saveload::set_keep_other_plugins(e, true);
 }
 
+pub const SCRIPT_ERROR_GUARD: Fix = Fix {
+    name: "script error loop guard",
+    env: "NV_NVSE_ERROR_GUARD",
+    addresses: &[],
+    summary: "an error inside a RuntimeScriptError handler is not sent to the handlers again",
+    install: install_script_error_guard,
+};
+
+fn install_script_error_guard(e: &mut Engine) {
+    nvse::events::set_error_guard(e, true);
+}
+
 /// The rows that register nothing at an exe address: the menu limit paces the uncapped step;
 /// the extender's rows set flags `crates/nvse` reads.
 #[cfg(test)]
-const NO_ADDRESS: &[&str] = &[crate::uncap::MENU_FIX.name, KEEP_COSAVE_PLUGINS.name];
+const NO_ADDRESS: &[&str] = &[
+    crate::uncap::MENU_FIX.name,
+    KEEP_COSAVE_PLUGINS.name,
+    SCRIPT_ERROR_GUARD.name,
+];
 
 /// Menus' frames a second at most when nothing says otherwise (the maintainer, 2026-11-07).
 pub const DEFAULT_MENU_FRAME_LIMIT: u32 = 120;
@@ -319,6 +336,7 @@ const TEST_VARIABLES: &[&str] = &[
     "NV_AUDIO_CHECK",
     "NV_PASS_CHECK",
     "NV_TOPIC_INDEX_CHECK",
+    "NV_NVSE_EVENT_LOG",
 ];
 
 /// The settings file's text: a UTF-8 byte order mark is dropped and UTF-16 (what PowerShell 5.1's

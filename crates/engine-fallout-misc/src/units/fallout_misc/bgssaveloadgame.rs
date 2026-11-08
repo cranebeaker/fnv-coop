@@ -1241,6 +1241,9 @@ pub fn bgssaveloadgame_load_game(
     for block in [slots, header.addr(), save_name, version, name] {
         e.mem.free(block);
     }
+    // The seam here (`0x00848C91`, ADR-0016): the epilogue every return passes, where the script
+    // extender learns how the load went (xNVSE's `FinishLoadGameHook`); word: the result.
+    e.site(0x0084_8c91, &[u32::from(result)]);
     result
 }
 

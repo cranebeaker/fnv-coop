@@ -2365,6 +2365,9 @@ pub fn fn_005b6c90(e: &mut Engine) -> bool {
     console_print(e, &args![MSG_BYE]);
     let singleton = Ptr::new(e.global::<u32>(GLOBAL_0011DEA0C));
     fn_005b6cb0(e, singleton);
+    // The seam here (`0x005B6CA6`, ADR-0016): the call above quits; the script extender learns
+    // the console's `qqq` closes the game (xNVSE's `ExitGameViaQQQHook`).
+    e.site(0x005b_6ca6, &[]);
     true
 }
 

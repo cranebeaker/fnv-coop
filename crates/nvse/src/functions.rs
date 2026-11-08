@@ -377,6 +377,9 @@ pub enum Caller<'a> {
         args: Vec<u32>,
         alt: bool,
         allow_surplus: bool,
+        /// A deprecated event's argument types (`ClassicEventHandlerCaller`): the function takes
+        /// as many parameters (at most two), each of a type its argument can go to.
+        event_types: Option<Vec<u8>>,
     },
     /// `ArrayElementArgFunctionCaller`: values of array elements (`None`: no arguments).
     Elements {
@@ -402,6 +405,7 @@ impl Caller<'_> {
             args,
             alt: false,
             allow_surplus: false,
+            event_types: None,
         }
     }
 
@@ -551,13 +555,36 @@ impl Caller<'_> {
                 args,
                 alt,
                 allow_surplus,
+                event_types,
                 ..
             } => {
+                // `ClassicEventHandlerCaller::PopulateArgs`: as many parameters as the event has.
+                if let Some(types) = event_types {
+                    if info.params.len() > 2 || info.params.len() != types.len() {
+                        runtime_error(
+                            e,
+                            *script,
+                            "Number of arguments to function script does not match those expected for event",
+                        );
+                        return false;
+                    }
+                }
                 if info.params.len() > MAX_PARAMS {
                     return false;
                 }
                 for (i, word) in args.iter().copied().enumerate() {
-                    let Some(param) = info.params.get(i).copied() else {
+                    // `ValidateParam`: a parameter there; for an event, of a type its argument
+                    // can go to.
+                    let param = info.params.get(i).copied().filter(|p| match event_types {
+                        Some(types) => types.get(i).is_some_and(|&t| {
+                            crate::events::param_type_matches(
+                                crate::events::var_to_param(p.var_type),
+                                t,
+                            )
+                        }),
+                        None => true,
+                    });
+                    let Some(param) = param else {
                         if !*allow_surplus {
                             let text = format!("Failed to extract parameter {i}. Please verify the number of parameters in function script match those required for event.");
                             runtime_error(e, *script, &text);
@@ -723,7 +750,7 @@ pub fn variable_type_name(t: u8) -> &'static str {
 }
 
 /// `DataTypeToString`.
-fn data_type_name(t: u8) -> &'static str {
+pub fn data_type_name(t: u8) -> &'static str {
     match t {
         0 => "Invalid",
         1 => "Numeric",

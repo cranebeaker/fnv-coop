@@ -34,12 +34,14 @@
 //!
 //! Files go through the game's own imports (`CreateFileA`, `ReadFile`, `WriteFile`,
 //! `CloseHandle`, `DeleteFileA`) and its C runtime's `rename`, as the `.fos` does, so the platform
-//! layer keeps them where it keeps the save. Not here yet: the plugins' messages and events of
-//! these moments (I-9), JIP LN NVSE's chunks (I-13).
+//! layer keeps them where it keeps the save. The messages of these moments go to the events
+//! ([`crate::events`]): `SaveGame`, `PreLoadGame`, `LoadGame`, `PostLoadGame` (the seam at
+//! `0x00848C91`, the load's end), `NewGame`, `DeleteGame(Name)`, `Rename(New)Game(Name)`. Not here
+//! yet: the messages to plugins and JIP LN NVSE's chunks (I-13).
 
 use crate::cosave::{self, tag, Chunk, ChunkWriter, OutOfRange, Plugin, Reader};
 use crate::vars::{self, ArrayVar, Container, Data, Element, StringVar};
-use crate::{tick, Nvse};
+use crate::{events, tick, Nvse};
 use engine_core::extend::{Owner, SiteSlot};
 use engine_core::prelude::*;
 
@@ -49,6 +51,8 @@ pub const SAVE: SiteSlot = SiteSlot::new(Owner::Nvse, 0x0084_7c45);
 pub const PRE_LOAD: SiteSlot = SiteSlot::new(Owner::Nvse, 0x0084_7fd9);
 /// `LoadGame`'s `push` of the "Finished loading" note (`kLoadGamePatchAddr`).
 pub const LOAD: SiteSlot = SiteSlot::new(Owner::Nvse, 0x0084_8c3c);
+/// The end of `BGSSaveLoadGame::LoadGame` (its epilogue, xNVSE's `FinishLoadGameHook`).
+pub const POST_LOAD: SiteSlot = SiteSlot::new(Owner::Nvse, 0x0084_8c91);
 /// The new-game confirmation's call to the empty `0040fbe0` (`kNewGamePatchAddr`).
 pub const NEW_GAME: SiteSlot = SiteSlot::new(Owner::Nvse, 0x007d_33ce);
 /// `CenterOnCell`'s call to the empty `0040fbe0` (`NewGameWithNoSaveLoaded`).
@@ -446,6 +450,7 @@ fn element_at(a: &ArrayVar, i: usize) -> &Element {
 // Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Serialization.cpp: HandleSaveGame.
 /// The co-save of the save called `name` (a guest string), written whole.
 pub fn save_game(e: &mut Engine, name: u32) {
+    events::message(e, events::id::SAVE_GAME, name);
     let path = co_save_path(e, name);
     let chunks = core_chunks(e);
     let kept = kept_to_write(e);
@@ -490,7 +495,7 @@ fn handle_load(e: &mut Engine, name: u32, pass: Pass) -> bool {
     let path = co_save_path(e, name);
     let Some(bytes) = read_file(e, &path) else {
         if pass == Pass::Load {
-            new_game_callback(e);
+            handle_new_game(e);
         }
         return false;
     };
@@ -499,7 +504,7 @@ fn handle_load(e: &mut Engine, name: u32, pass: Pass) -> bool {
         // Shorter than the header: its read throws, the `catch` of a load is a new game.
         Err(cosave::Refused::Short) => {
             if pass == Pass::Load {
-                new_game_callback(e);
+                handle_new_game(e);
             }
             return true;
         }
@@ -507,7 +512,7 @@ fn handle_load(e: &mut Engine, name: u32, pass: Pass) -> bool {
     };
     if read_plugins(e, &mut r, pass).is_err() && pass == Pass::Load {
         // The `catch` of an exception during the load: a new game.
-        new_game_callback(e);
+        handle_new_game(e);
     }
     true
 }
@@ -562,6 +567,7 @@ fn core_pre_load(e: &mut Engine, r: &mut Reader) -> Result<(), OutOfRange> {
     e.ext::<Nvse>().saveload.preload_mods.clear();
     vars::forget_collected(e);
     tick::clear_delayed_calls(e);
+    events::clear_flush_on_load(e);
     vars::reset(e);
     while let Some((kind, _, _)) = r.next_record()? {
         match kind {
@@ -843,15 +849,25 @@ fn new_game_callback(e: &mut Engine) {
     st.kept_mods.clear();
 }
 
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Serialization.cpp: HandleNewGame.
+/// The `NewGame` message, then the new-game callbacks.
+fn handle_new_game(e: &mut Engine) {
+    events::message(e, events::id::NEW_GAME, 0);
+    new_game_callback(e);
+}
+
 // Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Hooks_SaveLoad.cpp: NewGameHook.
-/// A new game: the delayed calls dropped, then the new-game callbacks.
+/// A new game: the delayed calls dropped, the handlers that go on a load, then
+/// `HandleNewGame`.
 pub fn new_game(e: &mut Engine) {
     tick::clear_delayed_calls(e);
-    new_game_callback(e);
+    events::clear_flush_on_load(e);
+    handle_new_game(e);
 }
 
 /// Before the `.fos` (`Serialization::HandlePreLoadGame`).
 pub fn pre_load(e: &mut Engine, name: u32) {
+    events::message(e, events::id::PRE_LOAD_GAME, name);
     // The other plugins' sections kept are the loaded game's, or none.
     let st = &mut e.ext::<Nvse>().saveload;
     st.kept.clear();
@@ -861,20 +877,47 @@ pub fn pre_load(e: &mut Engine, name: u32) {
 
 /// After the `.fos` (`Serialization::HandleLoadGame`).
 pub fn load(e: &mut Engine, name: u32) {
+    events::message(e, events::id::LOAD_GAME, name);
     handle_load(e, name, Pass::Load);
+}
+
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Serialization.cpp: GetSaveName.
+/// A save path's file name with its extension (`_splitpath_s`'s name and extension).
+pub fn save_name(path: &[u8]) -> Vec<u8> {
+    let start = path
+        .iter()
+        .rposition(|&c| c == b'\\' || c == b'/' || c == b':')
+        .map_or(0, |i| i + 1);
+    path[start..].to_vec()
 }
 
 // Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Serialization.cpp: HandleDeleteGame.
 fn delete_game(e: &mut Engine, path: u32) {
     let co = co_save_path(e, path);
+    let name = save_name(&crate::table::guest_text(e, path));
+    events::message_text(e, events::id::DELETE_GAME, &co);
+    events::message_text(e, events::id::DELETE_GAME_NAME, &name);
     delete_file(e, &co);
 }
 
 // Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Serialization.cpp: HandleRenameGame.
 fn rename_game(e: &mut Engine, old: u32, new: u32) {
     let (from, to) = (co_save_path(e, old), co_save_path(e, new));
+    // xNVSE sends the paths again where the names would be.
+    events::message_text(e, events::id::RENAME_GAME, &from);
+    events::message_text(e, events::id::RENAME_GAME_NAME, &from);
+    events::message_text(e, events::id::RENAME_NEW_GAME, &to);
+    events::message_text(e, events::id::RENAME_NEW_GAME_NAME, &to);
     delete_file(e, &to);
     rename_file(e, &from, &to);
+}
+
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Hooks_SaveLoad.cpp: FinishLoadGameHook,
+// Serialization.cpp: HandlePostLoadGame.
+/// The load's end: the `PostLoadGame` message with whether it succeeded.
+fn post_load_site(e: &mut Engine, a: &[u32]) -> Option<u32> {
+    events::message(e, events::id::POST_LOAD_GAME, a[0] & 0xff);
+    None
 }
 
 fn save_site(e: &mut Engine, a: &[u32]) -> Option<u32> {
@@ -922,6 +965,7 @@ pub fn install(e: &mut Engine) {
     e.on_site(SAVE, save_site);
     e.on_site(PRE_LOAD, pre_load_site);
     e.on_site(LOAD, load_site);
+    e.on_site(POST_LOAD, post_load_site);
     e.on_site(NEW_GAME, new_game_site);
     e.on_site(CENTER_ON_CELL, center_on_cell_site);
     e.on_site(DELETE, delete_site);

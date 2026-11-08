@@ -128,6 +128,9 @@ fn tick(e: &mut Engine, _: &[u32]) -> Option<u32> {
     if !e.ext::<Nvse>().main_thread_recorded {
         first_frame(e);
     }
+    // `EventManager::Tick`: the deferred events and the removed handlers, before the clean-up
+    // (an array argument of a user-defined event lives until then).
+    crate::events::tick(e);
     vars::clean_arrays(e);
     vars::clean_strings(e);
     lambda::erase_unused_saved_lists(e);
@@ -654,7 +657,7 @@ fn extract(e: &mut Engine, a: &CommandArgs) -> Option<(Eval, Vec<Tok>)> {
 }
 
 /// `GetUserFunction`: the script the token gives, or 0.
-fn user_function(e: &mut Engine, ev: &Eval, t: &Tok) -> u32 {
+pub(crate) fn user_function(e: &mut Engine, ev: &Eval, t: &Tok) -> u32 {
     let form = ev.get_form(e, t);
     if form != 0 && e.mem.u8(form + 4) == 0x11 {
         form
