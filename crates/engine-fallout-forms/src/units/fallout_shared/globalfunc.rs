@@ -1598,12 +1598,19 @@ fn snap_geometry(
 /// `NiMatrix3 * NiPoint3` (`this` is the matrix, nine floats by rows): the
 /// product is built into `out`, which it returns.
 pub fn fn_004b4500(e: &mut Engine, this: Ptr, out: Ptr, vector: Ptr) -> Ptr {
-    let m = |e: &Engine, i: u32| e.mem.f32(this.addr() + 4 * i) as f64;
-    let v = |e: &Engine, i: u32| e.mem.f32(vector.addr() + 4 * i) as f64;
-    let (v0, v1, v2) = (v(e, 0), v(e, 1), v(e, 2));
-    let z = (m(e, 6) * v0 + m(e, 7) * v1 + m(e, 8) * v2) as f32;
-    let y = (m(e, 3) * v0 + m(e, 4) * v1 + m(e, 5) * v2) as f32;
-    let x = (m(e, 0) * v0 + m(e, 1) * v1 + m(e, 2) * v2) as f32;
+    // Each row as the exe sums it (004b450c..004b4591): `FLD` the row's entry, `FMUL` the vector's
+    // (a memory operand), three times, added with `FADDP`, each operation at the thread's precision,
+    // then stored as a float.
+    let m = |e: &Engine, i: u32| e.mem.u32(this.addr() + 4 * i);
+    let v = |e: &Engine, i: u32| e.mem.u32(vector.addr() + 4 * i);
+    // (`x87_dot3_store32`, exact with a fast path.)
+    let row = |e: &Engine, r: u32| {
+        let a = [0, 1, 2].map(|k| m(e, 3 * r + k));
+        f32::from_bits(x87_dot3_store32(a, [v(e, 0), v(e, 1), v(e, 2)]))
+    };
+    let z = row(e, 2);
+    let y = row(e, 1);
+    let x = row(e, 0);
     typed_call!(leaf::FAMILY, 0x0041_6870, leaf::point3_new(e, out, x, y, z));
     out
 }

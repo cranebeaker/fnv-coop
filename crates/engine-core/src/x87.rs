@@ -498,6 +498,90 @@ pub fn x87_store32(value: f64) -> u32 {
     (value as f32).to_bits()
 }
 
+/// `FLD dword a; FMUL dword b; FSTP dword` (`b` a memory operand): the product of two floats as the
+/// exe stores it, as its bits; [`x87_mul`] of [`x87_load32`] and [`x87_m32`], then [`x87_store32`].
+///
+/// The fast path, exact: with no NaN or infinity and the default rounding to nearest, the product of
+/// two floats is exact in an `f64`. Under 53-bit precision `FMUL` keeps it and `FSTP` rounds it to a
+/// float; under 24-bit `FMUL` rounds it to 24 bits, the same float unless the exact product is below
+/// the float's normal range, where the x87's wider exponent keeps 24 bits that a float can't (then
+/// `FSTP` rounds a second time). Only that range, NaNs, infinities and the other rounding modes take
+/// the exact helpers. The control word is read once.
+#[inline]
+pub fn x87_mul_store32(a: u32, b: u32) -> u32 {
+    let (x, y) = (f32::from_bits(a), f32::from_bits(b));
+    if x.is_finite() && y.is_finite() {
+        let word = control_word();
+        if word & ROUNDING_CONTROL == ROUND_NEAREST {
+            let p = f64::from(x) * f64::from(y);
+            if word & PRECISION_CONTROL != 0 || p == 0.0 || p.abs() >= F32_SMALLEST_NORMAL {
+                return narrow(p).to_bits();
+            }
+        }
+    }
+    x87_store32(x87_mul(x87_load32(a), x87_m32(b)))
+}
+
+/// The smallest normal float, 2^-126, as an `f64`.
+const F32_SMALLEST_NORMAL: f64 = 1.1754943508222875e-38;
+
+/// An `f64` rounded to the nearest float (what `FSTP dword` does to nearest).
+#[inline(always)]
+fn narrow(value: f64) -> f32 {
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        value as f32
+    }
+}
+
+/// `FLD dword a0; FMUL dword b0; FLD dword a1; FMUL dword b1; FADDP; FLD dword a2; FMUL dword b2;
+/// FADDP; FSTP dword` (each `b` a memory operand): the three-term dot product of floats as the exe
+/// sums and stores it (`(a0 b0 + a1 b1) + a2 b2`), as its bits. The matrix products' entries.
+///
+/// The fast path, exact: with no NaN or infinity among the six and rounding to nearest, each product
+/// is exact in an `f64`. Under 53-bit precision the two sums round as `f64` sums do and `FSTP` rounds
+/// to a float. Under 24-bit each product rounds to the float it is (unless below the normal range, as
+/// in [`x87_mul_store32`]) and each sum of two floats rounds as a float sum does: to nearest, and a
+/// sum that falls below the normal range is exact in both; only a sum beyond the float's range
+/// differs (the x87 keeps it), so an infinite one takes the exact helpers. The control word is read
+/// once.
+#[inline]
+pub fn x87_dot3_store32(a: [u32; 3], b: [u32; 3]) -> u32 {
+    if let Some(bits) = dot3_fast(a, b) {
+        return bits;
+    }
+    let product = |i: usize| x87_mul(x87_load32(a[i]), x87_m32(b[i]));
+    x87_store32(x87_add(x87_add(product(0), product(1)), product(2)))
+}
+
+/// [`x87_dot3_store32`]'s fast path, `None` where it doesn't answer.
+#[inline(always)]
+fn dot3_fast(a: [u32; 3], b: [u32; 3]) -> Option<u32> {
+    let x = a.map(f32::from_bits);
+    let y = b.map(f32::from_bits);
+    if !(x.iter().chain(&y).all(|v| v.is_finite())) {
+        return None;
+    }
+    let word = control_word();
+    if word & ROUNDING_CONTROL != ROUND_NEAREST {
+        return None;
+    }
+    let p = [0, 1, 2].map(|i| f64::from(x[i]) * f64::from(y[i]));
+    if word & PRECISION_CONTROL != 0 {
+        return Some(narrow((p[0] + p[1]) + p[2]).to_bits());
+    }
+    if p.iter().any(|q| *q != 0.0 && q.abs() < F32_SMALLEST_NORMAL) {
+        return None;
+    }
+    let r = p.map(narrow);
+    let sum = (r[0] + r[1]) + r[2];
+    let partial = r[0] + r[1];
+    if !(partial.is_finite() && sum.is_finite()) {
+        return None;
+    }
+    Some(sum.to_bits())
+}
+
 // Helpers of several engine crates, kept here so each reaches them: `fistp`
 // (from `units/bsmenu/font.rs`) and `rsqrt_estimate` (from
 // `units/fallout_shared/tesobjectrefr.rs`, which the Havok units call too).
@@ -1473,6 +1557,80 @@ mod tests {
             }
         }
         assert!(fast > 10_000, "the fast path ran {fast} times");
+    }
+
+    /// [`x87_mul_store32`] and [`x87_dot3_store32`] answer exactly what the exact helpers composed
+    /// answer (`FLD`, `FMUL` with a memory operand, `FADD`, `FSTP`), under 24-bit and 53-bit
+    /// precision and under other roundings: on random floats over the whole range, floats near the
+    /// middle of it, and the operand classes (zeros, ties, the edges of the normal range, denormals,
+    /// the largest float, infinities, NaNs).
+    #[test]
+    fn the_float_product_and_dot_fast_paths_match_the_exact_helpers() {
+        const SPECIALS: [u32; 22] = [
+            0,
+            0x8000_0000,
+            0x3f80_0000,
+            0xbf80_0000,
+            0x3f80_0001,
+            0x3380_0000,
+            0x3400_0000,
+            0x3eaa_aaab,
+            0x0080_0000,
+            0x0080_0001,
+            0x007f_ffff,
+            0x0000_0001,
+            0x1f80_0000,
+            0x2000_0000,
+            0x5f80_0000,
+            0x5f7f_ffff,
+            0x7f7f_ffff,
+            0xff7f_ffff,
+            0x7f80_0000,
+            0xff80_0000,
+            0x7fc0_0000,
+            0x7fa0_0001,
+        ];
+        let mut state = 0x5851_f42d_4c95_7f2du64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let mut pick = || -> u32 {
+            let r = next();
+            let bits = (r >> 32) as u32;
+            match r % 3 {
+                0 => SPECIALS[(bits % 22) as usize],
+                1 => bits,
+                _ => bits & 0x87ff_ffff | 0x3800_0000,
+            }
+        };
+        let mut fast = 0u32;
+        for word in [0x007f, 0x027f, 0x037f, 0x0c7f, 0x047f, 0x0a7f] {
+            set_control_word(word);
+            for _ in 0..200_000 {
+                let a = [pick(), pick(), pick()];
+                let b = [pick(), pick(), pick()];
+                let product = |i: usize| x87_mul(x87_load32(a[i]), x87_m32(b[i]));
+                let dot = x87_store32(x87_add(x87_add(product(0), product(1)), product(2)));
+                assert_eq!(
+                    x87_dot3_store32(a, b),
+                    dot,
+                    "dot {a:08x?} {b:08x?} under {word:04x}"
+                );
+                assert_eq!(
+                    x87_mul_store32(a[0], b[0]),
+                    x87_store32(product(0)),
+                    "product {:08x} {:08x} under {word:04x}",
+                    a[0],
+                    b[0]
+                );
+                fast += u32::from(dot3_fast(a, b).is_some());
+            }
+        }
+        set_control_word(DEFAULT_CONTROL_WORD);
+        assert!(fast > 100_000, "the fast path ran {fast} times");
     }
 
     /// Under 24-bit precision to nearest (the game's control word after the renderer starts),

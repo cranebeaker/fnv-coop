@@ -454,6 +454,11 @@ arrays, the point-of-view geometry, pathing locations, the point helpers), stage
 And `crt` (same crate): the C runtime's square root with the x87 error path every square root takes on
 the main thread, `floor`, the float-to-integer conversions, the 64-bit helpers, and the copy, fill and
 string routines, off by default (`NV_TYPED=crt`); its tests are `crates/engine/tests/typed_crt.rs`.
+And `dispatch` (same crate, id 9): a speed batch picked by calls by address a frame in town, each function with the callers whose call sites
+make those calls, so they become Rust calls (the transforms' and matrices' arithmetic, the scene graph's
+controller and children walks and getters, counted references, the recursive spin lock, the AI's and the
+inventory's getters), stage 1, off by default (`NV_TYPED=dispatch`; its calls into `leaves`, `culling` and
+`pathing` go direct only when those are on); its tests are `crates/engine/tests/typed_dispatch.rs`.
 
 **The switch.** `NV_TYPED` is read once per process, and `Engine::new` runs `typed::apply` after
 all registration: each family that is on is registered over the translations with

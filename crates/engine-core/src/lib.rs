@@ -96,8 +96,8 @@ pub mod prelude {
     pub use crate::ptr::{Field, Inline, Layout, Ptr, Scalar};
     pub use crate::typed::{leaf, FamilyId};
     pub use crate::x87::{
-        x87_add, x87_div, x87_load32, x87_load64, x87_m32, x87_mul, x87_quiet, x87_quiet_bits,
-        x87_round, x87_sqrt, x87_store32, x87_sub,
+        x87_add, x87_div, x87_dot3_store32, x87_load32, x87_load64, x87_m32, x87_mul,
+        x87_mul_store32, x87_quiet, x87_quiet_bits, x87_round, x87_sqrt, x87_store32, x87_sub,
     };
     pub use crate::x87::{
         x87_f2xm1, x87_fcos, x87_fistp64, x87_fistp64_chop, x87_fpatan, x87_fprem, x87_fprem1,

@@ -384,6 +384,8 @@ impl Common for Diff {
     fn common(self) -> Diff {
         self.family(&culling::CULLING)
             .family(&leaf::LEAVES)
+            // The transform product and the box's corners are the dispatch family's (its own test).
+            .goes_by_address(&[0x0062_c250, 0x00c3_9270])
             .max_calls(MAX_CALLS)
             .float_sweep(FLOAT_SWEEP)
     }

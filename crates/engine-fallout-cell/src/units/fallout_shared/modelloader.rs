@@ -4760,19 +4760,19 @@ pub fn ni_matrix3_multiply(e: &mut Engine, this: Ptr, out: Ptr, other: Ptr) -> P
     // does nothing but return `this`).
     e.with_stack(36, |e, result| {
         typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, result));
-        let left: Vec<f64> = (0..9)
-            .map(|i| e.mem.f32(this.addr() + 4 * i) as f64)
-            .collect();
-        let right: Vec<f64> = (0..9)
-            .map(|i| e.mem.f32(other.addr() + 4 * i) as f64)
-            .collect();
-        for row in 0..3usize {
-            for column in 0..3usize {
-                let sum = left[3 * row] * right[column]
-                    + left[3 * row + 1] * right[3 + column]
-                    + left[3 * row + 2] * right[6 + column];
-                e.mem
-                    .set_f32(result.addr() + 4 * (3 * row + column) as u32, sum as f32);
+        // Each entry as the exe sums it (0043f8e6..0043fa5d), column by column: `FLD` an entry of
+        // `this`, `FMUL` one of `other` (a memory operand), three times, the products added with
+        // `FADDP`, each operation at the thread's precision, then stored as a float.
+        // (`x87_dot3_store32`, exact with a fast path.)
+        let word = |e: &Engine, m: Ptr, i: u32| e.mem.u32(m.addr() + 4 * i);
+        for column in 0..3u32 {
+            for row in 0..3u32 {
+                let a = [0, 1, 2].map(|k| word(e, this, 3 * row + k));
+                let b = [0, 1, 2].map(|k| word(e, other, 3 * k + column));
+                e.mem.set_u32(
+                    result.addr() + 4 * (3 * row + column),
+                    x87_dot3_store32(a, b),
+                );
             }
         }
         for i in 0..9 {

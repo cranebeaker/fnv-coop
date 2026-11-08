@@ -1237,11 +1237,13 @@ pub fn fn_004a0c10(e: &mut Engine, this: Ptr) {
     let length = e.call(POINT3_LENGTH, &args![this]).f32();
     let at = this.addr();
     if length as f64 > e.global::<f64>(MINIMUM_LENGTH) {
-        let inverse = (1.0 / length as f64) as f32;
+        // 004a0c34..004a0c66: `FLD length; FLD1; FDIVRP` stored as a float, then each axis
+        // `FLD axis; FMUL inverse` (a memory operand), at the thread's precision.
+        let inverse = x87_store32(x87_div(1.0, x87_load32(length.to_bits())));
         for offset in [0, 4, 8] {
-            let component = e.mem.f32(at + offset);
+            let component = e.mem.u32(at + offset);
             e.mem
-                .set_f32(at + offset, (component as f64 * inverse as f64) as f32);
+                .set_u32(at + offset, x87_mul_store32(component, inverse));
         }
     } else {
         for offset in [0, 4, 8] {

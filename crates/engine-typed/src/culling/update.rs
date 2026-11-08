@@ -10,12 +10,11 @@ use super::{
     bound, copy_float, fld, fld_local, fstp, m32, m32_local, radius_not_zero, FAMILY, NULL_BOUND,
     POINT_ZERO,
 };
+use crate::dispatch;
 use engine_core::ptr::{Field, Ptr};
 use engine_core::x87::{x87_add, x87_mul};
 use engine_core::{args, typed_call, Engine};
 
-/// `NiTransform::operator*` (`thiscall(left, result out, right)`, the result's address back).
-const TRANSFORM_MULTIPLY: u32 = 0x0062_c250;
 /// The collision object's world update, virtual slot 0x90 (`thiscall(collision object, word)`).
 const SLOT_COLLISION_UPDATE: u32 = 0x90;
 /// The object's world-bound setter, virtual slot 0x78 (`thiscall(object, bound)`).
@@ -63,13 +62,13 @@ pub fn update_world_transform(e: &mut Engine, this: Ptr<NiAVObject>) {
         return;
     }
     e.with_stack(0x34, |e, product| {
-        let result = e
-            .call(
-                TRANSFORM_MULTIPLY,
-                &args![parent_world, product, this.at(NiAVObject::m_kLocal)],
-            )
-            .u32();
-        copy_transform(e, world, Ptr::new(result));
+        let local = this.at(NiAVObject::m_kLocal);
+        let result = typed_call!(
+            dispatch::FAMILY,
+            0x0062_c250,
+            dispatch::math::compose(e, parent_world, product.cast(), local)
+        );
+        copy_transform(e, world, result);
     });
 }
 

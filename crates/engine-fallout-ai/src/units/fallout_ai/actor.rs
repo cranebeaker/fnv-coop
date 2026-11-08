@@ -301,7 +301,8 @@ pub fn ni_transform_invert_non_uniform(e: &mut Engine, this: Ptr, result: Ptr) {
             e.mem.set_u32(result.addr() + 4 * i, word);
         }
         let scale = e.mem.f32(this.addr() + 0x30);
-        let inverse = (1.0f64 / scale as f64) as f32;
+        // 004b48a6..004b48b0: `FLD scale; FLD1; FDIVRP` at the thread's precision.
+        let inverse = f32::from_bits(x87_store32(x87_div(1.0, x87_load32(scale.to_bits()))));
         e.mem.set_f32(result.addr() + 0x30, inverse);
         let translate = this.byte_add(0x24);
         let negated: Ptr = e.call(0x004a_0bd0, &args![translate, negated_slot]).ptr();

@@ -5196,17 +5196,21 @@ pub fn actor_get_location_on_reference(e: &mut Engine, this: Ptr<Actor>) -> u32 
     set_point(e, slot, point);
     let cell = e.call(GET_PARENT_CELL, &args![this]).u32();
     if cell != 0 && e.call(0x0045_18e0, &args![cell]).bool() {
+        // 008ae574..008ae5ce, each operation at the thread's precision: `FSUB margin` and
+        // `FMUL factor` (double memory operands) stored as floats; the slot's z `FADD rise` (a
+        // memory operand) compared with the ceiling, and added again for the store.
         let margin: f64 = e.global(WATER_MARGIN);
-        let ceiling = (e.call(0x0057_b0a0, &args![this]).f64() - margin) as f32;
+        let ceiling = x87_store32(x87_sub(e.call(0x0057_b0a0, &args![this]).f64(), margin));
         let height = e.call(0x0088_53a0, &args![this]).f64();
         let factor: f64 = e.global(EYE_HEIGHT_FACTOR);
-        let rise = (height * factor) as f32;
+        let rise = x87_store32(x87_mul(height, factor));
         let slot = LOCATION_RING + 12 * e.global::<u32>(LOCATION_RING_INDEX);
-        let top = f64::from(e.mem.f32(slot + 8)) + f64::from(rise);
-        if !(f64::from(ceiling) > top) {
-            e.mem.set_f32(slot + 8, ceiling);
+        let top = x87_add(x87_load32(e.mem.u32(slot + 8)), x87_m32(rise));
+        if !(x87_load32(ceiling) > top) {
+            e.mem.set_u32(slot + 8, x87_quiet_bits(ceiling));
         } else {
-            e.mem.set_f32(slot + 8, top as f32);
+            let top = x87_add(x87_load32(e.mem.u32(slot + 8)), x87_m32(rise));
+            e.mem.set_u32(slot + 8, x87_store32(top));
         }
     }
     LOCATION_RING + 12 * e.global::<u32>(LOCATION_RING_INDEX)

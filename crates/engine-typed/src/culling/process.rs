@@ -8,6 +8,7 @@ use super::layout::{
     NiFrustum, NiFrustumPlanes, NiGeometry, NiPlane, NiPoint3, NiTransform,
 };
 use super::{bound, fld, fld_local, fstp, m32, radius_not_zero, FAMILY};
+use crate::dispatch;
 use engine_core::ptr::Ptr;
 use engine_core::typed::leaf;
 use engine_core::x87::{x87_add, x87_mul, x87_sub};
@@ -52,8 +53,6 @@ const INTERLOCKED_DECREMENT: u32 = 0x00fd_f1c4;
 const DEBUG_PRINT: u32 = 0x00a2_9680;
 const APPEND_FAILED_FORMAT: u32 = 0x0109_c2e0;
 const EMPTY_TEXT: u32 = 0x0101_f7a8;
-/// `BSMultiBoundAABB::GetVertices` (`thiscall(box, eight points out)`).
-const AABB_VERTICES: u32 = 0x00c3_9270;
 /// The `double` zero the box test compares its third half extent with.
 const ZERO_DOUBLE: u32 = 0x0101_2060;
 
@@ -362,7 +361,11 @@ pub fn within_frustum(
     let flat = fld(e, half_extents, NiPoint3::z) == zero;
     // Eight points of 12 bytes, a local `00c39270` writes.
     e.with_stack(96, |e, corners| {
-        e.call(AABB_VERTICES, &args![this, corners]);
+        typed_call!(
+            dispatch::FAMILY,
+            0x00c3_9270,
+            dispatch::math::box_corners(e, this.cast(), corners)
+        );
         for index in 0..6u32 {
             if (1u32 << index) & e.get(planes, NiFrustumPlanes::m_uiActivePlanes) == 0 {
                 continue;

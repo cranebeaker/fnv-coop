@@ -17,6 +17,7 @@
 
 pub mod crt;
 pub mod culling;
+pub mod dispatch;
 pub mod lockfree;
 pub mod pathing;
 pub mod shader;
@@ -73,6 +74,7 @@ pub mod units {
         engine_core::typed::provide(&crate::pathing::PATHING);
         engine_core::typed::provide(&crate::shader::SHADER);
         engine_core::typed::provide(&crate::crt::CRT);
+        engine_core::typed::provide(&crate::dispatch::DISPATCH);
     }
 }
 

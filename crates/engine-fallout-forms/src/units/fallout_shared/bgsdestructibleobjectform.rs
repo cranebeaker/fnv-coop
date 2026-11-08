@@ -451,9 +451,10 @@ pub fn ni_matrix3_transpose(e: &mut Engine, this: Ptr, result: Ptr) -> Ptr {
 /// Copies row `row` (3 floats) of the matrix `this` to `out`.
 pub fn fn_00476930(e: &mut Engine, this: Ptr, row: u32, out: Ptr) {
     let from = this.addr().wrapping_add(row.wrapping_mul(12));
+    // 00476943..0047696b: `FLD`/`FSTP` of each float (a signalling NaN comes out quiet).
     for i in 0..3 {
-        let value = e.mem.f32(from + 4 * i);
-        e.mem.set_f32(out.addr() + 4 * i, value);
+        let value = x87_quiet_bits(e.mem.u32(from + 4 * i));
+        e.mem.set_u32(out.addr() + 4 * i, value);
     }
 }
 
@@ -471,8 +472,9 @@ pub fn fn_00476980(e: &mut Engine, this: Ptr, column0: Ptr, column1: Ptr, column
 /// Stores the three floats at `source` in column `column` of the matrix
 /// `this` (elements `column`, `column + 3`, `column + 6`).
 pub fn fn_004769c0(e: &mut Engine, this: Ptr, column: u32, source: Ptr) {
+    // 004769d0..: `FLD`/`FSTP` of each float (a signalling NaN comes out quiet).
     for i in 0..3 {
-        let value = e.mem.f32(source.addr() + 4 * i);
+        let value = x87_quiet(e.mem.f32(source.addr() + 4 * i));
         let to = this
             .addr()
             .wrapping_add(column.wrapping_mul(4))

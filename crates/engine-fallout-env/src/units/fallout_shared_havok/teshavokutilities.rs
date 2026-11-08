@@ -558,7 +558,9 @@ pub fn fn_0062c250(e: &mut Engine, this: Ptr, out: Ptr, other: Ptr) -> Ptr {
         e.call(TRANSFORM_CONSTRUCTOR, &args![product]);
         let own_scale = f32::from_bits(e.mem.u32(this.addr() + 0x30));
         let other_scale = f32::from_bits(e.mem.u32(other.addr() + 0x30));
-        let scale = (own_scale as f64 * other_scale as f64) as f32;
+        // 0062c269..0062c272: `FLD this.scale; FMUL other.scale` (a memory operand) at the
+        // thread's precision.
+        let scale = f32::from_bits(x87_mul_store32(own_scale.to_bits(), other_scale.to_bits()));
         e.mem.set_u32(product + 0x30, scale.to_bits());
         let rotation = e.call(0x0043_f8d0, &args![this, at(0x58), other]).u32();
         copy_words(e, product, rotation, 9);

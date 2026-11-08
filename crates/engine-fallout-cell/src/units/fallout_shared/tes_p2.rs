@@ -2821,14 +2821,16 @@ pub fn fn_0045baf0(e: &mut Engine, this: Ptr, rtti: u32) -> bool {
 /// Stores into `out` (a three-`float` vector) the vector `this` (three
 /// `float`s) multiplied by `scale`; returns `out`.
 pub fn fn_0045bb20(e: &mut Engine, this: Ptr, out: Ptr, scale: f32) -> Ptr {
-    let x = e.mem.f32(this.addr());
-    let y = e.mem.f32(this.addr() + 4);
-    let z = e.mem.f32(this.addr() + 8);
-    typed_call!(
-        leaf::FAMILY,
-        0x0041_6870,
-        leaf::point3_new(e, out, x * scale, y * scale, z * scale)
-    );
+    // 0045bb29..0045bb57, z first: `FLD scale; FMUL axis` (a memory operand) at the thread's
+    // precision, stored as a float.
+    let times = |e: &Engine, offset: u32| {
+        let axis = e.mem.u32(this.addr() + offset);
+        f32::from_bits(x87_mul_store32(scale.to_bits(), axis))
+    };
+    let z = times(e, 8);
+    let y = times(e, 4);
+    let x = times(e, 0);
+    typed_call!(leaf::FAMILY, 0x0041_6870, leaf::point3_new(e, out, x, y, z));
     out
 }
 
