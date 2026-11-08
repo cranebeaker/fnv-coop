@@ -19,6 +19,7 @@ pub mod crt;
 pub mod culling;
 pub mod lockfree;
 pub mod pathing;
+pub mod shader;
 
 /// Declares a class of the game once: a marker type with its PC size and fields at their PC offsets
 /// (as [`engine_core::layout!`] does), and beside it a `#[repr(C)]` struct of the same bytes, whose
@@ -70,6 +71,7 @@ pub mod units {
         engine_core::typed::provide(&crate::lockfree::LOCKFREE);
         engine_core::typed::provide(&crate::culling::CULLING);
         engine_core::typed::provide(&crate::pathing::PATHING);
+        engine_core::typed::provide(&crate::shader::SHADER);
         engine_core::typed::provide(&crate::crt::CRT);
     }
 }

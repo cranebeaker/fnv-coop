@@ -1030,7 +1030,8 @@ const SHADER_BEGIN_00B7DD50: u32 = 0x00b7_dd50;
 /// as the current pass and sets the flag at `011ad8ec`.
 pub fn bs_batch_renderer_begin_pass(e: &mut Engine, pass_type: u32, shader: Ptr) {
     let shader = shader.addr();
-    bs_batch_renderer_end_pass(e);
+    // By address, as the exe calls it (`CALL 00b988e0`): the typed shader family compares it.
+    e.call(0x00b9_88e0, &[]);
     e.mem.set_u16(PASS_MARKER_011AE63C, 0xffff);
     e.vcall(shader, 0xf0, &[pass_type]);
     for i in 0..16 {
