@@ -3,6 +3,7 @@
 //! ```text
 //! nv-trace-launch --list FILE [--keys SCRIPT] [--seconds N] [--exe FILE] [--game DIR]
 //!                 [--scratch DIR] [--name NAME] [--no-saves] [--prepare-only]
+//!                 [--preload DLL]... [--exe-in-game]
 //! ```
 //!
 //! 1. Finds the player's folders: the game folder, `Documents\My Games\FalloutNV` (the
@@ -190,6 +191,8 @@ fn run() -> Result<i32, String> {
     let mut name: Option<String> = None;
     let mut saves = true;
     let mut prepare_only = false;
+    let mut preload: Vec<PathBuf> = Vec::new();
+    let mut exe_in_game = false;
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -219,6 +222,10 @@ fn run() -> Result<i32, String> {
             "--name" => name = Some(val()?),
             "--no-saves" => saves = false,
             "--prepare-only" => prepare_only = true,
+            // A DLL the recorder loads once its guard, redirection and hooks are in (a script
+            // extender in a scratch game copy). Repeatable.
+            "--preload" => preload.push(val()?.into()),
+            "--exe-in-game" => exe_in_game = true,
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -378,6 +385,14 @@ fn run() -> Result<i32, String> {
     if !keys2_after.is_empty() {
         cfg.push_str(&format!("keys2_after={keys2_after}\n"));
     }
+    for p in &preload {
+        let p = std::fs::canonicalize(p).map_err(|e| format!("{}: {e}", p.display()))?;
+        let s = p.display().to_string();
+        cfg.push_str(&format!(
+            "preload={}\n",
+            s.strip_prefix(r"\\?\").unwrap_or(&s)
+        ));
+    }
     std::fs::write(bin.join("nv-trace-rec.txt"), &cfg).map_err(|e| e.to_string())?;
     println!("run folder: {}", run.display());
     if prepare_only {
@@ -391,7 +406,18 @@ fn run() -> Result<i32, String> {
     }
 
     // 3. Start suspended, load the recorder, resume.
-    let exe_run = bin.join("FalloutNV.exe");
+    // With --exe-in-game the exe already in the (scratch) game folder runs, so a DLL that finds
+    // the game by the exe's own path (xNVSE's GetFalloutDirectory) finds the scratch copy.
+    let exe_run = if exe_in_game {
+        let in_game = game.join("FalloutNV.exe");
+        let steam = std::fs::canonicalize(STEAM_GAME).ok();
+        if std::fs::canonicalize(&game).ok() == steam || !in_game.is_file() {
+            return Err("--exe-in-game needs a scratch game copy with its own FalloutNV.exe".into());
+        }
+        in_game
+    } else {
+        bin.join("FalloutNV.exe")
+    };
     let app = win::wide(exe_run.as_os_str());
     let mut cmd = win::wide(std::ffi::OsStr::new(&format!("\"{}\"", exe_run.display())));
     let cwd = win::wide(game.as_os_str());

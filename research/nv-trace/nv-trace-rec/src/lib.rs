@@ -140,6 +140,9 @@ struct Config {
     exe_sha256: Option<String>,
     overlay_root: Option<String>,
     overlay: Option<String>,
+    /// DLLs loaded once the guard, the folder redirection and the hooks are in (a script
+    /// extender in a scratch game copy, for comparisons).
+    preload: Vec<PathBuf>,
 }
 
 /// An `ADDR:PORT_FRAME` event (a function whose first call starts a key script's clock, and
@@ -208,6 +211,7 @@ fn read_config(dir: &Path) -> Result<Config, String> {
             "exe_sha256" => c.exe_sha256 = Some(v.to_ascii_lowercase()),
             "overlay_root" => c.overlay_root = Some(v),
             "overlay" => c.overlay = Some(v),
+            "preload" => c.preload.push(v.into()),
             other => return Err(format!("{}: unknown key {other:?}", path.display())),
         }
     }
@@ -325,6 +329,29 @@ fn start() {
         )]
     };
     status.iter().for_each(|l| log(l));
+    // Preloaded DLLs, only now: the guard and the folder redirection are in, so whatever they
+    // write is redirected or refused like the game's own writes; after the hooks, so their
+    // patches of the exe come last and no hook copies a patched prologue.
+    for p in &config.preload {
+        let name = win::wide(p.as_os_str());
+        // SAFETY: a NUL-terminated wide path.
+        let h = unsafe { win::LoadLibraryW(name.as_ptr()) };
+        if h.is_null() {
+            // SAFETY: plain query.
+            let err = unsafe { win::GetLastError() };
+            log(&format!(
+                "preload: {} failed: {}",
+                p.display(),
+                win::error_text(err)
+            ));
+        } else {
+            log(&format!(
+                "preload: {} loaded at {:08x}",
+                p.display(),
+                h as usize
+            ));
+        }
+    }
     let mut header = String::from("source=real\nformat=1\n");
     header.push_str(&format!(
         "exe={}\nexe_sha256={}\n",
