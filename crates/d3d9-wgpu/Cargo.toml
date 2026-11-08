@@ -1,0 +1,13 @@
+[package]
+name = "d3d9-wgpu"
+version = "0.1.0"
+description = "Direct3D 9 on wgpu (ADR-0007): the converter of the game's Direct3D 9 shader bytecode to WGSL (the backend of the recorded call stream follows)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+# The converter's WGSL is checked with naga's reader and validator: the version wgpu 30.0.1 uses,
+# pinned (ADR-0007).
+naga = { version = "=30.0.1", features = ["wgsl-in"] }

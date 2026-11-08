@@ -1,8 +1,144 @@
 THIRD-PARTY NOTICES — nv-rs Windows build (nv-viewer)
 
-This file indexes the license texts of the 19 external packages in the repository's root Cargo.lock, which nv-viewer is built from (the build-time macro crates and every platform variant of windows-targets included). Package names, versions and license expressions come from each package's Cargo.toml in the local Cargo registry; the files were copied from that exact version there.
+This file indexes the license texts of the 46 external packages in the repository's root Cargo.lock, which nv-viewer is built from (the build-time macro crates and every platform variant of windows-targets included). Package names, versions and license expressions come from each package's Cargo.toml in the local Cargo registry; the files were copied from that exact version there. A package that ships no license file gets the standard text of its license expression (MIT with its authors as the copyright line), marked in its entry.
 
 Files are bundled under licenses/<package>-<version>/ in release ZIPs (distribution/licenses/ in the source tree). No crate source or game assets are included.
+
+arrayvec 0.7.8
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bluss/arrayvec
+  Bundled license files:
+    arrayvec-0.7.8/LICENSE-APACHE
+    arrayvec-0.7.8/LICENSE-MIT
+
+autocfg 1.5.1
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/cuviper/autocfg
+  Bundled license files:
+    autocfg-1.5.1/LICENSE-APACHE
+    autocfg-1.5.1/LICENSE-MIT
+
+bit-set 0.10.0
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/contain-rs/bit-set
+  Bundled license files:
+    bit-set-0.10.0/LICENSE-APACHE
+    bit-set-0.10.0/LICENSE-MIT
+
+bit-vec 0.9.1
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/contain-rs/bit-vec
+  Bundled license files:
+    bit-vec-0.9.1/LICENSE-APACHE
+    bit-vec-0.9.1/LICENSE-MIT
+
+bitflags 2.13.2
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/bitflags/bitflags
+  Bundled license files:
+    bitflags-2.13.2/LICENSE-APACHE
+    bitflags-2.13.2/LICENSE-MIT
+
+cfg-if 1.0.5
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/cfg-if
+  Bundled license files:
+    cfg-if-1.0.5/LICENSE-APACHE
+    cfg-if-1.0.5/LICENSE-MIT
+
+cfg_aliases 0.2.2
+  License expression: MIT
+  Repository: https://github.com/katharostech/cfg_aliases
+  Bundled license files:
+    cfg_aliases-0.2.2/LICENSE
+    cfg_aliases-0.2.2/NOTICES.md
+
+codespan-reporting 0.13.1
+  License expression: Apache-2.0
+  Repository: https://github.com/brendanzab/codespan
+  Bundled license files:
+    codespan-reporting-0.13.1/LICENSE
+
+crunchy 0.2.4
+  License expression: MIT
+  Repository: https://github.com/eira-fransham/crunchy
+  Bundled license files:
+    crunchy-0.2.4/LICENSE
+
+equivalent 1.0.3
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/indexmap-rs/equivalent
+  Bundled license files:
+    equivalent-1.0.3/LICENSE-APACHE
+    equivalent-1.0.3/LICENSE-MIT
+
+foldhash 0.2.0
+  License expression: Zlib
+  Repository: https://github.com/orlp/foldhash
+  Bundled license files:
+    foldhash-0.2.0/LICENSE
+
+half 2.7.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/VoidStarKat/half-rs
+  Bundled license files:
+    half-2.7.1/LICENSE-APACHE
+    half-2.7.1/LICENSE-MIT
+
+hashbrown 0.17.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/hashbrown
+  Bundled license files:
+    hashbrown-0.17.1/LICENSE-APACHE
+    hashbrown-0.17.1/LICENSE-MIT
+
+indexmap 2.14.2
+  License expression: Apache-2.0 OR MIT
+  Repository: https://github.com/indexmap-rs/indexmap
+  Bundled license files:
+    indexmap-2.14.2/LICENSE-APACHE
+    indexmap-2.14.2/LICENSE-MIT
+
+libm 0.2.16
+  License expression: MIT
+  Repository: https://github.com/rust-lang/compiler-builtins
+  Bundled license files:
+    libm-0.2.16/LICENSE.txt
+
+log 0.4.35
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-lang/log
+  Bundled license files:
+    log-0.4.35/LICENSE-APACHE
+    log-0.4.35/LICENSE-MIT
+
+naga 30.0.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/gfx-rs/wgpu
+  Bundled license files:
+    naga-30.0.1/LICENSE.APACHE
+    naga-30.0.1/LICENSE.MIT
+
+naga-types 30.0.1
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/gfx-rs/wgpu
+  Bundled license files:
+    naga-types-30.0.1/LICENSE.APACHE
+    naga-types-30.0.1/LICENSE.MIT
+
+num-traits 0.2.19
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/rust-num/num-traits
+  Bundled license files:
+    num-traits-0.2.19/LICENSE-APACHE
+    num-traits-0.2.19/LICENSE-MIT
+
+once_cell 1.21.4
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/matklad/once_cell
+  Bundled license files:
+    once_cell-1.21.4/LICENSE-APACHE
+    once_cell-1.21.4/LICENSE-MIT
 
 proc-macro2 1.0.107
   License expression: MIT OR Apache-2.0
@@ -18,12 +154,40 @@ quote 1.0.47
     quote-1.0.47/LICENSE-APACHE
     quote-1.0.47/LICENSE-MIT
 
+rustc-hash 1.1.0
+  License expression: Apache-2.0/MIT
+  Repository: https://github.com/rust-lang-nursery/rustc-hash
+  Bundled license files:
+    rustc-hash-1.1.0/LICENSE-APACHE
+    rustc-hash-1.1.0/LICENSE-MIT
+
 syn 2.0.119
   License expression: MIT OR Apache-2.0
   Repository: https://github.com/dtolnay/syn
   Bundled license files:
     syn-2.0.119/LICENSE-APACHE
     syn-2.0.119/LICENSE-MIT
+
+syn 3.0.9
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/syn
+  Bundled license files:
+    syn-3.0.9/LICENSE-APACHE
+    syn-3.0.9/LICENSE-MIT
+
+thiserror 2.0.21
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/thiserror
+  Bundled license files:
+    thiserror-2.0.21/LICENSE-APACHE
+    thiserror-2.0.21/LICENSE-MIT
+
+thiserror-impl 2.0.21
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/dtolnay/thiserror
+  Bundled license files:
+    thiserror-impl-2.0.21/LICENSE-APACHE
+    thiserror-impl-2.0.21/LICENSE-MIT
 
 unicode-ident 1.0.26
   License expression: (MIT OR Apache-2.0) AND Unicode-3.0
@@ -32,6 +196,14 @@ unicode-ident 1.0.26
     unicode-ident-1.0.26/LICENSE-APACHE
     unicode-ident-1.0.26/LICENSE-MIT
     unicode-ident-1.0.26/LICENSE-UNICODE
+
+unicode-width 0.1.14
+  License expression: MIT OR Apache-2.0
+  Repository: https://github.com/unicode-rs/unicode-width
+  Bundled license files:
+    unicode-width-0.1.14/COPYRIGHT
+    unicode-width-0.1.14/LICENSE-APACHE
+    unicode-width-0.1.14/LICENSE-MIT
 
 windows 0.58.0
   License expression: MIT OR Apache-2.0
@@ -137,4 +309,20 @@ windows_x86_64_msvc 0.52.6
   Bundled license files:
     windows_x86_64_msvc-0.52.6/license-apache-2.0
     windows_x86_64_msvc-0.52.6/license-mit
+
+zerocopy 0.8.63
+  License expression: BSD-2-Clause OR Apache-2.0 OR MIT
+  Repository: https://github.com/google/zerocopy
+  Bundled license files:
+    zerocopy-0.8.63/LICENSE-APACHE
+    zerocopy-0.8.63/LICENSE-BSD
+    zerocopy-0.8.63/LICENSE-MIT
+
+zerocopy-derive 0.8.63
+  License expression: BSD-2-Clause OR Apache-2.0 OR MIT
+  Repository: https://github.com/google/zerocopy
+  Bundled license files:
+    zerocopy-derive-0.8.63/LICENSE-APACHE
+    zerocopy-derive-0.8.63/LICENSE-BSD
+    zerocopy-derive-0.8.63/LICENSE-MIT
 
