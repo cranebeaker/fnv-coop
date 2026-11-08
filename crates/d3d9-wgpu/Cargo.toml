@@ -1,13 +1,20 @@
 [package]
 name = "d3d9-wgpu"
 version = "0.1.0"
-description = "Direct3D 9 on wgpu (ADR-0007): the converter of the game's Direct3D 9 shader bytecode to WGSL (the backend of the recorded call stream follows)"
+description = "Direct3D 9 on wgpu (ADR-0007): a backend of the recorded Direct3D 9 call stream, and the converter of the game's shader bytecode to WGSL"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
 
 [dependencies]
+d3d9-stream = { path = "../d3d9-stream" }
 # The converter's WGSL is checked with naga's reader and validator: the version wgpu 30.0.1 uses,
 # pinned (ADR-0007).
 naga = { version = "=30.0.1", features = ["wgsl-in"] }
+# Pinned (ADR-0007): Direct3D 12 and Vulkan here, Metal on macOS; no WebGPU or WebGL.
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "parking_lot", "wgsl", "dx12", "vulkan", "metal"] }
+# The game's window as a wgpu surface (the version wgpu 30 takes).
+# Note: gpu-allocator's `windows` dependency (">=0.53, <=0.62") is locked to 0.62.2, wgpu-hal's;
+# the resolver would otherwise pick the workspace's 0.58 and wgpu-hal would not build.
+raw-window-handle = "=0.6.2"

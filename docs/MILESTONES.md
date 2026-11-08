@@ -72,7 +72,7 @@ A milestone is done when all three of these hold:
 | A1: Movement and physics | Character controller, player and actor movement, camera collision, the Havok SDK and Bethesda's Havok layer, ragdolls | **Active.** Translated; running in the play build, being checked against the original |
 | A2: Animation and faces | NiAnimation, animation choice and blending, FaceGen and lip sync | Translated; running in the play build, being compared with the original |
 | A3: Audio | BSAudio, the radio and music; game threads stepped behind the thread seam | Translated; the game's own sound plays through DirectSound, measured against Windows |
-| B: Graphics | The scene graph, shaders and lighting, sky and weather, terrain and trees, effects | Translated; the game's own renderer draws through the real Direct3D 9 |
+| B: Graphics | The scene graph, shaders and lighting, sky and weather, terrain and trees, effects | Translated; the game's own renderer draws through the real Direct3D 9; the wgpu backend (`crates/d3d9-wgpu`) draws the same frames beside it (intro and menu identical, Doc's house within 0.3% of pixels), not selectable yet |
 | C: Gameplay | Actor values and combat, AI and pathfinding, quests and dialogue, menus and V.A.T.S., magic, progression, crafting, minigames, world streaming | Translated and playable through the whole game, quests and DLCs included; translation errors cause bugs and crashes (the fnv_decomp audit) |
 | D: The rest | Original saves, shut-down, video, settings, real threads, the remaining unplaced functions | Translated; saves load and are written, the open world plays; crashes from translation errors (the audit) |
 
