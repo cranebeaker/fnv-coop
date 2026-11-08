@@ -219,7 +219,7 @@ struct State {
     log: Option<std::io::BufWriter<std::fs::File>>,
 }
 
-/// The run's state, by engine (a run has one; tests have one each).
+/// The run's state, by run ([`key`]; tests have one each).
 fn states() -> std::sync::MutexGuard<'static, HashMap<usize, State>> {
     static STATES: std::sync::OnceLock<Mutex<HashMap<usize, State>>> = std::sync::OnceLock::new();
     STATES
@@ -228,8 +228,11 @@ fn states() -> std::sync::MutexGuard<'static, HashMap<usize, State>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// The run's kernel table's address (`Engine::kernel`), which every game thread's engine context
+/// shares with real threads (ADR-0015); the engine's own address is the main thread's only, so a
+/// note made on another thread was dropped.
 fn key(e: &Engine) -> usize {
-    e as *const Engine as usize
+    e.kernel.id()
 }
 
 fn words<const N: usize>(e: &Engine, at: u32) -> [u32; N] {

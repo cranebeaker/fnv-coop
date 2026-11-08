@@ -82,9 +82,10 @@ const NO_ADDRESS: &[&str] = &[
 pub const DEFAULT_MENU_FRAME_LIMIT: u32 = 120;
 
 /// How the game's threads run in play when `NV_THREADS` names nothing ([`Choice::threads`]):
-/// stepped, one at a time, for now; `NV_THREADS=real` runs them side by side
-/// (`engine::real_threads`). A test never takes this: it runs stepped unless it names threads.
-pub const PLAY_THREADS: &str = "stepped";
+/// real, side by side on their own cores (`engine::real_threads`), since the evidence of
+/// measure/real-threads (the maintainer's gate, 2026-11-08); `NV_THREADS=stepped` runs them one
+/// at a time. A test never takes this: it runs stepped unless it names threads.
+pub const PLAY_THREADS: &str = "real";
 
 /// The player's one line: the fixes set, or the original's behaviour.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -250,6 +251,16 @@ impl Choice {
         Ok(choice)
     }
 
+    /// A run its command line marks as a test (the viewer's `--movement-missing` and
+    /// `--movement-probe`, which record or go on past untranslated functions on the main
+    /// thread's engine only): its threads run stepped, as a test's do, unless `NV_THREADS` (in
+    /// `env`) names them.
+    pub fn pin_test_threads(&mut self, env: impl Fn(&str) -> Option<String>) {
+        if env("NV_THREADS").map_or(true, |v| v.trim().is_empty()) {
+            self.threads = "stepped".to_string();
+        }
+    }
+
     /// The menu frame limit the uncapped step gets: `None` when [`crate::uncap::MENU_FIX`] is off.
     pub fn bound_menu_frame_limit(&self) -> Option<u32> {
         self.is_on(&crate::uncap::MENU_FIX)
@@ -264,7 +275,9 @@ impl Choice {
             .map_or(self.preset == Preset::Fixes, |(_, on)| *on)
     }
 
-    /// The start-up line: what this run is, so a log says which game it measured.
+    /// The start-up line: what this run is, so a log (and an F12 report) says which game it
+    /// measured: the preset, the fixes on, the limits and the threads asked for ([`Choice::threads`];
+    /// the host's own `threads:` line says how they ran).
     pub fn describe(&self) -> String {
         let on: Vec<&str> = FIXES
             .iter()
@@ -283,13 +296,14 @@ impl Choice {
             format!("{menu}, frame limit {}", self.frame_limit)
         };
         format!(
-            "Preset {}: {}{limit}",
+            "Preset {}: {}{limit}; threads {}",
             self.preset.name(),
             if on.is_empty() {
                 "no fix on".to_string()
             } else {
                 on.join(", ")
-            }
+            },
+            self.threads.trim()
         )
     }
 }
@@ -531,6 +545,20 @@ mod tests {
     /// A test runs the game's threads stepped unless its `NV_THREADS` names them, so no comparison,
     /// recording or measurement changes when the play default does; naming a preset doesn't
     /// unpin them. A plain start (and the launcher's) gets the play default.
+    /// A run the viewer's command line marks as a test (`--movement-missing`, `--movement-probe`)
+    /// runs stepped threads, unless `NV_THREADS` names them.
+    #[test]
+    fn a_test_by_its_command_line_pins_stepped_threads() {
+        let mut choice = Choice::from_parts(None, no_env).unwrap();
+        assert_eq!(choice.threads, PLAY_THREADS);
+        choice.pin_test_threads(no_env);
+        assert_eq!(choice.threads, "stepped");
+        let named = env_of(&[("NV_THREADS", "real")]);
+        let mut choice = Choice::from_parts(None, &named).unwrap();
+        choice.pin_test_threads(&named);
+        assert_eq!(choice.threads, "real");
+    }
+
     #[test]
     fn scripted_and_measured_runs_pin_stepped_threads() {
         for name in TEST_VARIABLES {
@@ -674,7 +702,10 @@ mod tests {
         assert!(!choice.describe().contains("menu"), "{}", choice.describe());
         // The start-up line says it, and says nothing when the uncapped step is off.
         let line = Choice::from_parts(None, no_env).unwrap().describe();
-        assert!(line.ends_with(", menu limit 120"), "{line}");
+        assert!(
+            line.ends_with(&format!(", menu limit 120; threads {PLAY_THREADS}")),
+            "{line}"
+        );
         let line = Choice::from_parts(None, env_of(&[("NV_PRESET", "fixes"), ("NV_UNCAP", "0")]))
             .unwrap()
             .describe();
@@ -698,12 +729,18 @@ mod tests {
 
     #[test]
     fn vanilla_and_a_log_line() {
-        assert_eq!(Choice::vanilla().describe(), "Preset vanilla: no fix on");
+        assert_eq!(
+            Choice::vanilla().describe(),
+            "Preset vanilla: no fix on; threads stepped"
+        );
         assert!(FIXES.iter().all(|f| !Choice::vanilla().is_on(f)));
         let choice = Choice::from_parts(Some("FrameLimit=90"), no_env).unwrap();
         let line = choice.describe();
         assert!(line.starts_with("Preset fixes: "), "{line}");
-        assert!(line.ends_with(", frame limit 90"), "{line}");
+        assert!(
+            line.ends_with(&format!(", frame limit 90; threads {PLAY_THREADS}")),
+            "{line}"
+        );
     }
 
     /// EXTENDER-HOOKS R2 and docs/ENGINE_CRATE.md, "Typed code": what a fix overrides is listed, so

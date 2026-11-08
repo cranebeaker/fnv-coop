@@ -66,6 +66,15 @@ limits only work with the fixes on. Settings.cmd keeps them in userdata\settings
 or Preset=vanilla, FrameLimit=0 (no limit) or a number, and MenuFrameLimit=120, 0 or a number.
 
 
+Game threads
+------------
+The game's threads (the main one, the AI, loading and sound) run side by side on your processor's
+cores, as in the original. If the game misbehaves in a way it didn't with the previous preview (it
+stops, hangs, or something acts oddly), open Settings.cmd, choose "One at a time (slower)" under Game
+threads, and please tell us. Settings.cmd keeps that choice in userdata\settings.ini as the line
+NV_THREADS=stepped; without the line the threads run side by side.
+
+
 What works
 ----------
 The whole game runs on its translated code: the opening, the open world, quests, combat, V.A.T.S.,

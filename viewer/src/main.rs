@@ -174,13 +174,18 @@ fn main() {
     // as Data: any build but 1.4.0.525 is refused here, with the reason (2026-10-13). Starting
     // runs main's first frame. What differs from the exe: the fixes preset unless the settings or
     // the environment say otherwise (docs/FIXES.md).
-    let choice = match host::fixes::Choice::read() {
+    let mut choice = match host::fixes::Choice::read() {
         Ok(choice) => choice,
         Err(e) => {
             eprintln!("error: {e}");
             std::process::exit(1);
         }
     };
+    // `--movement-missing` and `--movement-probe` make the run a test: its threads run stepped
+    // (the recorder and the probe are the main thread's engine's) unless `NV_THREADS` says.
+    if args.movement_missing.is_some() || args.movement_probe {
+        choice.pin_test_threads(|name| std::env::var(name).ok());
+    }
     let mut game = match host::Host::start_with(&data, &choice) {
         Ok(host) => host,
         Err(e) => {

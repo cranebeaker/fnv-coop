@@ -75,7 +75,8 @@ each function belongs to.
   order until its object is signalled, a game thread's wait hands back to
   the main thread, `SetEvent`/`ReleaseSemaphore` wake waiters, and a wait no
   thread can satisfy stops the run naming the object. **Real threads**
-  (`NV_THREADS=real`, not yet the default; `engine_core::real_threads`, ADR-0015):
+  (the default in play, `NV_THREADS=stepped` one setting away and what tests and scripted runs
+  use; `engine_core::real_threads`, ADR-0015):
   each game thread runs on its own OS thread with its own `Engine` (call
   stack, call cache, TLS block and values, x87 word, last error, guest stack:
   `Engine::real`), sharing memory, the kernel objects (`KernelRef`) and the

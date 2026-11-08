@@ -735,6 +735,10 @@ impl Engine {
 
     /// Moves the script command table (an extender's install, as xNVSE's `ApplyPatch`).
     pub fn set_script_tables(&mut self, tables: ScriptTables) {
+        debug_assert!(
+            self.real.is_none(),
+            "the script tables moved after real threads started (their engines copied them before)"
+        );
         self.extend.tables = tables;
     }
 
@@ -772,11 +776,18 @@ impl Engine {
     /// often (whether anything of its own is set at all), which must not take the shared slot's
     /// lock. Made with `T::default()` at first use, which comes before the threads start.
     pub fn ext_free<T: Default + Send + Sync + 'static>(&mut self) -> &T {
+        let after_start = self.real.is_some();
         let slot = self
             .extend
             .slots
             .entry(std::any::TypeId::of::<T>())
-            .or_insert_with(|| ExtSlot::Free(std::sync::Arc::new(T::default())));
+            .or_insert_with(|| {
+                debug_assert!(
+                    !after_start,
+                    "a lock-free slot made after real threads started (their engines have none)"
+                );
+                ExtSlot::Free(std::sync::Arc::new(T::default()))
+            });
         match slot {
             ExtSlot::Free(v) => v
                 .downcast_ref::<T>()
@@ -802,6 +813,10 @@ impl Engine {
     /// made from it afterwards ([`ExtendState::for_thread`]), behind one lock: for a built-in's
     /// game-wide state, installed before the threads start. Its value so far is kept.
     pub fn share_ext<T: Default + Send + 'static>(&mut self) {
+        debug_assert!(
+            self.real.is_none(),
+            "a slot shared after real threads started (their engines keep no share of it)"
+        );
         let key = std::any::TypeId::of::<T>();
         let value: Box<dyn std::any::Any + Send> = match self.extend.slots.remove(&key) {
             Some(ExtSlot::Own(b)) => match b.downcast::<T>() {
@@ -829,6 +844,10 @@ impl Engine {
     /// Refused (a stop): an address with nothing registered, or with a test double (a closure
     /// cannot be a link: it misses the call cache).
     pub fn wrap(&mut self, slot: WrapSlot, f: AbiFn) {
+        debug_assert!(
+            self.real.is_none(),
+            "a wrap installed after real threads started (their engines copied the wraps before)"
+        );
         let s = slot.0;
         let addr = s.addr();
         let base = match self.callable_at(addr) {
@@ -957,6 +976,10 @@ impl Engine {
 
     /// Registers `f` as the slot's handler at its seam. Refused (a stop): the slot has a handler.
     pub fn on_site(&mut self, slot: SiteSlot, f: SiteFn) {
+        debug_assert!(
+            self.real.is_none(),
+            "a seam handler installed after real threads started (their engines copied them before)"
+        );
         let s = slot.0;
         let addr = s.addr();
         let owners = s.table[s.row].owners.len();

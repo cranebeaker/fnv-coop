@@ -61,7 +61,6 @@ use engine::units::fallout_shared::tesdatahandler::tes_data_handler_clear_data;
 use engine::units::fallout_shared::testopic::{
     fn_0061a380, fn_0061a5a0, tes_topic_get_owner_topic, tes_topic_insert_info,
 };
-use engine::Mem;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -160,14 +159,16 @@ fn indexes() -> std::sync::MutexGuard<'static, HashMap<usize, Index>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// The guest memory's address: what every game thread of a run shares (ADR-0015 gives each
-/// thread an engine context of its own over the one guest memory), unlike the engine's address.
-/// Through a `&Mem`, so if a context comes to hold the memory by reference this is still the
-/// memory's own address. A run has one engine, boxed; a test's engine is boxed and removes its
-/// entry when made and when dropped, so a later engine at the same address starts clean.
+/// The run's kernel table's address (`Engine::kernel`): what every game thread of a run shares.
+/// With real threads (ADR-0015) each thread has an engine context and a view of the guest memory
+/// of its own (`Mem::view`), so neither the engine's address nor its `Mem`'s is the run's: keyed
+/// by those, a search on another thread than the inserts found no index and answered 0, and the
+/// game stopped building a voice file's path for a response without its topic (2026-11-08,
+/// measure/real-threads). The kernel table is one per run, shared by every context; a test's
+/// engine has its own and removes its entry when made and when dropped, so a later engine whose
+/// table lands at the same address starts clean.
 fn key(e: &Engine) -> usize {
-    let mem: &Mem = &e.mem;
-    mem as *const Mem as usize
+    e.kernel.id()
 }
 
 /// Whether `list` is `listTopics` (the data handler's +0x108), or a null list, which the sort

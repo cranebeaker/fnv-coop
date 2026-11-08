@@ -3,13 +3,14 @@
 # know stays in the file as it is, and Play.exe hands a line starting with NV_ to the game as a switch,
 # so new settings can join without a new window. Preset, FrameLimit and MenuFrameLimit are the game's
 # fixes preset (fixes or vanilla), frame limit (0: none) and frame limit in menus (120 unless chosen, 0:
-# none), which Play.exe passes on as NV_PRESET, NV_FRAME_LIMIT and NV_MENU_FRAME_LIMIT.
+# none), which Play.exe passes on as NV_PRESET, NV_FRAME_LIMIT and NV_MENU_FRAME_LIMIT. Game threads one at
+# a time is the line NV_THREADS=stepped (the game's threads run side by side without it).
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $folder = Join-Path $PSScriptRoot 'userdata'
 $file = Join-Path $folder 'settings.ini'
-$known = @('Borderless', 'Resolution', 'AntiAliasing', 'Anisotropy', 'VSync', 'Preset', 'FrameLimit', 'MenuFrameLimit')
+$known = @('Borderless', 'Resolution', 'AntiAliasing', 'Anisotropy', 'VSync', 'Preset', 'FrameLimit', 'MenuFrameLimit', 'NV_THREADS')
 # Play.exe makes the game's NV_PRESET, NV_FRAME_LIMIT and NV_MENU_FRAME_LIMIT from Preset, FrameLimit and
 # MenuFrameLimit, and NV_FIXES was never one of the game's switches: such lines would only look as if
 # they did something.
@@ -36,7 +37,7 @@ $form.Text = 'nv-rs settings'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object System.Drawing.Size(360, 398)
+$form.ClientSize = New-Object System.Drawing.Size(360, 434)
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
 $y = 16
@@ -85,6 +86,12 @@ if ($menuLimit -eq '') { $menuLimit = '120' }
 if ($menuLimit -match '^\d+$' -and $menuLimit -ne '0' -and $menuLimits -notcontains $menuLimit) { $menuLimits += $menuLimit }
 $ml = New-Combo $menuLimits $(if ($menuLimit -eq '0') { 'No limit' } else { $menuLimit })
 Add-Row 'Frame rate limit in menus' $ml
+# The game's threads side by side on their own cores (the default) or one at a time, slower: the
+# fallback if a game misbehaves with them side by side.
+$together = 'Side by side (recommended)'
+$apart = 'One at a time (slower)'
+$th = New-Combo @($together, $apart) $(if ((Get-Setting 'NV_THREADS' '') -eq 'stepped') { $apart } else { $together })
+Add-Row 'Game threads' $th
 
 $note = New-Object System.Windows.Forms.Label
 $note.Text = "`"$own`" keeps what the game has now.`nBorderless fullscreen covers the main monitor."
@@ -94,18 +101,20 @@ $form.Controls.Add($note)
 
 $save = New-Object System.Windows.Forms.Button
 $save.Text = 'Save'
-$save.Location = New-Object System.Drawing.Point(184, 358)
+$save.Location = New-Object System.Drawing.Point(184, 394)
 $save.DialogResult = 'OK'
 $form.Controls.Add($save)
 $form.AcceptButton = $save
 $cancel = New-Object System.Windows.Forms.Button
 $cancel.Text = 'Cancel'
-$cancel.Location = New-Object System.Drawing.Point(268, 358)
+$cancel.Location = New-Object System.Drawing.Point(268, 394)
 $cancel.DialogResult = 'Cancel'
 $form.Controls.Add($cancel)
 $form.CancelButton = $cancel
 
 if ($form.ShowDialog() -eq 'OK') {
+    $threadLines = @()
+    if ($th.SelectedIndex -eq 1) { $threadLines = @('NV_THREADS=stepped') }
     $lines = @(
         '# nv-rs settings (written by Settings.cmd)'
         "Borderless=$(if ($mode.SelectedIndex -eq 0) { 1 } else { 0 })"
@@ -116,7 +125,7 @@ if ($form.ShowDialog() -eq 'OK') {
         "Preset=$(if ($pr.SelectedIndex -eq 1) { 'vanilla' } else { 'fixes' })"
         "FrameLimit=$(if ($fl.SelectedIndex -eq 0) { 0 } else { $fl.SelectedItem })"
         "MenuFrameLimit=$(if ($ml.SelectedIndex -eq 0) { 0 } else { $ml.SelectedItem })"
-    ) + $kept
+    ) + $threadLines + $kept
     [void][IO.Directory]::CreateDirectory($folder)
     [IO.File]::WriteAllLines($file, [string[]]$lines, (New-Object System.Text.UTF8Encoding($false)))
 }

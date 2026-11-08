@@ -21,6 +21,11 @@ vanilla, for tests and tools; the viewer reads the choice and calls `Host::start
 Anything that compares with the original says `NV_PRESET=vanilla`. Speed gates say `NV_PRESET=vanilla
 NV_UNCAP=1` as before.
 
+The game's threads are not part of the preset. In play they run side by side on their own cores
+(`fixes::PLAY_THREADS`); the line `NV_THREADS=stepped` in `settings.ini` (Settings.cmd's "Game
+threads": "One at a time") runs them one at a time, the fallback. A test or scripted run without
+`NV_THREADS` runs them stepped whatever play's default is (the table above).
+
 ## How a fix is built
 
 - An override keyed by exe address, a plain function registered over the translation when it is on.

@@ -2208,6 +2208,25 @@ mod shot {
         })
     }
 
+    /// The first `bytes` of the file at `path`, to the last whole line.
+    pub(super) fn head(path: &std::path::Path, bytes: u64) -> Option<Vec<u8>> {
+        use std::io::Read;
+        let mut text = Vec::new();
+        std::fs::File::open(path)
+            .ok()?
+            .take(bytes)
+            .read_to_end(&mut text)
+            .ok()?;
+        if text.len() as u64 == bytes {
+            let end = text
+                .iter()
+                .rposition(|&b| b == b'\n')
+                .map_or(0, |at| at + 1);
+            text.truncate(end);
+        }
+        Some(text)
+    }
+
     /// The last `bytes` of the file at `path`, from a line's start.
     pub(super) fn tail(path: &std::path::Path, bytes: u64) -> Option<Vec<u8>> {
         use std::io::{Read, Seek, SeekFrom};
@@ -2241,10 +2260,16 @@ mod shot {
             }
             Err(error) => eprintln!("F12: no picture: {error}"),
         }
-        if let Some(text) = std::env::var_os("NV_REPORT_LOG")
-            .and_then(|path| tail(std::path::Path::new(&path), 256 * 1024))
-        {
-            let _ = std::fs::write(folder.join("log.txt"), text);
+        if let Some(path) = std::env::var_os("NV_REPORT_LOG") {
+            let path = std::path::Path::new(&path);
+            if let Some(text) = tail(path, 256 * 1024) {
+                let _ = std::fs::write(folder.join("log.txt"), text);
+            }
+            // The log's start too (`log-start.txt`): the run's preset, fixes and threads lines,
+            // which a long session's end no longer reaches.
+            if let Some(text) = head(path, 8 * 1024) {
+                let _ = std::fs::write(folder.join("log-start.txt"), text);
+            }
         }
         let _ = std::fs::write(
             folder.join("note.txt"),
@@ -2860,6 +2885,22 @@ mod tests {
         assert_eq!(choose_interval(1, false), 1);
         assert_eq!(choose_interval(0, false), 0);
         assert_eq!(choose_interval(1, true), INTERVAL_IMMEDIATE);
+    }
+
+    /// An F12 report's `log-start.txt`: the log's first bytes, cut back to a whole line.
+    #[test]
+    fn the_logs_start_ends_at_a_whole_line() {
+        let path = std::env::temp_dir().join(format!("nv-head-{}.txt", std::process::id()));
+        std::fs::write(
+            &path,
+            "Preset fixes: x; threads real\nthreads: real\nlater\n",
+        )
+        .unwrap();
+        let start = shot::head(&path, 40).unwrap();
+        assert_eq!(start, b"Preset fixes: x; threads real\n");
+        let all = shot::head(&path, 4096).unwrap();
+        assert!(all.ends_with(b"later\n"));
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

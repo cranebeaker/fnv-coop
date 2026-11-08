@@ -1184,6 +1184,13 @@ impl KernelRef {
     pub(crate) fn leak(&mut self) {
         self.owned = false;
     }
+
+    /// The kernel table's address, without reading it: one per run, the same in every real
+    /// thread's engine context (whose engines and memory views are each their own), so a key for
+    /// state the whole run shares (the host's fixes).
+    pub fn id(&self) -> usize {
+        self.kernel.as_ptr() as usize
+    }
 }
 
 impl std::ops::Deref for KernelRef {
