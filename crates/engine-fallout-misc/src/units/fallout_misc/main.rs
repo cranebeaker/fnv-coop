@@ -833,6 +833,9 @@ fn run_main(e: &mut Engine, ebp: u32, instance: u32) -> u32 {
             ) != 0
             || setting_byte(e, 0x011d_eed8) != 0;
         if foreground {
+            // The extender's main-loop tick (ADR-0016 §9), where xNVSE's call replaces the
+            // renderer getter's at 0086b386; nothing happens here without it.
+            e.site(0x0086_b386, &[]);
             let renderer = e.call(GET_RENDERER, &args![]).u32();
             let device = e.call(0x004d_c020, &args![renderer]).u32();
             // `TestCooperativeLevel` (0086b3a6: only the device, as the COM `this`).

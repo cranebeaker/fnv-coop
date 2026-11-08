@@ -16,10 +16,9 @@
 //!   (JIP LN NVSE)) and xNVSE's evaluator does (`cmdResult = 0`); for vanilla opcodes that is
 //!   JIP's planned fix row (not built yet).
 //!
-//! Not here yet: an inline expression (a parameter starting `0xFFFF`) and the override path
-//! (an argument count above `0x7FFF`) need xNVSE's expression evaluator (I-6), and a `$name`
-//! string argument reads a string variable (I-5); until then the first two fail the read and
-//! `$name` reads as the variable's text would when it holds no string.
+//! A `$name` string argument reads the local string variable `name` (I-5). Not here yet: an
+//! inline expression (a parameter starting `0xFFFF`) and the override path (an argument count
+//! above `0x7FFF`) need xNVSE's expression evaluator (I-6); until then they fail the read.
 
 use crate::context;
 use crate::table::record_of;
@@ -462,10 +461,9 @@ fn check_form(e: &mut Engine, kind: u32, form: u32) -> Option<u32> {
     ok.then_some(form)
 }
 
-/// A string variable's text, by id (`g_StringMap.Get`): string variables come with I-5; none
-/// exists before, so every id answers none, as xNVSE does for an id it does not hold.
-fn string_variable(_e: &Engine, _id: u32) -> Option<Vec<u8>> {
-    None
+/// A string variable's text, by id (`g_StringMap.Get`); none for an id it does not hold.
+fn string_variable(e: &Engine, id: u32) -> Option<Vec<u8>> {
+    crate::vars::string(e, id)
 }
 
 /// `Script::GetVariableByName` (xNVSE): the variable list (`varList`, `Script +0x4C`; each
@@ -492,6 +490,7 @@ fn read_args(
     count: u32,
     params: u32,
     at: &mut u32,
+    data: u32,
     script: u32,
     event_list: u32,
 ) -> Extracted {
@@ -502,8 +501,14 @@ fn read_args(
             return out;
         }
         if e.mem.u16(*at) == 0xffff {
-            // An inline expression (`vExtractExpression`): the evaluator, I-6.
-            return out;
+            // An inline expression (`vExtractExpression`), through the evaluator.
+            match crate::expr::inline_argument(e, kind, at, data, script, event_list) {
+                Some(arg) => {
+                    out.args.push(arg);
+                    continue;
+                }
+                None => return out,
+            }
         }
         let arg = match classify(kind) {
             Extract::StringLiteral => {
@@ -632,7 +637,7 @@ pub fn v_extract_args_ex(
         e.mem.set_u32(offset_ptr, offset.wrapping_add(2));
         return Extracted::default();
     } else {
-        read_args(e, count, params, &mut at, script, event_list)
+        read_args(e, count, params, &mut at, data, script, event_list)
     };
     if increment && read.ok {
         let now = e.mem.u32(offset_ptr);
@@ -741,6 +746,8 @@ mod tests {
     fn engine() -> Engine {
         let mut e = Engine::new();
         e.map(0x0200_0000, 0x8000);
+        // The console's open byte (closed), which the evaluator's error report reads.
+        e.map(0x011d_e000, 0x1000);
         e.register(LOOKUP_FORM, |_, a| Ret {
             eax: if a[0] == 0x1234 { FORM } else { 0 },
             ..Ret::default()

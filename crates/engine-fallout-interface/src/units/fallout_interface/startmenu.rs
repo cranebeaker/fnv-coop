@@ -4652,6 +4652,9 @@ pub fn start_menu_confirm_new_game(e: &mut Engine) {
     let tile = e.mem.u32(loading + 0x54);
     e.call(TILE_SET_INT, &args![tile, TRAIT_VISIBLE, 1u32]);
     e.call(FN_004581C0, &args![1u32]);
+    // The seam at this (empty) call (`0x007D33CE`, ADR-0016): the script extender's new game
+    // (xNVSE's `NewGameHook` takes the call's place).
+    e.site(0x007d_33ce, &[]);
     typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
     e.call(SET_DIALOG_FLAG, &args![0u32]);
     e.call(MEDIA_CLOSE, &args![]);

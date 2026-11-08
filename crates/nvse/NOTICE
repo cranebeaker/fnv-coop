@@ -34,7 +34,6 @@ xNVSE's src/common is under this notice, kept as it is:
      3. This notice may not be removed or altered from any source
      distribution.
 
-Third-party code inside xNVSE keeps its own licence. None is translated yet; when it is, its
-translation carries that licence in a file beside it: the MT19937 generator (BSD 3-clause,
-`LICENSE-mt19937`) with `Rand` and `PickOneOf` (batches X19 and X12), Algohol (MIT,
-`LICENSE-algohol`) with batch X20.
+Third-party code inside xNVSE keeps its own licence, in a file beside this NOTICE: the MT19937
+generator (BSD 3-clause, `LICENSE-mt19937`), translated in `src/mt19937.rs` for `Rand` (and later
+`PickOneOf`); Algohol (MIT, `LICENSE-algohol`), translated in `src/commands/algohol.rs`.

@@ -2848,6 +2848,9 @@ pub fn player_character_center_on_cell(
     editor_id: u32,
     cell: Ptr,
 ) {
+    // The seam at this (empty) call (`0x0093DB69`, ADR-0016): the script extender's new game
+    // when a `coc` from the main menu starts one (xNVSE's detour of the call).
+    e.site(0x0093_db69, &[]);
     typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e); words this);
     let handler = e.global::<u32>(DATA_HANDLER);
     let mut cell = cell.addr();

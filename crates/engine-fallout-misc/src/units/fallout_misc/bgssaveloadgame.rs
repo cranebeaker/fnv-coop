@@ -1304,6 +1304,9 @@ fn load_game_body(
     }
     let references_map = e.get(this, BGSSaveLoadGame::pReferencesMap);
     e.call(REFERENCES_MAP_RESET, &args![references_map]);
+    // The seam after this call (`0x00847FD9`, ADR-0016): the script extender's pre-load (xNVSE's
+    // `PreLoadGameHook`); words: the save's name.
+    e.site(0x0084_7fd9, &[name]);
     e.call(MANAGER_START_LOAD, &args![manager]);
     let io_manager = e.global::<u32>(IO_MANAGER);
     e.call(IO_MANAGER_PAUSE, &args![io_manager]);

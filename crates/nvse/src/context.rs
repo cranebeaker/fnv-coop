@@ -146,6 +146,21 @@ pub fn set_command(e: &mut Engine, record: u32) {
     }
 }
 
+/// How many contexts this thread has (the running call's depth).
+pub fn depth(e: &mut Engine) -> usize {
+    contexts(e).len()
+}
+
+/// `OtherHooks::PushScriptContext`: a context of xNVSE's own (a single-line lambda's run).
+pub fn push(e: &mut Engine, context: Context) {
+    contexts(e).push(context);
+}
+
+/// `OtherHooks::PopScriptContext`.
+pub fn pop(e: &mut Engine) {
+    contexts(e).pop();
+}
+
 /// The depths of this thread's context and line stacks.
 fn depths(e: &mut Engine) -> (usize, usize) {
     (contexts(e).len(), lines(e).len())
@@ -178,6 +193,7 @@ fn run(e: &mut Engine, a: &[u32]) -> Ret {
         ..Context::default()
     });
     let ret = call_restoring(e, RUN.addr(), a, saved);
+    crate::commands::scripting::unwind(e, saved.0);
     if script != 0 {
         contexts(e).pop();
     }
@@ -197,6 +213,7 @@ fn init_action_list(e: &mut Engine, a: &[u32]) -> Ret {
         });
     }
     let ret = call_restoring(e, INIT_ACTION_LIST.addr(), a, saved);
+    crate::commands::scripting::unwind(e, saved.0);
     if script != 0 {
         contexts(e).pop();
     }
