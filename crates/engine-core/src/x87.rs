@@ -129,15 +129,44 @@ const ROUND_UP: u16 = 0x0800;
 
 thread_local! {
     /// The FPU control register of the game thread now running on this host
-    /// thread. The engine runs game code on one host thread; the platform
-    /// layer loads this when it switches game threads.
+    /// thread, where no TLS slot could be had (`tls::slot`). The engine runs game code on one host
+    /// thread; the platform layer loads this when it switches game threads.
     static CONTROL_WORD: std::cell::Cell<u16> = const { std::cell::Cell::new(DEFAULT_CONTROL_WORD) };
 }
 
 /// The x87 control word the arithmetic helpers round with: the running game
 /// thread's (`FSTCW`).
-#[inline]
+///
+/// Every `x87_add`, `x87_mul` and the like reads it, in every engine crate. A
+/// `thread_local!` is not inlined across crates on Windows, so it was a call per float
+/// operation (about 0.3 ms of a town frame, frame-breakdown 2026-11-08). On 64-bit Windows the
+/// word is kept in a Windows TLS slot of this host thread instead, read here in place: one load
+/// of the slot's place in the thread's environment block, one load through `GS`. The slot holds
+/// the word XOR [`DEFAULT_CONTROL_WORD`], so a thread that never set it (its slot reads 0) reads
+/// the default, as the `thread_local!` did.
+#[inline(always)]
 pub fn control_word() -> u16 {
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    {
+        let at = tls::SLOT_AT.load(std::sync::atomic::Ordering::Relaxed);
+        if at != 0 {
+            // SAFETY: `at` is the offset of this thread's slot of the TLS index [`tls::slot`]
+            // allocated (below 64: `TEB.TlsSlots`); the read only loads it.
+            return unsafe { tls::read(at) } ^ DEFAULT_CONTROL_WORD;
+        }
+    }
+    control_word_slow()
+}
+
+/// [`control_word`] before the slot is made (it is made here), and without one.
+#[cold]
+#[inline(never)]
+fn control_word_slow() -> u16 {
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    if let Some(at) = tls::slot() {
+        // SAFETY: as in `control_word`.
+        return unsafe { tls::read(at) } ^ DEFAULT_CONTROL_WORD;
+    }
     CONTROL_WORD.with(|c| c.get())
 }
 
@@ -146,7 +175,86 @@ pub fn control_word() -> u16 {
 /// the thread's own copy, `Engine::new` (a new main thread) and the thread
 /// switch in `units::platform`.
 pub fn set_control_word(word: u16) {
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    if let Some(at) = tls::slot() {
+        // SAFETY: `at` is this thread's slot of the TLS index `tls::slot` allocated.
+        unsafe { tls::write(at, word ^ DEFAULT_CONTROL_WORD) };
+        return;
+    }
     CONTROL_WORD.with(|c| c.set(word));
+}
+
+/// The control word's Windows TLS slot ([`control_word`]).
+#[cfg(all(windows, target_arch = "x86_64"))]
+mod tls {
+    use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
+    use std::sync::OnceLock;
+
+    /// Where the 64 slots of a thread's TLS array start in its environment block (`TEB.TlsSlots`,
+    /// x64; `TlsGetValue` reads index `i` below 64 at `GS:[0x1480 + 8 * i]`).
+    const TLS_SLOTS: u32 = 0x1480;
+
+    /// The offset of the control word's slot in each thread's environment block once it is
+    /// allocated ([`slot`]); 0 before, and for good when none below 64 was free.
+    pub(super) static SLOT_AT: AtomicU32 = AtomicU32::new(0);
+
+    extern "system" {
+        fn TlsAlloc() -> u32;
+        fn TlsFree(index: u32) -> i32;
+    }
+
+    /// The slot's offset, allocating the TLS index the first time (any thread); `None` when no
+    /// index below 64 is free (the `thread_local!` is used then, by every thread: the first
+    /// read or set decides, before any word is kept).
+    pub(super) fn slot() -> Option<u32> {
+        static SLOT: OnceLock<Option<u32>> = OnceLock::new();
+        *SLOT.get_or_init(|| {
+            // SAFETY: TlsAlloc takes nothing; a new index's slot reads 0 in every thread.
+            let index = unsafe { TlsAlloc() };
+            if index >= 64 {
+                if index != u32::MAX {
+                    // An expansion slot (index 64 and up) lies outside `TlsSlots`: give it back.
+                    // SAFETY: the index was just allocated and is not used.
+                    unsafe { TlsFree(index) };
+                }
+                return None;
+            }
+            let at = TLS_SLOTS + 8 * index;
+            SLOT_AT.store(at, Relaxed);
+            Some(at)
+        })
+    }
+
+    /// The low 16 bits of this thread's slot at `at`.
+    ///
+    /// # Safety
+    /// `at` must be [`slot`]'s offset.
+    #[inline(always)]
+    pub(super) unsafe fn read(at: u32) -> u16 {
+        let word: u32;
+        core::arch::asm!(
+            "movzx {word:e}, word ptr gs:[{at}]",
+            at = in(reg) u64::from(at),
+            word = lateout(reg) word,
+            options(nostack, readonly, preserves_flags, pure),
+        );
+        word as u16
+    }
+
+    /// Sets this thread's slot at `at` to `value` (the whole slot: the rest zero, as
+    /// `TlsSetValue` with a small value).
+    ///
+    /// # Safety
+    /// `at` must be [`slot`]'s offset.
+    #[inline]
+    pub(super) unsafe fn write(at: u32, value: u16) {
+        core::arch::asm!(
+            "mov qword ptr gs:[{at}], {value}",
+            at = in(reg) u64::from(at),
+            value = in(reg) u64::from(value),
+            options(nostack, preserves_flags),
+        );
+    }
 }
 
 /// The rounding mode when the control word selects 24-bit precision, `None`
@@ -2115,6 +2223,50 @@ mod tests {
             assert_eq!(other, DEFAULT_CONTROL_WORD);
             assert_eq!(control_word(), 0x007f);
         });
+    }
+
+    /// The control word lives in a Windows TLS slot of the host thread: `TlsGetValue` reads the
+    /// word there (XOR the default), a fresh thread reads the default, and threads keep their own.
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[test]
+    fn the_control_word_is_in_a_tls_slot_of_its_own_thread() {
+        extern "system" {
+            fn TlsGetValue(index: u32) -> usize;
+        }
+        std::thread::spawn(|| {
+            // A thread that never set it reads the default, before and after the slot exists.
+            assert_eq!(control_word(), DEFAULT_CONTROL_WORD);
+            set_control_word(0x0c7f);
+            assert_eq!(control_word(), 0x0c7f);
+            let at = tls::SLOT_AT.load(std::sync::atomic::Ordering::Relaxed);
+            assert!((0x1480..0x1480 + 8 * 64).contains(&at), "slot at {at:#x}");
+            let index = (at - 0x1480) / 8;
+            // SAFETY: reads this thread's value of an allocated index.
+            let value = unsafe { TlsGetValue(index) };
+            assert_eq!(value, usize::from(0x0c7f ^ DEFAULT_CONTROL_WORD));
+            let words: Vec<u16> = [0x007fu16, 0x047f, 0x087f, 0x037f]
+                .into_iter()
+                .map(|w| {
+                    std::thread::spawn(move || {
+                        let fresh = control_word();
+                        set_control_word(w);
+                        std::thread::yield_now();
+                        assert_eq!(fresh, DEFAULT_CONTROL_WORD);
+                        control_word()
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|t| t.join().unwrap())
+                .collect();
+            assert_eq!(words, [0x007f, 0x047f, 0x087f, 0x037f]);
+            assert_eq!(control_word(), 0x0c7f);
+            set_control_word(DEFAULT_CONTROL_WORD);
+            // SAFETY: as above.
+            assert_eq!(unsafe { TlsGetValue(index) }, 0);
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]
