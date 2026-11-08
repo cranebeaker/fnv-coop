@@ -720,6 +720,16 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
     ]
 }
 
+/// One axis of `00439ef0`/`00439e90`: `FLD` of this axis, the other's axis as the memory operand,
+/// `FSTP` to a float (the x87 picks between two NaNs and quiets a loaded signalling one).
+fn x87_point_op(left: f32, right: f32, op: fn(f64, f64) -> f64) -> f32 {
+    use engine_core::x87::{x87_load32, x87_m32, x87_store32};
+    f32::from_bits(x87_store32(op(
+        x87_load32(left.to_bits()),
+        x87_m32(right.to_bits()),
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1493,14 +1503,4 @@ mod tests {
         let addrs: Vec<u32> = e.call_log.unwrap().into_iter().map(|(a, _)| a).collect();
         assert_eq!(addrs, [0x0049_fa80, 0x006e_5cc0, 0x0049_fa20]);
     }
-}
-
-/// One axis of `00439ef0`/`00439e90`: `FLD` of this axis, the other's axis as the memory operand,
-/// `FSTP` to a float (the x87 picks between two NaNs and quiets a loaded signalling one).
-fn x87_point_op(left: f32, right: f32, op: fn(f64, f64) -> f64) -> f32 {
-    use engine_core::x87::{x87_load32, x87_m32, x87_store32};
-    f32::from_bits(x87_store32(op(
-        x87_load32(left.to_bits()),
-        x87_m32(right.to_bits()),
-    )))
 }
