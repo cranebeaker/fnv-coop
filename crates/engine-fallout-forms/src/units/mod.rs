@@ -32,6 +32,8 @@ pub use engine_speedtree::units::speedtree;
 pub fn funcs(out: &mut Vec<(u32, crate::AbiFn)>) {
     // The typed family `topic_search`: registered over the translations by `typed::apply` when on.
     engine_core::typed::provide(&crate::topic_search::TOPIC_SEARCH);
+    // The typed family `topic_order`: the compare the topic lists are ordered by.
+    engine_core::typed::provide(&crate::topic_order::TOPIC_ORDER);
     fallout_shared::funcs(out);
     unplaced::funcs(out);
 }

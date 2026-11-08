@@ -678,7 +678,11 @@ pub fn fn_0061a380(e: &mut Engine, topic: u32, list: u32, by_priority: u8) {
             if current == topic {
                 return;
             }
-            if fn_0061a450(e, Ptr::new(current), Ptr::new(topic), by_priority) {
+            if typed_call!(
+                crate::topic_order::FAMILY,
+                0x0061_a450,
+                crate::topic_order::compare(e, current, topic, by_priority)
+            ) {
                 e.call(NODE_INSERT, &args![node, topic_at]);
                 return;
             }
@@ -721,7 +725,11 @@ pub fn fn_0061a5a0(e: &mut Engine, by_priority: u8, list: u32) {
                 e.mem.set_u32(moved_at, current);
                 let next = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
                 let following = item_of(e, next);
-                if fn_0061a450(e, Ptr::new(current), Ptr::new(following), by_priority) {
+                if typed_call!(
+                    crate::topic_order::FAMILY,
+                    0x0061_a450,
+                    crate::topic_order::compare(e, current, following, by_priority)
+                ) {
                     if previous != 0 {
                         e.call(NODE_REMOVE_AFTER, &args![previous, moved_at]);
                         node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, previous));

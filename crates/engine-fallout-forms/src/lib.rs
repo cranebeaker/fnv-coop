@@ -43,6 +43,7 @@
 // Tests build their expected call lists and buffers with `vec!`.
 #![cfg_attr(test, allow(clippy::useless_vec))]
 
+pub mod topic_order;
 pub mod topic_search;
 pub mod units;
 

@@ -431,6 +431,15 @@ its loops call. A plugin that replaces dialogue runs it once per replaced info o
 (YUP: about 4,500 searches of about 68,000 infos each), so it is the bulk of such a plugin's extra
 load. On since its gate (2026-11-07, with YUP: process start to the first main frame 8.0-8.4 s in six
 runs against 9.2-20.9 s off; the menu, which the intro sets, and Continue the same within the spread).
+Then `topic_order` (`crates/engine-fallout-forms/src/topic_order.rs`, same crate): the compare a topic list
+is ordered by (`0061a450`) and what it calls (a topic's editor id, its priority, the float check, the
+case-insensitive compare). The sorted insert asks it of each node it walks, about 21,000 inserts with the
+base game and its add-ons and more with every mod that adds dialogue. On since its gate (2026-11-08: about
+0.5 s off the start-up data load, clear with the add-ons only; YUP within noise over two runs). Its members
+are game-wide helpers (the case-insensitive compare `00404dc0`, which animation, scripts, models and AI call
+too; the float check `0040eb10`; the priority `00526ae0`; `TESTopic`'s editor id `00618660`), so
+`NV_TYPED=topic_order:off` changes more than the topic order, and a trace loses the two CRT calls under each
+`00404dc0` while it is on.
 Then `lockfree` (`crates/engine-typed`, a crate above the core that provides its family): the
 lock-free maps, their interfaces, iterators and holder, stage 1 (objects stay in guest memory), off by
 default (`NV_TYPED=lockfree` tries it); its differential tests are `crates/engine/tests/typed_lockfree.rs`.
