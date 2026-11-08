@@ -1,0 +1,14 @@
+[package]
+name = "d3dx-tex"
+version = "0.1.0"
+description = "The texture loading D3DX9 does for the game (D3DXCreateTextureFromFileInMemory and the cube variant, d3dx9_38.dll), translated: DDS reading, format conversion, mip generation and the DXT encoder, byte for byte as the 32-bit DLL. No Windows dependency."
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[features]
+# Truncating arithmetic in software on x86-64 too (it is what other targets use); for checking
+# that path against the DLL's answers where the processor's would otherwise be taken.
+software-truncation = []

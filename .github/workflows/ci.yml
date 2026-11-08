@@ -40,6 +40,14 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo clippy --locked --workspace --all-targets -- -D warnings
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      # The texture crate's other arithmetic path: truncation done in software rather than by
+      # the processor's rounding mode (the path for processors without one); same bytes.
+      - name: Test d3dx-tex with software truncation
+        run: |
+          cargo test --locked -p d3dx-tex --features software-truncation
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo clippy --locked -p d3dx-tex --all-targets --features software-truncation -- -D warnings
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       # Its own workspace: what counts as a typed marker is defined there. `--check` stays out: the
       # ledger holds line numbers, which every merge moves.
       - name: Test the ledger

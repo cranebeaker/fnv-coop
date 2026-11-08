@@ -1,0 +1,20 @@
+[package]
+name = "d3dx-tex-verify"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Runs every texture in the game's archives through crates/d3dx-tex and compares each level's bytes with the 32-bit d3dx9_38.dll's answers in the texture cache (scripts/d3dx-texture-capture). Read only."
+
+# Standalone tool, not part of the root workspace.
+[workspace]
+
+[dependencies]
+bsa = { path = "../../crates/bsa" }
+d3dx-tex = { path = "../../crates/d3dx-tex" }
+
+[profile.release]
+debug = 1
+
+[features]
+# Check d3dx-tex's software truncation (the path targets other than x86-64 take).
+software-truncation = ["d3dx-tex/software-truncation"]

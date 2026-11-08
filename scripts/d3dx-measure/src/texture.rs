@@ -68,7 +68,7 @@ pub unsafe fn create_texture(o: &mut impl Write, module: *mut c_void, dir: &str)
     let create: Create = std::mem::transmute(f);
     // A window and a windowed HAL device with hardware vertex processing.
     let class = b"STATIC\0";
-    let window = CreateWindowExA(0, class.as_ptr(), class.as_ptr(), 0x1000_0000, 0, 0, 640, 480,
+    let window = CreateWindowExA(0, class.as_ptr(), class.as_ptr(), 0, 0, 0, 640, 480,
         std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
     let d3d = Direct3DCreate9(32) as *mut c_void;
     let mut present = [0u32; 14];
@@ -144,10 +144,15 @@ pub unsafe fn create_texture(o: &mut impl Write, module: *mut c_void, dir: &str)
     }
 }
 
+/// The device `serve` makes, for `control-word`.
+pub unsafe fn make_device() -> *mut c_void {
+    device()
+}
+
 /// A window and a windowed HAL device with hardware vertex processing (as `create-texture`).
 unsafe fn device() -> *mut c_void {
     let class = b"STATIC\0";
-    let window = CreateWindowExA(0, class.as_ptr(), class.as_ptr(), 0x1000_0000, 0, 0, 640, 480,
+    let window = CreateWindowExA(0, class.as_ptr(), class.as_ptr(), 0, 0, 0, 640, 480,
         std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
     let d3d = Direct3DCreate9(32) as *mut c_void;
     let mut present = [0u32; 14];
@@ -200,11 +205,30 @@ fn read_u32(input: &mut impl std::io::Read) -> Option<u32> {
 /// the data's length u32; the data) and answers each on stdout: the HRESULT, the level count,
 /// the face count (1, or 6 for a cube), then for each face and level its format, width,
 /// height, byte count and the level's bytes (rows packed). Ends at the end of stdin.
-pub unsafe fn serve(module: *mut c_void) {
+///
+/// `on_thread`: the device is made on this thread and the calls are made on a new thread, at
+/// the control word a thread starts with (0x27f, 53-bit precision), as the game's loading
+/// threads (`BSTaskThread`, 00c42da0) call D3DX while its main thread made the device; otherwise
+/// all on this thread, at the single precision the device sets. The control word the calls
+/// start at, and any change a call leaves, go to stderr.
+pub unsafe fn serve(module: *mut c_void, on_thread: bool) {
+    let device = device();
+    if !on_thread {
+        return serve_calls(module as usize, device as usize);
+    }
+    let (m, d) = (module as usize, device as usize);
+    std::thread::spawn(move || serve_calls(m, d)).join().unwrap();
+}
+
+/// The calls of [`serve`], on this thread.
+unsafe fn serve_calls(module: usize, device: usize) {
+    let (module, device) = (module as *mut c_void, device as *mut c_void);
     let texture_fn = crate::GetProcAddress(module, b"D3DXCreateTextureFromFileInMemory\0".as_ptr());
     let cube_fn = crate::GetProcAddress(module, b"D3DXCreateCubeTextureFromFileInMemory\0".as_ptr());
     assert!(!texture_fn.is_null() && !cube_fn.is_null());
-    let device = device();
+    let start = crate::x87_control_word();
+    eprintln!("serve: calls at x87 control word {start:04x}");
+    let mut changed = false;
     let stdin = std::io::stdin();
     let mut input = stdin.lock();
     let stdout = std::io::stdout();
@@ -223,6 +247,11 @@ pub unsafe fn serve(module: *mut c_void) {
         let mut texture: *mut c_void = std::ptr::null_mut();
         let f: Create = std::mem::transmute(if kind == 2 { cube_fn } else { texture_fn });
         let hr = f(device, data.as_ptr(), len as u32, &mut texture);
+        let now = crate::x87_control_word();
+        if now != start && !changed {
+            eprintln!("serve: a call left the control word at {now:04x} (was {start:04x})");
+            changed = true;
+        }
         let put = |out: &mut std::io::BufWriter<_>, w: u32| out.write_all(&w.to_le_bytes()).unwrap();
         put(&mut out, hr);
         if hr != 0 || texture.is_null() {
@@ -260,5 +289,95 @@ pub unsafe fn serve(module: *mut c_void) {
         }
         out.flush().unwrap();
         (std::mem::transmute::<usize, Release>(vt(texture, 2)))(texture);
+    }
+}
+
+/// A device made as the game makes it (behaviour `flags`, 0x54 for the game: hardware vertex
+/// processing, pure, multithreaded), on a window that is never shown.
+unsafe fn device_with(flags: u32) -> *mut c_void {
+    let class = b"STATIC\0";
+    let window = CreateWindowExA(0, class.as_ptr(), class.as_ptr(), 0, 0, 0, 640, 480,
+        std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
+    let d3d = Direct3DCreate9(32) as *mut c_void;
+    let mut present = [0u32; 14];
+    present[0] = 640;
+    present[1] = 480;
+    present[6] = 1;
+    present[7] = window as u32;
+    present[8] = 1;
+    type CreateDevice =
+        unsafe extern "system" fn(*mut c_void, u32, u32, *mut c_void, u32, *mut u32, *mut *mut c_void) -> u32;
+    let cd: CreateDevice = std::mem::transmute(vt(d3d, 16));
+    let mut device: *mut c_void = std::ptr::null_mut();
+    let hr = cd(d3d, 0, 1, window, flags, present.as_mut_ptr(), &mut device);
+    assert_eq!(hr, 0, "CreateDevice");
+    device
+}
+
+/// `D3DXCreateTextureFromFileInMemory` of `data`: the answer and the FNV-1a of every level's
+/// bytes (rows packed).
+unsafe fn create_hash(create: Create, device: *mut c_void, data: &[u8]) -> (u32, u64) {
+    type Count = unsafe extern "system" fn(*mut c_void) -> u32;
+    type Desc = unsafe extern "system" fn(*mut c_void, u32, *mut u32) -> u32;
+    type Lock = unsafe extern "system" fn(*mut c_void, u32, *mut u32, *const u32, u32) -> u32;
+    type Unlock = unsafe extern "system" fn(*mut c_void, u32) -> u32;
+    type Release = unsafe extern "system" fn(*mut c_void) -> u32;
+    let mut t: *mut c_void = std::ptr::null_mut();
+    let hr = create(device, data.as_ptr(), data.len() as u32, &mut t);
+    if hr != 0 {
+        return (hr, 0);
+    }
+    let mut all = Vec::new();
+    for level in 0..(std::mem::transmute::<usize, Count>(vt(t, 13)))(t) {
+        let mut desc = [0u32; 8];
+        (std::mem::transmute::<usize, Desc>(vt(t, 17)))(t, level, desc.as_mut_ptr());
+        let mut locked = [0u32; 2];
+        (std::mem::transmute::<usize, Lock>(vt(t, 19)))(t, level, locked.as_mut_ptr(), std::ptr::null(), 0x10);
+        all.extend(level_bytes(&desc, locked[0] as usize, locked[1] as usize as *const u8));
+        (std::mem::transmute::<usize, Unlock>(vt(t, 20)))(t, level);
+    }
+    (std::mem::transmute::<usize, Release>(vt(t, 2)))(t);
+    (hr, fnv(&all))
+}
+
+/// `thread-texture`: whether the thread the texture is made on changes D3DX's answer. A device
+/// made as the game makes it (behaviour 0x54) on this thread, then the same DXT5 file (one
+/// level: D3DX makes the chain with its encoder) made here, on a new thread as it starts, and on
+/// new threads with the x87 control word set to 0x27f and to 0x7f: each line the control word
+/// before and after the call and the levels' hash.
+pub unsafe fn thread_texture(module: *mut c_void) {
+    let f = crate::GetProcAddress(module, b"D3DXCreateTextureFromFileInMemory\0".as_ptr());
+    let create: Create = std::mem::transmute(f);
+    // A 64x64 DXT5 file, one level, blocks from xorshift.
+    let mut data = vec![0u8; 128];
+    let put = |d: &mut Vec<u8>, at: usize, v: u32| d[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    for (at, v) in [(0, 0x2053_4444u32), (4, 124), (8, 0x1007), (12, 64), (16, 64), (28, 1), (76, 32), (80, 4), (84, 0x3554_5844), (108, 0x1000)] {
+        put(&mut data, at, v);
+    }
+    let mut s = 0x1234_5678_9abc_def1u64;
+    for _ in 0..16 * 16 * 16 {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        data.push((s >> 24) as u8);
+    }
+    let device = device_with(0x54);
+    let main_cw = crate::x87_control_word();
+    let (hr, h) = create_hash(create, device, &data);
+    println!("main thread\tcw {main_cw:04x} -> {:04x}\thr {hr:08x}\tlevels {h:016x}", crate::x87_control_word());
+    let (dev, cr) = (device as usize, create as usize);
+    for (name, cw) in [("new thread as it starts", None), ("new thread at 0x27f", Some(0x27fu16)), ("new thread at 0x7f", Some(0x7f))] {
+        let data = data.clone();
+        let line = std::thread::spawn(move || {
+            if let Some(cw) = cw {
+                crate::set_x87_control_word(cw);
+            }
+            let before = crate::x87_control_word();
+            let (hr, h) = create_hash(std::mem::transmute::<usize, Create>(cr), dev as *mut c_void, &data);
+            format!("{name}\tcw {before:04x} -> {:04x}\thr {hr:08x}\tlevels {h:016x}", crate::x87_control_word())
+        })
+        .join()
+        .unwrap();
+        println!("{line}");
     }
 }

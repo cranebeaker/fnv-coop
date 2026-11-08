@@ -2,7 +2,11 @@
 //! (`engine_platform::d3dx`) reads, in one pass over the game's textures.
 //!
 //! `cargo run --release --manifest-path scripts/d3dx-texture-capture/Cargo.toml -- <Data folder>
-//! <cache folder> <d3dx-measure.exe (i686 build)>`
+//! <cache folder> <d3dx-measure.exe (i686 build)> [thread]`
+//!
+//! `thread`: the DLL answers on a new thread at the control word threads start with (53-bit
+//! precision), as the game's loading threads call it, rather than on the thread that made the
+//! device (single precision); for checking the translation against both.
 //!
 //! The game's archives (`*.bsa` in the Data folder) and loose files under `Data\Textures` are read
 //! only. Every `.dds` file goes, as the game hands it to D3DX, to the player's `d3dx9_38.dll` in a
@@ -23,7 +27,9 @@ use std::process::{Command, Stdio};
 
 /// FNV-1a, 64 bits.
 fn fnv(seed: u64, b: &[u8]) -> u64 {
-    b.iter().fold(seed, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x100_0000_01b3))
+    b.iter().fold(seed, |h, &x| {
+        (h ^ u64::from(x)).wrapping_mul(0x100_0000_01b3)
+    })
 }
 
 /// The cache key of one call: the call's name and the data's length and FNV-1a hash (the
@@ -99,7 +105,12 @@ fn ask(server: &mut std::process::Child, kind: u32, data: &[u8]) -> Answer {
         out.read_exact(&mut bytes).unwrap();
         surfaces.push((format, w, h, bytes));
     }
-    Answer { hr, levels, faces, surfaces }
+    Answer {
+        hr,
+        levels,
+        faces,
+        surfaces,
+    }
 }
 
 /// The cache entry: `NVTX0001`, the call kind, the HRESULT, level and face counts, then per
@@ -147,11 +158,15 @@ fn loose_files(dir: &Path, out: &mut Vec<PathBuf>) {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    assert!(args.len() == 4, "usage: d3dx-texture-capture <Data folder> <cache folder> <d3dx-measure.exe>");
+    assert!(
+        args.len() == 4 || args.len() == 5 && args[4] == "thread",
+        "usage: d3dx-texture-capture <Data folder> <cache folder> <d3dx-measure.exe> [thread]"
+    );
     let (data_dir, cache) = (PathBuf::from(&args[1]), PathBuf::from(&args[2]));
     std::fs::create_dir_all(&cache).unwrap();
     let mut server = Command::new(&args[3])
         .arg("serve")
+        .args(args.get(4))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -169,7 +184,11 @@ fn main() {
         }
         let caps2 = word(data, 112);
         if caps2 & 0x20_0000 != 0 {
-            writeln!(index, "skipped\t{source}\t{path}\ta volume texture (not captured)").unwrap();
+            writeln!(
+                index,
+                "skipped\t{source}\t{path}\ta volume texture (not captured)"
+            )
+            .unwrap();
             return;
         }
         let (kind, call) = if caps2 & 0x200 != 0 {
