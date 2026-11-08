@@ -89,55 +89,127 @@ pub type AddrMap<K, V> = HashMap<K, V, BuildHasherDefault<AddrHasher>>;
 /// A set of exe addresses with [`AddrHasher`].
 pub type AddrSet<K> = std::collections::HashSet<K, BuildHasherDefault<AddrHasher>>;
 
-/// How many entries [`Engine::call`]'s direct-mapped cache of plain functions has (a power of
-/// two). 65536 (1 MB): a frame of the game calls thousands of functions, which collided in
-/// 16384 slots (a29's `spread_dispatch_speed`: 9.2 to 8.4 ns a call over 8000 functions, 11.8
-/// to 9.6 over 20000).
-const CALL_CACHE_LEN: usize = 1 << 16;
+/// How many sets [`Engine::call`]'s cache of plain functions has (a power of two), each of two
+/// 8-byte entries ([`CacheSet`]): 32768 sets, 512 KB, as many entries as the earlier direct-mapped
+/// 1 MB table of 16-byte entries in half its bytes. A frame of the game calls functions spread over
+/// tens of thousands of addresses; that table spent about 0.5 ms of a town frame in misses on its
+/// entries, nearly all of them for rarely called functions (frame-breakdown, 2026-11-08). Two ways
+/// keep two functions whose addresses share a set from pushing each other out. Half as many
+/// entries (16384 sets, 256 KB) was slower in town (53.6 against 54.6 fps, core-speed cs1): the
+/// table must keep its 65536 entries.
+const CALL_CACHE_SETS: usize = 1 << 15;
 
-/// The cache slot of `addr` (Fibonacci hashing: the top bits of the product).
+/// The cache set of `addr` (Fibonacci hashing: the top bits of the product).
 #[inline(always)]
-const fn cache_slot(addr: u32) -> usize {
-    (addr.wrapping_mul(0x9e37_79b1) >> (32 - CALL_CACHE_LEN.trailing_zeros())) as usize
+const fn cache_set(addr: u32) -> usize {
+    (addr.wrapping_mul(0x9e37_79b1) >> (32 - CALL_CACHE_SETS.trailing_zeros())) as usize
 }
 
-/// One entry of [`Engine::call`]'s cache: a plain function and its address.
+/// One entry of [`Engine::call`]'s cache: a plain function's address and the function, as its
+/// distance in bytes from [`Cached::never_called`] (every function of the program lies within
+/// 2 GB of it: one image; one that doesn't is never cached, [`Cached::new`]).
 #[derive(Clone, Copy)]
+#[repr(C)]
 struct Cached {
     addr: u32,
-    f: AbiFn,
+    rel: i32,
 }
 
-// The empty entries' addresses ([`Cached::empty`]) map to other slots: 0 to slot 0, 1 elsewhere.
-const _: () = assert!(cache_slot(0) == 0 && cache_slot(1) != 0);
+/// One set of the cache: its two entries in one aligned 16 bytes, so a lookup reads one cache
+/// line. The first entry is the newer: a miss puts the function there and moves the one there to
+/// the second, which drops the second's ([`Engine::call_full`]).
+#[derive(Clone, Copy)]
+#[repr(C, align(16))]
+struct CacheSet([Cached; 2]);
+
+// The empty entries' addresses ([`Cached::empty`]) map to other sets: 0 to set 0, 1 elsewhere.
+const _: () = assert!(cache_set(0) == 0 && cache_set(1) != 0);
 
 impl Cached {
-    /// The empty entry of `slot`: an address that maps to another slot, so no call's address
-    /// matches it (the call's own address maps to `slot`), and a function that never runs. The
-    /// lookup is then one compare, without a separate test for an empty entry.
+    /// The empty entry of `set`: an address that maps to another set, so no call's address
+    /// matches it (the call's own address maps to `set`), and a function that never runs. The
+    /// lookup is then one compare per entry, without a separate test for an empty one.
     #[inline]
-    fn empty(slot: usize) -> Cached {
+    fn empty(set: usize) -> Cached {
         Cached {
-            addr: u32::from(slot == 0),
-            f: Cached::never_called,
+            addr: u32::from(set == 0),
+            rel: 0,
         }
     }
 
+    /// The entry of `f` at `addr`, `None` when `f` is more than 2 GB from
+    /// [`Cached::never_called`] (not in this program's image: never so far).
+    #[inline]
+    fn new(addr: u32, f: AbiFn) -> Option<Cached> {
+        let rel = (f as usize).wrapping_sub(Cached::anchor()) as isize;
+        Some(Cached {
+            addr,
+            rel: i32::try_from(rel).ok()?,
+        })
+    }
+
+    /// The function of the entry.
+    #[inline(always)]
+    fn f(self) -> AbiFn {
+        let at = Cached::anchor().wrapping_add(self.rel as isize as usize);
+        // SAFETY: `rel` is 0 (an empty entry: `never_called` itself) or was made by
+        // `Cached::new` from a function of this type, so `at` is that function's address.
+        unsafe { std::mem::transmute::<usize, AbiFn>(at) }
+    }
+
+    /// The address the entries count from: [`Cached::never_called`]'s.
+    #[inline(always)]
+    fn anchor() -> usize {
+        Cached::never_called as AbiFn as usize
+    }
+
+    /// The empty entries' function, and the address every entry counts from: one copy in the
+    /// program (never inlined, so every code unit takes the same address).
+    #[inline(never)]
     fn never_called(_: &mut Engine, _: &[u32]) -> Ret {
         unreachable!("an empty entry of the call cache was called")
     }
+}
+
+impl CacheSet {
+    #[inline]
+    fn empty(set: usize) -> CacheSet {
+        CacheSet([Cached::empty(set); 2])
+    }
+
+    /// The function cached for `addr` in this set (its set), if any.
+    #[inline(always)]
+    fn get(&self, addr: u32) -> Option<AbiFn> {
+        let [newer, older] = self.0;
+        if newer.addr == addr {
+            Some(newer.f())
+        } else if older.addr == addr {
+            Some(older.f())
+        } else {
+            None
+        }
+    }
+}
+
+/// The call cache: [`CALL_CACHE_SETS`] empty sets.
+fn empty_call_cache() -> Box<[CacheSet; CALL_CACHE_SETS]> {
+    (0..CALL_CACHE_SETS)
+        .map(CacheSet::empty)
+        .collect::<Box<[CacheSet]>>()
+        .try_into()
+        .unwrap_or_else(|_| unreachable!("the call cache has CALL_CACHE_SETS sets"))
 }
 
 /// The game's memory plus every translated function, by exe address.
 pub struct Engine {
     pub mem: Mem,
     funcs: AddrMap<u32, Callable>,
-    /// A direct-mapped cache in front of `funcs` for plain functions (doubles never enter it):
-    /// (address, function) at [`cache_slot`] of the address, [`Cached::empty`] when empty.
-    /// [`Engine::register`] and [`Engine::register_double`] empty the slot of the address they
-    /// change, so it always answers as `funcs` does. A fixed-size array: the slot needs no
-    /// bounds check.
-    call_cache: Box<[Cached; CALL_CACHE_LEN]>,
+    /// A two-way set-associative cache in front of `funcs` for plain functions (doubles never
+    /// enter it): (address, function) in the [`cache_set`] of the address, [`Cached::empty`]
+    /// when empty. [`Engine::register`] and [`Engine::register_double`] empty the entry of the
+    /// address they change, so it always answers as `funcs` does. A fixed-size array: the set
+    /// needs no bounds check.
+    call_cache: Box<[CacheSet; CALL_CACHE_SETS]>,
     /// When `Some`, every call made through [`Engine::call`] is recorded
     /// as (address, argument words). Tests use it to check what a
     /// translation called.
@@ -328,11 +400,7 @@ impl Engine {
         let mut engine = Engine {
             mem,
             funcs,
-            call_cache: (0..CALL_CACHE_LEN)
-                .map(Cached::empty)
-                .collect::<Box<[Cached]>>()
-                .try_into()
-                .unwrap_or_else(|_| unreachable!("the call cache has CALL_CACHE_LEN entries")),
+            call_cache: empty_call_cache(),
             call_log: None,
             tls: 0,
             clock_ms: 0,
@@ -540,7 +608,7 @@ impl Engine {
     /// Puts `f` at `addr` and empties its slot of the call cache.
     pub(crate) fn put(&mut self, addr: u32, f: AbiFn) {
         self.funcs.insert(addr, Callable::Abi(f));
-        self.call_cache[cache_slot(addr)] = Cached::empty(cache_slot(addr));
+        self.uncache(addr);
         self.typed.replaced(addr);
         if self.real.is_some() {
             // Real threads: every thread's engine gets it (`crate::real_threads::registered`).
@@ -552,8 +620,34 @@ impl Engine {
     /// `crate::real_threads`).
     pub(crate) fn register_here(&mut self, addr: u32, f: AbiFn) {
         self.funcs.insert(addr, Callable::Abi(f));
-        self.call_cache[cache_slot(addr)] = Cached::empty(cache_slot(addr));
+        self.uncache(addr);
         self.typed.replaced(addr);
+    }
+
+    /// Empties the call cache's entry of `addr`, if it has one.
+    fn uncache(&mut self, addr: u32) {
+        let set = cache_set(addr);
+        for entry in &mut self.call_cache[set].0 {
+            if entry.addr == addr {
+                *entry = Cached::empty(set);
+            }
+        }
+    }
+
+    /// The function the call cache has for `addr`, if any.
+    #[inline(always)]
+    fn cached(&self, addr: u32) -> Option<AbiFn> {
+        self.call_cache[cache_set(addr)].get(addr)
+    }
+
+    /// Puts plain function `f` in the call cache at `addr` (not in it): first in its set, the one
+    /// there moved second, the second's dropped.
+    fn cache(&mut self, addr: u32, f: AbiFn) {
+        if let Some(entry) = Cached::new(addr, f) {
+            let set = &mut self.call_cache[cache_set(addr)].0;
+            set[1] = set[0];
+            set[0] = entry;
+        }
     }
 
     /// What is registered at `addr` when it is a plain function (not a test double).
@@ -597,11 +691,7 @@ impl Engine {
                 .filter(|(_, f)| matches!(f, Callable::Abi(_)))
                 .map(|(&a, f)| (a, f.clone()))
                 .collect(),
-            call_cache: (0..CALL_CACHE_LEN)
-                .map(Cached::empty)
-                .collect::<Box<[Cached]>>()
-                .try_into()
-                .unwrap_or_else(|_| unreachable!("the call cache has CALL_CACHE_LEN entries")),
+            call_cache: empty_call_cache(),
             call_log: None,
             tls: 0,
             clock_ms: self.clock_ms,
@@ -649,7 +739,7 @@ impl Engine {
         self.extend.chains.remove(&addr);
         self.funcs
             .insert(addr, Callable::Double(Rc::new(RefCell::new(f))));
-        self.call_cache[cache_slot(addr)] = Cached::empty(cache_slot(addr));
+        self.uncache(addr);
         self.typed.replaced(addr);
     }
 
@@ -674,23 +764,24 @@ impl Engine {
     /// every register a function uses anywhere is saved on entry).
     #[inline(always)]
     fn dispatch(&mut self, addr: u32, args: &[u32]) -> Ret {
-        let entry = self.call_cache[cache_slot(addr)];
-        if entry.addr == addr && !self.diagnosing() {
-            // With the thread host's hook the slice counts down by one (`None`: used up, 0);
-            // without it the slice stays as it is.
-            let left = self
-                .slice_left
-                .checked_sub(u64::from(self.slice_hook.is_some()));
-            match left {
-                Some(left) if self.call_stack.len() < self.call_stack.capacity() => {
-                    self.slice_left = left;
-                    self.call_stack.push(addr);
-                    let ret = (entry.f)(self, args);
-                    self.call_stack.pop();
-                    return ret;
+        if let Some(f) = self.cached(addr) {
+            if !self.diagnosing() {
+                // With the thread host's hook the slice counts down by one (`None`: used up, 0);
+                // without it the slice stays as it is.
+                let left = self
+                    .slice_left
+                    .checked_sub(u64::from(self.slice_hook.is_some()));
+                match left {
+                    Some(left) if self.call_stack.len() < self.call_stack.capacity() => {
+                        self.slice_left = left;
+                        self.call_stack.push(addr);
+                        let ret = f(self, args);
+                        self.call_stack.pop();
+                        return ret;
+                    }
+                    None => return self.call_at_slice_end(addr, args, f),
+                    Some(_) => {}
                 }
-                None => return self.call_at_slice_end(addr, args, entry.f),
-                Some(_) => {}
             }
         }
         self.call_full(addr, args)
@@ -749,10 +840,8 @@ impl Engine {
         if let Some(log) = &mut self.call_log {
             log.push((addr, args.to_vec()));
         }
-        let slot = cache_slot(addr);
-        let entry = self.call_cache[slot];
-        if entry.addr == addr {
-            return self.run(addr, args, Callable::Abi(entry.f));
+        if let Some(f) = self.cached(addr) {
+            return self.run(addr, args, Callable::Abi(f));
         }
         if crate::profile::on() {
             crate::profile::cache_miss();
@@ -780,7 +869,7 @@ impl Engine {
             panic!("open function {addr:08x}: not translated yet (FalloutNV.exe 1.4.0.525, docs/LEDGER.md)")
         };
         if let Callable::Abi(plain) = f {
-            self.call_cache[slot] = Cached { addr, f: plain };
+            self.cache(addr, plain);
         }
         self.run(addr, args, f)
     }
@@ -1539,18 +1628,114 @@ mod tests {
     }
 
     /// No address matches an empty entry of the call cache: each holds an address that maps to
-    /// another slot.
+    /// another set, and the function `never_called`.
     #[test]
     fn empty_cache_entries_match_no_address() {
-        for slot in 0..CALL_CACHE_LEN {
-            assert_ne!(cache_slot(Cached::empty(slot).addr), slot, "slot {slot}");
+        for set in 0..CALL_CACHE_SETS {
+            assert_ne!(cache_set(Cached::empty(set).addr), set, "set {set}");
         }
         let e = Engine::new();
         assert!(e
             .call_cache
             .iter()
             .enumerate()
-            .all(|(slot, c)| cache_slot(c.addr) != slot));
+            .all(|(set, s)| s.0.iter().all(|c| cache_set(c.addr) != set)));
+        assert_eq!(
+            Cached::empty(1).f() as usize,
+            Cached::never_called as AbiFn as usize
+        );
+        assert_eq!(std::mem::size_of::<CacheSet>(), 16);
+        assert_eq!(std::mem::align_of::<CacheSet>(), 16);
+    }
+
+    /// A cache entry gives back the function it was made from: functions of this crate, of the
+    /// test (closures without captures) and `entry!` wrappers.
+    #[test]
+    fn cache_entries_give_back_their_function() {
+        fn leaf(_: &mut Engine, a: &[u32]) -> Ret {
+            Ret {
+                eax: a[0],
+                ..Ret::default()
+            }
+        }
+        let closure: AbiFn = |_, a| Ret {
+            eax: a[0] + 1,
+            ..Ret::default()
+        };
+        let wrapped = crate::entry!(0x0055_9450, field_getter(Ptr) -> u32).1;
+        for f in [leaf as AbiFn, closure, wrapped, Cached::never_called] {
+            let c = Cached::new(0x0040_1000, f).expect("in the image");
+            assert_eq!(c.f() as usize, f as usize);
+        }
+    }
+
+    /// Two functions whose addresses share a set are both kept: each call after the first finds
+    /// its function in the cache; a third pushes out the older of the two; registering over a
+    /// cached address empties its entry only.
+    #[test]
+    fn a_set_keeps_two_functions() {
+        let mut e = Engine::new();
+        let set = cache_set(0x0040_1000);
+        // Three more addresses in the same set.
+        let mut same = (0x0040_1004u32..)
+            .step_by(4)
+            .filter(|&a| cache_set(a) == set)
+            .take(2);
+        let (a, b, c) = (0x0040_1000, same.next().unwrap(), same.next().unwrap());
+        for (n, addr) in [a, b, c].into_iter().enumerate() {
+            e.register_double(addr, move |_, _| Ret {
+                eax: n as u32,
+                ..Ret::default()
+            });
+            // Doubles never enter the cache: plain functions do.
+            assert_eq!(e.call(addr, &[]).eax, n as u32);
+            assert!(e.cached(addr).is_none());
+        }
+        fn plain(_: &mut Engine, a: &[u32]) -> Ret {
+            Ret {
+                eax: a[0] * 2,
+                ..Ret::default()
+            }
+        }
+        fn other(_: &mut Engine, a: &[u32]) -> Ret {
+            Ret {
+                eax: a[0] * 3,
+                ..Ret::default()
+            }
+        }
+        e.register(a, plain);
+        e.register(b, other);
+        assert_eq!(e.call(a, &[5]).eax, 10);
+        assert_eq!(e.call(b, &[5]).eax, 15);
+        assert_eq!(
+            e.cached(a).map(|f| f as usize),
+            Some(plain as AbiFn as usize)
+        );
+        assert_eq!(
+            e.cached(b).map(|f| f as usize),
+            Some(other as AbiFn as usize)
+        );
+        // Both hits: the calls go through the fast path and give the same.
+        assert_eq!(e.call(a, &[6]).eax, 12);
+        assert_eq!(e.call(b, &[6]).eax, 18);
+        // A third pushes out the older (`a`), which the table still answers.
+        e.register(c, plain);
+        assert_eq!(e.call(c, &[7]).eax, 14);
+        assert!(e.cached(a).is_none());
+        assert!(e.cached(b).is_some() && e.cached(c).is_some());
+        assert_eq!(e.call(a, &[8]).eax, 16);
+        // Registering over `c` empties its entry and keeps `a`'s; the call runs the new one.
+        e.register(c, other);
+        assert!(e.cached(c).is_none());
+        assert!(e.cached(a).is_some());
+        assert_eq!(e.call(c, &[1]).eax, 3);
+        // And a double over a cached address is what runs next.
+        e.register_double(a, |_, _| Ret {
+            eax: 99,
+            ..Ret::default()
+        });
+        assert!(e.cached(a).is_none());
+        assert_eq!(e.call(a, &[1]).eax, 99);
     }
 
     /// The fast path hands slow cases to the full path: a used-up slice (the hook runs, then the
