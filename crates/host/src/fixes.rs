@@ -38,7 +38,28 @@ pub static FIXES: &[Fix] = &[
     crate::phys_blend::FIX,
     crate::mod_fit_worn::FIX,
     crate::topic_index::FIX,
+    KEEP_COSAVE_PLUGINS,
 ];
+
+/// The built-in script extender's rows (docs/FIXES.md, "The script extender"): each sets a flag
+/// `crates/nvse` reads, at no exe address of its own.
+pub const KEEP_COSAVE_PLUGINS: Fix = Fix {
+    name: "co-save keeps other plugins",
+    env: "NV_COSAVE_KEEP",
+    addresses: &[],
+    summary:
+        "a co-save's sections of plugins not built in (JIP LN NVSE's) are written back while the same files are loaded",
+    install: install_keep_cosave_plugins,
+};
+
+fn install_keep_cosave_plugins(e: &mut Engine) {
+    nvse::saveload::set_keep_other_plugins(e, true);
+}
+
+/// The rows that register nothing at an exe address: the menu limit paces the uncapped step;
+/// the extender's rows set flags `crates/nvse` reads.
+#[cfg(test)]
+const NO_ADDRESS: &[&str] = &[crate::uncap::MENU_FIX.name, KEEP_COSAVE_PLUGINS.name];
 
 /// Menus' frames a second at most when nothing says otherwise (the maintainer, 2026-11-07).
 pub const DEFAULT_MENU_FRAME_LIMIT: u32 = 120;
@@ -616,9 +637,8 @@ mod tests {
     fn every_fix_address_is_listed_as_overridable() {
         let table = include_str!("../../engine-core/data/overridable.tsv");
         for fix in FIXES {
-            // The menu frame limit registers nothing: it paces the uncapped step.
             assert!(
-                !fix.addresses.is_empty() || fix.name == crate::uncap::MENU_FIX.name,
+                !fix.addresses.is_empty() || NO_ADDRESS.contains(&fix.name),
                 "{}",
                 fix.name
             );

@@ -58,6 +58,7 @@ The game's own `iFPSClamp` ignores `FrameLimit`: a clamp is a fixed step with no
 | Smooth physics drawing | `00c65a80`, `008706b0` | `NV_PHYS_BLEND` | Free bodies (dropped and thrown items, ragdolls, debris) are drawn between Havok's 16 ms steps instead of frozen on frames without a step: around the frame's drawing only, each moving body's node shows the body at the game's time minus one step, blended with Havok's own swept-transform formula, and is put back after. The simulation and what game logic reads are the original's. Bodies are drawn one step (16 ms) behind the clock, about 5 ms later than the original on average. Below |
 | Mod fit worn question | `007838a0` | `NV_MOD_WORN` | Fitting a weapon mod asks whether the mod is worn before the mod is removed from the inventory, not after. The original asks after (a slip: it means the weapon), through the mod's extra list the removal has just deleted; it nearly always answers no, but a yes rebuilds the inventory list, which frees the weapon entry the mod menu keeps, and closing the menu then re-equips through it and the game stops. A mod is never worn, so the answer is the original's usual no, and no released memory is read. Every other click of the menu is the original's. Below |
 | Dialogue topic index | `00619820`, `0061a310`, `0061a380`, `0061a5a0`, `0045dfe0` | `NV_TOPIC_INDEX` | Finding which topic holds a dialogue info (`TESTopic::GetOwnerTopic`) no longer walks the topic list and every info in it: the original does that for each info a plugin changes (YUP and the add-ons: 5,837 times), so a dialogue mod's load grew with its size times the game's. Every topic `TESTopic::InsertInfo` links an info into (the one place an info enters a topic) is kept beside it; a search asks only those topics, with the original's own search (`00619e10`), which hold this info first by its id, and takes the first of them in the topic list's order, from a copy of the list's order that is made again whenever the list may have changed in a way that matters (its sort, the data handler's `ClearData`, an insert of a topic the copy holds, which can list it again earlier, a changed head node, or a topic inserted since that the copy doesn't hold). So the answer is the walk's, tie-breaks included (an info in two topics, a twin id, the list's order and end). `NV_TOPIC_INDEX_CHECK=1` with `NV_TOPIC_INDEX=1` (alone it is a test variable, which makes the run vanilla) runs the original's walk beside every search and stops the game at the first difference. With the fix on, the typed `topic_search` family (the walk) goes by address for the run, since the fix registers over one of its members. Below |
+| Co-save keeps other plugins | none (a flag the extender reads) | `NV_COSAVE_KEEP` | A co-save's sections of plugins that are not built in (JIP LN NVSE's, until it is) are kept as they were read and written back on each save while the files loaded are the ones that co-save lists, so a save brought from a real modded installation keeps them. xNVSE writes only the plugins it has loaded, so off (vanilla) they go at the next save, as with xNVSE. Below |
 
 ### What high frame rates do to the original's code
 
@@ -211,6 +212,21 @@ switched, default typed families, so "off" is the typed walk):
   nothing to do with the index: even in the fast runs the first main frame comes about 1.2 s after the load's
   end. So no fixed saving is claimed here.
 - Continue (save to world) 3.2-4.0 s with the fix on and off.
+
+### The script extender
+
+The built-in xNVSE (ADR-0016) is the same in both presets, except for these rows. Like xNVSE, it
+writes a `.nvse` co-save beside every save, an empty one too, in both presets: a save without
+one loads as a new game for the extender without resetting what the game before held
+(`Serialization.cpp`, `HandleLoadGame`), which only a save made without the extender (a vanilla
+save) should get.
+
+- **Co-save keeps other plugins** (the row above): the maintainer's decision, 2026-11-08. The
+  sections are kept byte for byte from the co-save of the game loaded (none after a new game or a
+  save without a co-save) and written after xNVSE's own section, with that co-save's file list:
+  only while today's files are the same ones in the same order. Their data holds mod indexes of
+  that list (JIP LN NVSE maps them through the list it was saved with), so under another list
+  they go, as with xNVSE.
 
 ## Credits
 

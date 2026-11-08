@@ -5,7 +5,8 @@
 //! changed in its menus).
 //!
 //! Files the game writes stay in engine memory (`engine_platform::files::Disk`); nothing
-//! reaches the disk unless this is asked for. Only files whose name ends in `.fos` are copied,
+//! reaches the disk unless this is asked for. Only files whose name ends in `.fos` (saves) or
+//! `.nvse` (the script extender's co-saves) are copied,
 //! each under its own name (as its directory entry has it). A file is written to a temporary
 //! name first and then renamed, so a reader never sees half of it. A copy is made again whenever
 //! the game's bytes change. A save still being written may be copied part-way; it is copied
@@ -171,6 +172,11 @@ pub fn refused(dir: &Path, profile: Option<&Path>, known: &[PathBuf]) -> Option<
     None
 }
 
+/// A save or its script extender co-save (`.fos`, `.nvse`, ADR-0016 §10).
+fn is_save(key: &[u8]) -> bool {
+    key.ends_with(b".fos") || key.ends_with(b".nvse")
+}
+
 /// Copies the run's `.fos` files into `NV_SAVE_OUT` where they are new or changed since the last
 /// call; the names copied, for the log.
 pub fn copy_saves(e: &Engine) -> Vec<String> {
@@ -245,7 +251,7 @@ pub fn remove_deleted(e: &Engine, dir: &Path) -> Vec<String> {
     let disk = &engine_platform::state(&e.kernel.platform).disk;
     let mut removed = Vec::new();
     for key in &disk.deleted {
-        if !key.ends_with(b".fos") || disk.files.contains_key(key) {
+        if !is_save(key) || disk.files.contains_key(key) {
             continue;
         }
         let name = key.rsplit(|&b| b == b'\\').next().unwrap_or(key);
@@ -264,7 +270,7 @@ pub fn copy_changed(e: &Engine, dir: &Path, done: &mut HashMap<Vec<u8>, u64>) ->
     let mut copied = Vec::new();
     let disk = &engine_platform::state(&e.kernel.platform).disk;
     for (key, data) in &disk.files {
-        if !key.ends_with(b".fos") {
+        if !is_save(key) {
             continue;
         }
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -407,6 +413,16 @@ mod tests {
             std::fs::read(dir.join("quicksave.fos")).unwrap(),
             b"FO3SAVEGAME two"
         );
+        // The script extender's co-save goes with it (ADR-0016 §10).
+        engine_platform::state_mut(&mut e.kernel.platform)
+            .disk
+            .files
+            .insert(key("quicksave.nvse"), b"NVSE".to_vec());
+        assert_eq!(
+            copy_changed(&e, &dir, &mut done),
+            vec!["quicksave.nvse".to_string()]
+        );
+        assert_eq!(std::fs::read(dir.join("quicksave.nvse")).unwrap(), b"NVSE");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

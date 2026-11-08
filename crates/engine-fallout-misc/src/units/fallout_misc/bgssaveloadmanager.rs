@@ -565,6 +565,9 @@ pub fn fn_00850330(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 pub fn fn_00850360(e: &mut Engine, this: Ptr, name: Ptr, _unused_1: u32) {
     e.with_stack(PATH_SIZE, |e, path| {
         e.call(CONTENT_CLOSE, &args![this, name, path, 0u32]);
+        // The seam at this call (`0x00850398`, ADR-0016): the script extender deletes the
+        // save's co-save first (xNVSE's `DeleteGameHook`); words: the path.
+        e.site(0x0085_0398, &[path.addr()]);
         e.call(DELETE_FILE, &args![path]);
     });
 }

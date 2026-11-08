@@ -2637,6 +2637,9 @@ pub fn fn_00857370(
                     if old_exists != 0 {
                         e.call(DELETE_FILE_IMPORT, &args![backup_path]);
                     }
+                    // The seam at this call (`0x0085762B`, ADR-0016): the script extender
+                    // renames the co-save first (xNVSE's `RenameGameHook`); words: the names.
+                    e.site(0x0085_762b, &[current_path, backup_path]);
                     e.call(RENAME, &args![current_path, backup_path]);
                 }
                 index -= 1;

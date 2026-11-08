@@ -25,6 +25,9 @@
 //! - I-8 (part) [`tick`]: the main loop's tick (first frame, temporaries, the lists kept for
 //!   lambdas) and the delayed calls (`CallAfterSeconds`, `CallAfterFrames`, `CallForSeconds`,
 //!   `CallWhile`, `CallWhen`, `CallWhilePerSeconds`).
+//! - I-10 [`cosave`], [`saveload`]: the co-save (`.nvse`), written on every save and read before
+//!   and after the `.fos` in xNVSE's file format and order (its own plugin: the file list, the
+//!   array and string variables), the new-game, delete and rename moments.
 //! - [`commands`]: the commands built so far, by xNVSE's `Commands_*.cpp` file.
 //!
 //! [`install`] runs once per engine, after the fix rows (`host::Host::start_with`); the engine
@@ -34,6 +37,7 @@ pub mod args;
 pub mod cnum;
 pub mod commands;
 pub mod context;
+pub mod cosave;
 pub mod errors;
 pub mod expr;
 pub mod functions;
@@ -167,6 +171,8 @@ pub struct Nvse {
     pub lambdas: lambda::State,
     /// The tick and the delayed calls (I-8).
     pub tick: tick::State,
+    /// The co-save's file list mapping (I-10).
+    pub saveload: saveload::State,
     /// The first frame recorded the main thread (`s_recordedMainThreadID`): xNVSE prints to the
     /// console from then on.
     pub main_thread_recorded: bool,
@@ -237,7 +243,11 @@ mod tests {
             0x005e_16c3,
             0x005e_2329,
             0x007d_33ce,
+            0x0084_7c45,
             0x0084_7fd9,
+            0x0084_8c3c,
+            0x0085_0398,
+            0x0085_762b,
             0x0086_b386,
             0x0093_db69,
         ] {

@@ -1142,6 +1142,9 @@ pub fn bgssaveloadgame_save_game(e: &mut Engine, this: Ptr<BGSSaveLoadGame>, fil
     e.call(FORM_ID_MAP_SAVE, &args![worldspace_map, file]);
     let after_maps = e.call(FILE_GET_POSITION, &args![file]).u32();
     e.set(header, SaveBodyHeader::iAfterFormIDMapsPosition, after_maps);
+    // The seam here (`0x00847C45`, ADR-0016): the script extender writes its co-save (xNVSE's
+    // `SaveGameHook`); words: the save's name.
+    e.site(0x0084_7c45, &[name]);
     let history = e.get(this, BGSSaveLoadGame::pHistory);
     e.call(
         HISTORY_ADD_NOTE,
@@ -1577,6 +1580,9 @@ fn load_game_body(
     e.set(this, BGSSaveLoadGame::cCurrentMinorVersion, 0xff);
     e.call(MANAGER_BUILD_SAVE_NAME, &args![save_name]);
     e.call(BSSTRING_SET, &args![manager + 0x30, save_name, 0u32]);
+    // The seam here (`0x00848C3C`, ADR-0016): the script extender's load callbacks (xNVSE's
+    // `LoadGameHook`); words: the save's name.
+    e.site(0x0084_8c3c, &[name]);
     let history = e.get(this, BGSSaveLoadGame::pHistory);
     e.call(
         HISTORY_ADD_NOTE,

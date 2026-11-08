@@ -21,25 +21,117 @@
 
 use crate::Nvse;
 use engine_core::prelude::*;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+/// A sorted set of ids kept as runs (first id to last id), so the free ids a co-save's gap
+/// leaves (every id below the next one read) are one entry however many they are. As a set it
+/// is xNVSE's `availableIDs`.
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub struct IdSet {
+    runs: BTreeMap<u32, u32>,
+}
+
+impl IdSet {
+    pub fn insert(&mut self, id: u32) {
+        self.insert_run(id, id);
+    }
+
+    /// Every id from `first` to `last`, both included.
+    pub fn insert_run(&mut self, mut first: u32, mut last: u32) {
+        if first > last {
+            return;
+        }
+        // A run that ends at or just before `first` joins it.
+        if let Some((&s, &l)) = self.runs.range(..=first).next_back() {
+            if l == u32::MAX || l + 1 >= first {
+                first = s;
+                last = last.max(l);
+                self.runs.remove(&s);
+            }
+        }
+        // Runs that start inside or just after the new one join it.
+        while let Some((&s, &l)) = self
+            .runs
+            .range(first..)
+            .next()
+            .filter(|(&s, _)| last == u32::MAX || s <= last + 1)
+        {
+            last = last.max(l);
+            self.runs.remove(&s);
+        }
+        self.runs.insert(first, last);
+    }
+
+    pub fn remove(&mut self, id: u32) {
+        let Some((&s, &l)) = self.runs.range(..=id).next_back() else {
+            return;
+        };
+        if l < id {
+            return;
+        }
+        self.runs.remove(&s);
+        if s < id {
+            self.runs.insert(s, id - 1);
+        }
+        if id < l {
+            self.runs.insert(id + 1, l);
+        }
+    }
+
+    pub fn contains(&self, id: u32) -> bool {
+        self.runs
+            .range(..=id)
+            .next_back()
+            .is_some_and(|(_, &l)| l >= id)
+    }
+
+    /// The smallest id, taken out.
+    pub fn pop_first(&mut self) -> Option<u32> {
+        let (&s, _) = self.runs.iter().next()?;
+        self.remove(s);
+        Some(s)
+    }
+
+    /// The ids in order (every one of them: for tests and small sets).
+    pub fn iter(&self) -> impl Iterator<Item = u32> + '_ {
+        self.runs.iter().flat_map(|(&s, &l)| s..=l)
+    }
+
+    /// How many runs there are.
+    pub fn runs(&self) -> usize {
+        self.runs.len()
+    }
+}
 
 /// `VarMap`'s id sets (`usedIDs`, `tempIDs`, `availableIDs`, sorted sets in xNVSE).
 #[derive(Default, Clone, Debug)]
 pub struct VarIds {
     pub used: BTreeSet<u32>,
     pub temp: BTreeSet<u32>,
-    pub available: BTreeSet<u32>,
+    pub available: IdSet,
 }
 
 impl VarIds {
     /// `GetUnusedID`: the first freed id (taken out of the free set), else one past the
-    /// largest used, else 1.
+    /// largest used, else 1. The largest is never `u32::MAX` from a file (a co-save naming it
+    /// is corrupt and stops the read); were every id up to it used, the first unused one.
     pub fn unused(&mut self) -> u32 {
-        if let Some(&first) = self.available.iter().next() {
-            self.available.remove(&first);
+        if let Some(first) = self.available.pop_first() {
             return first;
         }
-        self.used.iter().next_back().map_or(1, |last| last + 1)
+        match self.used.iter().next_back() {
+            None => 1,
+            Some(&last) => last.checked_add(1).unwrap_or_else(|| {
+                let mut want = 1u32;
+                for &id in &self.used {
+                    if id != want {
+                        break;
+                    }
+                    want = want.saturating_add(1);
+                }
+                want
+            }),
+        }
     }
 
     /// `Delete`'s bookkeeping: the id is free again.
@@ -60,6 +152,91 @@ impl VarIds {
     }
 }
 
+/// The order xNVSE's string and array maps list their variables in (`UnorderedMap<UInt32, Var>`,
+/// `containers.h` (xNVSE)), which is the order the co-save stores them in: buckets of a power of
+/// two (8 at first, doubled before an insert finds more entries than buckets, up to 0x40000),
+/// each a chain with the newest entry first; a key's bucket is `(k * 13) ^ (k >> 15)` masked;
+/// a doubling moves the old buckets' chains, bucket by bucket, each entry to the head of its new
+/// chain. Removing an entry unlinks it; a reset (`VarMap::Reset`) removes every entry and keeps
+/// the buckets. Only the keys are kept here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HashOrder {
+    buckets: Vec<Vec<u32>>,
+    num_buckets: u32,
+    entries: u32,
+}
+
+impl Default for HashOrder {
+    fn default() -> HashOrder {
+        HashOrder {
+            buckets: Vec::new(),
+            num_buckets: 8,
+            entries: 0,
+        }
+    }
+}
+
+impl HashOrder {
+    /// `HashKey<UInt32>`.
+    fn hash(key: u32) -> u32 {
+        key.wrapping_mul(0xd) ^ (key >> 0xf)
+    }
+
+    fn bucket(&self, key: u32) -> usize {
+        (Self::hash(key) & (self.num_buckets - 1)) as usize
+    }
+
+    // Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), containers.h: UnorderedMap::InsertKey,
+    // ResizeTable.
+    pub fn insert(&mut self, key: u32) {
+        if self.buckets.is_empty() {
+            // `AlignBucketCount(8)`.
+            self.buckets = vec![Vec::new(); self.num_buckets as usize];
+        } else if self.entries > self.num_buckets && self.num_buckets < 0x4_0000 {
+            let count = self.num_buckets << 1;
+            let mut grown = vec![Vec::new(); count as usize];
+            for chain in &self.buckets {
+                for &k in chain {
+                    grown[(Self::hash(k) & (count - 1)) as usize].insert(0, k);
+                }
+            }
+            self.buckets = grown;
+            self.num_buckets = count;
+        }
+        let b = self.bucket(key);
+        if self.buckets[b].contains(&key) {
+            return;
+        }
+        self.entries += 1;
+        self.buckets[b].insert(0, key);
+    }
+
+    // Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), containers.h: UnorderedMap::Erase.
+    pub fn remove(&mut self, key: u32) {
+        if self.entries == 0 {
+            return;
+        }
+        let b = self.bucket(key);
+        if let Some(i) = self.buckets[b].iter().position(|&k| k == key) {
+            self.buckets[b].remove(i);
+            self.entries -= 1;
+        }
+    }
+
+    /// `VarMap::Reset`'s removals: no entry left, the buckets kept.
+    pub fn clear(&mut self) {
+        for chain in &mut self.buckets {
+            chain.clear();
+        }
+        self.entries = 0;
+    }
+
+    /// The keys in the map's iteration order (`Iterator`: buckets in order, each chain from its
+    /// head).
+    pub fn keys(&self) -> Vec<u32> {
+        self.buckets.iter().flatten().copied().collect()
+    }
+}
 /// A string variable (`StringVar`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StringVar {
@@ -246,6 +423,9 @@ pub struct State {
     pub string_ids: VarIds,
     pub arrays: HashMap<u32, ArrayVar>,
     pub array_ids: VarIds,
+    /// The maps' iteration orders as xNVSE's hash maps have them (the co-save's order).
+    pub string_order: HashOrder,
+    pub array_order: HashOrder,
     /// The locals recorded per event list (`g_nvseVarGarbageCollectionMap`).
     pub collected: HashMap<u32, HashMap<u32, VarType>>,
     /// The exe's `toupper` for every byte (filled on first use).
@@ -289,6 +469,7 @@ pub fn add_string(e: &mut Engine, owning_mod: u8, data: &[u8], temporary: bool) 
     let s = state(e);
     let id = s.string_ids.unused();
     s.string_ids.used.insert(id);
+    s.string_order.insert(id);
     s.strings.insert(
         id,
         StringVar {
@@ -334,6 +515,7 @@ pub fn delete_string(e: &mut Engine, id: u32) {
     }
     s.strings.remove(&id);
     s.string_ids.free(id);
+    s.string_order.remove(id);
 }
 
 // Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), StringVar.cpp: StringVarMap::Clean.
@@ -354,6 +536,7 @@ pub fn create_array(e: &mut Engine, key_type: u8, packed: bool, owning_mod: u8) 
     let s = state(e);
     let id = s.array_ids.unused();
     s.array_ids.used.insert(id);
+    s.array_order.insert(id);
     let elements = if key_type == KEY_STRING {
         Container::StrMap(Vec::new())
     } else if packed {
@@ -458,6 +641,7 @@ pub fn delete_array(e: &mut Engine, id: u32) {
     let s = state(e);
     let gone = s.arrays.remove(&id);
     s.array_ids.free(id);
+    s.array_order.remove(id);
     if let Some(a) = gone {
         for i in 0..a.len() {
             unset(e, a.at(i));
@@ -603,6 +787,8 @@ pub fn reset(e: &mut Engine) {
     st.arrays.clear();
     st.string_ids = VarIds::default();
     st.array_ids = VarIds::default();
+    st.string_order.clear();
+    st.array_order.clear();
 }
 
 /// `g_nvseVarGarbageCollectionMap.Clear()`: no event list's locals are recorded any more.
@@ -715,6 +901,25 @@ mod tests {
             ..Ret::default()
         });
         e
+    }
+
+    /// The free-id set in runs: neighbours join, a removal splits, the smallest comes first.
+    #[test]
+    fn free_ids_are_kept_as_runs() {
+        let mut s = IdSet::default();
+        s.insert_run(5, 9);
+        s.insert(4);
+        s.insert(10);
+        s.insert_run(20, u32::MAX);
+        assert_eq!(s.runs(), 2);
+        s.remove(7);
+        assert_eq!(s.runs(), 3);
+        assert!(s.contains(6) && !s.contains(7) && s.contains(u32::MAX));
+        assert_eq!(s.iter().take(4).collect::<Vec<_>>(), [4, 5, 6, 8]);
+        assert_eq!(s.pop_first(), Some(4));
+        s.insert_run(6, 30);
+        assert_eq!(s.runs(), 1);
+        assert_eq!(s.pop_first(), Some(5));
     }
 
     /// Ids: the smallest freed id comes back first, then one past the largest.
