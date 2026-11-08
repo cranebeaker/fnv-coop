@@ -15,6 +15,7 @@
 // also stops `u32 as u8` and `f64 as f32`: those go through a named helper with a local `allow`.
 #![deny(clippy::cast_possible_truncation)]
 
+pub mod crt;
 pub mod culling;
 pub mod lockfree;
 pub mod pathing;
@@ -69,6 +70,7 @@ pub mod units {
         engine_core::typed::provide(&crate::lockfree::LOCKFREE);
         engine_core::typed::provide(&crate::culling::CULLING);
         engine_core::typed::provide(&crate::pathing::PATHING);
+        engine_core::typed::provide(&crate::crt::CRT);
     }
 }
 

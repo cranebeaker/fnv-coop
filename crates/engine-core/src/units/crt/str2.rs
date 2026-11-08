@@ -54,18 +54,54 @@ pub fn strlen(e: &mut Engine, text: u32) -> u32 {
 
 // Translated from 00ec6370 (disassembled, FalloutNV.exe 1.4.0.525)
 /// `strcpy` (Ghidra's function ID), cdecl: destination, source; the destination as `EDI` and a
-/// jump into `strcat`'s copy (`00ec63e5`): the source's bytes with their terminating zero are
-/// copied to the destination, which is answered.
+/// jump into `strcat`'s copy (`00ec63e5`, [`strcat_copy`]): the source's bytes with their
+/// terminating zero are copied to the destination, which is answered.
 pub fn strcpy(e: &mut Engine, dst: u32, src: u32) -> u32 {
+    strcat_copy(e, dst, src);
+    dst
+}
+
+/// The copy `strcpy` jumps into and `strcat` reaches (`00ec63e5`, no label): bytes until the source
+/// is 4-aligned (a zero is stored and ends it), then a dword at a time. A dword is stored whole
+/// unless the zero-byte test (`((x + 0x7efefeff) ^ !x) & 0x81010100`) flags it; then its bytes are
+/// checked in order and the copy ends with the zero: 1, 2 (`MOV word`), 3 (`MOV word` and a zero
+/// byte) or 4 bytes stored. A flagged dword without a zero is stored whole and the copy goes on. A
+/// destination above the source inside it reads what it has written a dword at a time, as the exe.
+pub(super) fn strcat_copy(e: &mut Engine, dst: u32, src: u32) {
     let (mut d, mut s) = (dst, src);
-    loop {
+    while s & 3 != 0 {
         let b = e.mem.u8(s);
+        s = s.wrapping_add(1);
         e.mem.set_u8(d, b);
         if b == 0 {
-            return dst;
+            return;
         }
         d = d.wrapping_add(1);
-        s = s.wrapping_add(1);
+    }
+    loop {
+        let x = e.mem.u32(s);
+        s = s.wrapping_add(4);
+        if (x.wrapping_add(0x7efe_feff) ^ !x) & 0x8101_0100 != 0 {
+            if x & 0xff == 0 {
+                e.mem.set_u8(d, 0);
+                return;
+            }
+            if x & 0xff00 == 0 {
+                e.mem.set_u16(d, x as u16);
+                return;
+            }
+            if x & 0xff_0000 == 0 {
+                e.mem.set_u16(d, x as u16);
+                e.mem.set_u8(d.wrapping_add(2), 0);
+                return;
+            }
+            if x & 0xff00_0000 == 0 {
+                e.mem.set_u32(d, x);
+                return;
+            }
+        }
+        e.mem.set_u32(d, x);
+        d = d.wrapping_add(4);
     }
 }
 

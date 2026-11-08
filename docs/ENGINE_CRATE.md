@@ -448,6 +448,9 @@ its tests are `crates/engine/tests/typed_culling.rs`. And `pathing` (same crate)
 run most (navmesh getters, matching edges, the triangle under a point, the search's keys, goal test and
 arrays, the point-of-view geometry, pathing locations, the point helpers), stage 1, off by default
 (`NV_TYPED=pathing`); its tests are `crates/engine/tests/typed_pathing.rs`.
+And `crt` (same crate): the C runtime's square root with the x87 error path every square root takes on
+the main thread, `floor`, the float-to-integer conversions, the 64-bit helpers, and the copy, fill and
+string routines, off by default (`NV_TYPED=crt`); its tests are `crates/engine/tests/typed_crt.rs`.
 
 **The switch.** `NV_TYPED` is read once per process, and `Engine::new` runs `typed::apply` after
 all registration: each family that is on is registered over the translations with

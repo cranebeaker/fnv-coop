@@ -2862,8 +2862,8 @@ pub fn fn_00ec605d(e: &mut Engine, zf: bool, st0: f64, low: u32, high: u32) -> f
             );
         }
         if high & 0x8000_0000 == 0 {
-            // FSQRT
-            return sqrt_exit(e, saved_control, st0.sqrt(), low, high);
+            // FSQRT, rounded to the precision 00ed2795 loaded (the caller's).
+            return sqrt_exit(e, saved_control, crate::x87::x87_sqrt(st0), low, high);
         }
         // 00ec609b: a negative argument; only -0.0 has no error.
         if high & 0x7ff0_0000 == 0 && high & 0xfffff == 0 && low == 0 {
@@ -6040,22 +6040,15 @@ pub fn access(e: &mut Engine, path: Ptr, mode: u32) -> i32 {
 /// (destination, source): appends the source's bytes up to and with its terminating zero at
 /// the destination's terminating zero and answers the destination. The assembly reads both
 /// strings a word at a time (aligned reads that stop at the word holding the zero, never past
-/// it into another page); the bytes it writes are the same.
+/// it into another page); the end it finds is the same. The copy is `00ec63e5`'s
+/// ([`str2::strcat_copy`]: bytes to an aligned source, then dwords).
 pub fn strcat(e: &mut Engine, destination: Ptr, source: Ptr) -> Ptr {
     let mut at = destination.addr();
     while e.mem.u8(at) != 0 {
         at = at.wrapping_add(1);
     }
-    let mut from = source.addr();
-    loop {
-        let b = e.mem.u8(from);
-        e.mem.set_u8(at, b);
-        if b == 0 {
-            return destination;
-        }
-        at = at.wrapping_add(1);
-        from = from.wrapping_add(1);
-    }
+    str2::strcat_copy(e, at, source.addr());
+    destination
 }
 
 pub fn funcs() -> Vec<(u32, AbiFn)> {
@@ -7655,6 +7648,18 @@ mod physics_step_tests {
         );
         // A positive infinity (ZF set, no fraction, sign clear) is returned unchanged.
         assert_eq!(sqrt_body(&mut e, true, f64::INFINITY), f64::INFINITY);
+    }
+
+    /// `FSQRT` runs under the precision `00ed2795` loads, the caller's: the main thread's 24 bits
+    /// round the root to a float's precision, the 53 bits of the other threads to a double's.
+    #[test]
+    fn the_sqrt_body_rounds_to_the_callers_precision() {
+        let mut e = Engine::new();
+        sqrt_setup(&mut e, 1);
+        set_x87_control_word(&mut e, 0x007f);
+        assert_eq!(sqrt_body(&mut e, false, 2.0), f64::from(2f32.sqrt()));
+        set_x87_control_word(&mut e, 0x027f);
+        assert_eq!(sqrt_body(&mut e, false, 2.0), 2f64.sqrt());
     }
 
     #[test]
