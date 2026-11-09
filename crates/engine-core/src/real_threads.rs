@@ -183,8 +183,14 @@ impl WaitSum {
 /// sleeps; how many section leaves woke waiters and how many of those waiters found the section
 /// still held; and how long the host held the kernel lock between frames. One line a frame
 /// ([`Ctx::frame_ended`]), in microseconds.
+/// Waits by (kind, site, argument): nanoseconds and count ([`LockStats::sites`]).
+type SiteTable = std::collections::HashMap<(u8, u32, u32), (u64, u32)>;
+
 struct LockStats {
     kernel: [WaitSum; 2],
+    /// Waits for the device lock ([`World::device`]: the Direct3D 9 device's calls), apart from the
+    /// kernel lock's: main, others.
+    device: [WaitSum; 2],
     section: [WaitSum; 2],
     object: [WaitSum; 2],
     sleep: [WaitSum; 2],
@@ -194,6 +200,15 @@ struct LockStats {
     wakes: [AtomicU64; 2],
     host_hold: WaitSum,
     host_since: Mutex<Option<std::time::Instant>>,
+    /// The host's frame-end barrier (every game thread stopped at a safe point to hand kept pages
+    /// back, [`World::frame_ended`]): how long main waited in it.
+    barrier: WaitSum,
+    /// This frame's sleeps and object waits by the game function that made them (the caller on the call
+    /// stack), with the sleep's milliseconds or the object (main) or the thread's id: ns and count. A frame
+    /// whose main-thread waits passed [`SITE_FRAME_MS`] writes them to the `.sites` file beside the
+    /// statistics ([`LockStats::wait_at`]).
+    sites: Mutex<SiteTable>,
+    sites_out: Mutex<Option<std::io::BufWriter<std::fs::File>>>,
     out: Mutex<std::io::BufWriter<std::fs::File>>,
     frames: AtomicU64,
 }
@@ -221,10 +236,13 @@ fn lock_stats() -> Option<&'static LockStats> {
                  main_section_max_us\tgame_section_us\tgame_section_n\tgame_section_max_us\t\
                  main_object_us\tmain_object_n\tmain_object_max_us\tgame_object_us\t\
                  game_object_n\tgame_object_max_us\tmain_sleep_us\tmain_sleep_n\tgame_sleep_us\t\
-                 game_sleep_n\tsection_notifies\tsection_spurious\thost_hold_us\tmain_wakes\tgame_wakes"
+                 game_sleep_n\tsection_notifies\tsection_spurious\thost_hold_us\tmain_wakes\tgame_wakes\t\
+                 barrier_us\tmain_device_us\tmain_device_n\tmain_device_max_us\tgame_device_us\t\
+                 game_device_n\tgame_device_max_us"
             );
             Some(LockStats {
                 kernel: Default::default(),
+                device: Default::default(),
                 section: Default::default(),
                 object: Default::default(),
                 sleep: Default::default(),
@@ -232,6 +250,13 @@ fn lock_stats() -> Option<&'static LockStats> {
                 spurious: AtomicU64::new(0),
                 wakes: Default::default(),
                 host_hold: WaitSum::default(),
+                barrier: WaitSum::default(),
+                sites: Mutex::new(std::collections::HashMap::new()),
+                sites_out: Mutex::new(
+                    std::fs::File::create(format!("{}.sites", path.to_string_lossy()))
+                        .ok()
+                        .map(std::io::BufWriter::new),
+                ),
                 host_since: Mutex::new(None),
                 out: Mutex::new(out),
                 frames: AtomicU64::new(0),
@@ -240,7 +265,25 @@ fn lock_stats() -> Option<&'static LockStats> {
         .as_ref()
 }
 
+/// A frame whose main-thread sleeps and object waits passed this (ms) writes them by site ([`LockStats::sites`]).
+const SITE_FRAME_MS: u64 = 50;
+
+/// The game function that called the running import: the caller on `e`'s call stack (0 when none).
+fn wait_site(e: &Engine) -> u32 {
+    e.call_stack.iter().rev().nth(1).copied().unwrap_or(0)
+}
+
 impl LockStats {
+    /// A wait of `kind` made by `site`: main's sleep of `arg` ms (0) or object wait on handle `arg` (1), or a
+    /// game thread's sleep (2) or object wait (3), `arg` its id.
+    fn wait_at(&self, kind: u8, site: u32, arg: u32, d: Duration) {
+        let ns = d.as_nanos().min(u128::from(u64::MAX)) as u64;
+        let mut sites = guard(&self.sites);
+        let at = sites.entry((kind, site, arg)).or_insert((0, 0));
+        at.0 += ns;
+        at.1 += 1;
+    }
+
     /// Main's frame ended (the host took the kernel lock): the frame's line, and the hold starts.
     fn frame_ended(&self, clock_us: u64) {
         use std::io::Write;
@@ -264,6 +307,34 @@ impl LockStats {
             self.wakes[0].swap(0, Ordering::Relaxed),
             self.wakes[1].swap(0, Ordering::Relaxed)
         ));
+        line.push_str(&format!("\t{}", self.barrier.take().0));
+        for s in &self.device {
+            let (us, n, max) = s.take();
+            line.push_str(&format!("\t{us}\t{n}\t{max}"));
+        }
+        let sites = std::mem::take(&mut *guard(&self.sites));
+        let main_ns: u64 = sites
+            .iter()
+            .filter(|(k, _)| k.0 < 2)
+            .map(|(_, v)| v.0)
+            .sum();
+        if main_ns > SITE_FRAME_MS * 1_000_000 {
+            if let Some(out) = guard(&self.sites_out).as_mut() {
+                let mut rows: Vec<_> = sites.into_iter().collect();
+                rows.sort_by_key(|r| std::cmp::Reverse(r.1 .0));
+                for ((kind, site, arg), (ns, n)) in rows.into_iter().take(24) {
+                    let what = [
+                        "main sleep ms",
+                        "main object",
+                        "game sleep thread",
+                        "game object thread",
+                    ][usize::from(kind)];
+                    let ms = ns as f64 / 1e6;
+                    let _ = writeln!(out, "{frame}\t{what}\t{site:08x}\t{arg:x}\t{ms:.1}\t{n}");
+                }
+                let _ = out.flush();
+            }
+        }
         let mut out = guard(&self.out);
         let _ = writeln!(out, "{line}");
         if frame % 60 == 0 {
@@ -300,11 +371,23 @@ struct KernelLock {
     m: Mutex<()>,
     free: Condvar,
     changed: Condvar,
+    /// The device lock ([`World::device`]): its waits count apart in [`LockStats`].
+    device: bool,
 }
 
 impl KernelLock {
     fn new() -> Self {
+        Self::made(false)
+    }
+
+    /// The device lock: as the kernel lock, its waits counted apart.
+    fn device() -> Self {
+        Self::made(true)
+    }
+
+    fn made(device: bool) -> Self {
         KernelLock {
+            device,
             owner: AtomicU64::new(0),
             depth: AtomicU32::new(0),
             waiters: AtomicU32::new(0),
@@ -349,7 +432,8 @@ impl KernelLock {
         let started = lock_stats().map(|_| std::time::Instant::now());
         self.acquire_here(me);
         if let (Some(s), Some(t)) = (lock_stats(), started) {
-            s.kernel[role()].add(t.elapsed());
+            let sums = if self.device { &s.device } else { &s.kernel };
+            sums[role()].add(t.elapsed());
         }
     }
 
@@ -539,7 +623,7 @@ impl World {
     fn new(import_names: AddrMap<u32, &'static str>) -> Self {
         World {
             kernel: KernelLock::new(),
-            device: KernelLock::new(),
+            device: KernelLock::device(),
             sections: Mutex::new(AddrMap::default()),
             section_parkers: Mutex::new(Vec::new()),
             unaligned: Mutex::new(()),
@@ -689,18 +773,81 @@ struct Waiter {
     woken: AtomicBool,
 }
 
+/// How long a blocked wait watches for its signal before the thread parks ([`watch_briefly`]):
+/// `NV_WAIT_SPIN_US` microseconds; unset, 50 on a machine with more than 2 logical processors
+/// and 0 (park at once) on one with 2 or fewer, where a watching thread would hold up the one
+/// that is to signal it. Waking a parked thread costs Windows tens of microseconds, and the game's
+/// hand-offs answer within that: its file reads go through one thread (OEI's IO thread,
+/// `00aa8430`), a request and a semaphore each way, about 12,000 of them in the Goodsprings load,
+/// where those wake-ups were most of the time (measure/stutter/REAL-THREADS.md). A thread waiting
+/// for longer pays this much CPU, once, most of it yielding (see [`watch_briefly`]).
+fn wait_spin() -> Duration {
+    static SPIN: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *SPIN.get_or_init(|| {
+        let default = if std::thread::available_parallelism().map_or(1, |n| n.get()) > 2 {
+            50
+        } else {
+            0
+        };
+        let us = std::env::var("NV_WAIT_SPIN_US")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(default);
+        Duration::from_micros(us)
+    })
+}
+
+/// How long [`watch_briefly`] spins before it yields its time slice between looks.
+const WATCH_SPIN_ONLY: Duration = Duration::from_micros(10);
+
+/// Watches `flag` for [`wait_spin`] (or `timeout`, if shorter): whether it was set meanwhile. The
+/// first [`WATCH_SPIN_ONLY`] it only spins; after that it yields between looks (`SwitchToThread`,
+/// which returns at once when no other thread is ready to run), so a thread that is to set the
+/// flag gets the processor when there is no other.
+fn watch_briefly(flag: &AtomicBool, timeout: Option<Duration>) -> bool {
+    let limit = timeout.map_or(wait_spin(), |t| t.min(wait_spin()));
+    if limit.is_zero() {
+        return flag.load(Ordering::Acquire);
+    }
+    let started = std::time::Instant::now();
+    loop {
+        for _ in 0..64 {
+            if flag.load(Ordering::Acquire) {
+                return true;
+            }
+            std::hint::spin_loop();
+        }
+        let spent = started.elapsed();
+        if spent >= limit {
+            return flag.load(Ordering::Acquire);
+        }
+        if spent >= WATCH_SPIN_ONLY {
+            std::thread::yield_now();
+        }
+    }
+}
+
 impl World {
     /// Held by this thread (the kernel lock): gives it back whole, parks until one of `me`'s
     /// objects changes ([`object_signalled`]) or `timeout`, and takes it again. The thread is not
     /// running game code meanwhile. A change made after the flag is cleared here unparks it (it
-    /// sets the flag under the lock, then unparks), so none is missed.
+    /// sets the flag under the lock, then unparks), so none is missed. It watches the flag
+    /// briefly before it parks ([`watch_briefly`]); an unpark that finds it watching leaves the
+    /// next park a spurious return, which the caller's loop takes as any other.
     fn wait_for_objects(&self, me: &Waiter, timeout: Option<Duration>) {
         me.woken.store(false, Ordering::SeqCst);
         let held = self.kernel.release_all();
         let was = self.leave_guest();
-        if !me.woken.load(Ordering::SeqCst) {
+        let watched = std::time::Instant::now();
+        if !me.woken.load(Ordering::SeqCst) && !watch_briefly(&me.woken, timeout) {
             match timeout {
-                Some(t) => std::thread::park_timeout(t),
+                // What is left of the timeout after the watch.
+                Some(t) => {
+                    let left = t.saturating_sub(watched.elapsed());
+                    if !left.is_zero() {
+                        std::thread::park_timeout(left);
+                    }
+                }
                 None => std::thread::park(),
             }
         }
@@ -842,7 +989,11 @@ impl Ctx {
             s.frame_ended(clock_us);
         }
         if mem.deferred_pages() >= HAND_BACK_AT {
+            let started = lock_stats().map(|_| std::time::Instant::now());
             w.barrier(|| mem.hand_back_deferred());
+            if let (Some(s), Some(t)) = (lock_stats(), started) {
+                s.barrier.add(t.elapsed());
+            }
         }
         guard(&w.stopped).clone()
     }
@@ -1786,7 +1937,12 @@ fn try_enter_section_in_table(e: &mut Engine, section: Ptr) -> i32 {
 // Real threads: replaces KERNEL32.DLL Sleep (import)
 /// Sleeps for real (`Sleep(0)` gives the rest of the time slice up); a safe point.
 fn sleep(e: &mut Engine, ms: u32) {
+    let started = lock_stats().map(|_| std::time::Instant::now());
     real_sleep(ctx(e).world, ms);
+    if let (Some(stats), Some(t)) = (lock_stats(), started) {
+        let (kind, arg) = if role() == 0 { (0, ms) } else { (2, ctx(e).id) };
+        stats.wait_at(kind, wait_site(e), arg, t.elapsed());
+    }
     park_here(e);
     main_stop_check(e);
 }
@@ -1995,6 +2151,12 @@ impl ThreadHost for Real {
         }
         if let (Some(stats), Some(t)) = (lock_stats(), started) {
             stats.object[role()].add(t.elapsed());
+            let (kind, arg) = if role() == 0 {
+                (1, handles.first().copied().unwrap_or(0))
+            } else {
+                (3, ctx(e).id)
+            };
+            stats.wait_at(kind, wait_site(e), arg, t.elapsed());
         }
         if waiting {
             note_state(e, String::new);
@@ -2805,6 +2967,25 @@ mod tests {
             0
         );
         assert_eq!(e.mem.u32(p + 4), 1);
+    }
+
+    /// The brief watch before a park: a flag set by another thread within it is seen, one never
+    /// set is not (after about the watch), and a zero timeout does not watch.
+    #[test]
+    fn a_wait_watches_briefly_before_it_parks() {
+        let flag = std::sync::Arc::new(AtomicBool::new(false));
+        let started = std::time::Instant::now();
+        assert!(!watch_briefly(&flag, None));
+        assert!(started.elapsed() >= wait_spin());
+        assert!(!watch_briefly(&flag, Some(Duration::ZERO)));
+        let setter = {
+            let flag = std::sync::Arc::clone(&flag);
+            std::thread::spawn(move || flag.store(true, Ordering::Release))
+        };
+        // Watched until set, however long the setter takes to start.
+        while !watch_briefly(&flag, None) {}
+        setter.join().unwrap();
+        assert!(watch_briefly(&flag, None));
     }
 
     /// A wait that should have ended but timed out (a lost wake) shows as `WAIT_TIMEOUT` after

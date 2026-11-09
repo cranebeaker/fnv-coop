@@ -21,6 +21,7 @@ pub mod form_types;
 pub mod frame_log;
 pub mod game_file;
 pub mod mod_fit_worn;
+pub mod native_inflate;
 pub mod phys_blend;
 pub mod player_move;
 pub mod save_out;
@@ -99,6 +100,11 @@ impl Host {
         }
         // What differs from the exe in this run, registered over the translations (docs/FIXES.md).
         fixes::install(&mut engine, choice);
+        // zlib's inflate on the host decoder (unless `NV_NATIVE_INFLATE=0`): the same bytes out, in every
+        // preset, since it changes no behaviour, only the time a compressed file takes.
+        if native_inflate::wanted() {
+            native_inflate::install(&mut engine);
+        }
         // xNVSE built in, in every preset (ADR-0016): after the rows, so its wraps wrap what is
         // registered. Vanilla content calls no extender opcode, and every change it makes to
         // vanilla commands is a row.

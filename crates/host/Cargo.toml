@@ -18,3 +18,9 @@ play-patch = { path = "../play-patch" }
 nvse = { path = "../nvse" }
 # The load order the game's forms are read from (`player_move`).
 esm = { path = "../esm" }
+# zlib's inflate on the host for the game's compressed archives and records (`native_inflate`).
+zlib-rs = "0.6"
+
+[dev-dependencies]
+# The BSA reader the host inflate's comparison with the exe's zlib reads the archives with.
+bsa = { path = "../bsa" }

@@ -1,6 +1,6 @@
 THIRD-PARTY NOTICES — nv-rs Windows build (nv-viewer)
 
-This file indexes the license texts of the 117 external packages in the repository's root Cargo.lock, which nv-viewer is built from (the build-time macro crates and every platform variant of windows-targets included). Package names, versions and license expressions come from each package's Cargo.toml in the local Cargo registry; the files were copied from that exact version there. A package that ships no license file gets the standard text of its license expression (MIT with its authors as the copyright line), marked in its entry. It ends with the notice of source code the translation followed that is not a package.
+This file indexes the license texts of the 118 external packages in the repository's root Cargo.lock, which nv-viewer is built from (the build-time macro crates and every platform variant of windows-targets included). Package names, versions and license expressions come from each package's Cargo.toml in the local Cargo registry; the files were copied from that exact version there. A package that ships no license file gets the standard text of its license expression (MIT with its authors as the copyright line), marked in its entry. It ends with the notice of source code the translation followed that is not a package.
 
 Files are bundled under licenses/<package>-<version>/ in release ZIPs (distribution/licenses/ in the source tree). No crate source or game assets are included.
 
@@ -827,6 +827,12 @@ zerocopy-derive 0.8.63
     zerocopy-derive-0.8.63/LICENSE-APACHE
     zerocopy-derive-0.8.63/LICENSE-BSD
     zerocopy-derive-0.8.63/LICENSE-MIT
+
+zlib-rs 0.6.8
+  License expression: Zlib
+  Repository: https://github.com/trifectatechfoundation/zlib-rs
+  Bundled license files:
+    zlib-rs-0.6.8/LICENSE
 
 
 Source code followed, not a package

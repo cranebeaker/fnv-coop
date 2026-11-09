@@ -70,6 +70,8 @@ point the table's folders at a scratch copy of Documents; never at a player's ow
 | `NV_RENDER_THREAD=1` or `0` | The real Direct3D 9 calls on a render thread of their own, the game's threads recording them and going on (`1`, the default in play; `crates/d3d9-stream`, `crates/engine-platform/src/d3d9real.rs`), or on the game's threads as the original makes them (`0`, the fallback); a scripted or measured run without `NV_RENDER_THREAD` makes them on the game's threads whatever the default ([FIXES.md](FIXES.md)). `Present` returns with at most `NV_RENDER_THREAD_FRAMES` (default 1) earlier frames still to draw. Players set it with a `NV_RENDER_THREAD=0` line in `settings.ini` (Settings.cmd's drawing thread option) |
 | `NV_RENDER_THREAD_STATS=1`, `NV_D3D9_STREAM_CHECK=1` | With the render thread: a line a second on its hand-overs and the game's waits; every command hashed as recorded and as carried out, the run stopped at a difference |
 | `NV_D3D9_RECORD=FILE` | Every Direct3D 9 command to FILE (`d3d9_stream::wire`), to replay into another backend |
+| `NV_NATIVE_INFLATE=0` | Compressed archive files and records decoded by the exe's own zlib (its translation) instead of the host's decoder (the default; the same bytes, faster loads) |
+| `NV_WAIT_SPIN_US=n` | Real threads: how long a blocked wait (`WaitForSingleObject`, `WaitForMultipleObjects`) watches for its signal before the thread sleeps, in microseconds (unset: 50 with more than 2 logical processors, else 0; `0` sleeps at once) |
 | `NV_UNCAP=0` or `1`, `NV_HF_LANDING=0` or `1` | One fix alone; with no `NV_PRESET` the rest of the run is vanilla |
 | `NV_FRAME_LOG=FILE` | One line per main frame (clock, step, player position), with no per-call cost | 
 

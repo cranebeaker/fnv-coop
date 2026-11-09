@@ -54,7 +54,13 @@ high frame rate's steps: a trace itself holds the game near 30 frames a second.
 `NV_LOCK_STATS=FILE` (real threads only) writes a line per main frame with the game clock and how long
 the main thread and the other game threads waited that frame for the kernel lock, for critical
 sections, for events, semaphores and threads, and in sleeps, how often a section leave woke waiters, and
-how long the host held the kernel lock before the frame (joined with `NV_FRAME_LOG` by the clock).
+how long the host held the kernel lock before the frame (joined with `NV_FRAME_LOG` by the clock), then
+how long main waited in the frame-end barrier (`barrier_us`) and the waits for the Direct3D device lock,
+main's and the other threads' (`main_device_*`, `game_device_*`). Beside it, `FILE.sites` lists, for each
+frame in which main's sleeps and object waits passed 50 ms, those sleeps and waits and the other threads'
+by the exe function that made them (the caller of `Sleep` or the wait), with the sleep's milliseconds,
+the first handle main waited on, or the thread's id. `NV_FRAME_LOG`'s last column, `qpc`, is the
+Windows performance counter, for an outside sampler's timestamps.
 
 `NV_PHYS_BLEND_LOG=FILE`, with the smooth physics drawing on (say `NV_PRESET=fixes`: the variable pins
 vanilla otherwise), writes per drawn frame each free body's node as the original draws it and as the
