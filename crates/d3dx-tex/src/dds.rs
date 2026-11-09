@@ -9,7 +9,8 @@
 //! - the mip count (+28), 0 counting as 1, whatever `DDSD_MIPMAPCOUNT` says;
 //! - the pixel format by D3DX's table ([`PIXEL_FORMATS`], `pfSize` must be 32; with
 //!   `DDPF_FOURCC` set every other flag is dropped);
-//! - every level of every face must be in the data, or the file is refused.
+//! - every level of every face must be in the data, by the loader's own 32-bit sizes, or the
+//!   file is refused.
 //!
 //! A refused file is tried by D3DX's other image readers and ends as `D3DXERR_INVALIDDATA`
 //! ([`crate::D3DXERR_INVALIDDATA`]) for anything that is not one of those formats.
@@ -172,31 +173,53 @@ pub struct Image {
     pub stored: u32,
     /// Face by face, level by level (`stored` each).
     pub levels: Vec<Level>,
+    /// The loader's 32-bit arithmetic wrapped for a level: it took a size the file holds for a
+    /// larger level, and D3DX's create calls then read past the file (measured: the 32-bit DLL
+    /// crashes). The image info is the header's, as D3DX gives it.
+    pub past_file: bool,
 }
 
 fn word(d: &[u8], at: usize) -> u32 {
     u32::from_le_bytes(d[at..at + 4].try_into().unwrap())
 }
 
-/// The row and slice bytes of a `w` x `h` level of `format` (D3DX's DDS loader's sizes), in
-/// 64 bits so a header's size cannot wrap; `None` past that.
-fn level_bytes(format: u32, bits: u32, w: u32, h: u32) -> Option<(u64, u64)> {
-    let (w, h) = (u64::from(w), u64::from(h));
-    let (row, rows) = match format {
-        format::DXT1 => (w.div_ceil(4).checked_mul(8)?, h.div_ceil(4)),
-        format::DXT2 | format::DXT3 | format::DXT4 | format::DXT5 => {
-            (w.div_ceil(4).checked_mul(16)?, h.div_ceil(4))
+/// A level's bytes as D3DX's DDS loader counts them (0x621052): the row, the slice and the whole
+/// level (`d` slices), each in its 32-bit arithmetic, which wraps (`(w + 3) >> 2` too); and
+/// whether that differs from the true size (the arithmetic wrapped: the loader then reads a size
+/// the file may hold while the level is larger).
+fn level_size(format: u32, bits: u32, w: u32, h: u32, d: u32) -> (u32, u32, u32, bool) {
+    let (w64, h64) = (u128::from(w), u128::from(h));
+    let ((row, slice), (true_row, true_slice)) = match format {
+        format::DXT1 | format::DXT2 | format::DXT3 | format::DXT4 | format::DXT5 => {
+            let shift = if format == format::DXT1 { 3 } else { 4 };
+            let row = (w.wrapping_add(3) >> 2) << shift;
+            let true_row = ((w64 + 3) >> 2) << shift;
+            (
+                (row, (h.wrapping_add(3) >> 2).wrapping_mul(row)),
+                (true_row, ((h64 + 3) >> 2) * true_row),
+            )
         }
         f if f == u32::from_le_bytes(*b"UYVY")
             || f == u32::from_le_bytes(*b"YUY2")
             || f == u32::from_le_bytes(*b"RGBG")
             || f == u32::from_le_bytes(*b"GRGB") =>
         {
-            (w.div_ceil(2).checked_mul(4)?, h)
+            let row = (w.wrapping_add(1) >> 1) << 2;
+            let true_row = ((w64 + 1) >> 1) << 2;
+            ((row, row.wrapping_mul(h)), (true_row, true_row * h64))
         }
-        _ => (u64::from(bits >> 3).checked_mul(w)?, h),
+        _ => {
+            let row = (bits >> 3).wrapping_mul(w);
+            let true_row = u128::from(bits >> 3) * w64;
+            ((row, row.wrapping_mul(h)), (true_row, true_row * h64))
+        }
     };
-    Some((row, row.checked_mul(rows)?))
+    let size = slice.wrapping_mul(d);
+    let true_size = true_slice * u128::from(d);
+    let wrapped = u128::from(row) != true_row
+        || u128::from(slice) != true_slice
+        || u128::from(size) != true_size;
+    (row, slice, size, wrapped)
 }
 
 /// The bits per pixel of the formats in D3DX's DDS table; 0 for the block formats.
@@ -238,13 +261,21 @@ fn format_bits(format: u32) -> u32 {
     }
 }
 
-/// Reads `data` as D3DX's DDS loader does; `None` when the loader refuses it (D3DX then answers
+/// The most levels a face may have: the 32-bit DLL makes a node for each level it reads and
+/// overflows its stack on many (measured, `data/headers_32bit.tsv`: 2^16 levels of no bytes work
+/// on a 1 MB stack, 2^18 crash, in the image info call already). Past this a file is refused
+/// where the original would crash.
+const MAX_LEVELS: u64 = 1 << 16;
+
+/// Reads `data` as D3DX's DDS loader does; `None` when it refuses the file (D3DX then answers
 /// `D3DXERR_INVALIDDATA`, its other image readers refusing it too).
 ///
-/// Every size is checked, in 64 bits, against the data before anything is kept: a header can
-/// ask for no more than the file holds. A level of no bytes (a format this table gives no size)
-/// is refused. A mip count past the whole chain must still have its 1x1 levels in the data, as
-/// D3DX reads them; only the chain's levels are kept.
+/// Every size is the loader's own, in its 32-bit arithmetic, checked against the data left
+/// (measured against the 32-bit DLL, `data/headers_32bit.tsv`): a level of 2^31 to 2^32 bytes is
+/// not in the file; one past 2^32 wraps to a size that may be ([`Image::past_file`]); a side of 0
+/// gives levels of no bytes, which every file holds. A mip count past the whole chain must still
+/// have its 1x1 levels in the data, as D3DX reads them; only the chain's levels are kept. Past
+/// [`MAX_LEVELS`] levels a face is refused (the DLL overflows its stack there).
 pub fn parse(data: &[u8]) -> Option<Image> {
     if data.len() < 4 || word(data, 0) != u32::from_le_bytes(*b"DDS ") || data.len() - 4 < 0x7c {
         return None;
@@ -303,40 +334,52 @@ pub fn parse(data: &[u8]) -> Option<Image> {
     let chain = 32 - width.max(height).max(depth).max(1).leading_zeros();
     let stored = mips.min(chain);
     let mut levels = Vec::new();
+    let mut past_file = false;
     for _ in 0..faces {
         let (mut w, mut h, mut d) = (width, height, depth);
-        for l in 0..mips {
-            let (pitch, slice) = level_bytes(format, bits, w, h)?;
-            let size = slice.checked_mul(u64::from(d))?;
-            if size == 0 {
-                return None;
-            }
-            if l >= stored {
-                // The rest are all this 1x1 level.
-                let rest = size.checked_mul(u64::from(mips - l))?;
-                if left < rest {
-                    return None;
-                }
-                at += rest;
-                left -= rest;
-                break;
-            }
-            if left < size {
-                return None;
-            }
-            levels.push(Level {
+        let mut l = 0u32;
+        while l < mips {
+            let (pitch, slice, size, wrapped) = level_size(format, bits, w, h, d);
+            let size64 = u64::from(size);
+            let level = Level {
                 width: w,
                 height: h,
                 depth: d,
                 offset: at as usize,
                 pitch: pitch as usize,
                 slice: slice as usize,
-            });
-            at += size;
-            left -= size;
-            w = (w >> 1).max(1);
-            h = (h >> 1).max(1);
-            d = (d >> 1).max(1);
+            };
+            if w <= 1 && h <= 1 && d <= 1 {
+                // Every level from here on is this one (a side of 0 stays 0, one of 1 stays 1):
+                // the loader makes a node for each until the data runs out, the refused one too.
+                let rest = u64::from(mips - l);
+                let fit = if size == 0 { rest } else { left / size64 };
+                let made = u64::from(l) + if fit >= rest { rest } else { fit + 1 };
+                if made > MAX_LEVELS || fit < rest {
+                    return None;
+                }
+                past_file |= wrapped;
+                if l < stored {
+                    levels.push(level);
+                }
+                at += size64 * rest;
+                left -= size64 * rest;
+                break;
+            }
+            if size64 > left {
+                return None;
+            }
+            past_file |= wrapped;
+            if l < stored {
+                levels.push(level);
+            }
+            at += size64;
+            left -= size64;
+            // The loader's halving: a side of 1 stays 1, and one of 0 stays 0.
+            w = if w == 1 { 1 } else { w >> 1 };
+            h = if h == 1 { 1 } else { h >> 1 };
+            d = if d == 1 { 1 } else { d >> 1 };
+            l += 1;
         }
     }
     Some(Image {
@@ -349,6 +392,7 @@ pub fn parse(data: &[u8]) -> Option<Image> {
         faces,
         stored,
         levels,
+        past_file,
     })
 }
 
@@ -370,8 +414,7 @@ mod tests {
         d
     }
 
-    /// A mip count past the chain needs its 1x1 levels in the data, keeps only the chain, and
-    /// costs nothing however large it is.
+    /// A mip count past the chain needs its 1x1 levels in the data and keeps only the chain.
     #[test]
     fn mip_counts_past_the_chain_are_checked_not_kept() {
         let mut d = header(8, 8, 6, b"DXT1");
@@ -385,17 +428,34 @@ mod tests {
         assert!(parse(&d).is_none(), "4 billion levels are not in 64 bytes");
     }
 
-    /// Sizes past 32 bits do not wrap into small ones, and past 64 bits are no size.
+    /// The loader's sizes wrap as its 32-bit arithmetic does, and a side of 0 gives levels of no
+    /// bytes (measured answers: `data/headers_32bit.tsv`, `tests/dll_answers.rs`).
     #[test]
-    fn huge_sizes_are_refused() {
-        let mut d = header(u32::MAX, u32::MAX, 1, b"DXT5");
+    fn sizes_wrap_as_the_loaders_and_sides_of_0_hold_nothing() {
+        // 2 GiB of DXT1 blocks is a size the loader counts too, and not in the data.
+        let mut d = header(0x1_0000, 0x1_0000, 1, b"DXT1");
         d.extend([0u8; 256]);
         assert!(parse(&d).is_none());
-        let wide = level_bytes(format::A8R8G8B8, 32, 65536, 65536);
-        assert_eq!(wide, Some((1 << 18, 1 << 34)));
+        // 8 GiB wraps to 0: the loader takes it, and the level is past the file.
+        let mut d = header(0x2_0000, 0x2_0000, 1, b"DXT1");
+        d.extend([0u8; 256]);
+        assert!(parse(&d).expect("a wrapped size of 0").past_file);
+        // `(w + 3) >> 2` wraps too.
+        assert_eq!(level_size(format::DXT5, 0, u32::MAX, 4, 1), (0, 0, 0, true));
         assert_eq!(
-            level_bytes(format::A32B32G32R32F, 128, u32::MAX, u32::MAX),
-            None
+            level_size(format::A8R8G8B8, 32, 65536, 65536, 1),
+            (1 << 18, 0, 0, true)
         );
+        // A side of 0: four levels of no bytes, in a file with none.
+        let d = header(8, 0, 4, b"DXT1");
+        let img = parse(&d).expect("levels of no bytes");
+        assert_eq!((img.mip_levels, img.past_file), (4, false));
+    }
+
+    /// Past `MAX_LEVELS` levels a face is refused, where the DLL overflows its stack.
+    #[test]
+    fn too_many_levels_are_refused() {
+        assert!(parse(&header(8, 0, 1 << 16, b"DXT1")).is_some());
+        assert!(parse(&header(8, 0, (1 << 16) + 1, b"DXT1")).is_none());
     }
 }

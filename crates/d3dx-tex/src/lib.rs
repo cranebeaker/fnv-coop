@@ -27,16 +27,16 @@
 //! What D3DX also does and this crate does not (yet) is [`Error::NotProvided`]: image files
 //! other than DDS, volume textures, DDS pixel formats other than DXT1/3/5, A8R8G8B8, X8R8G8B8,
 //! R8G8B8 and A4R4G4B4, and a top level D3DX resamples (a size that is not a power of two, a
-//! DXT side that is not a multiple of 4; its triangle filter). None of the game's textures needs
-//! them.
+//! DXT side that is not a multiple of 4; its triangle filter), each with its kind
+//! ([`Untranslated`]). None of the game's textures needs them.
 //!
 //! Speed (2026-11-08, all the game's textures, `d3dx-tex-verify --time` against the 64-bit DLL
 //! creating on a real device and reading back): on one core about 10% faster than the 64-bit DLL
 //! at single precision and about 15% slower at double (each double-precision store is a
 //! conversion); with a large level's DXT blocks split across cores ([`set_max_threads`], a
 //! budget shared by every loading thread) about twice as fast at either. The bytes are the same.
-//! Malformed files are refused with D3DX's error before anything is allocated from their
-//! headers.
+//! Malformed files get D3DX's own answers (its 32-bit size arithmetic, measured on such headers),
+//! and a refusal where the 32-bit DLL crashes, before anything is allocated from their headers.
 
 pub(crate) mod dds;
 #[doc(hidden)]
@@ -53,7 +53,7 @@ pub mod synthetic;
 pub use filter::set_max_threads;
 pub use load::{
     create_cube_texture_from_file_in_memory, create_texture_from_file_in_memory,
-    get_image_info_from_file_in_memory, Caps, Error, ImageInfo, Surface, Texture,
+    get_image_info_from_file_in_memory, Caps, Error, ImageInfo, Surface, Texture, Untranslated,
 };
 pub use num::Precision;
 

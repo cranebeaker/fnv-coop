@@ -185,6 +185,91 @@ pub fn files() -> Vec<File> {
     v
 }
 
+/// Headers whose sizes push D3DX's DDS loader (`data/headers_32bit.tsv`: the 32-bit DLL's image
+/// info and create answers, `d3dx-tex-verify --capture-headers`): sides of 0 (levels of no
+/// bytes), levels between 2^31 and 2^32 bytes, levels past 2^32 bytes (the loader's 32-bit
+/// arithmetic wraps them, into the file or not), and many levels.
+pub fn header_files() -> Vec<File> {
+    let mut rng = Rng(0x0dd5_17e5_0000_0001);
+    let dxt1 = fourcc(b"DXT1");
+    let argb = (0x41, 0, 32, [0xff_0000, 0xff00, 0xff, 0xff00_0000]);
+    let f128 = (4, 116, 0, [0; 4]);
+    let fourcc117 = (4, 117, 0, [0; 4]);
+    let cases: Vec<(&str, Vec<u8>, usize)> = vec![
+        ("dxt1-8x0", header(8, 0, 1, dxt1, 0), 64),
+        ("dxt1-8x0-4-levels", header(8, 0, 4, dxt1, 0), 64),
+        ("dxt1-0x8", header(0, 8, 1, dxt1, 0), 64),
+        ("argb-8x0", header(8, 0, 1, argb, 0), 64),
+        ("argb-0x0", header(0, 0, 1, argb, 0), 64),
+        ("dxt1-0x80000001x0", header(0x8000_0001, 0, 1, dxt1, 0), 64),
+        (
+            "argb-32768x24576-3gib",
+            header(32768, 24576, 1, argb, 0),
+            4096,
+        ),
+        (
+            "dxt1-65536x98304-3gib",
+            header(65536, 98304, 1, dxt1, 0),
+            4096,
+        ),
+        (
+            "argb-65536x16385-wraps-into-the-file",
+            header(65536, 16385, 1, argb, 0),
+            0x4_1000,
+        ),
+        (
+            "argb-65536x16385-wraps-past-the-file",
+            header(65536, 16385, 1, argb, 0),
+            4096,
+        ),
+        (
+            "argb-65536x65536-wraps-to-0",
+            header(65536, 65536, 1, argb, 0),
+            4096,
+        ),
+        (
+            "dxt1-131072-wraps-to-0",
+            header(131072, 131072, 1, dxt1, 0),
+            4096,
+        ),
+        (
+            "argb-2^31-square",
+            header(0x8000_0000, 0x8000_0000, 1, argb, 0),
+            64,
+        ),
+        (
+            "f128-max-square",
+            header(u32::MAX, u32::MAX, 1, f128, 0),
+            64,
+        ),
+        ("dxt1-8x0-65536-levels", header(8, 0, 1 << 16, dxt1, 0), 64),
+        ("dxt1-8x0-262144-levels", header(8, 0, 1 << 18, dxt1, 0), 64),
+        (
+            "argb-1x1-65536-levels",
+            header(1, 1, 1 << 16, argb, 0),
+            4 << 16,
+        ),
+        ("argb-1x1-max-levels", header(1, 1, u32::MAX, argb, 0), 64),
+        ("dxt1-4x4-max-levels", header(4, 4, u32::MAX, dxt1, 0), 64),
+        (
+            "fourcc117-4x4-50m-levels",
+            header(4, 4, 50_000_000, fourcc117, 0),
+            64,
+        ),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, mut data, extra)| {
+            data.extend((0..extra).map(|_| rng.byte()));
+            File {
+                name: name.into(),
+                cube: false,
+                data,
+            }
+        })
+        .collect()
+}
+
 /// FNV-1a, 64 bits (the test data's level hashes).
 pub fn fnv(b: &[u8]) -> u64 {
     b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| {

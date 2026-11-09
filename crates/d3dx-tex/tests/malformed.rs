@@ -65,8 +65,12 @@ const INVALID: d3dx_tex::Error = d3dx_tex::Error::D3dx(d3dx_tex::D3DXERR_INVALID
 /// The precision the files go through here (the other tests use single precision).
 const PRECISION: d3dx_tex::Precision = d3dx_tex::Precision::Double;
 
+/// Sides whose sizes pass 32 bits, and a side of 0 (levels of no bytes): the image info is the
+/// header's, or a refusal when even the wrapped size is not in the file, and the create call answers a D3DX error (E_FAIL for the
+/// side of 0; a refusal where the DLL would read past the file); the exact answers are the DLL's
+/// in `tests/dll_answers.rs`.
 #[test]
-fn huge_sides_are_refused() {
+fn huge_sides_answer() {
     let argb = (0x41, 0, 32, [0xff_0000, 0xff00, 0xff, 0xff00_0000]);
     let f128 = (4, 116, 0, [0; 4]);
     for (w, h, pf) in [
@@ -75,8 +79,15 @@ fn huge_sides_are_refused() {
         (u32::MAX, u32::MAX, f128),
     ] {
         let (info, made) = answers(header(w, h, 1, 0x1007, pf, 0), false);
-        assert_eq!(info, Err(INVALID), "{w:#x}x{h:#x}");
-        assert_eq!(made, Err(INVALID), "{w:#x}x{h:#x}");
+        assert!(
+            matches!(info, Ok(i) if (i[0], i[1]) == (w, h))
+                || info == Err(d3dx_tex::Error::D3dx(d3dx_tex::D3DXERR_INVALIDDATA)),
+            "{w:#x}x{h:#x}: {info:?}"
+        );
+        assert!(
+            matches!(made, Err(d3dx_tex::Error::D3dx(0x8000_4005 | 0x8876_0b59))),
+            "{w:#x}x{h:#x}: {made:?}"
+        );
     }
 }
 

@@ -1193,6 +1193,31 @@ pub fn device_guard(e: &Engine) -> Option<DeviceGuard> {
     Some(DeviceGuard(world, std::marker::PhantomData))
 }
 
+/// Runs `f`, pure work inside a kernel-locked platform function that reaches no platform state
+/// and no game memory (D3DX's texture translation, on its own copy of the file), with the kernel
+/// lock given back meanwhile, so other threads' platform calls go on; then takes it again with
+/// the same holds (also if `f` panics, for the platform function's own release). The thread stays
+/// counted as running game code, so a barrier waits for it. Not while this thread holds the device
+/// lock, which must never wait for the kernel lock: then `f` runs with both held. With stepped
+/// threads it just runs `f`.
+pub fn without_kernel_lock<R>(e: &Engine, f: impl FnOnce() -> R) -> R {
+    let Some(world) = e.real.as_ref().map(|r| r.world) else {
+        return f();
+    };
+    if world.device.held_here() || !world.kernel.held_here() {
+        return f();
+    }
+    /// Takes the kernel lock back with the holds given up, however `f` ends.
+    struct Retake(&'static World, u32);
+    impl Drop for Retake {
+        fn drop(&mut self) {
+            self.0.kernel.take_again(self.0, self.1);
+        }
+    }
+    let _retake = Retake(world, world.kernel.release_all());
+    f()
+}
+
 /// Whether this thread may reach the device's state: it holds the device lock, or there are no
 /// real threads (one game thread runs at a time). For debug assertions in the platform layer.
 pub fn device_lock_held(e: &Engine) -> bool {
@@ -2342,6 +2367,42 @@ mod tests {
         e.call(slot("SetEvent"), &args![event]);
         assert_eq!(e.call(wait, &args![semaphore, 0xffff_ffffu32]).eax, 0);
         assert_eq!(e.mem.u32(p + 16), 0x5a5a);
+    }
+
+    /// Work outside the kernel lock: another thread takes the lock while it runs, and the holds
+    /// come back after it (also after a panic); with the device lock held it stays held.
+    #[test]
+    fn work_without_the_kernel_lock_lets_others_take_it() {
+        let (mut e, _) = engine_with_imports();
+        start(&mut e).expect("real threads on");
+        let world = e.real.as_ref().expect("real threads").world;
+        world.kernel.lock(world);
+        assert_eq!(world.kernel.depth.load(Ordering::Relaxed), 2);
+        let other = without_kernel_lock(&e, || {
+            assert!(!world.kernel.held_here());
+            std::thread::spawn(move || {
+                world.kernel.lock(world);
+                world.kernel.unlock();
+                true
+            })
+            .join()
+            .expect("the other thread")
+        });
+        assert!(other, "another thread took the kernel lock meanwhile");
+        assert!(world.kernel.held_here());
+        assert_eq!(world.kernel.depth.load(Ordering::Relaxed), 2);
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            without_kernel_lock(&e, || panic!("in the work"))
+        }));
+        assert!(caught.is_err());
+        assert!(world.kernel.held_here(), "taken back after a panic");
+        assert_eq!(world.kernel.depth.load(Ordering::Relaxed), 2);
+        world.device.lock(world);
+        without_kernel_lock(&e, || {
+            assert!(world.kernel.held_here(), "kept under the device lock")
+        });
+        world.device.unlock();
+        world.kernel.unlock();
     }
 
     /// Each thread has its own TLS values, thread id and last error; the heap serves every thread.

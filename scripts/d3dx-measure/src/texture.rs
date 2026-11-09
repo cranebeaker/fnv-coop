@@ -201,8 +201,9 @@ fn read_u32(input: &mut impl std::io::Read) -> Option<u32> {
 }
 
 /// `serve`: the 32-bit side of `scripts/d3dx-texture-capture`. Reads requests from stdin
-/// (`kind` u32: 1 `D3DXCreateTextureFromFileInMemory`, 2 `D3DXCreateCubeTextureFromFileInMemory`;
-/// the data's length u32; the data) and answers each on stdout: the HRESULT, the level count,
+/// (`kind` u32: 1 `D3DXCreateTextureFromFileInMemory`, 2 `D3DXCreateCubeTextureFromFileInMemory`,
+/// 3 `D3DXGetImageInfoFromFileInMemory`; the data's length u32; the data) and answers each on
+/// stdout: the HRESULT, then for 3 the image info's seven words; for 1 and 2 the level count,
 /// the face count (1, or 6 for a cube), then for each face and level its format, width,
 /// height, byte count and the level's bytes (rows packed). Ends at the end of stdin.
 ///
@@ -225,7 +226,8 @@ unsafe fn serve_calls(module: usize, device: usize) {
     let (module, device) = (module as *mut c_void, device as *mut c_void);
     let texture_fn = crate::GetProcAddress(module, b"D3DXCreateTextureFromFileInMemory\0".as_ptr());
     let cube_fn = crate::GetProcAddress(module, b"D3DXCreateCubeTextureFromFileInMemory\0".as_ptr());
-    assert!(!texture_fn.is_null() && !cube_fn.is_null());
+    let info_fn = crate::GetProcAddress(module, b"D3DXGetImageInfoFromFileInMemory\0".as_ptr());
+    assert!(!texture_fn.is_null() && !cube_fn.is_null() && !info_fn.is_null());
     let start = crate::x87_control_word();
     eprintln!("serve: calls at x87 control word {start:04x}");
     let mut changed = false;
@@ -244,6 +246,18 @@ unsafe fn serve_calls(module: usize, device: usize) {
         let len = read_u32(&mut input).expect("a length") as usize;
         let mut data = vec![0u8; len];
         std::io::Read::read_exact(&mut input, &mut data).expect("the data");
+        if kind == 3 {
+            // `D3DXGetImageInfoFromFileInMemory`: the answer, then the seven words.
+            type Info = unsafe extern "system" fn(*const u8, u32, *mut u32) -> u32;
+            let mut words = [0u32; 7];
+            let hr = (std::mem::transmute::<*mut c_void, Info>(info_fn))(data.as_ptr(), len as u32, words.as_mut_ptr());
+            out.write_all(&hr.to_le_bytes()).unwrap();
+            for w in words {
+                out.write_all(&w.to_le_bytes()).unwrap();
+            }
+            out.flush().unwrap();
+            continue;
+        }
         let mut texture: *mut c_void = std::ptr::null_mut();
         let f: Create = std::mem::transmute(if kind == 2 { cube_fn } else { texture_fn });
         let hr = f(device, data.as_ptr(), len as u32, &mut texture);

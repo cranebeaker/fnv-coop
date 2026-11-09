@@ -96,7 +96,9 @@ fn synthetic(data: &str, precision: d3dx_tex::Precision) {
         };
         match made {
             Err(d3dx_tex::Error::D3dx(ours)) => assert_eq!(ours, hr, "{}", file.name),
-            Err(d3dx_tex::Error::NotProvided(why)) => panic!("{}: not provided: {why}", file.name),
+            Err(d3dx_tex::Error::NotProvided(_, why)) => {
+                panic!("{}: not provided: {why}", file.name)
+            }
             Ok(t) => {
                 assert_eq!(hr, 0, "{}", file.name);
                 assert_eq!(
@@ -153,6 +155,90 @@ fn image_info_follows_the_header() {
                 "{}",
                 file.name
             ),
+        }
+    }
+}
+
+/// `data/headers_32bit.tsv`: headers that push D3DX's DDS loader's sizes
+/// (`d3dx_tex::synthetic::header_files`) through the 32-bit DLL's image info and create calls.
+/// Ours are the DLL's answers; where the DLL's process crashed (it reads past the file, or
+/// overflows its stack on many levels) ours is `D3DXERR_INVALIDDATA`, a refusal instead; a pixel
+/// format this crate does not make is left to the caller.
+#[test]
+fn malformed_headers_get_the_32_bit_dlls_answers() {
+    let data = include_str!("../data/headers_32bit.tsv");
+    let files = d3dx_tex::synthetic::header_files();
+    let lines: Vec<&str> = data.lines().filter(|l| !l.starts_with('#')).collect();
+    assert_eq!(lines.len(), files.len());
+    let refused = d3dx_tex::Error::D3dx(d3dx_tex::D3DXERR_INVALIDDATA);
+    for (file, line) in files.iter().zip(lines) {
+        let f: Vec<&str> = line.split('\t').collect();
+        assert_eq!(f[0], file.name);
+        let info = d3dx_tex::get_image_info_from_file_in_memory(&file.data).map(|i| i.words());
+        let rest = if f[1] == "crash" {
+            assert_eq!(info, Err(refused.clone()), "{}: image info", file.name);
+            continue;
+        } else {
+            let hr = u32::from_str_radix(f[1], 16).unwrap();
+            if hr == 0 {
+                let words: Vec<u32> = f[2].split(' ').map(|w| w.parse().unwrap()).collect();
+                assert_eq!(
+                    info.map(|w| w.to_vec()),
+                    Ok(words),
+                    "{}: image info",
+                    file.name
+                );
+            } else {
+                assert_eq!(
+                    info,
+                    Err(d3dx_tex::Error::D3dx(hr)),
+                    "{}: image info",
+                    file.name
+                );
+            }
+            &f[3..]
+        };
+        let caps = d3dx_tex::Caps::default();
+        let made = d3dx_tex::create_texture_from_file_in_memory(
+            &file.data,
+            &caps,
+            d3dx_tex::Precision::Single,
+        );
+        if rest[0] == "crash" {
+            assert_eq!(made.err(), Some(refused.clone()), "{}: create", file.name);
+            continue;
+        }
+        let hr = u32::from_str_radix(rest[0], 16).unwrap();
+        match made {
+            Err(d3dx_tex::Error::D3dx(ours)) => assert_eq!(ours, hr, "{}: create", file.name),
+            // A pixel format this crate does not make (the f128 file): the caller asks the DLL.
+            Err(d3dx_tex::Error::NotProvided(d3dx_tex::Untranslated::PixelFormat, _)) => {}
+            Err(d3dx_tex::Error::NotProvided(_, why)) => {
+                panic!("{}: create not provided: {why}", file.name)
+            }
+            Ok(t) => {
+                assert_eq!(hr, 0, "{}: create", file.name);
+                assert_eq!(
+                    (t.levels.to_string(), t.faces.to_string()),
+                    (rest[1].to_string(), rest[2].to_string()),
+                    "{}",
+                    file.name
+                );
+                let ours: Vec<String> = t
+                    .surfaces
+                    .iter()
+                    .map(|s| {
+                        format!(
+                            "{:x},{},{},{:016x}",
+                            s.format,
+                            s.width,
+                            s.height,
+                            d3dx_tex::synthetic::fnv(&s.bytes)
+                        )
+                    })
+                    .collect();
+                assert_eq!(ours.join(";"), rest[3], "{}", file.name);
+            }
         }
     }
 }

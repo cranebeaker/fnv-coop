@@ -344,7 +344,7 @@ fn compare(path: &str, data: &[u8], cache: &std::path::Path) -> (Outcome, Durati
                 )
             }
         }
-        Err(d3dx_tex::Error::NotProvided(why)) => {
+        Err(d3dx_tex::Error::NotProvided(_, why)) => {
             return (Outcome::Panic(format!("not provided: {why}")), took)
         }
         Ok(t) => t,
@@ -539,6 +539,78 @@ fn time_both(
 /// back), one line each: name, call, answer, levels, faces, then per surface `format,width,height,
 /// fnv1a64 of the bytes`. `crates/d3dx-tex/data/synthetic_32bit.tsv` is this output;
 /// `synthetic_32bit_double.tsv` with `--double` (the DLL on a thread at 53 bits).
+/// `--capture-headers <out.tsv> --serve <d3dx-measure.exe>`: `d3dx_tex::synthetic::header_files`
+/// (headers that push D3DX's DDS loader's sizes) through the 32-bit DLL's image info and create
+/// calls, each file in a process of its own, so a crash ends only its own answer. One line each:
+/// name, the image info's answer and seven words, then the create call's answer, levels, faces
+/// and per surface `format,width,height,fnv1a64`, or `crash` and the process's exit code.
+/// `crates/d3dx-tex/data/headers_32bit.tsv` is this output.
+fn capture_headers(out: &std::path::Path, serve: &str) {
+    use std::io::Read;
+    fn rd(o: &mut impl Read) -> Option<u32> {
+        let mut b = [0u8; 4];
+        o.read_exact(&mut b).ok()?;
+        Some(u32::from_le_bytes(b))
+    }
+    let mut text = String::from("# d3dx_tex::synthetic::header_files() through the 32-bit d3dx9_38.dll (d3dx-measure serve, one process each): name, image info answer and words, then the create call's answer, levels, faces and per surface format,width,height,fnv1a64, or crash and the exit code\n");
+    for f in d3dx_tex::synthetic::header_files() {
+        let mut child = std::process::Command::new(serve)
+            .arg("serve")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("d3dx-measure serve");
+        {
+            let stdin = child.stdin.as_mut().unwrap();
+            for kind in [3u32, if f.cube { 2 } else { 1 }] {
+                stdin.write_all(&kind.to_le_bytes()).unwrap();
+                stdin
+                    .write_all(&(f.data.len() as u32).to_le_bytes())
+                    .unwrap();
+                stdin.write_all(&f.data).unwrap();
+            }
+            stdin.flush().unwrap();
+        }
+        drop(child.stdin.take());
+        let o = child.stdout.as_mut().unwrap();
+        let mut line = f.name.clone();
+        let info = rd(o).map(|hr| (hr, [(); 7].map(|_| rd(o).unwrap_or(0))));
+        let create = info.and_then(|_| {
+            let hr = rd(o)?;
+            let (levels, faces) = (rd(o)?, rd(o)?);
+            let mut parts = Vec::new();
+            for _ in 0..levels * faces {
+                let (format, w, h, len) = (rd(o)?, rd(o)?, rd(o)?, rd(o)?);
+                let mut bytes = vec![0u8; len as usize];
+                o.read_exact(&mut bytes).ok()?;
+                parts.push(format!(
+                    "{format:x},{w},{h},{:016x}",
+                    d3dx_tex::synthetic::fnv(&bytes)
+                ));
+            }
+            Some(format!("{hr:08x}\t{levels}\t{faces}\t{}", parts.join(";")))
+        });
+        let code = child.wait().unwrap().code().unwrap_or(-1) as u32;
+        match info {
+            Some((hr, words)) => {
+                let words: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+                line += &format!("\t{hr:08x}\t{}", words.join(" "));
+            }
+            None => line += &format!("\tcrash\t{code:08x}"),
+        }
+        match create {
+            Some(c) => line += &format!("\t{c}"),
+            None if info.is_some() => line += &format!("\tcrash\t{code:08x}"),
+            None => {}
+        }
+        println!("{line}");
+        text += &line;
+        text += "\n";
+    }
+    std::fs::write(out, text).unwrap();
+}
+
 fn capture_synthetic(out: &std::path::Path, serve: &str) {
     use std::io::Read;
     let mut child = std::process::Command::new(serve)
@@ -1018,6 +1090,7 @@ fn main() {
     let mut fuzz_n: Option<usize> = None;
     let mut time_mode = false;
     let mut capture_synth: Option<PathBuf> = None;
+    let mut capture_hdr: Option<PathBuf> = None;
     let mut capture_blk: Option<PathBuf> = None;
     let mut serve_exe: Option<String> = None;
     let mut i = 3;
@@ -1050,6 +1123,10 @@ fn main() {
                 i += 1;
             }
             "--double" => DOUBLE.store(true, Ordering::Relaxed),
+            "--capture-headers" => {
+                capture_hdr = Some(PathBuf::from(&args[i + 1]));
+                i += 1;
+            }
             "--oracle" => {
                 oracle_exe = Some(args[i + 1].clone());
                 i += 1;
@@ -1096,6 +1173,13 @@ fn main() {
     archives.sort();
     if time_mode {
         time_both(&archives, &wanted, &only);
+        return;
+    }
+    if let Some(out) = capture_hdr {
+        capture_headers(
+            &out,
+            serve_exe.as_deref().expect("--serve <d3dx-measure.exe>"),
+        );
         return;
     }
     if let Some(out) = capture_synth {
