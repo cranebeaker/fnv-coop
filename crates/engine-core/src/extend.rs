@@ -94,7 +94,8 @@ const NVSE: &[Owner] = &[Owner::Nvse];
 
 /// Every exe address a built-in may wrap (ADR-0016 §3, "Wrappers"), by address. Each is a
 /// function entry registered by a translation (or a fix row's copy of it) and reached by
-/// address; xNVSE detours its entry (`Hooks_Other.cpp`, `Hooks_Script.cpp` (xNVSE)).
+/// address; xNVSE detours its entry (`Hooks_Other.cpp`, `Hooks_Script.cpp` (xNVSE)). An import
+/// slot is registered by the platform layer, as Windows' loader fills it; xNVSE writes the slot.
 pub const WRAPS: &[Entry] = &[
     // ScriptEventList destructor: the string and array variables an event list holds are freed.
     Entry {
@@ -143,6 +144,13 @@ pub const WRAPS: &[Entry] = &[
         addr: 0x005e_1550,
         owners: NVSE,
         step: "I-3",
+    },
+    // DINPUT8 DirectInput8Create, its import slot: the keyboard and mouse devices put behind
+    // xNVSE's (`Hook_DirectInput8Create_Init` writes this slot).
+    Entry {
+        addr: 0x00fd_f02c,
+        owners: NVSE,
+        step: "I-11",
     },
 ];
 

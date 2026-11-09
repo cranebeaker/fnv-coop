@@ -39,6 +39,9 @@
 //!   xNVSE's form extra data only OnCellRefsLoaded's mark is used so far (a set of cells,
 //!   [`call_sites`]); its script token cache comes with I-14, its plugin interface with native
 //!   plugins.
+//! - I-11 [`input`], [`commands::input`]: xNVSE's DirectInput hook (the game's keyboard and mouse
+//!   behind its `DIHookControl`, put in front of the platform's DirectInput at the
+//!   `DirectInput8Create` import slot) and its input commands.
 //! - [`commands`]: the commands built so far, by xNVSE's `Commands_*.cpp` file.
 //!
 //! [`install`] runs once per engine, after the fix rows (`host::Host::start_with`); the engine
@@ -55,6 +58,7 @@ pub mod event_commands;
 pub mod events;
 pub mod expr;
 pub mod functions;
+pub mod input;
 pub mod invref;
 pub mod lambda;
 pub mod mt19937;
@@ -193,6 +197,8 @@ pub struct Nvse {
     /// The inventory references (I-12), and the stacks `GetFirstRefForItem` listed per script.
     pub invrefs: invref::State,
     pub inv_ref_arrays: commands::inventory_ref::State,
+    /// The DirectInput hook's keys and the input commands' controls (I-11).
+    pub input: input::State,
     /// The first frame recorded the main thread (`s_recordedMainThreadID`): xNVSE prints to the
     /// console from then on.
     pub main_thread_recorded: bool,
@@ -217,6 +223,7 @@ pub fn install(e: &mut Engine) {
     let seed = e.clock_now_ms();
     e.ext::<Nvse>().mt.init_genrand(seed);
     table::install(e);
+    input::install(e);
     context::install(e);
     args::install(e);
     vars::install(e);
@@ -260,12 +267,13 @@ mod tests {
             0x0041_af70,
             0x005a_c750,
             0x0045_12a0,
+            0x00fd_f02c,
         ] {
             e.register(addr, base);
         }
         install(&mut e);
         assert!(e.unlisted_wraps().is_empty());
-        assert_eq!(e.wrapped().len(), 8);
+        assert_eq!(e.wrapped().len(), 9);
         for site in [
             0x0048_3669,
             0x004c_0032,

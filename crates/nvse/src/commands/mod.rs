@@ -3,6 +3,7 @@
 
 pub mod algohol;
 pub mod array;
+pub mod input;
 pub mod inventory;
 pub mod inventory_ref;
 pub mod math;
@@ -27,6 +28,7 @@ pub fn all() -> Vec<&'static Command> {
         .chain(scripting::COMMANDS)
         .chain(string::COMMANDS)
         .chain(array::COMMANDS)
+        .chain(input::COMMANDS)
         .chain(crate::functions::COMMANDS)
         .chain(crate::tick::COMMANDS)
         .chain(crate::event_commands::COMMANDS)
