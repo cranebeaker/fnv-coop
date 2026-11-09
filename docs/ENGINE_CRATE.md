@@ -470,11 +470,15 @@ real threads, fixes preset, the same exe with `NV_TYPED` unset and with the six 
 60.1 fps (+9.3%), the crowded street at 2560x1440 8x AA 52.3 to 57.7 fps (+10.3%), the sky above it 117 to
 134 fps (+14%). Each alone had been within the noise (shader +0.2%, dispatch +1.5%): they call each other, and a
 `typed_call!` goes direct only when both ends are on. `NV_TYPED=off` or `<family>:off` turns them off.
-And `render` (same crate, id 10, off by default, `NV_TYPED=render`): a speed batch picked by calls through dispatch
-a frame in the crowded street view, with every family on: a texture stage's binding (its texture, states,
-transform and sampler commands), the texture manager's query with the texture data getters it reaches, the current
-pass's stage binding and the shadow light shader's plain geometry pass; its tests are
-`crates/engine/tests/typed_render.rs`.
+And `render` (same crate, id 10): a speed batch picked by calls through dispatch a frame in the crowded
+street view, with every family on: a texture stage's binding (its texture, states, transform and sampler
+commands), the texture manager's query with the texture data getters it reaches, the current pass's stage
+binding, the shadow light shader's plain geometry pass, the lighting property's render passes
+(`GetRenderPasses`) and a shader's stream set-up with the renderer's geometry packing; its tests are
+`crates/engine/tests/typed_render.rs`. On since its own speed gate (2026-11-09, the same street view, main's
+default against it with render on too, BAAB): the crowded street 64.3 to 67.2 fps (+4.6%, t 10), the sky
+149.0 to 152.4 fps (+2.3%). With it on, the `NV_HEAD_CHECK` diagnostic's notes from the stream set-up need
+`NV_TYPED=render:off`.
 
 **The switch.** `NV_TYPED` is read once per process, and `Engine::new` runs `typed::apply` after
 all registration: each family that is on is registered over the translations with

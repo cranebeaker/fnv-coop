@@ -90,6 +90,7 @@ pub mod units {
         engine_core::typed::provide(&crate::crt::CRT);
         engine_core::typed::provide(&crate::dispatch::DISPATCH);
         engine_core::typed::provide(&crate::render::RENDER);
+        crate::render::stream::note_head_check();
     }
 }
 
@@ -102,7 +103,7 @@ mod tests {
     use engine_core::typed::{parse_switch, Family, Mode};
 
     /// This crate's families, in the order `units::funcs` provides them.
-    fn families() -> [&'static Family; 6] {
+    fn families() -> [&'static Family; 7] {
         [
             &crate::lockfree::LOCKFREE,
             &crate::culling::CULLING,
@@ -110,11 +111,13 @@ mod tests {
             &crate::shader::SHADER,
             &crate::crt::CRT,
             &crate::dispatch::DISPATCH,
+            &crate::render::RENDER,
         ]
     }
 
-    /// Which of this crate's families are past their gate, and so on with no switch: all six since
-    /// their speed gate together (2026-11-08); `NV_TYPED=off` or `<family>:off` turns one off.
+    /// Which of this crate's families are past their gate, and so on with no switch: all seven, the
+    /// first six since their speed gate together (2026-11-08), render since its own (2026-11-09);
+    /// `NV_TYPED=off` or `<family>:off` turns one off.
     #[test]
     fn families_past_their_gate_are_on_by_default() {
         let families = families();
@@ -125,7 +128,7 @@ mod tests {
             .collect();
         assert_eq!(
             past,
-            ["lockfree", "culling", "pathing", "shader", "crt", "dispatch"]
+            ["lockfree", "culling", "pathing", "shader", "crt", "dispatch", "render"]
         );
         let defaults = parse_switch(None, &families).unwrap();
         for (f, m) in families.iter().zip(&defaults) {
@@ -135,7 +138,7 @@ mod tests {
         assert!(off.iter().all(|m| *m == Mode::Off));
         let one_off = parse_switch(Some("shader:off"), &families).unwrap();
         assert_eq!(one_off[3], Mode::Off);
-        assert!(one_off.iter().filter(|m| **m == Mode::On).count() == 5);
+        assert!(one_off.iter().filter(|m| **m == Mode::On).count() == 6);
     }
 
     /// With no switch, `Engine::new` registers every function of each family, and its calls between

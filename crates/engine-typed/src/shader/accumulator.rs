@@ -171,12 +171,31 @@ pub fn process_commands(
     let flags = e.global::<u32>(SHADER_FLAGS);
     let list = e.with_stack(4, |e, local| {
         e.set_global(local.addr(), 0u32);
-        e.vcall(
-            property.addr(),
-            SLOT_RENDER_PASSES,
-            &args![geometry, flags, local, mode, accumulator, 1u32],
-        )
-        .u32()
+        // The lighting property's `GetRenderPasses` (`00b67be0`, the render family) directly when
+        // the slot holds it.
+        if crate::slot_target(e, property.addr(), SLOT_RENDER_PASSES) == 0x00b6_7be0 {
+            typed_call!(
+                crate::render::FAMILY,
+                0x00b6_7be0,
+                crate::render::passes::render_passes(
+                    e,
+                    property.addr(),
+                    geometry.addr(),
+                    flags,
+                    local.addr(),
+                    mode,
+                    accumulator.addr(),
+                    1u32
+                )
+            )
+        } else {
+            e.vcall(
+                property.addr(),
+                SLOT_RENDER_PASSES,
+                &args![geometry, flags, local, mode, accumulator, 1u32],
+            )
+            .u32()
+        }
     });
     let first_person = e.get(accumulator, A::b1stPerson) != 0;
     follow_bit(

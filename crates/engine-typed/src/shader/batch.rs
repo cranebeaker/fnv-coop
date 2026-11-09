@@ -11,6 +11,7 @@ use super::state::{self, DEVICE_SET_SAMPLER_STATE};
 use super::{elem_addr, low8, FAMILY};
 use crate::culling::layout::NiBound;
 use crate::culling::{fstp, m32};
+use engine_core::abi::OneWord;
 use engine_core::ptr::Ptr;
 use engine_core::typed::leaf;
 use engine_core::x87::{x87_add, x87_load32, x87_m32, x87_mul, x87_sub};
@@ -585,7 +586,7 @@ pub fn render_standard(e: &mut Engine, pass: Ptr<RenderPass>, first: u32, second
         }
         call_third(e);
     }
-    e.vcall(shader, slot::DRAW, &args![geometry, 0u32, buffer, state]);
+    shader_draw(e, shader, geometry, 0u32, buffer, state);
     e.vcall(geometry.addr(), slot::SET_HOLDER, &args![holder]);
     e.vcall(shader, slot::GEOMETRY_DONE, &args![state]);
 }
@@ -658,9 +659,7 @@ pub fn render_skinned(e: &mut Engine, pass: Ptr<RenderPass>, first: u32, second:
                 }
                 first_partition = false;
             }
-            let drawn = e
-                .vcall(shader, slot::DRAW, &args![geometry, partition, word, state])
-                .u32();
+            let drawn = shader_draw(e, shader, geometry, partition, word, state);
             e.call(HOLDER_DRAW, &args![holder, drawn, partition, data]);
             if flags != 0 {
                 let mut next = index + 1;
@@ -673,9 +672,7 @@ pub fn render_skinned(e: &mut Engine, pass: Ptr<RenderPass>, first: u32, second:
                     partition = partition.wrapping_add(0x2c);
                     if e.global::<u8>(flags.wrapping_add(index * 4)) != 0 {
                         let word = e.global::<u32>(partition.wrapping_add(0x28));
-                        let drawn = e
-                            .vcall(shader, slot::DRAW, &args![geometry, partition, word, state])
-                            .u32();
+                        let drawn = shader_draw(e, shader, geometry, partition, word, state);
                         if drawn == 0 {
                             return;
                         }
@@ -832,6 +829,35 @@ pub fn sort_alphas(e: &mut Engine, this: Ptr<BSBatchRenderer>, camera: u32, subt
         let holder = e.global::<u32>(elem_addr(this, BSBatchRenderer::pAlphaGroups, index, 4));
         let list = Ptr::<PassHolder>::new(holder).at(PassHolder::kList);
         typed_call!(FAMILY, 0x00b9_9630, sort_list(e, list, COMPARE_BY_DEPTH));
+    }
+}
+
+/// The shader's draw (slot 0x6c, `thiscall(shader, geometry, partition, buffer data, state)`):
+/// `00e812f0` (the render family's `prepare_streams`) directly when the slot holds it, as every
+/// `NiD3DShader` class has; another target through the vtable.
+#[inline(always)]
+fn shader_draw(
+    e: &mut Engine,
+    shader: u32,
+    geometry: impl OneWord,
+    partition: impl OneWord,
+    buffer: impl OneWord,
+    state: impl OneWord,
+) -> u32 {
+    let (g, p, b, s) = (
+        geometry.one_word(),
+        partition.one_word(),
+        buffer.one_word(),
+        state.one_word(),
+    );
+    if crate::slot_target(e, shader, slot::DRAW) == 0x00e8_12f0 {
+        typed_call!(
+            crate::render::FAMILY,
+            0x00e8_12f0,
+            crate::render::stream::prepare_streams(e, Ptr::new(shader), g, p, b, s)
+        )
+    } else {
+        e.vcall(shader, slot::DRAW, &args![g, p, b, s]).u32()
     }
 }
 
