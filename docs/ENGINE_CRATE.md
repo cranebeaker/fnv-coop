@@ -479,6 +479,10 @@ binding, the shadow light shader's plain geometry pass, the lighting property's 
 default against it with render on too, BAAB): the crowded street 64.3 to 67.2 fps (+4.6%, t 10), the sky
 149.0 to 152.4 fps (+2.3%). With it on, the `NV_HEAD_CHECK` diagnostic's notes from the stream set-up need
 `NV_TYPED=render:off`.
+Since 2026-11-09 `shader` also holds a constant map's upload of its entries (`SetShaderConstants`) and the shadow
+light shader's per-geometry constants (`SetupGeometryConstants`, about 600 calls a frame in the crowded street,
+with the sixteen constant set-ups it calls, each registered; plain Rust calls inside it, as in the exe), in
+`shader::constants` and `shader::geometry`, tested in the same file against one shared world.
 
 **The switch.** `NV_TYPED` is read once per process, and `Engine::new` runs `typed::apply` after
 all registration: each family that is on is registered over the translations with

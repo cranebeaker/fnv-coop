@@ -4,7 +4,8 @@
 //! render passes with the thread's batch renderer by pass type ([`batch`]); the batch renderer then
 //! draws the groups type by type, beginning each shader pass and drawing each geometry, while the
 //! render state setters keep the device's states behind lock counters and a cache ([`state`]); the
-//! shaders' per-geometry set-ups (world matrix, light colour, blend states) are in [`accumulator`].
+//! shaders' per-geometry set-ups (world matrix, light colour, blend states) are in [`accumulator`], a
+//! constant map's upload of its entries for each draw in [`constants`].
 //!
 //! Stage 1: the objects stay in guest memory where the game made them and are read through their
 //! [`layout`]. Each function stays registered at its exe address; a call inside the family is a
@@ -22,8 +23,12 @@ use engine_core::{entry, AbiFn};
 
 pub mod accumulator;
 pub mod batch;
+pub mod constants;
+pub mod geometry;
 pub mod layout;
 pub mod state;
+
+use geometry::{eye_pos_words, lights_words};
 
 /// This family's bit: what each `typed_call!` of it names.
 pub const FAMILY: FamilyId = FamilyId::new(17);
@@ -110,6 +115,23 @@ fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00e8_6f40, state::array_set_at(Ptr<_>, u32, u32)),
         entry!(0x00e8_70c0, state::sort_entries_by_enabled(u32, Ptr<_>)),
         entry!(0x00e8_7200, state::sort_by_enabled(Ptr<_>)),
+        entry!(
+            0x00e8_26d0,
+            constants::set_shader_constants(
+                Ptr<_>,
+                u32,
+                u32,
+                u32,
+                u32,
+                u32,
+                u32,
+                u32,
+                u32,
+                u32,
+                u32,
+                u32,
+            ) -> bool
+        ),
         // The batch renderer.
         entry!(0x00b9_8ae0, batch::first_list(Ptr<_>, u32, u32) -> bool),
         entry!(0x00b9_9730, batch::pop_active(Ptr<_>)),
@@ -174,6 +196,45 @@ fn funcs() -> Vec<(u32, AbiFn)> {
             accumulator::set_world_view_constants(u32, u32, u32)
         ),
         entry!(0x00b7_c7b0, accumulator::set_light_direction(u32)),
+        entry!(
+            0x00b7_dab0,
+            geometry::setup_geometry_constants(Ptr<_>, Ptr<_>)
+        ),
+        // The constant set-ups SetupGeometryConstants calls (plain Rust calls there, as in the exe).
+        entry!(0x00b7_9050, geometry::vertex_entry_12(Ptr<_>, u32)),
+        entry!(0x00b7_90d0, geometry::vertex_entry_15(Ptr<_>, Ptr<_>)),
+        entry!(0x00b7_9100, geometry::vertex_entry_16(Ptr<_>, u32)),
+        entry!(0x00b7_9180, geometry::vertex_entry_17(Ptr<_>, Ptr<_>)),
+        entry!(
+            0x00b7_91f0,
+            geometry::vertex_entry_21(Ptr<_>, u32, Ptr<_>, Ptr<_>)
+        ),
+        entry!(0x00b7_9410, geometry::pixel_entry_2(Ptr<_>, u32, Ptr<_>)),
+        entry!(
+            0x00b7_95b0,
+            geometry::toggles(Ptr<_>, u32, u32, Ptr<_>, u32, u32, Ptr<_>)
+        ),
+        entry!(0x00b7_96f0, geometry::pixel_entry_16(Ptr<_>, Ptr<_>)),
+        entry!(0x00b7_9730, geometry::pixel_entry_19()),
+        entry!(0x00b7_98c0, geometry::pixel_entry_20(Ptr<_>, Ptr<_>)),
+        (0x00b7_8ef0, eye_pos_words as AbiFn),
+        entry!(
+            0x00b7_b930,
+            geometry::shadow_proj(Ptr<_>, Ptr<_>, u32, Ptr<_>)
+        ),
+        entry!(
+            0x00b7_b730,
+            geometry::obj_to_cube(Ptr<_>, Ptr<_>, u32, u32, u32)
+        ),
+        entry!(
+            0x00b7_be00,
+            geometry::simple_shadow_clip_planes(Ptr<_>, u32)
+        ),
+        (0x00b7_8a90, lights_words as AbiFn),
+        entry!(
+            0x00b7_ba70,
+            geometry::ambient_emittance(Ptr<_>, Ptr<_>, Ptr<_>, Ptr<_>, u32)
+        ),
         entry!(
             0x00c0_3230,
             accumulator::texture_by_index(Ptr<_>, u32) -> u32
