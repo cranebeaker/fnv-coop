@@ -1,5 +1,5 @@
-//! The exe's icon: `nv-rs.ico` (the project logo, 16 to 256 pixels) becomes the viewer's icon
-//! resource on Windows with the MSVC linker.
+//! The exe's icon: `nv-rs.ico` (Vault Boy holding the nv-rs cartridge, 16 to 256 pixels)
+//! becomes the viewer's icon resource on Windows with the MSVC linker.
 //!
 //! No resource compiler is needed. The build writes the `.res` file itself:
 //! - an empty first entry;
