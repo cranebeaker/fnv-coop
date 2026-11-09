@@ -223,6 +223,10 @@ fn main() {
         if !game.main_frame() {
             break;
         }
+        // `NV_REPEATABLE=FRAMES` (a test mode): the run ends after FRAMES of main's frames.
+        if game.repeatable_end() {
+            std::process::exit(0);
+        }
         if let Some(log) = &mut frame_log {
             log.record(&mut game.engine);
         }

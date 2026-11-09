@@ -156,6 +156,7 @@ None of these is for players.
 | --- | --- | --- |
 | **Running and pacing** | | |
 | `NV_TYPED=off` (or a list: `docs/ENGINE_CRATE.md`, "Typed code") | Turns the typed (native Rust) families off and runs the translations only, to rule them out when a trace or recording diverges from the original's. A run recorded for nv-trace (`NV_TRACE_OUT`, `NV_TRACE_LIST`) has them off unless `NV_TYPED` names some | on in every preset |
+| `NV_REPEATABLE=FRAMES` | A repeatable run: two runs of the same exe with the same settings and scripted input give byte-identical `NV_D3D9_RECORD` files. A virtual clock (starts at one hour, 1 us a reading, each main frame at least 1/60 s), stepped threads whatever `NV_THREADS` says, a fixed wall clock (2026-01-01 12:00 UTC plus that clock) and process id, GPU queries waited for, window handles written as 0 and query reads left out of the record; the run ends after FRAMES main frames with the record written out, so `cmp` compares two runs | off |
 | `NV_WAIT_SPIN_US=n` | Real threads: how long a blocked wait watches for its signal before the thread sleeps, in microseconds (0 sleeps at once) | 50 with more than 2 logical processors, else 0 |
 | `NV_RENDER_THREAD_FRAMES=n` | With the render thread, `Present` returns with at most n earlier frames still to draw | 1 |
 | `NV_RENDER_THREAD_CHUNK=n` | With the render thread, how many commands are handed over at a time | built-in size |

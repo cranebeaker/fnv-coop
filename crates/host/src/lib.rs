@@ -116,7 +116,18 @@ impl Host {
         }
         // The game's clock (`GetTickCount`, `timeGetTime`, `QueryPerformanceCounter`) runs with
         // the real time from here on, `Sleep` moving it on too (`Engine::clock_now_ms`).
-        engine.start_real_clock();
+        // `NV_REPEATABLE=FRAMES` (a test mode, [`repeatable_frames`]): a virtual clock instead, the
+        // threads stepped whatever `NV_THREADS` says, the run ended after FRAMES of main's frames.
+        let repeatable = repeatable_frames()?;
+        if let Some(frames) = repeatable {
+            engine.start_repeatable_clock();
+            eprintln!(
+                "NV_REPEATABLE: a repeatable run of {frames} main frames: virtual clock, stepped threads, \
+                 fixed wall clock and process id, queries waited for, window handles left out of NV_D3D9_RECORD"
+            );
+        } else {
+            engine.start_real_clock();
+        }
         // How the game's threads run (`engine::thread_host::Scheme`), in `NV_THREADS`'s words
         // (`fixes::Choice::threads`: a test without `NV_THREADS` always runs them stepped). In
         // play by default real, side by side (started before the C runtime, below).
@@ -128,7 +139,11 @@ impl Host {
         // platform call) or `anycall`, `notimeout` changes parts; `shuffle:SEED` draws the
         // switch points from a seed (the race tests).
         engine.kernel.threads.scheme =
-            engine::thread_host::Scheme::from_name(Some(&choice.threads))?;
+            engine::thread_host::Scheme::from_name(Some(if repeatable.is_some() {
+                "stepped"
+            } else {
+                &choice.threads
+            }))?;
         if let Some(delay) = std::env::var("NV_WAKE_DELAY")
             .ok()
             .and_then(|v| v.trim().parse().ok())
@@ -263,6 +278,41 @@ impl Host {
                 Some(why) => format!("not run ({why})"),
             }
         )
+    }
+}
+
+/// `NV_REPEATABLE=FRAMES` (a test mode, never play; docs/PLAYTESTING.md): a run that two runs of
+/// the same exe with the same settings and scripted input repeat exactly, down to the bytes of
+/// `NV_D3D9_RECORD`, ending after FRAMES of main's frames ([`Host::repeatable_end`]). `None`
+/// when unset or empty; a value that is not a positive number stops the start.
+pub fn repeatable_frames() -> Result<Option<u64>, String> {
+    match std::env::var("NV_REPEATABLE") {
+        Ok(v) if !v.trim().is_empty() => match v.trim().parse::<u64>() {
+            Ok(n) if n > 0 => Ok(Some(n)),
+            _ => Err(format!(
+                "NV_REPEATABLE={v}: give the number of main frames the run lasts"
+            )),
+        },
+        _ => Ok(None),
+    }
+}
+
+impl Host {
+    /// `NV_REPEATABLE=FRAMES`: true once main's FRAMES frames have run; the Direct3D 9 record
+    /// (`NV_D3D9_RECORD`) is written out first, so the caller can end the process.
+    pub fn repeatable_end(&mut self) -> bool {
+        static FRAMES: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+        let Some(frames) = *FRAMES.get_or_init(|| repeatable_frames().ok().flatten()) else {
+            return false;
+        };
+        if self.movement.main_frames < frames {
+            return false;
+        }
+        self.join();
+        #[cfg(windows)]
+        engine_platform::d3d9real::finish_recording(&mut self.engine);
+        eprintln!("NV_REPEATABLE: {frames} main frames run; the run ends");
+        true
     }
 }
 

@@ -898,6 +898,51 @@ fn every_command_reads_back_as_written_and_replays() {
     same(&chunked, &written, "through a chunk");
 }
 
+/// `NV_REPEATABLE`'s record: every command as `record_to` writes it, except the window handles
+/// (written as 0) and the query reads (left out); the backend still gets them all as they are.
+#[test]
+fn a_repeatable_record_leaves_out_windows_and_query_reads() {
+    let p = Payloads::new();
+    let cmds = every_command(&p, Data::Bytes(&[7; 16]));
+    let log = Log::default();
+    let lines = log.lines();
+    let mut stream = Stream::direct(Box::new(log));
+    let file = File::default();
+    stream.record_repeatable(Box::new(file.clone())).unwrap();
+    for c in &cmds {
+        stream.submit(*c);
+    }
+    stream.finish_recording();
+    let bytes = file.0.lock().unwrap().clone();
+    drop(stream);
+    let read: Vec<Cmd<Data<'_>>> = wire::commands(&bytes)
+        .unwrap()
+        .map(|c| c.unwrap())
+        .collect();
+    assert_eq!(lines.lock().unwrap().len(), NAMES.len());
+    assert_eq!(
+        read.len(),
+        NAMES.len() - 1,
+        "only the query read is left out"
+    );
+    let mut windows = 0;
+    for c in &read {
+        match c {
+            Cmd::QueryGetData { .. } => panic!("a query read was written"),
+            Cmd::CreateDevice { focus, window, .. } => {
+                assert_eq!((*focus, *window), (0, 0));
+                windows += 1;
+            }
+            Cmd::Reset { window, .. } | Cmd::Present { window, .. } => {
+                assert_eq!(*window, 0);
+                windows += 1;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(windows, 3);
+}
+
 #[test]
 fn a_damaged_file_is_refused() {
     assert_eq!(

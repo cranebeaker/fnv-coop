@@ -114,6 +114,9 @@ pub fn file_clock(e: &Engine) -> u64 {
     if let Some(now) = state_ref!(e).disk.clock {
         return now;
     }
+    if let Some(now) = super::time::repeatable_filetime(e) {
+        return now;
+    }
     #[cfg(windows)]
     {
         extern "system" {

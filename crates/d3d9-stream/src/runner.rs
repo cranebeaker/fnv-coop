@@ -85,6 +85,8 @@ enum Runner {
 struct Recording {
     out: Box<dyn Write + Send>,
     buf: Vec<u8>,
+    /// [`Stream::record_repeatable`]: the window handles written as 0, the query reads left out.
+    repeatable: bool,
 }
 
 impl std::fmt::Debug for Stream {
@@ -133,8 +135,31 @@ impl Stream {
         self.record = Some(Recording {
             out,
             buf: Vec::new(),
+            repeatable: false,
         });
         Ok(())
+    }
+
+    /// [`Stream::record_to`] for `NV_REPEATABLE` (a test mode): what differs between two runs of
+    /// the same exe with the same input is left out, so their files compare byte for byte: the
+    /// real windows' handles ([`Cmd::CreateDevice`], [`Cmd::Reset`], [`Cmd::Present`]) are
+    /// written as 0, and [`Cmd::QueryGetData`] (a read, which draws nothing, made as often as the
+    /// GPU takes) is not written.
+    pub fn record_repeatable(&mut self, out: Box<dyn Write + Send>) -> std::io::Result<()> {
+        self.record_to(out)?;
+        if let Some(r) = &mut self.record {
+            r.repeatable = true;
+        }
+        Ok(())
+    }
+
+    /// Writes out what is recorded so far (`NV_REPEATABLE`'s end, before the process ends).
+    pub fn finish_recording(&mut self) {
+        if let Some(r) = &mut self.record {
+            if let Err(error) = r.out.flush() {
+                eprintln!("NV_D3D9_RECORD: the command file could not be written ({error})");
+            }
+        }
     }
 
     /// Carries out `cmd` or queues it. A sync command ([`Cmd::is_sync`]) returns its reply once
@@ -152,7 +177,14 @@ impl Stream {
         }
         if let Some(r) = &mut self.record {
             r.buf.clear();
-            wire::encode(&cmd, &mut r.buf);
+            let written = if r.repeatable {
+                repeatable_form(cmd)
+            } else {
+                Some(cmd)
+            };
+            if let Some(written) = &written {
+                wire::encode(written, &mut r.buf);
+            }
             if let Err(error) = r.out.write_all(&r.buf) {
                 eprintln!("NV_D3D9_RECORD: the command file could not be written ({error}); the recording stops");
                 self.record = None;
@@ -199,6 +231,61 @@ impl Stream {
             drop(t.wait(|q| q.done == q.handed));
         }
     }
+}
+
+/// What [`Stream::record_repeatable`] writes for `cmd`: the window handles as 0, a query read not
+/// at all.
+fn repeatable_form(cmd: Cmd<Data<'_>>) -> Option<Cmd<Data<'_>>> {
+    Some(match cmd {
+        Cmd::CreateDevice {
+            device,
+            behavior,
+            present,
+            back_buffers,
+            depth_stencil,
+            ..
+        } => Cmd::CreateDevice {
+            device,
+            focus: 0,
+            window: 0,
+            behavior,
+            present,
+            back_buffers,
+            depth_stencil,
+        },
+        Cmd::Reset {
+            device,
+            present,
+            back_buffers,
+            depth_stencil,
+            ..
+        } => Cmd::Reset {
+            device,
+            window: 0,
+            present,
+            back_buffers,
+            depth_stencil,
+        },
+        Cmd::Present {
+            device,
+            source,
+            dest,
+            dirty,
+            model,
+            frame,
+            ..
+        } => Cmd::Present {
+            device,
+            source,
+            dest,
+            window: 0,
+            dirty,
+            model,
+            frame,
+        },
+        Cmd::QueryGetData { .. } => return None,
+        other => other,
+    })
 }
 
 impl Drop for Stream {

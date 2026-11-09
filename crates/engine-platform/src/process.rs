@@ -165,9 +165,17 @@ pub fn set_unhandled_exception_filter(e: &mut Engine, filter: u32) -> u32 {
 // Platform: replaces KERNEL32.DLL GetCurrentProcessId (import)
 /// `GetCurrentProcessId()`: the id of the process the game runs in (this one), the same on
 /// every call (measured).
-pub fn get_current_process_id(_e: &mut Engine) -> u32 {
+pub fn get_current_process_id(e: &mut Engine) -> u32 {
+    // `NV_REPEATABLE` (a test mode): the same id on every run (the C runtime's security cookie
+    // mixes it in).
+    if e.repeatable {
+        return REPEATABLE_PROCESS_ID;
+    }
     std::process::id()
 }
+
+/// The process id `NV_REPEATABLE` answers.
+const REPEATABLE_PROCESS_ID: u32 = 0x1000;
 
 /// Whether `heap` is a heap of `HeapCreate` (`super::heap_create`).
 fn is_heap(e: &Engine, heap: u32) -> bool {

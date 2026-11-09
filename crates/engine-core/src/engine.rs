@@ -99,6 +99,13 @@ pub type AddrSet<K> = std::collections::HashSet<K, BuildHasherDefault<AddrHasher
 /// table must keep its 65536 entries.
 const CALL_CACHE_SETS: usize = 1 << 15;
 
+/// `NV_REPEATABLE`'s virtual clock ([`Engine::start_repeatable_clock`]): where it starts (one hour,
+/// as a machine up an hour), how far one reading moves it, and how long a frame of main's lasts at
+/// least (60 a second).
+pub const REPEATABLE_START_MS: u32 = 3_600_000;
+pub const REPEATABLE_READING_US: u64 = 1;
+pub const REPEATABLE_FRAME_US: u64 = 16_667;
+
 /// The cache set of `addr` (Fibonacci hashing: the top bits of the product).
 #[inline(always)]
 const fn cache_set(addr: u32) -> usize {
@@ -240,6 +247,13 @@ pub struct Engine {
     pub clock_us: u32,
     /// When the real clock is on: the instant the clock was last brought up to date.
     pub real_clock: Option<std::time::Instant>,
+    /// `NV_REPEATABLE` (a test mode, never play): the clock is virtual ([`Engine::start_repeatable_clock`]),
+    /// and the platform layers answer what would differ between two runs (the wall clock, the process
+    /// id, a query's readiness) the same way each time.
+    pub repeatable: bool,
+    /// With [`Engine::repeatable`]: the clock at the end of main's last frame
+    /// ([`Engine::repeatable_frame_end`]).
+    repeatable_mark_us: u64,
     /// The Windows kernel objects the platform imports hand out (events,
     /// semaphores, threads, `VirtualAlloc` regions; `units/platform.rs`).
     pub kernel: crate::units::platform::KernelRef,
@@ -431,6 +445,8 @@ impl Engine {
             clock_ms: 0,
             clock_us: 0,
             real_clock: None,
+            repeatable: false,
+            repeatable_mark_us: 0,
             kernel: Default::default(),
             device: Default::default(),
             call_stack: Vec::new(),
@@ -557,6 +573,42 @@ impl Engine {
         self.real_clock = Some(std::time::Instant::now());
     }
 
+    /// `NV_REPEATABLE` (a test mode): a virtual clock instead of the real one, so two runs of
+    /// the same exe with the same inputs see the same times. It starts at
+    /// [`REPEATABLE_START_MS`] (as the real clock starts at the machine's uptime: code that takes
+    /// a zero stamp as long ago needs a start past zero), moves [`REPEATABLE_READING_US`] at
+    /// each reading (so a loop that waits for the clock to move ends), `Sleep` and waits move it
+    /// as in the tests, and main's frame end ([`Engine::repeatable_frame_end`]) moves it on to
+    /// [`REPEATABLE_FRAME_US`] past the previous frame's end. Never in play.
+    pub fn start_repeatable_clock(&mut self) {
+        self.real_clock = None;
+        self.repeatable = true;
+        self.clock_ms = REPEATABLE_START_MS;
+        self.clock_us = 0;
+        self.repeatable_mark_us = u64::from(REPEATABLE_START_MS) * 1000;
+    }
+
+    /// With [`Engine::start_repeatable_clock`]: main's frame ended. The clock moves on to
+    /// [`REPEATABLE_FRAME_US`] past the previous frame's end unless it is past that already, so
+    /// the game's frames measure the same on every run, whatever the host's speed.
+    pub fn repeatable_frame_end(&mut self) {
+        if !self.repeatable {
+            return;
+        }
+        let now = u64::from(self.clock_ms) * 1000 + u64::from(self.clock_us);
+        let target = self.repeatable_mark_us + REPEATABLE_FRAME_US;
+        if now < target {
+            self.advance_clock_us(target - now);
+        }
+        self.repeatable_mark_us = now.max(target);
+    }
+
+    /// The clock in microseconds as it reads now, without moving it (for callers that only
+    /// look, such as a file's time stamp under [`Engine::repeatable`]).
+    pub fn clock_peek_us(&self) -> u64 {
+        u64::from(self.clock_ms) * 1000 + u64::from(self.clock_us)
+    }
+
     /// Brings the clock up to date with the real time that passed (real clock on only). Only
     /// whole microseconds are counted, and the real-time mark moves on by exactly what was
     /// counted, so the part of a microsecond left over is counted at a later reading: moving the
@@ -564,6 +616,10 @@ impl Engine {
     /// of readings a second the game's clock fell behind the real time by a few percent (the
     /// sound, which follows that clock, then got gaps of silence to wait for it).
     fn catch_up_clock(&mut self) {
+        if self.repeatable {
+            self.advance_clock_us(REPEATABLE_READING_US);
+            return;
+        }
         if let Some(last) = self.real_clock {
             let now = std::time::Instant::now();
             let passed = now.duration_since(last).as_micros() as u64;
@@ -728,6 +784,8 @@ impl Engine {
             clock_ms: self.clock_ms,
             clock_us: self.clock_us,
             real_clock: self.real_clock,
+            repeatable: self.repeatable,
+            repeatable_mark_us: self.repeatable_mark_us,
             kernel: self.kernel.alias(),
             device: self.device.alias(),
             call_stack: Vec::with_capacity(256),
@@ -1452,6 +1510,45 @@ mod tests {
             r[0].contains("after it was freed while 00401000 ran"),
             "{}",
             r[0]
+        );
+    }
+
+    /// `NV_REPEATABLE`'s clock: the same readings on every run, whatever the host's speed: it
+    /// starts at the hour, each reading moves it 1 us, a frame end moves it on to 1/60 s past the
+    /// previous one (not past a frame that took longer), and a sleep jumps it.
+    #[test]
+    fn the_repeatable_clock_reads_the_same_on_every_run() {
+        let run = || {
+            let mut e = Engine::new();
+            e.start_repeatable_clock();
+            let mut seen = vec![e.clock_now_us(), e.clock_now_us()];
+            e.repeatable_frame_end();
+            seen.push(e.clock_now_us());
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            seen.push(e.clock_now_us());
+            e.advance_clock_us(20_000); // a frame longer than 1/60 s
+            e.repeatable_frame_end();
+            seen.push(e.clock_peek_us());
+            e.repeatable_frame_end();
+            seen.push(e.clock_peek_us());
+            e.wait_clock_until_us(e.clock_peek_us() + 5_000);
+            seen.push(e.clock_peek_us());
+            seen
+        };
+        let start = u64::from(REPEATABLE_START_MS) * 1000;
+        let a = run();
+        assert_eq!(a, run());
+        assert_eq!(
+            a,
+            [
+                start + 1,
+                start + 2,
+                start + REPEATABLE_FRAME_US + 1,
+                start + REPEATABLE_FRAME_US + 2,
+                start + REPEATABLE_FRAME_US + 20_002,
+                start + 2 * REPEATABLE_FRAME_US + 20_002,
+                start + 2 * REPEATABLE_FRAME_US + 25_002,
+            ]
         );
     }
 

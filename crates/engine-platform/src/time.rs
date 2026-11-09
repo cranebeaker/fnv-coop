@@ -18,8 +18,21 @@
 use super::zone::{self, ZoneInfo};
 use crate::{Engine, Ptr};
 
+/// `NV_REPEATABLE` (a test mode): the wall clock reads 2026-01-01 12:00 UTC plus the game's
+/// virtual clock (`Engine::start_repeatable_clock`), the same on every run. `None` otherwise.
+pub fn repeatable_filetime(e: &crate::Engine) -> Option<u64> {
+    e.repeatable.then(|| {
+        zone::UNIX_EPOCH_TICKS + 1_767_268_800 * zone::TICKS_PER_SECOND + e.clock_peek_us() * 10
+    })
+}
+
+/// The system clock as a `FILETIME`: [`repeatable_filetime`] under `NV_REPEATABLE`, else [`real_filetime`].
+fn now_filetime(e: &Engine) -> u64 {
+    repeatable_filetime(e).unwrap_or_else(real_filetime)
+}
+
 /// The real system clock as a `FILETIME` (100 ns since 1601-01-01 UTC).
-fn now_filetime() -> u64 {
+fn real_filetime() -> u64 {
     let since = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("the system clock is before 1970");
@@ -35,7 +48,7 @@ fn zone_info(e: &mut Engine) -> ZoneInfo {
 // Platform: replaces KERNEL32.DLL GetSystemTimeAsFileTime (import)
 /// `GetSystemTimeAsFileTime(out)`: the real system clock now (UTC).
 pub fn get_system_time_as_file_time(e: &mut Engine, out: Ptr) {
-    let now = now_filetime();
+    let now = now_filetime(e);
     e.mem.set_u32(out.addr(), now as u32);
     e.mem.set_u32(out.addr() + 4, (now >> 32) as u32);
 }
@@ -48,7 +61,7 @@ pub fn get_time_zone_information(e: &mut Engine, out: Ptr) -> u32 {
     let bytes = super::d3d9::time_zone(e);
     e.mem.write(out.addr(), &bytes);
     let zone = ZoneInfo::from_bytes(&bytes);
-    match zone::in_daylight(&zone, zone::filetime_seconds(now_filetime())) {
+    match zone::in_daylight(&zone, zone::filetime_seconds(now_filetime(e))) {
         None => 0,
         Some(true) => 2,
         Some(false) => 1,
@@ -61,7 +74,7 @@ pub fn get_time_zone_information(e: &mut Engine, out: Ptr) -> u32 {
 pub fn file_time_to_local_file_time(e: &mut Engine, utc: Ptr, local: Ptr) -> u32 {
     let ticks = u64::from(e.mem.u32(utc.addr())) | (u64::from(e.mem.u32(utc.addr() + 4)) << 32);
     let zone = zone_info(e);
-    let bias = zone::bias_at(&zone, zone::filetime_seconds(now_filetime()));
+    let bias = zone::bias_at(&zone, zone::filetime_seconds(now_filetime(e)));
     let result = ticks.wrapping_sub((i64::from(bias) * 600_000_000) as u64);
     e.mem.set_u32(local.addr(), result as u32);
     e.mem.set_u32(local.addr() + 4, (result >> 32) as u32);
@@ -75,7 +88,7 @@ pub fn file_time_to_local_file_time(e: &mut Engine, utc: Ptr, local: Ptr) -> u32
 /// (`008511a1`, after the character is named).
 pub fn get_local_time(e: &mut Engine, out: Ptr) {
     let zone = zone_info(e);
-    let now = now_filetime();
+    let now = now_filetime(e);
     let bias = zone::bias_at(&zone, zone::filetime_seconds(now));
     let local = now.wrapping_sub((i64::from(bias) * 600_000_000) as u64);
     let words = zone::system_time(local).expect("the clock is before 30828");
@@ -383,7 +396,7 @@ mod tests {
             1
         );
         let zone = zone_info(&mut e);
-        let bias = zone::bias_at(&zone, zone::filetime_seconds(now_filetime()));
+        let bias = zone::bias_at(&zone, zone::filetime_seconds(now_filetime(&e)));
         let got = u64::from(e.mem.u32(local)) | (u64::from(e.mem.u32(local + 4)) << 32);
         assert_eq!(got, 0u64.wrapping_sub(bias as u64 * 600_000_000));
         let info = e.mem.alloc(172);

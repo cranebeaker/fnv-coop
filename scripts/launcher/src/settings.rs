@@ -80,6 +80,7 @@ pub const TEST_SWITCHES: &[&str] = &[
     "NV_MOVE_CALL_BUDGET",
     "NV_MOVE_BUDGET_FROM",
     "NV_SOUND_RECORD",
+    "NV_REPEATABLE",
     "NV_SHOT",
     "NV_FRAME_LOG",
     "NV_LOCK_STATS",
