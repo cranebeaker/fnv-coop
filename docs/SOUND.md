@@ -615,7 +615,7 @@ No bytes from the DLL are in the repository. The constant is the `f32` value of
 `engine-platform/src/vorbisfile.rs` decodes at the calling thread's precision: 24 or 53
 bits. 64-bit precision is not provided (not measured).
 
-### Decoding ahead (`NV_SOUND_DECODE`)
+### Decoding ahead
 
 The game decodes each voice or sound file whole on its IO thread (`00af2100`, from the
 audio load task). The original's IO thread does that on its own core while the main thread
@@ -627,8 +627,8 @@ the same return values, errors and the end at the same reads (the decoder's own 
 fetches a block only when none is ready, so the worker's reads of whole blocks cut the
 stream where it would). A game thread whose read finds nothing decoded yet gives up its
 turn (`Sleep(1)`) until a batch is ready; the main thread goes on with its frames. The game
-sees only its IO task take time, as on the original. `NV_SOUND_DECODE=inline` decodes inside
-the call as before; the tests and platform-clock runs always do.
+sees only its IO task take time, as on the original. The tests and platform-clock runs
+decode inside the call.
 
 Measured on the Goodsprings stutter route (one build, ahead then inline, 2026-11-07): the town's
 p99 frame 27.9 ms (inline 30.5), p99.9 35.1 (56.1), frames over 33 ms 9.8 a minute (18.6), over

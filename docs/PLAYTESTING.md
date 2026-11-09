@@ -148,8 +148,6 @@ Play.exe sets these for every run; set them by hand only to run `nv-viewer` with
 | `NV_SETTINGS=FILE` | The settings file | `settings.ini` beside the program or in the folder above it |
 | `NV_RS_GAME`, `NV_RS_REAL_DOCUMENTS`, `NV_RS_SYSTEM_FOLDER`, `NV_RS_NO_STORES`, `NV_RS_NO_SHORT_PATHS`, `NV_RS_NO_WINDOWS` | The launcher's own test hooks: the game folder, where the player's Documents are read from, the system folder, no look in game stores, no short paths, no windows shown (`scripts/launcher`; `NV_RS_NO_WINDOWS` is also read in `host/save_out.rs`) | the player's own folders, windows shown |
 
-`NV_FIXES` was never a switch of the game's: Play.exe ignores a `NV_FIXES` line in `settings.ini` and Settings.cmd drops it.
-
 ### 4. Tests and diagnostics
 
 None of these is for players.
@@ -187,7 +185,7 @@ None of these is for players.
 | `NV_SOUND_RECORD=FILE.wav`* | What goes to the sound device, recorded, with a log | off |
 | `NV_NVSE_EVENT_LOG=FILE`* | The script events raised, to FILE | off |
 | **Profiling and tracing** | | |
-| `NV_PROFILE`*, `NV_PROFILE_SECONDS`, `NV_PROFILE_TOP`, `NV_PROFILE_CALLS`, `NV_PROFILE_STACK`, `NV_PROFILE_SYMBOLS`, `NV_PROFILE_THREADS`, `NV_PROFILE_THREAD_CALLS`* | The sampling profiler and its table: period, rows, call rows, stack depth, symbol folders, all threads, a file of calls per thread | off |
+| `NV_PROFILE`*, `NV_PROFILE_SECONDS`, `NV_PROFILE_TOP`, `NV_PROFILE_CALLS`, `NV_PROFILE_STACK`, `NV_PROFILE_SYMBOLS`, `NV_PROFILE_THREADS`, `NV_PROFILE_THREAD_CALLS`* | The sampling profiler and its table: period, rows (default 25), call rows, stack depth, symbol folders, all threads, a file of calls per thread | off |
 | `NV_TRACE_OUT`, `NV_TRACE_LIST`*, `NV_TRACE_FLUSH=buffered` | A call trace for nv-trace: the file, the list of functions, no flush after each call | off |
 | `NV_BENCH_CALLS`*, `NV_BENCH_CALL_COUNTS`*, `NV_BENCH_FUNCS`, `NV_BENCH_HOT` | The dispatch-speed benchmark's sizes (ignored test) | built-in sizes |
 | `NV_CENSUS`*, `NV_TOUCH`*, `NV_RACE_CENSUS` | A census of the game's memory at chosen frames; which typed family touches what; races between threads | off |
@@ -207,9 +205,6 @@ The feature is settled as the default. The variable only turns it off, for a com
 | --- | --- | --- |
 | `NV_NATIVE_INFLATE=0` | The host decodes compressed archive files and records (the same bytes, faster loads) | The exe's own zlib translation does |
 | `NV_REAL_SYNC=0` | Real threads' events and semaphores go off the kernel lock | They take the kernel lock's path, as before |
-| `NV_SOUND_DECODE=inline` | Sound files decode ahead on a thread of their own | Decoding inside the game's read |
-| `NV_TICK_COUNT=1ms`* | The tick count runs on the microsecond clock | The millisecond clock, as before |
-| `NV_D3D9_TEXTURES=guest`, `NV_D3D9_BUFFERS=guest` | Texture pixels and static buffers live outside the game's 32-bit memory | They stay in it, as before ADR-0015's step 3 |
 
 ## Packages
 

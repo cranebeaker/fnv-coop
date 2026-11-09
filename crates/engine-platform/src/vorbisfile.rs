@@ -23,11 +23,11 @@
 //! to the end and back to measure it, then reads of 64 KiB); the library's own pattern of
 //! reads and seeks, which only moves the game file's position, is not reproduced.
 //!
-//! **Decoding ahead** (`NV_SOUND_DECODE`, the running game): the game decodes a whole sound at
+//! **Decoding ahead** (the running game): the game decodes a whole sound at
 //! once on its IO thread (`AudioLoadTask::Run` -> `00af2100`), which here is stepped on the
 //! main core, so a long voice file's decode landed inside one frame (the two longest frames of
 //! the Goodsprings stutter route, 114 and 120 ms, were almost all `ov_read`). With the real clock
-//! on and `NV_SOUND_DECODE` not `inline`, [`ov_open_callbacks`] hands the opened decoder to a host
+//! on, [`ov_open_callbacks`] hands the opened decoder to a host
 //! worker thread ([`Ahead`]) that decodes the stream ahead, one `ov_read`'s worth of samples at a
 //! time; [`ov_read`] answers from what it decoded, cut to the length asked, exactly as the
 //! decoder would have answered that call (same bytes, same return values, errors and the end in
@@ -35,8 +35,8 @@
 //! (`Sleep(1)` through the thread host) until enough is, so the main thread goes on with its
 //! frames meanwhile; on the main thread the call waits. The game sees only time pass in the IO
 //! thread's task, as on the original, whose IO thread decodes on its own core while the main
-//! thread runs. Without the real clock (the tests, replays on the platform clock) and with
-//! `NV_SOUND_DECODE=inline` the decoder runs inside the call, as before.
+//! thread runs. Without the real clock (the tests, replays on the platform clock) the decoder
+//! runs inside the call, as before.
 
 use crate::{Engine, Ptr};
 use std::collections::{BTreeMap, VecDeque};
@@ -101,19 +101,10 @@ impl std::fmt::Debug for Files {
     }
 }
 
-/// `NV_SOUND_DECODE`: `inline` decodes inside each `ov_read`; anything else (or unset) decodes
-/// ahead on a host worker in the running game (module documentation).
-fn decode_ahead_wanted() -> bool {
-    static WANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *WANTED.get_or_init(|| {
-        !std::env::var("NV_SOUND_DECODE").is_ok_and(|v| v.trim().eq_ignore_ascii_case("inline"))
-    })
-}
-
-/// Whether a file opened now decodes ahead: the switch on and the real clock running (the
+/// Whether a file opened now decodes ahead: the real clock running (the
 /// running game; the tests and platform-clock replays stay inline and deterministic).
 fn decode_ahead(e: &Engine) -> bool {
-    e.real_clock.is_some() && decode_ahead_wanted()
+    e.real_clock.is_some()
 }
 
 /// How far the worker decodes ahead of the reads (bytes not yet taken): a bound on the memory a

@@ -143,7 +143,7 @@ enum Kind {
         /// next, as Direct3D leaves it to the runtime. The real buffer is never read back: the
         /// game's buffers are write-only (`D3DUSAGE_WRITEONLY`), whose reads Direct3D leaves
         /// undefined. Dynamic buffers, locked many times a frame, keep their bytes in the game's
-        /// memory. `NV_D3D9_BUFFERS=guest` keeps every buffer there (for comparisons),
+        /// memory.
         /// `NV_D3D9_BUFFERS=check` compares each buffer with its block at its last unlock and
         /// again when the block is freed (`super::d3d9device::Store`).
         kept: Option<Vec<u8>>,
@@ -309,11 +309,10 @@ fn is_pool(pool: u32) -> bool {
     pool <= 3
 }
 
-/// A new buffer's bytes (`length`, zero): a block of the game's memory for a dynamic buffer
-/// (or every buffer with `NV_D3D9_BUFFERS=guest`), else kept outside it in host memory
+/// A new buffer's bytes (`length`, zero): a block of the game's memory for a dynamic buffer, else kept outside it in host memory
 /// (`Kind::Buffer`'s `kept`).
 fn buffer_memory(e: &mut Engine, length: u32, usage: u32) -> (u32, Option<Vec<u8>>) {
-    if usage & D3DUSAGE_DYNAMIC != 0 || buffer_store(e) == Store::Guest {
+    if usage & D3DUSAGE_DYNAMIC != 0 {
         (e.mem.alloc(length), None)
     } else {
         (0, Some(Vec::new()))

@@ -1007,12 +1007,6 @@ pub const TICK_INTERVAL_US: u64 = 15_625;
 // [`TICK_INTERVAL_US`], in milliseconds rounded down, as the real one counts
 // (`TickCount * 15.625`). The game's frame timer (`BSTimer`, `00aa4ee0`) paces frames by it.
 fn get_tick_count(e: &mut Engine) -> u32 {
-    // `NV_TICK_COUNT=1ms` (a measurement setting of the host, not Windows' behaviour): the
-    // millisecond clock as before, to compare the frame pacing with it.
-    static MILLISECONDS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if *MILLISECONDS.get_or_init(|| std::env::var("NV_TICK_COUNT").is_ok_and(|v| v == "1ms")) {
-        return tick_count(e);
-    }
     whole_ticks_ms(e.clock_now_us())
 }
 

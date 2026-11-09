@@ -602,7 +602,6 @@ const TEST_VARIABLES: &[&str] = &[
     "NV_MOVE_BUDGET_FROM",
     "NV_SOUND_RECORD",
     "NV_SHOT",
-    "NV_TICK_COUNT",
     "NV_FRAME_LOG",
     "NV_LOCK_STATS",
     "NV_REAL_DUMP",
@@ -819,7 +818,6 @@ mod tests {
             "NV_MOVE_MOUSE",
             "NV_SOUND_RECORD",
             "NV_SHOT",
-            "NV_TICK_COUNT",
         ] {
             assert!(TEST_VARIABLES.contains(&name), "{name}");
         }
