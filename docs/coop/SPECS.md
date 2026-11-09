@@ -132,6 +132,13 @@ each quest whose stages changed and a count of the other changed forms (`coop_en
   check that no story script ran on the guest. Whether every result script carries an owner quest is
   checked on the PC in M3: a story script reaching the guest's runner without one shows as a quest stage
   or global changing on the guest without a host record (a hash drift).
+- Quest records (`coop_engine::quest`, implemented): `(form, current stage, flags, done stage numbers)`,
+  read from the quest's flags (+0x3c), stage list (+0x44: nodes of item and next, both words zero is
+  empty; a stage's number at +0, done byte at +1) and current stage (+0x60). A guest applies a record
+  inside `gate::applying`: each stage done on the host and not on the guest through `SetStageDone`, then
+  the current stage and flags set to the host's, and a stage done only on the guest undone. A record
+  naming a stage the guest's quest lacks (different data) is refused whole. Applying a record twice
+  changes nothing.
 - Which per-player quests run on their player's machine instead is `coop-policy`'s table (S6).
 - Every message carries the host's tick. Guests ack, and coop-core's existing reliability and snapshot
   rules apply unchanged.

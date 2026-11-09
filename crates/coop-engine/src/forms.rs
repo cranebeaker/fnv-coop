@@ -21,6 +21,11 @@ fn form_of(e: &mut Engine, id: u32, kind: u8) -> Option<u32> {
     (e.mem.u8(f.wrapping_add(addr::FORM_TYPE_OFFSET)) == kind).then_some(f)
 }
 
+/// The quest with id `id`, or `None` when there is none or the form is not a quest.
+pub fn quest(e: &mut Engine, id: u32) -> Option<u32> {
+    form_of(e, id, addr::FORM_TYPE_QUEST)
+}
+
 /// A quest's current stage (`TESQuest::GetCurrentStage`), or `None` when `id` is not a quest.
 pub fn quest_stage(e: &mut Engine, id: u32) -> Option<u8> {
     let q = form_of(e, id, addr::FORM_TYPE_QUEST)?;

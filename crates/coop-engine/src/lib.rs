@@ -9,6 +9,7 @@
 //! - [`forms`]: forms by id, quest stages through the game's own `SetStageDone`, global values,
 //!   and the comparison that replicates globals.
 //! - [`gate`]: on a guest, the story's scripts do not run (the host runs them).
+//! - [`quest`]: a quest's story state as the host sends it and a guest applies it.
 //! - [`addr`]: every exe address and offset used, in one place.
 //! - [`diag`]: `NV_COOP=journal`, the change journal printed on a PC run.
 
@@ -17,6 +18,7 @@ pub mod diag;
 pub mod forms;
 pub mod gate;
 pub mod journal;
+pub mod quest;
 
 use std::sync::atomic::Ordering;
 

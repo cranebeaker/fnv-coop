@@ -58,3 +58,20 @@ pub const FORM_TYPE_QUEST: u8 = 0x47;
 /// same bit means other things for other form types (a cell's seen data, a topic's said-once, a
 /// package's never-run: `tessaveloadgame.rs`), so it names a quest's stages only with the type.
 pub const CHANGE_QUEST_STAGES: u32 = 0x8000_0000;
+
+/// `TESQuest::m_Data.ucFlags`: the quest data at +0x3c, its flags its first byte (`tesquest.rs`,
+/// `QuestData`): bit 0 enabled, 0x02 completed, 0x40 failed.
+pub const QUEST_FLAGS_OFFSET: u32 = 0x3c;
+
+/// `TESQuest`'s stage list, a `BSSimpleList<TESQuestStage *>` embedded at +0x44 (`tesquest.rs`):
+/// nodes of (item, next); a node with both words zero is an empty list.
+pub const QUEST_STAGE_LIST_OFFSET: u32 = 0x44;
+
+/// `TESQuest::cCurrentStage`: the byte at +0x60 (`tesquest.rs`).
+pub const QUEST_CURRENT_STAGE_OFFSET: u32 = 0x60;
+
+/// `TESQuestStage::ucIndex`: the stage number at +0x00 (`tesquest.rs`).
+pub const STAGE_INDEX_OFFSET: u32 = 0x00;
+
+/// `TESQuestStage::bIsDone`: the byte at +0x01 (`tesquest.rs`).
+pub const STAGE_DONE_OFFSET: u32 = 0x01;
