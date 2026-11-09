@@ -2,8 +2,8 @@
 //! (bytecode, converter, constants, draw, read-back) and compared with the meaning the DirectX 9
 //! SDK's instruction reference gives it, Direct3D 9's `0 * anything = 0` included.
 //!
-//! The shaders are built here from tokens (no game file). A machine without a GPU adapter skips
-//! with a message: these need one.
+//! The shaders are built here from tokens (no game file). A machine without a GPU adapter, and
+//! GitHub Actions, skip with a message: these need a GPU.
 
 use d3d9_stream::{Backend, Cmd, Data};
 use d3d9_wgpu::{Output, WgpuBackend};
@@ -64,6 +64,13 @@ const VB: u32 = 0x1500;
 
 impl Rig {
     fn new() -> Option<Rig> {
+        // GitHub's hosted runners have no GPU (only a software adapter), and this test process
+        // stops there with an access violation (main's CI, 2026-11-09). Only GitHub Actions sets
+        // `GITHUB_ACTIONS` (a local `CI` must not hide these tests).
+        if std::env::var_os("GITHUB_ACTIONS").is_some() {
+            eprintln!("GitHub Actions: no GPU on the runner, the instruction tests are skipped");
+            return None;
+        }
         let mut b = WgpuBackend::new(Output::Offscreen);
         // D3DPRESENT_PARAMETERS: 1x1, A32B32G32R32F, one back buffer, no depth.
         let present = words(&[1, 1, 116, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0]);
