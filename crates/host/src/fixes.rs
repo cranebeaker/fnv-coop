@@ -47,7 +47,27 @@ pub static FIXES: &[Fix] = &[
     SCRIPT_CYCLE_GUARD,
     SCRIPT_LIST_GUARD,
     SHADER_WARM,
+    IO_WAIT_ENDS_ON_COMPLETION,
 ];
+
+/// The IO manager's wait for queued loads (`00c3dfa0`: main at a cell border, a load, a save) sleeps
+/// 50 ms a turn while the completed work is short of what is in flight; here the sleep ends as
+/// soon as it is not (looked at after each 1 ms sleep; 50 ms by the clock or 50 looks at most), so
+/// the wait for queued loads ends when they are done, not at its next 50 ms step. Vanilla keeps the
+/// 50 ms steps.
+pub const IO_WAIT_ENDS_ON_COMPLETION: Fix = Fix {
+    name: "IO wait ends on completion",
+    env: "NV_IO_WAIT",
+    addresses: &[0x00c3_dfa0],
+    summary: "the wait for queued loads (a cell border, a load, a save) ends when they are done, not at its next 50 ms step",
+    install: install_io_wait,
+};
+
+fn install_io_wait(e: &mut Engine) {
+    use engine::units::bsmain::iomanager::fn_00c3dfa0_waking_early;
+    let (at, f) = engine::entry!(0x00c3_dfa0, fn_00c3dfa0_waking_early(Ptr, i32));
+    e.register(at, f);
+}
 
 /// The built-in script extender's rows (docs/FIXES.md, "The script extender"): each sets a flag
 /// `crates/nvse` reads, at no exe address of its own.

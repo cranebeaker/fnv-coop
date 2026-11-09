@@ -49,7 +49,8 @@ fn array_bytes(count: u32) -> u32 {
 // Translated from 00456520 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `IOManager::LoadQueuedPriority` (Xbox PDB): load through priority 5.
 pub fn io_manager_load_queued_priority(e: &mut Engine, this: Ptr) {
-    fn_00c3dfa0(e, this, 5);
+    // By address, so a fix registered over it (the fixes preset's IO wait row) runs here too.
+    e.call(0x00c3_dfa0, &args![this, 5u32]);
 }
 
 // Translated from 005a8040 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -86,6 +87,35 @@ pub fn io_manager_requeue_task(e: &mut Engine, this: Ptr, task: Ptr, priority: i
 // Translated from 00c3dfa0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Drains queued IO work up to the requested priority and reports percentage progress.
 pub fn fn_00c3dfa0(e: &mut Engine, this: Ptr, priority: i32) {
+    drain(e, this, priority, false);
+}
+
+/// [`fn_00c3dfa0`] whose 50 ms sleep while the completed work is short of what is in flight ends as
+/// soon as it is not (looked at every millisecond): the fixes preset's IO wait row
+/// (`crates/host`). The same work in the same order; the wait ends at the poll's own condition.
+pub fn fn_00c3dfa0_waking_early(e: &mut Engine, this: Ptr, priority: i32) {
+    drain(e, this, priority, true);
+}
+
+/// The wait loop's sleep while the completed work is short of what is in flight (`+0x18`): 50 ms, or
+/// with `wake_early` until it is not, looked at after each 1 ms sleep, for 50 ms at most by the clock
+/// (a 1 ms sleep takes longer, so a turn is bounded by time) and 50 looks at most (a clock that a
+/// sleep does not move, as in a test, still ends it).
+fn wait_for_completions(e: &mut Engine, this: Ptr, wake_early: bool) {
+    if !wake_early {
+        e.call(SLEEP, &args![50u32]);
+        return;
+    }
+    let until = e.clock_now_us() + 50_000;
+    for _ in 0..50 {
+        e.call(SLEEP, &args![1u32]);
+        if count_queued(e, this) >= word(e, this, 0x18) || e.clock_now_us() >= until {
+            break;
+        }
+    }
+}
+
+fn drain(e: &mut Engine, this: Ptr, priority: i32, wake_early: bool) {
     if word(e, this, 0x68) == 7 {
         return;
     }
@@ -115,7 +145,7 @@ pub fn fn_00c3dfa0(e: &mut Engine, this: Ptr, priority: i32) {
         }
         let previous_count = word(e, this, 0x18);
         if count_queued(e, this) < previous_count {
-            e.call(SLEEP, &args![50u32]);
+            wait_for_completions(e, this, wake_early);
         }
         processed = e.call(0x00c3_dbf0, &args![this]).bool();
         remaining = count_queued(e, this)
@@ -2362,6 +2392,50 @@ mod tests {
             3u32.into_ret()
         });
         assert_eq!(external_count(&mut e, manager), 3);
+    }
+
+    /// The sleep while completions are short: 50 ms as the exe's; waking early, 1 ms looks until
+    /// the completed count reaches the in-flight one (the third look here), or 50 ms have passed by the
+    /// clock (34 sleeps of 1.5 ms, about what a 1 ms sleep takes on Windows), or 50 looks when the
+    /// sleep does not move the clock.
+    #[test]
+    fn the_completion_wait_ends_when_the_work_is_in() {
+        let sleeps = |e: &Engine| -> Vec<u32> {
+            e.call_log
+                .as_ref()
+                .unwrap()
+                .iter()
+                .filter(|(addr, _)| *addr == SLEEP)
+                .map(|(_, args)| args[0])
+                .collect()
+        };
+        for (wake_early, done_at, step, want) in [
+            (false, 3, 1_500, vec![50]),
+            (true, 3, 1_500, vec![1, 1, 1]),
+            (true, u32::MAX, 1_500, vec![1; 34]),
+            // A sleep that does not move the clock (stepped threads' virtual clock in a test).
+            (true, u32::MAX, 0, vec![1; 50]),
+        ] {
+            let mut e = Engine::new();
+            let manager = block(&mut e, 0x84);
+            let queue = block(&mut e, 4);
+            e.put_vtable(0x7a00_0000, &[0, 0, 0, 0x7a00_000c]);
+            set_word(&mut e, queue, 0, 0x7a00_0000);
+            set_word(&mut e, manager, 0x64, queue.addr());
+            set_word(&mut e, manager, 0x18, 1);
+            let mut reads = 0;
+            e.register_double(0x7a00_000c, move |_, _| {
+                reads += 1;
+                u32::from(reads >= done_at).into_ret()
+            });
+            e.register_double(SLEEP, move |e, _| {
+                e.advance_clock_us(step);
+                Ret::default()
+            });
+            e.call_log = Some(vec![]);
+            wait_for_completions(&mut e, manager, wake_early);
+            assert_eq!(sleeps(&e), want, "wake early {wake_early}");
+        }
     }
 
     #[test]

@@ -139,6 +139,7 @@
 00bdf3e0	1	VanillaPlusTerrain
 00be0fe0	0	ShaderLoader
 00be1750	0	ShaderLoader
+00c3dfa0	0	nv-rs IO wait ends on completion
 00c65a80	1	nv-rs smooth physics drawing
 00c73170	1	nv-rs high-frame-rate landing
 00cad480	5	ITR
