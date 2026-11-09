@@ -92,6 +92,9 @@ pub struct HostDriver {
     /// Quest records or variables that could not be carried exactly (see [`record::encode`]; a
     /// variable id above 65535): not sent.
     pub unencodable: u32,
+    /// What could not be sent, once each: the quest and why (for the log).
+    pub unencodable_notes: Vec<String>,
+    noted: BTreeSet<(u32, u32)>,
     steps: u64,
     /// Hashes are broadcast every this many steps.
     pub hash_every: u64,
@@ -117,6 +120,8 @@ impl HostDriver {
             quests: quest_ids.into_iter().collect(),
             globals: GlobalWatch::new(global_ids),
             unencodable: 0,
+            unencodable_notes: Vec::new(),
+            noted: BTreeSet::new(),
             steps: 0,
             hash_every: 10,
             bad_packets: 0,
@@ -142,7 +147,17 @@ impl HostDriver {
                 Some(f) => {
                     self.sync.write(FormId(id), f);
                 }
-                None => self.unencodable += 1,
+                None => {
+                    self.unencodable += 1;
+                    if self.noted.insert((id, u32::MAX)) {
+                        self.unencodable_notes.push(format!(
+                            "quest {id:08x}: record not sendable ({} objectives, most {}; highest objective state {})",
+                            r.objectives.len(),
+                            record::MAX_OBJECTIVES,
+                            r.objectives.iter().map(|o| o.1).max().unwrap_or(0)
+                        ));
+                    }
+                }
             }
         }
         for (var, bits) in vars::quest_vars(e, id).unwrap_or_default() {
@@ -151,7 +166,14 @@ impl HostDriver {
                     self.sync
                         .write(FormId(id), Field::ScriptVar { index, bits });
                 }
-                Err(_) => self.unencodable += 1,
+                Err(_) => {
+                    self.unencodable += 1;
+                    if self.noted.insert((id, var)) {
+                        self.unencodable_notes.push(format!(
+                            "quest {id:08x}: variable id {var} is above 65535, not sendable"
+                        ));
+                    }
+                }
             }
         }
     }

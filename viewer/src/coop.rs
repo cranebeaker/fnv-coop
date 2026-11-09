@@ -254,6 +254,9 @@ impl Coop {
                     h.start(e);
                 }
                 h.step(e, &mut self.ep, now_ms);
+                for note in h.unencodable_notes.drain(..) {
+                    lines.push(format!("co-op host: {note}"));
+                }
             }
             Role::Guest(Some(g)) => g.step(e, &mut self.ep, now_ms),
             Role::Guest(None) => {}
