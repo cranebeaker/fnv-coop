@@ -349,7 +349,7 @@ fn mod_index(e: &Engine, form: u32) -> u8 {
 
 /// `TESForm::GetFullName` (xNVSE `GameForms.cpp`): a cell without a name takes its worldspace's;
 /// a reference (`GetIsReference`, here the cast to `TESObjectREFR`) its base form's.
-fn tes_full_name(e: &mut Engine, form: u32) -> u32 {
+pub(crate) fn tes_full_name(e: &mut Engine, form: u32) -> u32 {
     if e.mem.u8(form + 4) == TYPE_CELL {
         let full = form + 0x18;
         let world = e.mem.u32(form + 0xc0);

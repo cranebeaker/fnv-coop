@@ -68,7 +68,7 @@ shows what's left.
 | ✅ | **Fixes:** bug fixes on by default, the original's behaviour one setting away | First fixes in |
 | ✅ | **Windows preview** | [Released](https://github.com/slaterain/nv-rs/releases) |
 | 🔨 | **Native 64-bit code:** speed, no memory limit, every core in use | Started; the game's threads run on their own cores, its drawing on a thread of its own, its compressed archives unpack in native code, and the first native families are on |
-| 🔨 | **Built-in script extender:** xNVSE's and JIP LN's script commands, with nothing to install | Started: xNVSE's variables, loops, functions, events, co-save, inventory references, string and array commands and keyboard and mouse input are in, format strings made exactly as the C runtime makes them; JIP LN's to come |
+| 🔨 | **Built-in script extender:** xNVSE's and JIP LN's script commands, with nothing to install | Started: xNVSE's variables, loops, functions, events, co-save, inventory references, string and array commands, keyboard and mouse input and most of its inventory commands are in (351 of 654), format strings made exactly as the C runtime makes them; JIP LN's to come |
 | 🔨 | **Modern graphics (wgpu)** | Started: the game's own shaders and frames draw on wgpu beside Direct3D 9 for comparison (the main menu identical), and it can run the game on its own for testing; not yet for play |
 | ⬜ | **More platforms, co-op, VR** | Planned; texture loading already needs no Windows DLL (D3DX's, translated byte for byte) |
 
