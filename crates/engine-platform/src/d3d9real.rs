@@ -11,11 +11,12 @@
 //! answers differently from the model, the call is printed once (`NV_D3D9=real: ...`), and the
 //! model's answer stands.
 //!
-//! Where the backend runs (`d3d9_stream::Stream`): on the calling thread, each command carried
-//! out at once (the default: the same real calls in the same place as before the stream), or with
-//! `NV_RENDER_THREAD=1` on a render thread of its own, so the game's threads only record (an
-//! improvement over the original, which makes its Direct3D calls on its main thread: off by
-//! default until measured). A call whose answer comes from the real device waits for it after
+//! Where the backend runs (`d3d9_stream::Stream`): on a render thread of its own, so the game's
+//! threads only record (an improvement over the original, which makes its Direct3D calls on its
+//! main thread: play's default, [`want_render_thread`] from `host::fixes::Choice::render_thread`),
+//! or on the calling thread, each command carried out at once (the same real calls in the same
+//! place as before the stream: tests, scripted runs and `NV_RENDER_THREAD=0`). A call whose
+//! answer comes from the real device waits for it after
 //! every earlier call (the device's creation, the read-back of a texture level the real device
 //! keeps, `GetRenderTargetData`, a query's result); `Present` returns with at most one frame
 //! left to draw (`NV_RENDER_THREAD_FRAMES`, default 1). `NV_D3D9_RECORD=FILE` writes every
@@ -78,6 +79,8 @@ pub struct Real {
     queries_made: engine_core::AddrMap<u32, u64>,
     /// The game's side's notes already printed.
     logged: HashSet<&'static str>,
+    /// Whether the stream gets a render thread ([`want_render_thread`]).
+    render_thread: bool,
     /// Tests: the real backend behind the stream, to look at ([`real_texture`]).
     #[cfg(test)]
     test_backend: Option<std::sync::Arc<std::sync::Mutex<super::d3d9backend::RealBackend>>>,
@@ -756,22 +759,31 @@ pub fn window_moved(e: &mut Engine, handle: u32, rect: [i32; 4], flags: u32) {
 /// `D3DCREATE_MULTITHREADED`: the real device takes calls from any thread.
 const MULTITHREADED: u32 = 4;
 
+/// Whether the stream made at the first `Direct3DCreate9` ([`direct3d_created`]) carries the calls
+/// out on a render thread of its own: the run's choice (`host::fixes::Choice::render_thread`,
+/// play's default; `NV_RENDER_THREAD=0` or `1`), set before the game starts. Off until set, so a
+/// host that sets nothing (a test, a tool) makes the calls on the game's threads.
+pub fn want_render_thread(e: &mut Engine, on: bool) {
+    real(e).render_thread = on;
+}
+
 /// `Direct3DCreate9` made a modelled `IDirect3D9`: the stream to the real backend (once), on the
-/// calling thread or on the render thread (`NV_RENDER_THREAD=1`), written to a file with
+/// calling thread or on the render thread ([`want_render_thread`]), written to a file with
 /// `NV_D3D9_RECORD=FILE`.
 pub fn direct3d_created(e: &mut Engine) {
     if !wanted() || real(e).stream.is_some() {
         return;
     }
+    let wanted_thread = real(e).render_thread;
     // `NV_FACE_CHECK` (a diagnostic) follows calls in the game's order on its own thread: it keeps
     // the calls on the game's threads, as diagnostics keep the threads stepped.
-    let refused = d3d9_stream::render_thread_wanted() && face_check::enabled();
+    let refused = wanted_thread && face_check::enabled();
     if refused {
         eprintln!(
-            "NV_D3D9=real: NV_RENDER_THREAD=1 is not taken with NV_FACE_CHECK: the calls stay on the game's threads"
+            "NV_D3D9=real: the render thread is not taken with NV_FACE_CHECK: the calls stay on the game's threads"
         );
     }
-    let mut stream = if d3d9_stream::render_thread_wanted() && !refused {
+    let mut stream = if wanted_thread && !refused {
         let settings = d3d9_stream::Settings::from_env();
         let board = std::sync::Arc::new(super::d3d9backend::QueryBoard::default());
         let backend = Box::new(super::d3d9backend::RealBackend::with_query_board(
@@ -779,7 +791,7 @@ pub fn direct3d_created(e: &mut Engine) {
         ));
         real(e).query_board = Some(board);
         eprintln!(
-            "NV_D3D9=real: the render thread is on (NV_RENDER_THREAD=1; at most {} frame(s) in flight{})",
+            "NV_D3D9=real: the render thread is on (NV_RENDER_THREAD=0 turns it off; at most {} frame(s) in flight{})",
             settings.frames_in_flight,
             if settings.check { ", the stream checked" } else { "" }
         );

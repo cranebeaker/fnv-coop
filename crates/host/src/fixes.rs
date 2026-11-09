@@ -117,6 +117,13 @@ pub const DEFAULT_MENU_FRAME_LIMIT: u32 = 120;
 /// at a time. A test never takes this: it runs stepped unless it names threads.
 pub const PLAY_THREADS: &str = "real";
 
+/// Whether the real Direct3D 9 calls run on a render thread of their own in play when
+/// `NV_RENDER_THREAD` names nothing ([`Choice::render_thread`]): on, since the measurements of
+/// measure/render-thread (town +14%, the crowded street +16%, the same calls in the same order;
+/// #347); `NV_RENDER_THREAD=0` makes them on the game's threads, as the original does. A test never
+/// takes this: it runs without the render thread unless it names it.
+pub const PLAY_RENDER_THREAD: bool = true;
+
 /// The player's one line: the fixes set, or the original's behaviour.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Preset {
@@ -162,11 +169,15 @@ pub struct Choice {
     /// `stepped` for a test (whatever pins vanilla pins this too, so a comparison, recording or
     /// measurement never changes when the play default does); else [`PLAY_THREADS`].
     pub threads: String,
+    /// Whether the real Direct3D 9 calls run on a render thread of their own
+    /// (`engine_platform::d3d9real::want_render_thread`): `NV_RENDER_THREAD=1` or `0` when set;
+    /// else off for a test (as its threads are stepped); else [`PLAY_RENDER_THREAD`].
+    pub render_thread: bool,
 }
 
 impl Choice {
     /// The original's behaviour, whatever the environment and the settings file say: what
-    /// [`crate::Host::start`] runs (stepped threads too).
+    /// [`crate::Host::start`] runs (stepped threads, no render thread too).
     pub fn vanilla() -> Choice {
         Choice {
             preset: Preset::Vanilla,
@@ -174,6 +185,7 @@ impl Choice {
             menu_frame_limit: DEFAULT_MENU_FRAME_LIMIT,
             overrides: Vec::new(),
             threads: "stepped".to_string(),
+            render_thread: false,
         }
     }
 
@@ -219,6 +231,7 @@ impl Choice {
             menu_frame_limit: DEFAULT_MENU_FRAME_LIMIT,
             overrides: Vec::new(),
             threads: PLAY_THREADS.to_string(),
+            render_thread: PLAY_RENDER_THREAD,
         };
         for line in settings.unwrap_or("").lines() {
             let Some((key, value)) = line.split_once('=') else {
@@ -265,18 +278,26 @@ impl Choice {
         // NV_PRESET of its own it runs on vanilla, so a script that was never told about the preset
         // still measures the original. Only a plain start (or the launcher, whose NV_SAVE_OUT is a
         // real player's) gets the fixes. A test runs the game's threads stepped the same way,
-        // unless its NV_THREADS names them.
+        // unless its NV_THREADS names them, and without the render thread unless its
+        // NV_RENDER_THREAD names it.
         let test =
             TEST_VARIABLES.iter().any(|name| env(name).is_some()) || !choice.overrides.is_empty();
         if test {
             choice.preset = Preset::Vanilla;
             choice.threads = "stepped".to_string();
+            choice.render_thread = false;
         }
         if let Some(value) = env("NV_PRESET") {
             choice.preset = parse_preset(&value, "NV_PRESET")?;
         }
         if let Some(value) = env("NV_THREADS").filter(|v| !v.trim().is_empty()) {
             choice.threads = value;
+        }
+        match env("NV_RENDER_THREAD").as_deref().map(str::trim) {
+            None | Some("") => {}
+            Some("1") => choice.render_thread = true,
+            Some("0") => choice.render_thread = false,
+            Some(other) => return Err(format!("NV_RENDER_THREAD={other}: use 0 or 1")),
         }
         Ok(choice)
     }
@@ -620,6 +641,49 @@ mod tests {
         for words in [PLAY_THREADS, "stepped"] {
             assert!(engine::thread_host::Scheme::from_name(Some(words)).is_ok());
         }
+    }
+
+    /// The render thread is play's default; settings.ini's `NV_RENDER_THREAD=0` line (which the
+    /// launcher hands over as the variable) turns it off. A test runs without it unless its
+    /// `NV_RENDER_THREAD` names it, so no comparison, recording or measurement changes when the
+    /// play default does; naming a preset doesn't turn it on.
+    #[test]
+    fn the_render_thread_is_plays_and_a_test_names_it() {
+        let plain = Choice::from_parts(Some("Preset=fixes"), no_env).unwrap();
+        assert_eq!(plain.render_thread, PLAY_RENDER_THREAD);
+        let vanilla = Choice::from_parts(Some("Preset=vanilla"), no_env).unwrap();
+        assert_eq!(vanilla.render_thread, PLAY_RENDER_THREAD);
+        let launcher = Choice::from_parts(
+            None,
+            env_of(&[("NV_SAVE_OUT", "x"), ("NV_PRESET", "fixes")]),
+        )
+        .unwrap();
+        assert_eq!(launcher.render_thread, PLAY_RENDER_THREAD);
+        let off = Choice::from_parts(None, env_of(&[("NV_RENDER_THREAD", "0")])).unwrap();
+        assert!(!off.render_thread);
+        assert_eq!(off.preset, Preset::Fixes, "a run setting, not a test");
+        let on = Choice::from_parts(None, env_of(&[("NV_RENDER_THREAD", " 1 ")])).unwrap();
+        assert!(on.render_thread);
+        let empty = Choice::from_parts(None, env_of(&[("NV_RENDER_THREAD", "")])).unwrap();
+        assert_eq!(empty.render_thread, PLAY_RENDER_THREAD);
+        let wrong = Choice::from_parts(None, env_of(&[("NV_RENDER_THREAD", "yes")]));
+        assert!(wrong.unwrap_err().contains("NV_RENDER_THREAD=yes"));
+        for name in TEST_VARIABLES {
+            let pairs: &'static [(&str, &str)] = Box::leak(Box::new([(*name, "x")]));
+            let choice = Choice::from_parts(None, env_of(pairs)).unwrap();
+            assert!(!choice.render_thread, "{name}");
+            let fixes: &'static [(&str, &str)] =
+                Box::leak(Box::new([(*name, "x"), ("NV_PRESET", "fixes")]));
+            let choice = Choice::from_parts(None, env_of(fixes)).unwrap();
+            assert!(!choice.render_thread, "{name}");
+            let named: &'static [(&str, &str)] =
+                Box::leak(Box::new([(*name, "x"), ("NV_RENDER_THREAD", "1")]));
+            let choice = Choice::from_parts(None, env_of(named)).unwrap();
+            assert!(choice.render_thread, "{name}");
+        }
+        let one_fix = Choice::from_parts(None, env_of(&[("NV_UNCAP", "1")])).unwrap();
+        assert!(!one_fix.render_thread);
+        assert!(!Choice::vanilla().render_thread);
     }
 
     #[test]

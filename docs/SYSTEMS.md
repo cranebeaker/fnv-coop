@@ -136,6 +136,7 @@ translation yet.
 - **Video**: intro and ending Bink videos (`BSMovie` plus `crates/bink`).
 - **Settings and INI files**, debug, diagnostics.
 - **Real threads**: the game's threads on real OS threads, as in the original (`crates/engine-core/src/real_threads.rs`): the default in play; the stepped-thread seam is one setting away (`NV_THREADS=stepped`) and stays what tests and scripted runs use.
+- **Render thread**: the real Direct3D 9 calls recorded by the game's threads and made on a thread of their own (`crates/d3d9-stream`, `crates/engine-platform/src/d3d9real.rs`): the default in play, the same calls in the same order; the original's way, on the game's threads, is one setting away (`NV_RENDER_THREAD=0`) and stays what tests and scripted runs use.
 - **Partial markers**: turn exception-frame and cookie partials into full translations where behaviour depends on them.
 - **The 10,142 unplaced functions**: assign each to a system by its callers; the ledger tracks them.
 

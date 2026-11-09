@@ -140,6 +140,11 @@ impl Host {
         if slice != 0 {
             engine::thread_host::start_slicing(&mut engine, slice);
         }
+        // The real Direct3D 9 calls (`NV_D3D9=real`) on a render thread of their own, play's
+        // default (`fixes::Choice::render_thread`: a test without `NV_RENDER_THREAD` runs
+        // without it); `NV_RENDER_THREAD=0` makes them on the game's threads.
+        #[cfg(windows)]
+        engine_platform::d3d9real::want_render_thread(&mut engine, choice.render_thread);
         // `NV_SOUND=out`: the game's sound on the player's default device, from when the game
         // makes its DirectSound device on; `NV_SOUND_RECORD=FILE.wav` also records what goes
         // to the device, with a log of what started when (`FILE.log`). Off by default.

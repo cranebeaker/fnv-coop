@@ -11,7 +11,7 @@ every comparison with the original, gate and recording runs on it (the maintaine
 | `Settings.cmd`'s `settings.ini` | `Preset=fixes` (the default) or `Preset=vanilla`; `FrameLimit=n` (0: none); `MenuFrameLimit=n` (120 when missing or empty, 0: none of its own) | The player |
 | `NV_PRESET=fixes` or `vanilla`, `NV_FRAME_LIMIT=n`, `NV_MENU_FRAME_LIMIT=n` | Over the file | Tests, scripts |
 | `NV_UNCAP=0` or `1`, and each fix's own variable below | That fix alone; with no `NV_PRESET` the rest of the run is vanilla | Gates, tests |
-| A recording or scripted run: `NV_TRACE_LIST`, `NV_MOVE_KEYS`, `NV_MOVE_MOUSE`, `NV_SOUND_RECORD`, `NV_SHOT`, `NV_TICK_COUNT`, `NV_FRAME_LOG`, the probes and `*_CHECK` switches (the list is `TEST_VARIABLES` in `fixes.rs`), with no `NV_PRESET` | Vanilla; and, with no `NV_THREADS`, stepped threads whatever the play default is (`Choice::threads`) | A script that was never told about the preset or the threads still measures the original, and doesn't change when a play default does. `NV_SAVE_OUT` (the preview launcher's) does not pin |
+| A recording or scripted run: `NV_TRACE_LIST`, `NV_MOVE_KEYS`, `NV_MOVE_MOUSE`, `NV_SOUND_RECORD`, `NV_SHOT`, `NV_TICK_COUNT`, `NV_FRAME_LOG`, the probes and `*_CHECK` switches (the list is `TEST_VARIABLES` in `fixes.rs`), with no `NV_PRESET` | Vanilla; and, with no `NV_THREADS`, stepped threads whatever the play default is (`Choice::threads`); with no `NV_RENDER_THREAD`, no render thread (`Choice::render_thread`) | A script that was never told about the preset or the threads still measures the original, and doesn't change when a play default does. `NV_SAVE_OUT` (the preview launcher's) does not pin |
 | `NV_SETTINGS=FILE` | The settings file, when it isn't `settings.ini` beside the program or in the folder above it | Launchers |
 
 It is read once at start-up and bound before the first frame (`fixes::install`): the log's `Preset ...`
@@ -25,6 +25,13 @@ The game's threads are not part of the preset. In play they run side by side on 
 (`fixes::PLAY_THREADS`); the line `NV_THREADS=stepped` in `settings.ini` (Settings.cmd's "Game
 threads": "One at a time") runs them one at a time, the fallback. A test or scripted run without
 `NV_THREADS` runs them stepped whatever play's default is (the table above).
+
+The render thread isn't part of the preset either: it changes where the real Direct3D 9 calls are
+made, not which calls or in what order. In play they are made on a render thread of their own
+(`fixes::PLAY_RENDER_THREAD`, since measure/render-thread: town +14%, the crowded main street +16%;
+#347); the line `NV_RENDER_THREAD=0` in `settings.ini` (Settings.cmd's "Drawing thread": "Main
+thread") makes them on the game's threads, as the original does, the fallback. A test or scripted
+run without `NV_RENDER_THREAD` makes them on the game's threads whatever play's default is.
 
 ## How a fix is built
 

@@ -62,11 +62,6 @@ impl Settings {
     }
 }
 
-/// Whether the render thread is asked for (`NV_RENDER_THREAD=1`).
-pub fn render_thread_wanted() -> bool {
-    on("NV_RENDER_THREAD")
-}
-
 fn on(name: &str) -> bool {
     std::env::var(name).is_ok_and(|v| v.trim() == "1")
 }

@@ -74,6 +74,12 @@ stops, hangs, or something acts oddly), open Settings.cmd, choose "One at a time
 threads, and please tell us. Settings.cmd keeps that choice in userdata\settings.ini as the line
 NV_THREADS=stepped; without the line the threads run side by side.
 
+The game's drawing is handed to a thread of its own (the original draws on its main thread), which
+makes busy places faster. If something looks wrong or the game stops in a way it didn't with the
+previous preview, open Settings.cmd, choose "Main thread (slower)" under Drawing thread, and please
+tell us. Settings.cmd keeps that choice in userdata\settings.ini as the line NV_RENDER_THREAD=0;
+without the line the drawing has its own thread.
+
 
 What works
 ----------

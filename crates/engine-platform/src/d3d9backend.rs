@@ -1,7 +1,7 @@
 //! The real `d3d9.dll` as a backend of the Direct3D 9 call stream (`d3d9_stream`, ADR-0008):
 //! each recorded call carried out on the real device as the forwarding did it on the game's
 //! thread (`super::d3d9real`), on whichever thread the stream runs it (the calling one, or the
-//! render thread with `NV_RENDER_THREAD=1`).
+//! render thread, play's default: `super::d3d9real::want_render_thread`).
 //!
 //! The backend never sees the game's memory or the model: what it needs is in the command. It
 //! keeps the real objects by the modelled object's address, prints once each call where the real

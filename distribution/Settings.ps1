@@ -4,13 +4,14 @@
 # so new settings can join without a new window. Preset, FrameLimit and MenuFrameLimit are the game's
 # fixes preset (fixes or vanilla), frame limit (0: none) and frame limit in menus (120 unless chosen, 0:
 # none), which Play.exe passes on as NV_PRESET, NV_FRAME_LIMIT and NV_MENU_FRAME_LIMIT. Game threads one at
-# a time is the line NV_THREADS=stepped (the game's threads run side by side without it).
+# a time is the line NV_THREADS=stepped (the game's threads run side by side without it). Drawing on the
+# game's main thread is the line NV_RENDER_THREAD=0 (the drawing has a thread of its own without it).
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $folder = Join-Path $PSScriptRoot 'userdata'
 $file = Join-Path $folder 'settings.ini'
-$known = @('Borderless', 'Resolution', 'AntiAliasing', 'Anisotropy', 'VSync', 'Preset', 'FrameLimit', 'MenuFrameLimit', 'NV_THREADS')
+$known = @('Borderless', 'Resolution', 'AntiAliasing', 'Anisotropy', 'VSync', 'Preset', 'FrameLimit', 'MenuFrameLimit', 'NV_THREADS', 'NV_RENDER_THREAD')
 # Play.exe makes the game's NV_PRESET, NV_FRAME_LIMIT and NV_MENU_FRAME_LIMIT from Preset, FrameLimit and
 # MenuFrameLimit, and NV_FIXES was never one of the game's switches: such lines would only look as if
 # they did something.
@@ -37,7 +38,7 @@ $form.Text = 'nv-rs settings'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object System.Drawing.Size(360, 434)
+$form.ClientSize = New-Object System.Drawing.Size(360, 470)
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
 $y = 16
@@ -92,6 +93,12 @@ $together = 'Side by side (recommended)'
 $apart = 'One at a time (slower)'
 $th = New-Combo @($together, $apart) $(if ((Get-Setting 'NV_THREADS' '') -eq 'stepped') { $apart } else { $together })
 Add-Row 'Game threads' $th
+# The game's Direct3D drawing on a thread of its own (the default) or on the game's main thread, as
+# the original draws, slower: the fallback if a game draws wrongly or stops with its own thread.
+$ownThread = 'Own thread (recommended)'
+$mainThread = 'Main thread (slower)'
+$rt = New-Combo @($ownThread, $mainThread) $(if ((Get-Setting 'NV_RENDER_THREAD' '').Trim() -eq '0') { $mainThread } else { $ownThread })
+Add-Row 'Drawing thread' $rt
 
 $note = New-Object System.Windows.Forms.Label
 $note.Text = "`"$own`" keeps what the game has now.`nBorderless fullscreen covers the main monitor."
@@ -101,13 +108,13 @@ $form.Controls.Add($note)
 
 $save = New-Object System.Windows.Forms.Button
 $save.Text = 'Save'
-$save.Location = New-Object System.Drawing.Point(184, 394)
+$save.Location = New-Object System.Drawing.Point(184, 430)
 $save.DialogResult = 'OK'
 $form.Controls.Add($save)
 $form.AcceptButton = $save
 $cancel = New-Object System.Windows.Forms.Button
 $cancel.Text = 'Cancel'
-$cancel.Location = New-Object System.Drawing.Point(268, 394)
+$cancel.Location = New-Object System.Drawing.Point(268, 430)
 $cancel.DialogResult = 'Cancel'
 $form.Controls.Add($cancel)
 $form.CancelButton = $cancel
@@ -115,6 +122,7 @@ $form.CancelButton = $cancel
 if ($form.ShowDialog() -eq 'OK') {
     $threadLines = @()
     if ($th.SelectedIndex -eq 1) { $threadLines = @('NV_THREADS=stepped') }
+    if ($rt.SelectedIndex -eq 1) { $threadLines += 'NV_RENDER_THREAD=0' }
     $lines = @(
         '# nv-rs settings (written by Settings.cmd)'
         "Borderless=$(if ($mode.SelectedIndex -eq 0) { 1 } else { 0 })"

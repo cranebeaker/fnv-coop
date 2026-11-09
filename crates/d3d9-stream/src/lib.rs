@@ -12,8 +12,9 @@
 //!   creation, read-backs, query results), which answer a [`Reply`].
 //! - [`Backend`]: what carries commands out, in order, never reading the game's memory.
 //! - [`Stream`]: where it runs. [`Stream::direct`] carries each command out at once on the calling
-//!   thread (the default: the same calls in the same place as calling the backend directly).
-//!   [`Stream::threaded`] (`NV_RENDER_THREAD=1`) records the commands into chunks and hands them
+//!   thread (the same calls in the same place as calling the backend directly: tests, scripted
+//!   runs, `NV_RENDER_THREAD=0`). [`Stream::threaded`] (play's default, chosen by the host)
+//!   records the commands into chunks and hands them
 //!   to a render thread; a sync command waits for its reply, which comes after every earlier
 //!   command; a `Present` returns once at most one earlier frame is left to carry out. The game
 //!   thread keeps only the model's work and the recording.
@@ -31,7 +32,7 @@ mod tee;
 pub mod wire;
 
 pub use cmd::{Backend, Cmd, Data, Handle, Native, Rect, Reply, Rows};
-pub use runner::{render_thread_wanted, Settings, Stream};
+pub use runner::{Settings, Stream};
 pub use tee::Tee;
 
 #[cfg(test)]
