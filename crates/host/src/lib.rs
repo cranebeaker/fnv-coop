@@ -29,6 +29,9 @@ pub mod save_out;
 pub mod topic_index;
 pub mod uncap;
 
+/// Co-op's bridge, for the viewer's `NV_COOP=journal` log (docs/coop/SPECS.md S3).
+pub use coop_engine;
+
 use engine::Engine;
 use std::path::{Path, PathBuf};
 
@@ -110,6 +113,11 @@ impl Host {
         // registered. Vanilla content calls no extender opcode, and every change it makes to
         // vanilla commands is a row.
         nvse::install(&mut engine);
+        // Co-op's bridge (docs/coop/SPECS.md S3), only when `NV_COOP` asks for it: after the
+        // extenders, so co-op is the outermost link of the chains it wraps.
+        if coop_engine::wanted() {
+            coop_engine::install(&mut engine);
+        }
         eprintln!("{}", choice.describe());
         if let Some(note) = &choice.ini_note {
             eprintln!("{note}");

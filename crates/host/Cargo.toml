@@ -16,6 +16,9 @@ engine-platform = { path = "../engine-platform" }
 play-patch = { path = "../play-patch" }
 # xNVSE built in (ADR-0016): its commands and what they run on, installed after the fix rows.
 nvse = { path = "../nvse" }
+# Co-op's bridge (docs/coop/SPECS.md S3): its wraps, installed after the extenders' when `NV_COOP`
+# asks for co-op; nothing of it runs otherwise.
+coop-engine = { path = "../coop-engine" }
 # The load order the game's forms are read from (`player_move`).
 esm = { path = "../esm" }
 # zlib's inflate on the host for the game's compressed archives and records (`native_inflate`).

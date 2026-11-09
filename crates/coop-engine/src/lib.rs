@@ -1,0 +1,67 @@
+//! Co-op's bridge to the translated engine (docs/coop/PLAN.md, layer 2; docs/coop/SPECS.md S2).
+//!
+//! The only crate of the co-op layer that touches the engine. It takes part in the game as the
+//! fourth extension owner of ADR-0016 ([`engine_core::extend::Owner::Coop`], after the fix rows,
+//! `nvse` and `jip`) and calls the game's functions by address, as `nvse` does. With co-op not
+//! installed nothing here runs and the game is unchanged.
+//!
+//! - [`journal`]: every form the game marks as changed for the save game, recorded while armed.
+//! - [`forms`]: forms by id, quest stages through the game's own `SetStageDone`, global values,
+//!   and the comparison that replicates globals.
+//! - [`addr`]: every exe address and offset used, in one place.
+//! - [`diag`]: `NV_COOP=journal`, the change journal printed on a PC run.
+
+pub mod addr;
+pub mod diag;
+pub mod forms;
+pub mod journal;
+
+use std::sync::atomic::Ordering;
+
+use engine_core::prelude::*;
+
+pub use journal::{arm, armed, drain, Change, Journal};
+
+/// Whether co-op is asked for in this run: `NV_COOP` set and not `0`.
+pub fn wanted() -> bool {
+    std::env::var_os("NV_COOP").is_some_and(|v| v != "0")
+}
+
+/// Installs co-op's wraps on `e` (once; a second call does nothing). Must run before the game's
+/// real threads start, as every wrap must (`Engine::wrap` checks it): `Host::start_with` calls it
+/// after `nvse::install`. The address it wraps must already be registered (the translation, or a
+/// test's stand-in).
+pub fn install(e: &mut Engine) {
+    // The journal's slot is made here, before the threads start, as a lock-free shared slot
+    // must be: real threads' engines share it from then on.
+    if e.ext_free::<Journal>()
+        .installed
+        .swap(true, Ordering::SeqCst)
+    {
+        return;
+    }
+    e.wrap(journal::ADD_CHANGE, journal::add_change);
+}
+
+// The unit tests' own program: no other crate's functions are linked in.
+#[cfg(test)]
+engine_core::assemble!();
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use engine_core::extend::Owner;
+
+    #[test]
+    fn install_wraps_add_change_once_as_coop() {
+        let mut e = Engine::new();
+        e.register(addr::SAVE_LOAD_ADD_CHANGE, |_, _| Ret::default());
+        install(&mut e);
+        install(&mut e);
+        assert_eq!(e.wraps_at(addr::SAVE_LOAD_ADD_CHANGE), [Owner::Coop]);
+        assert_eq!(
+            e.wrapped(),
+            [(addr::SAVE_LOAD_ADD_CHANGE, vec![Owner::Coop])]
+        );
+    }
+}

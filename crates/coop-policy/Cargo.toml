@@ -1,0 +1,15 @@
+[package]
+name = "coop-policy"
+version = "0.1.1"
+description = "Campaign policy layer for co-op: per-quest rules as data plus a pure decision engine"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+proptest = "1"
+# Tests only: a dev-dependency is not linked into `world` (see src/json.rs).
+serde_json = "1"

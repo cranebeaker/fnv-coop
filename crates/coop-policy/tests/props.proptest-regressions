@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a3544ffe77c72b34c4ebc59cb93514e219711bc9facb745d7fe598e8aedc7393 # shrinks to e = Event { quest: 485663, origin: Host, kind: Scene { kind: Ending } }, s = State { present: PlayerMask(0), initiator: None, in_zone: PlayerMask(0), tether_elapsed_s: 0, tether_mode: On, barrier_passed: PlayerMask(0), barrier_elapsed_s: 0, ready_yes: PlayerMask(0), ready_no: PlayerMask(0), ready_elapsed_s: 0, votes_yes: PlayerMask(0), votes_no: PlayerMask(0), vote_elapsed_s: 0, committed_stages: [], committed_quests: [], granted: [], active_scenes: [], followers: [(0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0)], event_done: false }

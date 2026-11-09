@@ -217,6 +217,9 @@ fn main() {
     // lists.
     let mut last: Option<Instant> = None;
     let mut frame_log = host::frame_log::FrameLog::from_env();
+    // `NV_COOP=journal` (docs/coop/PLAN.md, M1's check): the co-op change journal, once a second.
+    let mut coop_log =
+        host::coop_engine::diag::wanted().then(host::coop_engine::diag::JournalLog::default);
     loop {
         game.set_keys_down(&[]);
         game.mouse([0; 3], [false; 8]);
@@ -229,6 +232,11 @@ fn main() {
         }
         if let Some(log) = &mut frame_log {
             log.record(&mut game.engine);
+        }
+        if let Some(log) = &mut coop_log {
+            for line in log.after_frame(&mut game.engine) {
+                println!("{line}");
+            }
         }
         if last.map_or(true, |at| at.elapsed() >= Duration::from_secs(5)) {
             last = Some(Instant::now());

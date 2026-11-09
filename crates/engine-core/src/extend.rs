@@ -45,22 +45,28 @@ pub enum Owner {
     Nvse,
     /// JIP LN NVSE built in (`crates/jip`); it runs after xNVSE, as JIP is xNVSE's plugin.
     Jip,
+    /// Co-op (`crates/coop-engine`, docs/coop/SPECS.md S1): last, so it sees what the game and the
+    /// extenders did, and is the outermost link of a chain.
+    Coop,
 }
 
 impl Owner {
-    /// Its place in the order: rows, then `nvse`, then `jip`.
+    /// Its place in the order: rows, then `nvse`, then `jip`, then `coop`.
     const fn rank(self) -> u8 {
         match self {
             Owner::Row(_) => 0,
             Owner::Nvse => 1,
             Owner::Jip => 2,
+            Owner::Coop => 3,
         }
     }
 
     const fn same(self, other: Owner) -> bool {
         match (self, other) {
             (Owner::Row(a), Owner::Row(b)) => same_str(a, b),
-            (Owner::Nvse, Owner::Nvse) | (Owner::Jip, Owner::Jip) => true,
+            (Owner::Nvse, Owner::Nvse) | (Owner::Jip, Owner::Jip) | (Owner::Coop, Owner::Coop) => {
+                true
+            }
             _ => false,
         }
     }
@@ -91,6 +97,7 @@ pub struct Entry {
 }
 
 const NVSE: &[Owner] = &[Owner::Nvse];
+const COOP: &[Owner] = &[Owner::Coop];
 
 /// Every exe address a built-in may wrap (ADR-0016 §3, "Wrappers"), by address. Each is a
 /// function entry registered by a translation (or a fix row's copy of it) and reached by
@@ -144,6 +151,14 @@ pub const WRAPS: &[Entry] = &[
         addr: 0x005e_1550,
         owners: NVSE,
         step: "I-3",
+    },
+    // BGSSaveLoadGame::AddChange (this, form, flags, force): every form's change for the save
+    // game (TESForm::AddChange 00484b60 and ::ForceChange 00484b90 both end here), recorded in
+    // co-op's change journal (docs/coop/SPECS.md S2).
+    Entry {
+        addr: 0x0084_a690,
+        owners: COOP,
+        step: "C-1",
     },
     // DINPUT8 DirectInput8Create, its import slot: the keyboard and mouse devices put behind
     // xNVSE's (`Hook_DirectInput8Create_Init` writes this slot).
@@ -428,7 +443,7 @@ pub const SITES: &[Entry] = &[
 ];
 
 /// Checks a table at build time: addresses in increasing order (each once), at least one owner,
-/// owners in the order rows, `nvse`, `jip`, none twice, and at most 255 owners.
+/// owners in the order rows, `nvse`, `jip`, `coop`, none twice, and at most 255 owners.
 const fn check_table(table: &[Entry]) {
     let mut i = 0;
     while i < table.len() {
@@ -446,7 +461,7 @@ const fn check_table(table: &[Entry]) {
             let (a, b) = (e.owners[j - 1], e.owners[j]);
             assert!(
                 a.rank() <= b.rank(),
-                "owners out of order: rows, then nvse, then jip"
+                "owners out of order: rows, then nvse, then jip, then coop"
             );
             let mut k = 0;
             while k < j {

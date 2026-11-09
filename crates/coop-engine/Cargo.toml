@@ -1,0 +1,12 @@
+[package]
+name = "coop-engine"
+version = "0.1.0"
+description = "Co-op's bridge to the translated engine: the Coop extension owner, the change journal, and quest, global and form access (docs/coop/SPECS.md S2)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# The engine's core only, as nvse: game functions are called by address, the change journal is a
+# wrap of ADR-0016's table.
+engine-core = { path = "../engine-core" }

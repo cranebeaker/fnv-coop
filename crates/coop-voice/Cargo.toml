@@ -1,0 +1,22 @@
+[package]
+name = "coop-voice"
+version = "0.1.0"
+edition.workspace = true
+license = "MIT OR Apache-2.0"
+rust-version.workspace = true
+description = "Transport-agnostic voice chat pieces for the co-op layer: envelope, jitter buffer, VAD/PTT, mixer, codecs."
+
+[features]
+default = []
+# Real codec. Pulls libopus (BSD-3) via the `opus` crate. Not compiled in tests.
+opus = ["dep:opus"]
+# Microphone capture (cpal) and resampling (rubato). Not compiled in tests.
+capture = ["dep:cpal", "dep:rubato"]
+
+[dependencies]
+opus = { version = "0.4", optional = true }
+cpal = { version = "0.15", optional = true }
+rubato = { version = "0.15", optional = true }
+
+[dev-dependencies]
+proptest = "1"
