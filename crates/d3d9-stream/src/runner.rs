@@ -169,6 +169,15 @@ impl Stream {
         }
     }
 
+    /// Counts an event of the layer above for `NV_RENDER_THREAD_STATS` (an answer it gave without
+    /// waiting for the render thread, say): printed a frame, by name. Nothing on the calling thread
+    /// or without the stats.
+    pub fn note(&mut self, what: &'static str) {
+        if let Runner::Threaded(t) = &mut self.runner {
+            t.stats.note(what);
+        }
+    }
+
     /// Hands what is recorded to the render thread now, without waiting.
     pub fn flush(&mut self) {
         if let Runner::Threaded(t) = &mut self.runner {
@@ -299,6 +308,7 @@ impl Threaded {
         self.stats.commands += 1;
         let sync = cmd.is_sync();
         let present = matches!(cmd, Cmd::Present { .. });
+        let name = cmd.name();
         self.chunk.push(cmd);
         if sync {
             self.chunk.reply_wanted = true;
@@ -309,7 +319,7 @@ impl Threaded {
                 .reply
                 .take()
                 .expect("the reply waited for");
-            self.stats.sync.add(t.elapsed());
+            self.stats.reply(name, t.elapsed());
             reply
         } else if present {
             self.presents += 1;
@@ -333,6 +343,11 @@ impl Threaded {
     /// The chunk being recorded goes to the render thread (waking it if it sleeps); past the
     /// queue's limit, waits until the render thread has carried out half of it.
     fn hand_over(&mut self) {
+        // A stopped render thread stops the caller here even with nothing to hand over (a caller
+        // polling for a result the render thread will never give would spin otherwise).
+        if self.shared.dead.load(std::sync::atomic::Ordering::Relaxed) {
+            stopped(&lock(&self.shared.queue));
+        }
         if self.chunk.is_empty() {
             return;
         }
@@ -512,7 +527,10 @@ struct Stats {
     commands: u64,
     chunks: u64,
     present: Waits,
-    sync: Waits,
+    /// The waits for replies, by command.
+    replies: Vec<(&'static str, Waits)>,
+    /// The layer's events ([`Stream::note`]), by name.
+    events: Vec<(&'static str, u64)>,
     full: Waits,
 }
 
@@ -539,6 +557,30 @@ impl Waits {
 }
 
 impl Stats {
+    fn note(&mut self, what: &'static str) {
+        if !self.on {
+            return;
+        }
+        match self.events.iter_mut().find(|(n, _)| *n == what) {
+            Some((_, count)) => *count += 1,
+            None => self.events.push((what, 1)),
+        }
+    }
+
+    fn reply(&mut self, name: &'static str, t: Duration) {
+        if !self.on {
+            return;
+        }
+        match self.replies.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, w)) => w.add(t),
+            None => {
+                let mut w = Waits::default();
+                w.add(t);
+                self.replies.push((name, w));
+            }
+        }
+    }
+
     fn frame(&mut self, shared: &Shared) {
         if !self.on {
             return;
@@ -552,16 +594,29 @@ impl Stats {
         }
         let busy = lock(&shared.queue).busy;
         let frames = self.frames as f64;
+        let replies = if self.replies.is_empty() {
+            "none".to_string()
+        } else {
+            self.replies
+                .iter()
+                .map(|(n, w)| format!("{n} {}", w.per_frame(frames)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let events: String = self
+            .events
+            .iter()
+            .map(|(n, count)| format!("; {n} {:.2} a frame", *count as f64 / frames))
+            .collect();
         eprintln!(
             "NV_RENDER_THREAD: {:.1} frames/s; a frame: {:.0} commands in {:.1} chunks, render \
-             thread busy {:.3} ms; the recording thread waited a frame: at Present {}, for \
-             replies {}, on a full queue {}",
+             thread busy {:.3} ms; the recording thread waited a frame: at Present {}, on a full \
+             queue {}, for replies: {replies}{events}",
             frames / elapsed.as_secs_f64(),
             self.commands as f64 / frames,
             self.chunks as f64 / frames,
             (busy - self.busy_before).as_secs_f64() * 1e3 / frames,
             self.present.per_frame(frames),
-            self.sync.per_frame(frames),
             self.full.per_frame(frames),
         );
         *self = Stats {

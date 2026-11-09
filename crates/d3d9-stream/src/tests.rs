@@ -1197,3 +1197,24 @@ fn the_next_command_after_a_backend_panic_stops() {
     let message = crate::runner::panic_message(&*stopped.expect_err("the recording side stops"));
     assert!(message.contains("refuses SetFvf"), "{message}");
 }
+
+/// A stopped render thread stops a caller that only hands over (`flush`), with nothing recorded
+/// since: a poll that never records would otherwise spin for ever.
+#[test]
+fn a_flush_after_the_render_thread_stopped_stops_too() {
+    let log = Log {
+        refuse: Some("SetFvf"),
+        ..Log::default()
+    };
+    let mut stream = Stream::threaded(Box::new(log), Settings::default());
+    stream.submit(Cmd::SetFvf { device: 1, fvf: 2 });
+    stream.flush();
+    let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        for _ in 0..10_000 {
+            stream.flush();
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }));
+    let message = crate::runner::panic_message(&*stopped.expect_err("the flush stops"));
+    assert!(message.contains("refuses SetFvf"), "{message}");
+}

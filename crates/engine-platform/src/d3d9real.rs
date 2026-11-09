@@ -3,22 +3,36 @@
 //!
 //! The game's code keeps calling the modelled objects of `super::d3d9`, `super::d3d9device` and
 //! `super::d3d9resource`, and keeps getting the modelled answers (they were measured against the
-//! same runtime). Each modelled call that changes what is drawn is also made on a real
-//! counterpart: the modelled window gets a real Win32 window, the modelled device a real device
-//! on that window, each modelled resource a real resource whose contents are copied from engine
-//! memory when the game unlocks it. Where the real runtime answers differently from the model,
-//! the call is printed once (`NV_D3D9=real: ...`), and the model's answer stands.
+//! same runtime). Each modelled call that changes what is drawn is also recorded here as a command
+//! of the Direct3D 9 call stream (`d3d9_stream`), with the data it points at, for a backend that
+//! makes it on a real counterpart: the real device (`super::d3d9backend`). The modelled window
+//! gets a real Win32 window (here), the modelled device a real device on it, each modelled
+//! resource a real resource whose contents follow the game's unlocks. Where the real runtime
+//! answers differently from the model, the call is printed once (`NV_D3D9=real: ...`), and the
+//! model's answer stands.
+//!
+//! Where the backend runs (`d3d9_stream::Stream`): on the calling thread, each command carried
+//! out at once (the default: the same real calls in the same place as before the stream), or with
+//! `NV_RENDER_THREAD=1` on a render thread of its own, so the game's threads only record (an
+//! improvement over the original, which makes its Direct3D calls on its main thread: off by
+//! default until measured). A call whose answer comes from the real device waits for it after
+//! every earlier call (the device's creation, the read-back of a texture level the real device
+//! keeps, `GetRenderTargetData`, a query's result); `Present` returns with at most one frame
+//! left to draw (`NV_RENDER_THREAD_FRAMES`, default 1). `NV_D3D9_RECORD=FILE` writes every
+//! command to a file (`d3d9_stream::wire`), `NV_D3D9_STREAM_CHECK=1` hashes the commands as
+//! recorded and as carried out on the render thread and stops the run at a difference,
+//! `NV_RENDER_THREAD_STATS=1` prints the hand-overs and waits once a second.
 //!
 //! The real window lives on a thread of its own that only creates it and pumps its messages, so
-//! it never waits on the game's threads (which run one at a time on threads of the thread host,
-//! `crate::thread_host`). It is shown without taking the focus: the viewer's window keeps the
-//! keyboard and mouse the game reads through DirectInput.
+//! it never waits on the game's threads. It is shown without taking the focus: the viewer's window
+//! keeps the keyboard and mouse the game reads through DirectInput.
 //!
 //! The real device is created with `D3DCREATE_FPU_PRESERVE` added to the game's flags: the
 //! game's x87 precision switch is modelled (`crate::direct3d_device_created`,
-//! from the game's own flags), and the host thread's floating-point state is not the game's.
+//! from the game's own flags), and the backend's thread's floating-point state is not the game's.
 
 use crate::Engine;
+use d3d9_stream::{Cmd, Data, Reply, Stream};
 use std::collections::{HashMap, HashSet};
 use windows::core::PCSTR;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -39,189 +53,182 @@ pub fn wanted() -> bool {
     std::env::var("NV_D3D9").is_ok_and(|v| v.eq_ignore_ascii_case("real"))
 }
 
-/// A real Direct3D 9 object, the counterpart of a modelled one.
-enum Object {
-    Device(IDirect3DDevice9),
-    Surface(IDirect3DSurface9),
-    Texture(IDirect3DTexture9),
-    Cube(IDirect3DCubeTexture9),
-    VertexBuffer(IDirect3DVertexBuffer9),
-    IndexBuffer(IDirect3DIndexBuffer9),
-    VertexShader(IDirect3DVertexShader9),
-    PixelShader(IDirect3DPixelShader9),
-    Declaration(IDirect3DVertexDeclaration9),
-    Query(IDirect3DQuery9),
-}
-
-/// The real side (`Graphics::real`): real windows by modelled handle, the real `IDirect3D9`,
-/// the real objects by the modelled object's address, the open buffer locks.
+/// The forwarding's side on the game's threads (`Graphics::real`): the real windows by modelled
+/// handle, the stream to the backend, and what was asked of it.
 #[derive(Default)]
 pub struct Real {
     windows: HashMap<u32, isize>,
-    d3d: Option<IDirect3D9>,
-    objects: engine_core::AddrMap<u32, Object>,
-    /// Open locks of buffers: (offset, size, flags), innermost last.
+    /// The stream to the backend, made with the first `IDirect3D9`.
+    stream: Option<Stream>,
+    /// The modelled devices the backend has a device for, each with the real device it handed to
+    /// the layer's side channel (D3DX's texture loading on the game's threads), if any.
+    devices: Vec<(u32, Option<IDirect3DDevice9>)>,
+    /// The modelled objects whose counterpart was asked of the backend (made on a device it has):
+    /// their binds, uploads and read-backs are forwarded. A counterpart the backend could not
+    /// make answers for itself (`d3d9backend`: its draws skipped, its levels' bytes kept).
+    forwarded: engine_core::AddrSet<u32>,
+    /// Open locks of forwarded buffers: (offset, size, flags), innermost last.
     locks: engine_core::AddrMap<u32, Vec<(u32, u32, u32)>>,
-    /// The buffers made with `D3DUSAGE_DYNAMIC` (their locks pass `DISCARD`/`NOOVERWRITE` on).
-    dynamic: engine_core::AddrSet<u32>,
-    /// The differences already printed: (call, model's answer, real answer).
-    logged: HashSet<(&'static str, u32, u32)>,
-    /// Bindings the model took whose object has no real counterpart, by (device, binding: a
-    /// stream number, or [`INDICES`], [`DECLARATION`], [`VERTEX_SHADER`], [`PIXEL_SHADER`]).
-    /// The real binding is set to null instead, and the real draws are skipped while any is
-    /// left: a pure device does not check what it draws with.
-    broken: engine_core::AddrSet<(u32, u32)>,
-    /// Real objects whose modelled ones are destroyed, released at the next `Present` ([`forget`]).
-    graveyard: Vec<Object>,
-    /// The vertices of the last `DrawPrimitiveUP`, kept so the next one reuses the room (no
-    /// state: each draw writes all it passes).
-    vertices_up: Vec<u32>,
+    /// With the render thread: the real queries as the backend carried them out
+    /// (`d3d9backend::QueryBoard`), and how many `D3DISSUE_END`s of each the game recorded.
+    query_board: Option<std::sync::Arc<super::d3d9backend::QueryBoard>>,
+    query_ends: engine_core::AddrMap<u32, u64>,
+    /// How many queries the game made at each address (the board's `made`: a query made again at
+    /// a destroyed one's address is not read as the old one).
+    queries_made: engine_core::AddrMap<u32, u64>,
+    /// The game's side's notes already printed.
+    logged: HashSet<&'static str>,
+    /// Tests: the real backend behind the stream, to look at ([`real_texture`]).
+    #[cfg(test)]
+    test_backend: Option<std::sync::Arc<std::sync::Mutex<super::d3d9backend::RealBackend>>>,
 }
 
 impl std::fmt::Debug for Real {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Real")
             .field("windows", &self.windows)
-            .field("d3d", &self.d3d.is_some())
-            .field("objects", &self.objects.len())
+            .field("stream", &self.stream)
+            .field("devices", &self.devices.len())
+            .field("forwarded", &self.forwarded.len())
             .finish()
     }
 }
 
 impl Real {
-    /// Whether no answer of the real device has differed from the model's (tests).
+    /// Tests: whether no answer of the real device has differed from the model's, once every
+    /// command recorded is carried out.
     #[cfg(test)]
-    pub(crate) fn logged_is_empty(&self) -> bool {
+    pub(crate) fn logged_is_empty(&mut self) -> bool {
+        if let Some(s) = self.stream.as_mut() {
+            s.finish();
+        }
         self.logged.is_empty()
+            && self
+                .test_backend
+                .as_ref()
+                .map_or(true, |b| b.lock().unwrap().logged.is_empty())
     }
 }
 
 fn real(e: &mut Engine) -> &mut Real {
+    debug_assert!(
+        engine_core::real_threads::device_lock_held(e),
+        "the Direct3D 9 state reached without the device lock"
+    );
     &mut state!(e).graphics.real
 }
 
-/// The real window of a modelled window handle, when it has one.
+/// The real window of a modelled window handle, when it has one (under the device lock with real
+/// threads: the window functions make them, the device presents in them).
 pub fn real_window(e: &Engine, handle: u32) -> Option<isize> {
+    let _device = engine_core::real_threads::device_guard(e);
     state_ref!(e).graphics.real.windows.get(&handle).copied()
 }
 
-/// `D3DPRESENT_INTERVAL_IMMEDIATE`.
-const INTERVAL_IMMEDIATE: u32 = 0x8000_0000;
-
-/// The real device's presentation interval for the game's `interval` (its `iPresentInterval`):
-/// the game's, unless `NV_D3D9_PRESENT=immediate` (a measurement setting of the host, not the
-/// game's) asks for `D3DPRESENT_INTERVAL_IMMEDIATE`, so a frame rate measures the work and not
-/// the display's refresh (the original game measured likewise with `iPresentInterval=0`). The
-/// model keeps the game's parameters and answers.
-fn presentation_interval(interval: u32) -> u32 {
-    static IMMEDIATE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let immediate = *IMMEDIATE.get_or_init(|| {
-        std::env::var("NV_D3D9_PRESENT").is_ok_and(|v| v.eq_ignore_ascii_case("immediate"))
-    });
-    choose_interval(interval, immediate)
-}
-
-fn choose_interval(interval: u32, immediate: bool) -> u32 {
-    if immediate {
-        INTERVAL_IMMEDIATE
-    } else {
-        interval
-    }
-}
-
-#[inline]
-fn hr(r: windows::core::Result<()>) -> u32 {
-    match r {
-        Ok(()) => 0,
-        Err(err) => err.code().0 as u32,
-    }
-}
-
-/// Prints, once per kind, a call where the real runtime answers differently from the model.
-#[inline]
-fn answer(e: &mut Engine, call: &'static str, model: u32, real_hr: u32) {
-    if model != real_hr {
-        differs(e, call, model, real_hr);
-    }
-}
-
-/// [`answer`]'s report, out of the forwarded calls' way (the answers nearly always agree).
+/// Prints once a call the game's side could not forward (`NV_D3D9=real: ...`, as the backend
+/// prints a call the real runtime answered otherwise).
 #[cold]
 #[inline(never)]
-fn differs(e: &mut Engine, call: &'static str, model: u32, real_hr: u32) {
-    if real(e).logged.insert((call, model, real_hr)) {
+fn missing(e: &mut Engine, call: &'static str) {
+    if real(e).logged.insert(call) {
         eprintln!(
-            "NV_D3D9=real: {call}: the model answers {model:#010x}, the real runtime {real_hr:#010x}"
+            "NV_D3D9=real: {call}: the model answers 0x00000000, the real runtime 0xffffffff"
         );
     }
 }
 
-/// The `N` words at `at` (a structure a call passes by address), on the stack (no allocation per
-/// call).
+/// The `N` words at `at` (a structure a call passes by address), on the stack.
 fn words<const N: usize>(e: &Engine, at: u32) -> [u32; N] {
     std::array::from_fn(|i| e.mem.u32(at + 4 * i as u32))
 }
 
-/// The real device, borrowed: the object table holds its reference for the whole call (only
-/// [`forget`] takes it out, and it keeps the object alive until `Present`), so the handle is not
-/// counted. A counted clone cost an `AddRef` and a `Release` in d3d9.dll on every forwarded
-/// call, tens of thousands a frame.
+/// The stream, when the backend has a device for the modelled device `this` (the game makes
+/// one: one compare).
 #[inline]
-fn device(e: &Engine, this: u32) -> Option<std::mem::ManuallyDrop<IDirect3DDevice9>> {
-    match state_ref!(e).graphics.real.objects.get(&this) {
-        // SAFETY: an interface is one non-null COM pointer; the copy is never released.
-        Some(Object::Device(d)) => Some(std::mem::ManuallyDrop::new(unsafe {
-            std::mem::transmute_copy(d)
-        })),
-        _ => None,
+fn stream_of(r: &mut Real, this: u32) -> Option<&mut Stream> {
+    if r.devices.iter().any(|(d, _)| *d == this) {
+        r.stream.as_mut()
+    } else {
+        None
     }
 }
 
-/// The real device behind the modelled device `this`, counted (for a caller that hands it to
-/// other code, the D3DX texture loader in `super::d3dxreal`); `None` when the forwarding is off or
-/// the real `CreateDevice` failed.
-pub fn real_device(e: &Engine, this: u32) -> Option<IDirect3DDevice9> {
-    match state_ref!(e).graphics.real.objects.get(&this) {
-        Some(Object::Device(d)) => Some(d.clone()),
-        _ => None,
+/// Records `cmd`, a call on the modelled device `this`, when the backend has its device.
+#[inline]
+fn record(e: &mut Engine, this: u32, cmd: Cmd<Data<'_>>) {
+    if let Some(s) = stream_of(real(e), this) {
+        s.submit(cmd);
     }
+}
+
+/// Records `cmd`, a call on the modelled object `object` (not a device), when its counterpart
+/// was asked of the backend.
+#[inline]
+fn record_on(e: &mut Engine, object: u32, cmd: Cmd<Data<'_>>) {
+    let r = real(e);
+    if r.forwarded.contains(&object) {
+        if let Some(s) = r.stream.as_mut() {
+            s.submit(cmd);
+        }
+    }
+}
+
+/// A sync command's reply (`None` without a stream).
+fn call(e: &mut Engine, cmd: Cmd<Data<'_>>) -> Option<Reply> {
+    real(e).stream.as_mut().map(|s| s.submit(cmd))
+}
+
+/// The real device behind the modelled device `this`, counted, for a caller that hands it to
+/// other code (the D3DX texture loader in `super::d3dxreal`, on the calling thread: the device
+/// is `D3DCREATE_MULTITHREADED`); `None` when the forwarding is off, the real `CreateDevice`
+/// failed, or the backend has no such device.
+pub fn real_device(e: &Engine, this: u32) -> Option<IDirect3DDevice9> {
+    let _device = engine_core::real_threads::device_guard(e);
+    state_ref!(e)
+        .graphics
+        .real
+        .devices
+        .iter()
+        .find(|(d, _)| *d == this)
+        .and_then(|(_, real)| real.clone())
 }
 
 /// Whether any of the game's modelled devices has a real one behind it (for a D3DX call that
 /// takes no device, the image info).
 pub fn any_real_device(e: &Engine) -> bool {
+    let _device = engine_core::real_threads::device_guard(e);
     state_ref!(e)
         .graphics
-        .device_objects
-        .device_addresses()
-        .any(|d| {
-            matches!(
-                state_ref!(e).graphics.real.objects.get(&d),
-                Some(Object::Device(_))
-            )
-        })
-}
-
-/// Test only: the real counterpart of the modelled texture or cube texture `texture`.
-#[cfg(test)]
-pub(crate) fn real_texture(e: &Engine, texture: u32) -> Option<IDirect3DBaseTexture9> {
-    base_texture(e, texture)
+        .real
+        .devices
+        .iter()
+        .any(|(_, real)| real.is_some())
 }
 
 /// Forgets the real counterpart of a modelled object that is destroyed (its address can be
-/// reused). It is not released yet but kept until the frame's `Present`: the model lets go of an
-/// object when the program unbinds it, before the same call reaches the real device, and the
-/// game's device is a pure one (`D3DCREATE_PUREDEVICE`), which keeps no reference of its own to
-/// what is bound: released at once, the real object would be freed while still bound, and the
-/// real call that replaces the binding would read it (an access violation in
-/// `SetStreamSource`, p169).
+/// reused): the backend lets it go when it reaches the command (the real one keeps it until the
+/// next `Present`, `d3d9backend`).
 pub fn forget(e: &mut Engine, object: u32) {
     let r = real(e);
-    if let Some(o) = r.objects.remove(&object) {
-        r.graveyard.push(o);
-    }
     r.locks.remove(&object);
-    r.dynamic.remove(&object);
+    r.query_ends.remove(&object);
+    let device = match r.devices.iter().position(|(d, _)| *d == object) {
+        Some(at) => {
+            r.devices.remove(at);
+            true
+        }
+        None => false,
+    };
+    if r.forwarded.remove(&object) || device {
+        if let Some(s) = r.stream.as_mut() {
+            s.submit(Cmd::Destroy { object });
+        }
+    }
+}
+
+/// Whether the modelled object's counterpart was asked of the backend.
+fn is_forwarded(e: &Engine, object: u32) -> bool {
+    state_ref!(e).graphics.real.forwarded.contains(&object)
 }
 
 // The window.
@@ -696,6 +703,7 @@ pub fn window_created(
             eprintln!(
                 "NV_D3D9=real: window {handle:#x} (style {style:#x}, parent {parent:#x}, {rect:?}) is real window {window:#x}"
             );
+            let _device = engine_core::real_threads::device_guard(e);
             real(e).windows.insert(handle, window);
         }
         None => eprintln!("NV_D3D9=real: the real window could not be made"),
@@ -745,23 +753,70 @@ pub fn window_moved(e: &mut Engine, handle: u32, rect: [i32; 4], flags: u32) {
 
 // The device.
 
-/// `Direct3DCreate9` made a modelled `IDirect3D9`: the real one (once).
+/// `D3DCREATE_MULTITHREADED`: the real device takes calls from any thread.
+const MULTITHREADED: u32 = 4;
+
+/// `Direct3DCreate9` made a modelled `IDirect3D9`: the stream to the real backend (once), on the
+/// calling thread or on the render thread (`NV_RENDER_THREAD=1`), written to a file with
+/// `NV_D3D9_RECORD=FILE`.
 pub fn direct3d_created(e: &mut Engine) {
-    if !wanted() || real(e).d3d.is_some() {
+    if !wanted() || real(e).stream.is_some() {
         return;
     }
-    match unsafe { Direct3DCreate9(32) } {
-        Some(d3d) => real(e).d3d = Some(d3d),
-        None => eprintln!("NV_D3D9=real: Direct3DCreate9 answered null"),
+    // `NV_FACE_CHECK` (a diagnostic) follows calls in the game's order on its own thread: it keeps
+    // the calls on the game's threads, as diagnostics keep the threads stepped.
+    let refused = d3d9_stream::render_thread_wanted() && face_check::enabled();
+    if refused {
+        eprintln!(
+            "NV_D3D9=real: NV_RENDER_THREAD=1 is not taken with NV_FACE_CHECK: the calls stay on the game's threads"
+        );
     }
+    let mut stream = if d3d9_stream::render_thread_wanted() && !refused {
+        let settings = d3d9_stream::Settings::from_env();
+        let board = std::sync::Arc::new(super::d3d9backend::QueryBoard::default());
+        let backend = Box::new(super::d3d9backend::RealBackend::with_query_board(
+            std::sync::Arc::clone(&board),
+        ));
+        real(e).query_board = Some(board);
+        eprintln!(
+            "NV_D3D9=real: the render thread is on (NV_RENDER_THREAD=1; at most {} frame(s) in flight{})",
+            settings.frames_in_flight,
+            if settings.check { ", the stream checked" } else { "" }
+        );
+        Stream::threaded(backend, settings)
+    } else {
+        Stream::direct(Box::new(super::d3d9backend::RealBackend::new()))
+    };
+    if let Some(path) = std::env::var_os("NV_D3D9_RECORD") {
+        let recording = std::fs::File::create(&path).and_then(|file| {
+            stream.record_to(Box::new(std::io::BufWriter::with_capacity(1 << 20, file)))
+        });
+        match recording {
+            Ok(()) => eprintln!(
+                "NV_D3D9_RECORD: every Direct3D 9 command goes to {}",
+                std::path::Path::new(&path).display()
+            ),
+            Err(error) => eprintln!(
+                "NV_D3D9_RECORD: {} could not be written ({error}): not recorded",
+                std::path::Path::new(&path).display()
+            ),
+        }
+    }
+    real(e).stream = Some(stream);
 }
 
-/// `D3DCREATE_FPU_PRESERVE`.
-const FPU_PRESERVE: u32 = 2;
+/// The game's `D3DPRESENT_PARAMETERS` (0x38 bytes) as words.
+fn present_words(present: &[u8]) -> [u32; 14] {
+    std::array::from_fn(|i| {
+        present
+            .get(4 * i..4 * i + 4)
+            .map_or(0, |b| u32::from_le_bytes(b.try_into().expect("4 bytes")))
+    })
+}
 
 /// `CreateDevice` made the modelled device `device` with these present parameters (as the
 /// model filled them in), back buffers and automatic depth-stencil surface (0 for none): the
-/// real device on the real window, its back buffers and depth surface as the counterparts.
+/// backend's device on the real window, its back buffers and depth surface the counterparts.
 pub fn device_created(
     e: &mut Engine,
     device: u32,
@@ -771,83 +826,115 @@ pub fn device_created(
     back_buffers: &[u32],
     depth_stencil: u32,
 ) {
-    let Some(d3d) = real(e).d3d.clone() else {
+    if real(e).stream.is_none() {
         return;
-    };
-    let w = |o: usize| u32::from_le_bytes(present[o..o + 4].try_into().expect("a word"));
-    let map = |e: &Engine, h: u32| -> Option<HWND> {
+    }
+    let words = present_words(present);
+    let map = |e: &Engine, h: u32| -> Option<isize> {
         if h == 0 {
-            return Some(HWND::default());
+            return Some(0);
         }
-        real_window(e, h).map(|w| HWND(w as *mut _))
+        real_window(e, h)
     };
-    let (Some(device_window), Some(focus_window)) = (map(e, w(0x1c)), map(e, focus)) else {
+    let (Some(window), Some(focus)) = (map(e, words[7]), map(e, focus)) else {
         eprintln!("NV_D3D9=real: CreateDevice: the game's window has no real window");
         return;
     };
-    let mut pp = D3DPRESENT_PARAMETERS {
-        BackBufferWidth: w(0x0),
-        BackBufferHeight: w(0x4),
-        BackBufferFormat: D3DFORMAT(w(0x8)),
-        BackBufferCount: w(0xc),
-        MultiSampleType: D3DMULTISAMPLE_TYPE(w(0x10) as i32),
-        MultiSampleQuality: w(0x14),
-        SwapEffect: D3DSWAPEFFECT(w(0x18) as i32),
-        hDeviceWindow: device_window,
-        Windowed: BOOL(w(0x20) as i32),
-        EnableAutoDepthStencil: BOOL(w(0x24) as i32),
-        AutoDepthStencilFormat: D3DFORMAT(w(0x28)),
-        Flags: w(0x2c),
-        FullScreen_RefreshRateInHz: w(0x30),
-        PresentationInterval: presentation_interval(w(0x34)),
-    };
-    let mut out = None;
-    let r = unsafe {
-        d3d.CreateDevice(
-            0,
-            D3DDEVTYPE_HAL,
-            focus_window,
-            behavior | FPU_PRESERVE,
-            &mut pp,
-            &mut out,
-        )
-    };
-    let Some(real_device) = out.filter(|_| r.is_ok()) else {
-        eprintln!(
-            "NV_D3D9=real: CreateDevice answered {:#010x}: nothing is forwarded",
-            hr(r)
-        );
+    // The real device takes calls from more than one thread at once: the D3DX side channel's
+    // texture loading on the game's threads (thread 12) beside the device's own calls, under the
+    // device lock or on the render thread, not under one lock with them. It must lock itself: the
+    // game's own flags have that (0x54), and it is kept whatever flags a caller passes.
+    let behavior = behavior | MULTITHREADED;
+    let reply = call(
+        e,
+        Cmd::CreateDevice {
+            device,
+            focus,
+            window,
+            behavior,
+            present: Data::from_words(&words),
+            back_buffers: Data::from_words(back_buffers),
+            depth_stencil,
+        },
+    );
+    let Some(Reply::Device {
+        created: true,
+        native,
+    }) = reply
+    else {
         return;
     };
-    for (i, &surface) in back_buffers.iter().enumerate() {
-        if let Ok(s) = unsafe { real_device.GetBackBuffer(0, i as u32, D3DBACKBUFFER_TYPE_MONO) } {
-            real(e).objects.insert(surface, Object::Surface(s));
-        }
-    }
+    let shared = native
+        .and_then(|n| n.0.downcast::<super::d3d9backend::SharedDevice>().ok())
+        .map(|s| s.0);
+    let r = real(e);
+    r.devices.retain(|(d, _)| *d != device);
+    r.devices.push((device, shared));
+    r.forwarded.extend(back_buffers.iter().copied());
     if depth_stencil != 0 {
-        if let Ok(s) = unsafe { real_device.GetDepthStencilSurface() } {
-            real(e).objects.insert(depth_stencil, Object::Surface(s));
-        }
+        r.forwarded.insert(depth_stencil);
     }
-    real(e).objects.insert(device, Object::Device(real_device));
-    eprintln!(
-        "NV_D3D9=real: the game's device is on the real window ({}x{}, format {}, behaviour {behavior:#x})",
-        w(0x0),
-        w(0x4),
-        w(0x8)
+}
+
+/// `Reset` succeeded on the modelled device: the real device is reset with the same present
+/// parameters (the real window), and its new back buffers and depth surface are the
+/// counterparts of the modelled ones.
+pub fn device_reset(
+    e: &mut Engine,
+    this: u32,
+    present: &[u8],
+    back_buffers: &[u32],
+    depth_stencil: u32,
+) {
+    if stream_of(real(e), this).is_none() {
+        return;
+    }
+    let words = present_words(present);
+    let window = match words[7] {
+        0 => 0,
+        h => match real_window(e, h) {
+            Some(w) => w,
+            None => return missing(e, "Reset with a window without a real one"),
+        },
+    };
+    record(
+        e,
+        this,
+        Cmd::Reset {
+            device: this,
+            window,
+            present: Data::from_words(&words),
+            back_buffers: Data::from_words(back_buffers),
+            depth_stencil,
+        },
     );
+    let r = real(e);
+    r.forwarded.extend(back_buffers.iter().copied());
+    if depth_stencil != 0 {
+        r.forwarded.insert(depth_stencil);
+    }
 }
 
 pub fn begin_scene(e: &mut Engine, this: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    let r = unsafe { d.BeginScene() };
-    answer(e, "BeginScene", model, hr(r));
+    record(
+        e,
+        this,
+        Cmd::BeginScene {
+            device: this,
+            model,
+        },
+    );
 }
 
 pub fn end_scene(e: &mut Engine, this: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    let r = unsafe { d.EndScene() };
-    answer(e, "EndScene", model, hr(r));
+    record(
+        e,
+        this,
+        Cmd::EndScene {
+            device: this,
+            model,
+        },
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -862,36 +949,42 @@ pub fn clear(
     stencil: u32,
     model: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
+    if stream_of(real(e), this).is_none() {
+        return;
+    }
     // The rectangles' words on the stack up to 16 rectangles (the game clears one or none).
     let mut inline = [0u32; 64];
     let mut heap = Vec::new();
-    let pointer = if rects != 0 {
-        let n = (4 * count) as usize;
-        let rect_words: &mut [u32] = if n <= inline.len() {
-            &mut inline[..n]
-        } else {
-            heap.resize(n, 0);
-            &mut heap
-        };
-        for (i, w) in rect_words.iter_mut().enumerate() {
-            *w = e.mem.u32(rects + 4 * i as u32);
-        }
-        rect_words.as_ptr() as *const D3DRECT
+    let n = if rects != 0 { (4 * count) as usize } else { 0 };
+    let w: &mut [u32] = if n <= inline.len() {
+        &mut inline[..n]
     } else {
-        std::ptr::null()
+        heap.resize(n, 0);
+        &mut heap
     };
-    let r = unsafe { d.Clear(count, pointer, flags, colour, f32::from_bits(z), stencil) };
-    answer(e, "Clear", model, hr(r));
+    for (i, word) in w.iter_mut().enumerate() {
+        *word = e.mem.u32(rects.wrapping_add(4 * i as u32));
+    }
+    let rect_words: Option<&[u32]> = (rects != 0).then_some(&*w);
+    record(
+        e,
+        this,
+        Cmd::Clear {
+            device: this,
+            count,
+            rects: rect_words.map(Data::from_words),
+            flags,
+            colour,
+            z,
+            stencil,
+            model,
+        },
+    );
 }
 
-fn rect(e: &Engine, at: u32) -> Option<RECT> {
-    (at != 0).then(|| RECT {
-        left: e.mem.i32(at),
-        top: e.mem.i32(at + 4),
-        right: e.mem.i32(at + 8),
-        bottom: e.mem.i32(at + 12),
-    })
+/// The rectangle at `at` (left, top, right, bottom), none for a null pointer.
+fn rect_words(e: &Engine, at: u32) -> Option<[u32; 4]> {
+    (at != 0).then(|| words(e, at))
 }
 
 pub fn present(
@@ -903,123 +996,103 @@ pub fn present(
     dirty: u32,
     model: u32,
 ) {
-    if face_check::enabled() {
-        // Diagnostic only (`NV_FACE_CHECK`, not exe behaviour).
-        face_check_present();
-    }
-    let Some(d) = device(e, this) else { return };
-    if dirty != 0 {
-        answer(e, "Present with a dirty region (not forwarded)", model, 1);
+    if stream_of(real(e), this).is_none() {
         return;
     }
-    if let Some(shots) = shot::wanted() {
-        // Diagnostic only (`NV_SHOT`, not exe behaviour): the frame the game just drew.
-        shot::at_present(&d, shots);
-    }
-    // Diagnostic only (`NV_REPORT_DIR`, not exe behaviour): the player pressed F12.
-    shot::report_at_present(&d);
-    let (source, dest) = (rect(e, source), rect(e, dest));
     let window = match window {
-        0 => HWND::default(),
+        0 => 0,
         h => match real_window(e, h) {
-            Some(w) => HWND(w as *mut _),
-            None => return,
+            Some(w) => w,
+            None => return missing(e, "Present to a window without a real one"),
         },
     };
-    let r = unsafe {
-        d.Present(
-            source
-                .as_ref()
-                .map_or(std::ptr::null(), |r| r as *const RECT),
-            dest.as_ref().map_or(std::ptr::null(), |r| r as *const RECT),
+    let (source, dest) = (rect_words(e, source), rect_words(e, dest));
+    record(
+        e,
+        this,
+        Cmd::Present {
+            device: this,
+            source: source.as_ref().map(|r| Data::from_words(r)),
+            dest: dest.as_ref().map(|r| Data::from_words(r)),
             window,
-            std::ptr::null(),
-        )
-    };
-    answer(e, "Present", model, hr(r));
-    // The frame is over: what the model let go of is bound nowhere on the real device now.
-    real(e).graveyard.clear();
+            dirty: dirty != 0,
+            model,
+            frame: 0,
+        },
+    );
 }
 
 // The device's state.
 
-fn surface_of(e: &Engine, surface: u32) -> Option<IDirect3DSurface9> {
-    match state_ref!(e).graphics.real.objects.get(&surface) {
-        Some(Object::Surface(s)) => Some(s.clone()),
-        _ => None,
-    }
-}
-
-/// A modelled object's real counterpart is missing: printed once by call.
-fn missing(e: &mut Engine, call: &'static str) {
-    answer(e, call, 0, 0xffff_ffff);
-}
-
 pub fn set_render_target(e: &mut Engine, this: u32, index: u32, surface: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    let real_surface = if surface != 0 {
-        match surface_of(e, surface) {
-            Some(s) => Some(s),
-            None => return missing(e, "SetRenderTarget of a surface without a real one"),
-        }
-    } else {
-        None
-    };
-    let r = unsafe { d.SetRenderTarget(index, real_surface.as_ref()) };
-    answer(e, "SetRenderTarget", model, hr(r));
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::SetRenderTarget {
+            device: this,
+            index,
+            surface,
+        },
+    );
 }
 
 pub fn set_depth_stencil_surface(e: &mut Engine, this: u32, surface: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    let real_surface = if surface != 0 {
-        match surface_of(e, surface) {
-            Some(s) => Some(s),
-            None => return missing(e, "SetDepthStencilSurface of a surface without a real one"),
-        }
-    } else {
-        None
-    };
-    let r = unsafe { d.SetDepthStencilSurface(real_surface.as_ref()) };
-    answer(e, "SetDepthStencilSurface", model, hr(r));
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::SetDepthStencilSurface {
+            device: this,
+            surface,
+        },
+    );
 }
 
 pub fn set_viewport(e: &mut Engine, this: u32, viewport: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
+    let _ = model;
     if viewport == 0 {
         return;
     }
-    let v: [u32; 6] = words(e, viewport);
-    let vp = D3DVIEWPORT9 {
-        X: v[0],
-        Y: v[1],
-        Width: v[2],
-        Height: v[3],
-        MinZ: f32::from_bits(v[4]),
-        MaxZ: f32::from_bits(v[5]),
-    };
-    let r = unsafe { d.SetViewport(&vp) };
-    answer(e, "SetViewport", model, hr(r));
+    let viewport = words(e, viewport);
+    record(
+        e,
+        this,
+        Cmd::SetViewport {
+            device: this,
+            viewport,
+        },
+    );
 }
 
 pub fn set_transform(e: &mut Engine, this: u32, state: u32, matrix: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
+    let _ = model;
     if matrix == 0 {
         return;
     }
     let m: [u32; 16] = words(e, matrix);
-    if face_check::enabled() {
-        // Diagnostic only (`NV_FACE_CHECK`, not exe behaviour).
-        face_check::state().transforms.insert(state, m.to_vec());
-    }
-    let r = unsafe { d.SetTransform(D3DTRANSFORMSTATETYPE(state as i32), m.as_ptr() as *const _) };
-    answer(e, "SetTransform", model, hr(r));
+    record(
+        e,
+        this,
+        Cmd::SetTransform {
+            device: this,
+            state,
+            matrix: Data::from_words(&m),
+        },
+    );
 }
 
 pub fn set_scissor_rect(e: &mut Engine, this: u32, at: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    let Some(r) = rect(e, at) else { return };
-    let result = unsafe { d.SetScissorRect(&r) };
-    answer(e, "SetScissorRect", model, hr(result));
+    let _ = model;
+    let Some(r) = rect_words(e, at) else { return };
+    record(
+        e,
+        this,
+        Cmd::SetScissorRect {
+            device: this,
+            rect: r.map(|w| w as i32),
+        },
+    );
 }
 
 /// `SetGammaRamp` on the real device with the game's ramp (`void` in the SDK: nothing to
@@ -1033,34 +1106,50 @@ pub fn set_gamma_ramp(
     model: u32,
 ) {
     let _ = model;
-    let Some(d) = device(e, this) else { return };
-    let mut table = D3DGAMMARAMP::default();
-    for i in 0..0x100u32 {
-        table.red[i as usize] = e.mem.u16(ramp + 2 * i);
-        table.green[i as usize] = e.mem.u16(ramp + 0x200 + 2 * i);
-        table.blue[i as usize] = e.mem.u16(ramp + 0x400 + 2 * i);
+    if stream_of(real(e), this).is_none() {
+        return;
     }
-    unsafe { d.SetGammaRamp(swap_chain, flags, &table) };
+    let bytes = e.mem.bytes(ramp, 0x600);
+    record(
+        e,
+        this,
+        Cmd::SetGammaRamp {
+            device: this,
+            swap_chain,
+            flags,
+            ramp: Data::Bytes(&bytes),
+        },
+    );
 }
 
 pub fn set_clip_plane(e: &mut Engine, this: u32, index: u32, plane: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
+    let _ = model;
     if plane == 0 {
         return;
     }
-    let p: [u32; 4] = words(e, plane);
-    let r = unsafe { d.SetClipPlane(index, p.as_ptr() as *const f32) };
-    answer(e, "SetClipPlane", model, hr(r));
+    let plane = words(e, plane);
+    record(
+        e,
+        this,
+        Cmd::SetClipPlane {
+            device: this,
+            index,
+            plane,
+        },
+    );
 }
 
 pub fn set_render_state(e: &mut Engine, this: u32, state: u32, value: u32, model: u32) {
-    if face_check::enabled() {
-        // Diagnostic only (`NV_FACE_CHECK`, not exe behaviour).
-        face_check_render_state(state, value);
-    }
-    let Some(d) = device(e, this) else { return };
-    let r = unsafe { d.SetRenderState(D3DRENDERSTATETYPE(state as i32), value) };
-    answer(e, "SetRenderState", model, hr(r));
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::SetRenderState {
+            device: this,
+            state,
+            value,
+        },
+    );
 }
 
 pub fn set_texture_stage_state(
@@ -1071,9 +1160,17 @@ pub fn set_texture_stage_state(
     value: u32,
     model: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
-    let r = unsafe { d.SetTextureStageState(stage, D3DTEXTURESTAGESTATETYPE(kind as i32), value) };
-    answer(e, "SetTextureStageState", model, hr(r));
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::SetTextureStageState {
+            device: this,
+            stage,
+            kind,
+            value,
+        },
+    );
 }
 
 pub fn set_sampler_state(
@@ -1084,24 +1181,30 @@ pub fn set_sampler_state(
     value: u32,
     model: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
-    let r = unsafe { d.SetSamplerState(sampler, D3DSAMPLERSTATETYPE(kind as i32), value) };
-    answer(e, "SetSamplerState", model, hr(r));
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::SetSamplerState {
+            device: this,
+            sampler,
+            kind,
+            value,
+        },
+    );
 }
 
 pub fn set_texture(e: &mut Engine, this: u32, sampler: u32, texture: u32, model: u32) {
-    if face_check::enabled() {
-        // Diagnostic only (`NV_FACE_CHECK`, not exe behaviour).
-        face_check_bind(sampler, texture);
-    }
-    let Some(d) = device(e, this) else { return };
-    let r = match state!(e).graphics.real.objects.get(&texture) {
-        _ if texture == 0 => unsafe { d.SetTexture(sampler, None::<&IDirect3DBaseTexture9>) },
-        Some(Object::Texture(t)) => unsafe { d.SetTexture(sampler, t) },
-        Some(Object::Cube(t)) => unsafe { d.SetTexture(sampler, t) },
-        _ => return missing(e, "SetTexture of a texture without a real one"),
-    };
-    answer(e, "SetTexture", model, hr(r));
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::SetTexture {
+            device: this,
+            sampler,
+            texture,
+        },
+    );
 }
 
 // Textures and surfaces.
@@ -1120,33 +1223,20 @@ pub fn texture_created(
     format: u32,
     pool: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
-    let mut out = None;
-    let r = unsafe {
-        d.CreateTexture(
-            width,
-            height,
-            levels.len() as u32,
-            usage,
-            D3DFORMAT(format),
-            D3DPOOL(pool as i32),
-            &mut out,
-            std::ptr::null_mut(),
-        )
-    };
-    let Some(t) = out.filter(|_| r.is_ok()) else {
-        return answer(e, "CreateTexture", 0, hr(r));
-    };
-    for (i, &level) in levels.iter().enumerate() {
-        if let Ok(s) = unsafe { t.GetSurfaceLevel(i as u32) } {
-            real(e).objects.insert(level, Object::Surface(s));
-        }
-    }
-    real(e).objects.insert(texture, Object::Texture(t));
-    if face_check::enabled() {
-        // Diagnostic only (`NV_FACE_CHECK`, not exe behaviour).
-        face_check_texture(texture, levels, (width, height), format, usage, pool);
-    }
+    let r = real(e);
+    let Some(s) = stream_of(r, this) else { return };
+    s.submit(Cmd::CreateTexture {
+        device: this,
+        texture,
+        levels: Data::from_words(levels),
+        width,
+        height,
+        usage,
+        format,
+        pool,
+    });
+    r.forwarded.insert(texture);
+    r.forwarded.extend(levels.iter().copied());
 }
 
 /// `CreateCubeTexture` made the modelled cube texture `texture` with these surfaces, face by
@@ -1162,30 +1252,19 @@ pub fn cube_created(
     format: u32,
     pool: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
-    let levels = surfaces.len() as u32 / 6;
-    let mut out = None;
-    let r = unsafe {
-        d.CreateCubeTexture(
-            edge,
-            levels,
-            usage,
-            D3DFORMAT(format),
-            D3DPOOL(pool as i32),
-            &mut out,
-            std::ptr::null_mut(),
-        )
-    };
-    let Some(t) = out.filter(|_| r.is_ok()) else {
-        return answer(e, "CreateCubeTexture", 0, hr(r));
-    };
-    for (i, &surface) in surfaces.iter().enumerate() {
-        let (face, level) = (i as u32 / levels, i as u32 % levels);
-        if let Ok(s) = unsafe { t.GetCubeMapSurface(D3DCUBEMAP_FACES(face as i32), level) } {
-            real(e).objects.insert(surface, Object::Surface(s));
-        }
-    }
-    real(e).objects.insert(texture, Object::Cube(t));
+    let r = real(e);
+    let Some(s) = stream_of(r, this) else { return };
+    s.submit(Cmd::CreateCubeTexture {
+        device: this,
+        texture,
+        surfaces: Data::from_words(surfaces),
+        edge,
+        usage,
+        format,
+        pool,
+    });
+    r.forwarded.insert(texture);
+    r.forwarded.extend(surfaces.iter().copied());
 }
 
 /// `CreateRenderTarget` (`depth` false) or `CreateDepthStencilSurface` made the modelled
@@ -1203,96 +1282,71 @@ pub fn surface_created(
     quality: u32,
     flag: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
-    let mut out = None;
-    let (format, multisample, flag) = (
-        D3DFORMAT(format),
-        D3DMULTISAMPLE_TYPE(multisample as i32),
-        BOOL(flag as i32),
-    );
-    let null = std::ptr::null_mut();
-    let r = unsafe {
-        if depth {
-            d.CreateDepthStencilSurface(
-                width,
-                height,
-                format,
-                multisample,
-                quality,
-                flag,
-                &mut out,
-                null,
-            )
-        } else {
-            d.CreateRenderTarget(
-                width,
-                height,
-                format,
-                multisample,
-                quality,
-                flag,
-                &mut out,
-                null,
-            )
-        }
-    };
-    match out.filter(|_| r.is_ok()) {
-        Some(s) => {
-            real(e).objects.insert(surface, Object::Surface(s));
-        }
-        None => answer(e, "CreateRenderTarget/DepthStencilSurface", 0, hr(r)),
-    }
+    let r = real(e);
+    let Some(s) = stream_of(r, this) else { return };
+    s.submit(Cmd::CreateSurface {
+        device: this,
+        surface,
+        depth,
+        width,
+        height,
+        format,
+        multisample,
+        quality,
+        flag,
+    });
+    r.forwarded.insert(surface);
 }
 
-/// Whether the modelled surface `surface` has a real one.
+/// Whether the modelled surface `surface` has a real counterpart (asked of the backend; one it
+/// could not make keeps its bytes there, so the level reads back what it was given either way).
 pub fn has_surface(e: &Engine, surface: u32) -> bool {
-    matches!(
-        state_ref!(e).graphics.real.objects.get(&surface),
-        Some(Object::Surface(_))
-    )
+    state_ref!(e).graphics.real.forwarded.contains(&surface)
 }
 
-/// The real surface behind the modelled `surface` read into engine memory at `at` (`size`
-/// bytes: its rows packed, `rows = size / row`), with `LockRect(D3DLOCK_READONLY)`; false when
-/// there is none or it can't be locked.
+/// The modelled `surface` as the backend keeps it read into engine memory at `at` (`size`
+/// bytes, rows packed): waits for every earlier command; false without a counterpart, or when
+/// its size differs or it can't be read.
 pub fn read_surface(e: &mut Engine, surface: u32, at: u32, size: u32) -> bool {
-    let Some(s) = surface_of(e, surface) else {
-        return false;
-    };
-    let mut desc = D3DSURFACE_DESC::default();
-    if unsafe { s.GetDesc(&mut desc) }.is_err() {
+    if !has_surface(e, surface) {
         return false;
     }
-    let Some((block, bytes)) = super::d3d9device::format_blocks(desc.Format.0) else {
-        return false;
-    };
-    let row = desc.Width.div_ceil(block) * bytes;
-    let rows = desc.Height.div_ceil(block);
-    if row * rows != size {
-        return false;
+    match call(e, Cmd::ReadSurface { surface, size }) {
+        Some(Reply::Bytes(Some(bytes))) => {
+            e.mem.write(at, &bytes);
+            true
+        }
+        _ => false,
     }
-    let mut locked = D3DLOCKED_RECT::default();
-    let r = unsafe { s.LockRect(&mut locked, std::ptr::null(), D3DLOCK_READONLY as u32) };
-    if r.is_err() {
-        answer(e, "LockRect of the real surface to read", 0, hr(r));
-        return false;
+}
+
+/// Fills `into` with the bytes from `offset` of `rows` rows of `row` bytes lying `pitch` apart
+/// at `bits` (as if packed).
+fn read_rows(
+    mem: &engine_core::Mem,
+    bits: u32,
+    pitch: u32,
+    row: u32,
+    offset: u32,
+    into: &mut [u8],
+) {
+    if pitch == row || row == 0 {
+        mem.read(bits + offset, into);
+        return;
     }
-    for y in 0..rows {
-        let from = unsafe {
-            std::slice::from_raw_parts(
-                (locked.pBits as *const u8).add(y as usize * locked.Pitch as usize),
-                row as usize,
-            )
-        };
-        e.mem.write(at + y * row, from);
+    let mut done = 0usize;
+    while done < into.len() {
+        let at = offset + done as u32;
+        let (y, x) = (at / row, at % row);
+        let n = ((row - x) as usize).min(into.len() - done);
+        mem.read(bits + y * pitch + x, &mut into[done..done + n]);
+        done += n;
     }
-    let _ = unsafe { s.UnlockRect() };
-    true
 }
 
 /// The game unlocked the modelled surface `surface`, whose memory in engine memory is `bits`
-/// (`rows` rows of `row` bytes, `pitch` apart): the bytes go to the real surface. Whether they
-/// did (false without a real surface or when it can't be locked).
+/// (`rows` rows of `row` bytes, `pitch` apart): the bytes go to its counterpart. Whether they
+/// went (false without one).
 pub fn surface_unlocked(
     e: &mut Engine,
     surface: u32,
@@ -1301,39 +1355,31 @@ pub fn surface_unlocked(
     row: u32,
     rows: u32,
 ) -> bool {
-    let Some(s) = surface_of(e, surface) else {
+    if !has_surface(e, surface) {
+        return false;
+    }
+    let mem = &e.mem;
+    let r = &mut crate::state_mut(&mut e.kernel.platform).graphics.real;
+    let Some(s) = r.stream.as_mut() else {
         return false;
     };
-    let mut locked = D3DLOCKED_RECT::default();
-    let r = unsafe { s.LockRect(&mut locked, std::ptr::null(), 0) };
-    if r.is_err() {
-        answer(e, "LockRect of the real surface", 0, hr(r));
-        return false;
-    }
-    for y in 0..rows {
-        let to = unsafe {
-            std::slice::from_raw_parts_mut(
-                (locked.pBits as *mut u8).add(y as usize * locked.Pitch as usize),
-                row as usize,
-            )
-        };
-        e.mem.read(bits + y * pitch, to);
-    }
-    let _ = unsafe { s.UnlockRect() };
-    if face_check::enabled() {
-        // Diagnostic only (`NV_FACE_CHECK`, not exe behaviour).
-        face_check_upload(e, surface, &s, bits, row, rows);
-    }
+    let read = |offset: u32, into: &mut [u8]| read_rows(mem, bits, pitch, row, offset, into);
+    s.submit(Cmd::UploadSurface {
+        surface,
+        row,
+        rows,
+        data: Data::Read {
+            len: row * rows,
+            read: &read,
+        },
+    });
     true
 }
 
 // Buffers, shaders, declarations.
 
-/// `D3DUSAGE_DYNAMIC`, `D3DLOCK_READONLY`, `D3DLOCK_DISCARD`, `D3DLOCK_NOOVERWRITE`.
-const USAGE_DYNAMIC: u32 = 0x200;
+/// `D3DLOCK_READONLY`.
 const LOCK_READONLY: u32 = 0x10;
-const LOCK_DISCARD: u32 = 0x2000;
-const LOCK_NOOVERWRITE: u32 = 0x1000;
 
 /// `CreateVertexBuffer` (`index` false) or `CreateIndexBuffer` made the modelled buffer
 /// `buffer`; `format` is the FVF or the index format.
@@ -1348,90 +1394,76 @@ pub fn buffer_created(
     format: u32,
     pool: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
-    let null = std::ptr::null_mut();
-    let object = if index {
-        let mut out = None;
-        let r = unsafe {
-            d.CreateIndexBuffer(
-                length,
-                usage,
-                D3DFORMAT(format),
-                D3DPOOL(pool as i32),
-                &mut out,
-                null,
-            )
-        };
-        match out.filter(|_| r.is_ok()) {
-            Some(b) => Object::IndexBuffer(b),
-            None => return answer(e, "CreateIndexBuffer", 0, hr(r)),
-        }
-    } else {
-        let mut out = None;
-        let r = unsafe {
-            d.CreateVertexBuffer(length, usage, format, D3DPOOL(pool as i32), &mut out, null)
-        };
-        match out.filter(|_| r.is_ok()) {
-            Some(b) => Object::VertexBuffer(b),
-            None => return answer(e, "CreateVertexBuffer", 0, hr(r)),
-        }
-    };
     let r = real(e);
-    r.objects.insert(buffer, object);
+    let Some(s) = stream_of(r, this) else { return };
+    s.submit(Cmd::CreateBuffer {
+        device: this,
+        buffer,
+        index,
+        length,
+        usage,
+        format,
+        pool,
+    });
+    r.forwarded.insert(buffer);
     r.locks.remove(&buffer);
-    if usage & USAGE_DYNAMIC != 0 {
-        r.dynamic.insert(buffer);
-    } else {
-        r.dynamic.remove(&buffer);
-    }
 }
 
-/// The game locked the modelled buffer `buffer` (recorded for its unlock).
+/// The game locked the modelled buffer `buffer` (recorded here for its unlock).
 pub fn buffer_locked(e: &mut Engine, buffer: u32, offset: u32, size: u32, flags: u32, model: u32) {
-    if model != 0 || !state!(e).graphics.real.objects.contains_key(&buffer) {
+    let r = real(e);
+    if model != 0 || !r.forwarded.contains(&buffer) {
         return;
     }
-    real(e)
-        .locks
+    r.locks
         .entry(buffer)
         .or_default()
         .push((offset, size, flags));
 }
 
 /// The game unlocked the modelled buffer `buffer`, whose memory is `bits` (`length` bytes):
-/// the locked range goes to the real buffer.
+/// the locked range goes to its counterpart.
 pub fn buffer_unlocked(e: &mut Engine, buffer: u32, bits: u32, length: u32, model: u32) {
     if model != 0 {
         return;
     }
-    let Some((offset, size, flags)) = real(e).locks.get_mut(&buffer).and_then(|l| l.pop()) else {
+    let mem = &e.mem;
+    let r = &mut crate::state_mut(&mut e.kernel.platform).graphics.real;
+    let Some((offset, size, flags)) = r.locks.get_mut(&buffer).and_then(|l| l.pop()) else {
         return;
     };
     if flags & LOCK_READONLY != 0 {
         return;
     }
+    let Some(s) = r.stream.as_mut() else { return };
     let size = if size == 0 { length - offset } else { size };
-    let pass = if state!(e).graphics.real.dynamic.contains(&buffer) {
-        flags & (LOCK_DISCARD | LOCK_NOOVERWRITE)
-    } else {
-        0
-    };
-    let mut data: *mut core::ffi::c_void = std::ptr::null_mut();
-    let r = match state!(e).graphics.real.objects.get(&buffer) {
-        Some(Object::VertexBuffer(b)) => unsafe { b.Lock(offset, size, &mut data, pass) },
-        Some(Object::IndexBuffer(b)) => unsafe { b.Lock(offset, size, &mut data, pass) },
-        _ => return,
-    };
-    if r.is_err() || data.is_null() {
-        return answer(e, "Lock of the real buffer", 0, hr(r));
-    }
-    let to = unsafe { std::slice::from_raw_parts_mut(data as *mut u8, size as usize) };
-    e.mem.read(bits + offset, to);
-    let _ = match state!(e).graphics.real.objects.get(&buffer) {
-        Some(Object::VertexBuffer(b)) => unsafe { b.Unlock() },
-        Some(Object::IndexBuffer(b)) => unsafe { b.Unlock() },
-        _ => Ok(()),
-    };
+    let read = |at: u32, into: &mut [u8]| mem.read(bits + offset + at, into);
+    s.submit(Cmd::UploadBuffer {
+        buffer,
+        offset,
+        flags,
+        data: Data::Read {
+            len: size,
+            read: &read,
+        },
+    });
+}
+
+/// `CreateVertexShader` / `CreatePixelShader` made the modelled shader `shader` from these
+/// tokens.
+pub fn shader_created(e: &mut Engine, this: u32, shader: u32, pixel: bool, tokens: &[u8]) {
+    let r = real(e);
+    let Some(s) = stream_of(r, this) else { return };
+    // The tokens end with the end token: whole words (a stray tail padded, as the real call
+    // reads words).
+    let words = as_words(tokens);
+    s.submit(Cmd::CreateShader {
+        device: this,
+        shader,
+        pixel,
+        tokens: Data::from_words(&words),
+    });
+    r.forwarded.insert(shader);
 }
 
 fn as_words(bytes: &[u8]) -> Vec<u32> {
@@ -1445,98 +1477,54 @@ fn as_words(bytes: &[u8]) -> Vec<u32> {
         .collect()
 }
 
-/// `CreateVertexShader` / `CreatePixelShader` made the modelled shader `shader` from these
-/// tokens.
-pub fn shader_created(e: &mut Engine, this: u32, shader: u32, pixel: bool, tokens: &[u8]) {
-    let Some(d) = device(e, this) else { return };
-    let tokens = as_words(tokens);
-    let object = if pixel {
-        match unsafe { d.CreatePixelShader(tokens.as_ptr()) } {
-            Ok(s) => Object::PixelShader(s),
-            Err(err) => return answer(e, "CreatePixelShader", 0, err.code().0 as u32),
-        }
-    } else {
-        match unsafe { d.CreateVertexShader(tokens.as_ptr()) } {
-            Ok(s) => Object::VertexShader(s),
-            Err(err) => return answer(e, "CreateVertexShader", 0, err.code().0 as u32),
-        }
-    };
-    real(e).objects.insert(shader, object);
-}
-
 /// `CreateVertexDeclaration` made the modelled declaration `declaration` from these elements
 /// (`D3DDECL_END` included).
 pub fn declaration_created(e: &mut Engine, this: u32, declaration: u32, elements: &[u8]) {
-    let Some(d) = device(e, this) else { return };
-    let elements = as_words(elements);
-    match unsafe { d.CreateVertexDeclaration(elements.as_ptr() as *const D3DVERTEXELEMENT9) } {
-        Ok(v) => {
-            real(e).objects.insert(declaration, Object::Declaration(v));
-        }
-        Err(err) => answer(e, "CreateVertexDeclaration", 0, err.code().0 as u32),
-    }
+    let r = real(e);
+    let Some(s) = stream_of(r, this) else { return };
+    s.submit(Cmd::CreateDeclaration {
+        device: this,
+        declaration,
+        elements: Data::Bytes(elements),
+    });
+    r.forwarded.insert(declaration);
 }
 
 pub fn set_vertex_declaration(e: &mut Engine, this: u32, declaration: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    let r = match state!(e).graphics.real.objects.get(&declaration) {
-        _ if declaration == 0 => unsafe {
-            d.SetVertexDeclaration(None::<&IDirect3DVertexDeclaration9>)
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::SetVertexDeclaration {
+            device: this,
+            declaration,
         },
-        Some(Object::Declaration(v)) => unsafe { d.SetVertexDeclaration(v) },
-        _ => {
-            let _ = unsafe { d.SetVertexDeclaration(None::<&IDirect3DVertexDeclaration9>) };
-            return broken(
-                e,
-                this,
-                DECLARATION,
-                "SetVertexDeclaration without a real one",
-                model,
-            );
-        }
-    };
-    mended(e, this, DECLARATION);
-    answer(e, "SetVertexDeclaration", model, hr(r));
+    );
 }
 
 pub fn set_fvf(e: &mut Engine, this: u32, fvf: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    let r = unsafe { d.SetFVF(fvf) };
-    answer(e, "SetFVF", model, hr(r));
+    let _ = model;
+    record(e, this, Cmd::SetFvf { device: this, fvf });
 }
 
 pub fn set_shader(e: &mut Engine, this: u32, shader: u32, pixel: bool, model: u32) {
-    if face_check::enabled() {
-        // Diagnostic only (`NV_FACE_CHECK`, not exe behaviour).
-        face_check_shader(shader, pixel);
-    }
-    let Some(d) = device(e, this) else { return };
-    let r = match (pixel, state!(e).graphics.real.objects.get(&shader)) {
-        (false, _) if shader == 0 => unsafe { d.SetVertexShader(None::<&IDirect3DVertexShader9>) },
-        (true, _) if shader == 0 => unsafe { d.SetPixelShader(None::<&IDirect3DPixelShader9>) },
-        (false, Some(Object::VertexShader(s))) => unsafe { d.SetVertexShader(s) },
-        (true, Some(Object::PixelShader(s))) => unsafe { d.SetPixelShader(s) },
-        _ => {
-            let _ = unsafe {
-                if pixel {
-                    d.SetPixelShader(None::<&IDirect3DPixelShader9>)
-                } else {
-                    d.SetVertexShader(None::<&IDirect3DVertexShader9>)
-                }
-            };
-            let which = if pixel { PIXEL_SHADER } else { VERTEX_SHADER };
-            return broken(e, this, which, "Set*Shader without a real one", model);
-        }
-    };
-    mended(e, this, if pixel { PIXEL_SHADER } else { VERTEX_SHADER });
-    answer(e, "Set*Shader", model, hr(r));
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::SetShader {
+            device: this,
+            pixel,
+            shader,
+        },
+    );
 }
 
 /// `Set{Vertex,Pixel}ShaderConstant{F,I,B}`: kinds 0..2 vertex float, int, bool; 3..5 pixel.
 /// Called once the model took the call (`D3D_OK`): the model has just read the registers'
-/// words from `data` into the device's bindings, and nothing ran since, so the real device is
-/// given those words (`count` registers of 4 words, or of one word for booleans) without
-/// reading the program's memory again.
+/// words from `data` into the device's bindings, and nothing ran since, so the command carries
+/// those words (`count` registers of 4 words, or of one word for booleans) without reading the
+/// program's memory again.
 pub fn set_constants(
     e: &mut Engine,
     this: u32,
@@ -1546,77 +1534,76 @@ pub fn set_constants(
     count: u32,
     model: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
+    let _ = model;
     if data == 0 {
         return;
     }
-    if face_check::enabled() && (kind == 0 || kind == 3) {
-        // Diagnostic only (`NV_FACE_CHECK`, not exe behaviour).
-        face_check_constants(e, kind == 3, start, data, count);
-    }
-    let per = if kind % 3 == 2 { 1 } else { 4 };
-    // A boolean register keeps its word first: packed here (at most 16 registers).
-    let mut packed = [0u32; 16];
-    let p: *const u32 = match super::d3d9resource::constant_registers(e, this, kind, start, count) {
-        Some(registers) if per == 1 => {
-            for (w, r) in packed.iter_mut().zip(registers) {
-                *w = r[0];
-            }
-            packed.as_ptr()
-        }
-        Some(registers) => registers.as_ptr().cast(),
-        None => return set_constants_as_given(e, &d, kind, start, data, count, model),
+    let mem = &e.mem;
+    let g = &mut crate::state_mut(&mut e.kernel.platform).graphics;
+    let Some(s) = stream_of(&mut g.real, this) else {
+        return;
     };
-    let r = forward_constants(&d, kind, start, p, count);
-    answer(e, "Set*ShaderConstant*", model, hr(r));
+    let registers = super::d3d9resource::constant_registers(
+        &g.device_objects.resources,
+        this,
+        kind,
+        start,
+        count,
+    );
+    let Some(registers) = registers else {
+        return set_constants_as_given(mem, s, this, kind, start, data, count);
+    };
+    if kind % 3 == 2 {
+        // A boolean register keeps its word first: packed (at most 16 registers).
+        let mut packed = [0u32; 16];
+        for (w, r) in packed.iter_mut().zip(registers) {
+            *w = r[0];
+        }
+        s.submit(Cmd::SetConstants {
+            device: this,
+            kind,
+            start,
+            count,
+            data: Data::from_words(&packed[..registers.len().min(16)]),
+        });
+    } else {
+        // SAFETY: `[u32; 4]`s are 4 words each, laid out one after the other.
+        let flat = unsafe {
+            std::slice::from_raw_parts(registers.as_ptr().cast::<u32>(), 4 * registers.len())
+        };
+        s.submit(Cmd::SetConstants {
+            device: this,
+            kind,
+            start,
+            count,
+            data: Data::from_words(flat),
+        });
+    }
 }
 
 /// [`set_constants`] when the model holds no registers for the range (not reached: the model
-/// keeps every register it took): the words read as given, on the stack (no allocation), out of
-/// the common path's frame.
+/// keeps every register it took): the words read as given, out of the common path.
 #[cold]
 #[inline(never)]
+#[allow(clippy::too_many_arguments)]
 fn set_constants_as_given(
-    e: &mut Engine,
-    d: &IDirect3DDevice9,
+    mem: &engine_core::Mem,
+    s: &mut Stream,
+    this: u32,
     kind: u8,
     start: u32,
     data: u32,
     count: u32,
-    model: u32,
 ) {
     let per = if kind % 3 == 2 { 1 } else { 4 };
-    // The model took the range (at most 256 registers of 4 words).
-    let mut read = [0u32; 1024];
-    let n = ((per * count) as usize).min(read.len());
-    for (i, w) in read[..n].iter_mut().enumerate() {
-        *w = e.mem.u32(data + 4 * i as u32);
-    }
-    let r = forward_constants(d, kind, start, read.as_ptr(), count);
-    answer(e, "Set*ShaderConstant*", model, hr(r));
-}
-
-/// The real device's `Set*ShaderConstant*` of `kind` (as [`set_constants`]) with the `count`
-/// registers at `p`.
-#[inline]
-fn forward_constants(
-    d: &IDirect3DDevice9,
-    kind: u8,
-    start: u32,
-    p: *const u32,
-    count: u32,
-) -> windows::core::Result<()> {
-    // SAFETY: `p` holds `count` registers of the kind's size (4 words, or one for booleans).
-    unsafe {
-        match kind {
-            0 => d.SetVertexShaderConstantF(start, p as *const f32, count),
-            1 => d.SetVertexShaderConstantI(start, p as *const i32, count),
-            2 => d.SetVertexShaderConstantB(start, p as *const BOOL, count),
-            3 => d.SetPixelShaderConstantF(start, p as *const f32, count),
-            4 => d.SetPixelShaderConstantI(start, p as *const i32, count),
-            _ => d.SetPixelShaderConstantB(start, p as *const BOOL, count),
-        }
-    }
+    let words: Vec<u32> = (0..per * count).map(|i| mem.u32(data + 4 * i)).collect();
+    s.submit(Cmd::SetConstants {
+        device: this,
+        kind,
+        start,
+        count,
+        data: Data::from_words(&words),
+    });
 }
 
 pub fn set_stream_source(
@@ -1628,80 +1615,46 @@ pub fn set_stream_source(
     stride: u32,
     model: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
-    let r = match state!(e).graphics.real.objects.get(&buffer) {
-        _ if buffer == 0 => unsafe {
-            d.SetStreamSource(stream, None::<&IDirect3DVertexBuffer9>, offset, stride)
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::SetStreamSource {
+            device: this,
+            stream,
+            buffer,
+            offset,
+            stride,
         },
-        Some(Object::VertexBuffer(b)) => unsafe { d.SetStreamSource(stream, b, offset, stride) },
-        _ => {
-            let _ = unsafe { d.SetStreamSource(stream, None::<&IDirect3DVertexBuffer9>, 0, 0) };
-            return broken(
-                e,
-                this,
-                stream,
-                "SetStreamSource without a real buffer",
-                model,
-            );
-        }
-    };
-    mended(e, this, stream);
-    answer(e, "SetStreamSource", model, hr(r));
+    );
 }
 
 pub fn set_indices(e: &mut Engine, this: u32, buffer: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    let r = match state!(e).graphics.real.objects.get(&buffer) {
-        _ if buffer == 0 => unsafe { d.SetIndices(None::<&IDirect3DIndexBuffer9>) },
-        Some(Object::IndexBuffer(b)) => unsafe { d.SetIndices(b) },
-        _ => {
-            let _ = unsafe { d.SetIndices(None::<&IDirect3DIndexBuffer9>) };
-            return broken(e, this, INDICES, "SetIndices without a real buffer", model);
-        }
-    };
-    mended(e, this, INDICES);
-    answer(e, "SetIndices", model, hr(r));
-}
-
-/// The bindings [`Real::broken`] names besides the streams (0..16).
-const INDICES: u32 = 0x100;
-const DECLARATION: u32 = 0x101;
-const VERTEX_SHADER: u32 = 0x102;
-const PIXEL_SHADER: u32 = 0x103;
-
-/// A binding the model took has no real counterpart (printed once by call).
-fn broken(e: &mut Engine, device: u32, binding: u32, call: &'static str, model: u32) {
-    real(e).broken.insert((device, binding));
-    answer(e, call, model, 0xffff_ffff);
-}
-
-fn mended(e: &mut Engine, device: u32, binding: u32) {
-    // Nearly always none is broken: then there is nothing to look up.
-    let broken = &mut real(e).broken;
-    if !broken.is_empty() {
-        broken.remove(&(device, binding));
-    }
-}
-
-/// Whether the real draws of `device` are skipped (a binding without a real counterpart).
-fn skipped(e: &mut Engine, device: u32) -> bool {
-    let broken = &state!(e).graphics.real.broken;
-    let any = !broken.is_empty() && broken.iter().any(|&(d, _)| d == device);
-    if any {
-        missing(e, "a draw skipped: a binding has no real counterpart");
-    }
-    any
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::SetIndices {
+            device: this,
+            buffer,
+        },
+    );
 }
 
 // Draws.
 
 pub fn draw_primitive(e: &mut Engine, this: u32, kind: u32, start: u32, count: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    if skipped(e, this) {
-        return;
-    }
-    let r = unsafe { d.DrawPrimitive(D3DPRIMITIVETYPE(kind as i32), start, count) };
-    answer(e, "DrawPrimitive", model, hr(r));
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::DrawPrimitive {
+            device: this,
+            kind,
+            start,
+            count,
+        },
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1716,34 +1669,20 @@ pub fn draw_indexed_primitive(
     count: u32,
     model: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
-    let skip = skipped(e, this);
-    if face_check::enabled() {
-        // Diagnostic only (`NV_FACE_CHECK`, not exe behaviour).
-        face_check_draw(
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::DrawIndexedPrimitive {
+            device: this,
             kind,
-            base_vertex,
+            base_vertex: base_vertex as i32,
             min_index,
             vertices,
             start_index,
             count,
-            skip,
-        );
-    }
-    if skip {
-        return;
-    }
-    let r = unsafe {
-        d.DrawIndexedPrimitive(
-            D3DPRIMITIVETYPE(kind as i32),
-            base_vertex as i32,
-            min_index,
-            vertices,
-            start_index,
-            count,
-        )
-    };
-    answer(e, "DrawIndexedPrimitive", model, hr(r));
+        },
+    );
 }
 
 /// `DrawPrimitiveUP`: the `vertices * stride` bytes at `data` from engine memory.
@@ -1758,52 +1697,36 @@ pub fn draw_primitive_up(
     vertices: u32,
     model: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
-    if skipped(e, this) {
-        return;
-    }
-    // The vertices' bytes as words (the last one padded with zeros), read straight into them,
-    // in the room the last draw left.
-    let len = (vertices * stride) as usize;
-    let mut words = std::mem::take(&mut real(e).vertices_up);
-    words.clear();
-    words.resize(len.div_ceil(4), 0);
-    // SAFETY: the words' memory is `4 * words.len()` initialized bytes, at least `len`; a `u8`
-    // view of `u32`s has no alignment or validity requirement of its own (every byte pattern is
-    // a word; Windows targets are little-endian, so word `i` holds bytes `4i..4i + 4` as
-    // `as_words` reads them).
-    let bytes = unsafe { std::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), len) };
-    e.mem.read(data, bytes);
-    let r = unsafe {
-        d.DrawPrimitiveUP(
-            D3DPRIMITIVETYPE(kind as i32),
-            count,
-            words.as_ptr() as *const _,
-            stride,
-        )
-    };
-    real(e).vertices_up = words;
-    answer(e, "DrawPrimitiveUP", model, hr(r));
+    let _ = model;
+    let mem = &e.mem;
+    let r = &mut crate::state_mut(&mut e.kernel.platform).graphics.real;
+    let Some(s) = stream_of(r, this) else { return };
+    let read = |at: u32, into: &mut [u8]| mem.read(data + at, into);
+    s.submit(Cmd::DrawPrimitiveUp {
+        device: this,
+        kind,
+        count,
+        stride,
+        vertices: Data::Read {
+            len: vertices * stride,
+            read: &read,
+        },
+    });
 }
 
 // Copies between resources, fixed-function lighting.
 
-fn base_texture(e: &Engine, texture: u32) -> Option<IDirect3DBaseTexture9> {
-    use windows::core::Interface;
-    match state_ref!(e).graphics.real.objects.get(&texture) {
-        Some(Object::Texture(t)) => t.cast().ok(),
-        Some(Object::Cube(t)) => t.cast().ok(),
-        _ => None,
-    }
-}
-
 pub fn update_texture(e: &mut Engine, this: u32, source: u32, destination: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    let (Some(from), Some(to)) = (base_texture(e, source), base_texture(e, destination)) else {
-        return missing(e, "UpdateTexture without real textures");
-    };
-    let r = unsafe { d.UpdateTexture(&from, &to) };
-    answer(e, "UpdateTexture", model, hr(r));
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::UpdateTexture {
+            device: this,
+            source,
+            destination,
+        },
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1817,97 +1740,165 @@ pub fn stretch_rect(
     filter: u32,
     model: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
-    let (Some(from), Some(to)) = (surface_of(e, source), surface_of(e, destination)) else {
-        return missing(e, "StretchRect without real surfaces");
-    };
-    let (a, b) = (rect(e, source_rect), rect(e, destination_rect));
-    let r = unsafe {
-        d.StretchRect(
-            &from,
-            a.as_ref().map_or(std::ptr::null(), |r| r as *const RECT),
-            &to,
-            b.as_ref().map_or(std::ptr::null(), |r| r as *const RECT),
-            D3DTEXTUREFILTERTYPE(filter as i32),
-        )
-    };
-    answer(e, "StretchRect", model, hr(r));
+    let _ = model;
+    let (a, b) = (rect_words(e, source_rect), rect_words(e, destination_rect));
+    record(
+        e,
+        this,
+        Cmd::StretchRect {
+            device: this,
+            source,
+            source_rect: a.as_ref().map(|r| Data::from_words(r)),
+            destination,
+            destination_rect: b.as_ref().map(|r| Data::from_words(r)),
+            filter,
+        },
+    );
 }
 
 pub fn set_material(e: &mut Engine, this: u32, material: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
+    let _ = model;
     if material == 0 {
         return;
     }
     let m: [u32; 17] = words(e, material);
-    let r = unsafe { d.SetMaterial(m.as_ptr() as *const D3DMATERIAL9) };
-    answer(e, "SetMaterial", model, hr(r));
+    record(
+        e,
+        this,
+        Cmd::SetMaterial {
+            device: this,
+            material: Data::from_words(&m),
+        },
+    );
 }
 
 pub fn set_light(e: &mut Engine, this: u32, index: u32, light: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
+    let _ = model;
     if light == 0 {
         return;
     }
     let l: [u32; 26] = words(e, light);
-    let r = unsafe { d.SetLight(index, l.as_ptr() as *const D3DLIGHT9) };
-    answer(e, "SetLight", model, hr(r));
+    record(
+        e,
+        this,
+        Cmd::SetLight {
+            device: this,
+            index,
+            light: Data::from_words(&l),
+        },
+    );
 }
 
 pub fn light_enable(e: &mut Engine, this: u32, index: u32, enable: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    let r = unsafe { d.LightEnable(index, BOOL(enable as i32)) };
-    answer(e, "LightEnable", model, hr(r));
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::LightEnable {
+            device: this,
+            index,
+            enable,
+        },
+    );
 }
 
 pub fn set_software_vertex_processing(e: &mut Engine, this: u32, software: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    let r = unsafe { d.SetSoftwareVertexProcessing(BOOL(software as i32)) };
-    answer(e, "SetSoftwareVertexProcessing", model, hr(r));
+    let _ = model;
+    record(
+        e,
+        this,
+        Cmd::SetSoftwareVertexProcessing {
+            device: this,
+            software,
+        },
+    );
 }
 
 // Queries, offscreen surfaces, fills and read-backs.
 
 /// `CreateQuery` made the modelled query `query` of type `kind`: the real query.
 pub fn query_created(e: &mut Engine, this: u32, query: u32, kind: u32) {
-    let Some(d) = device(e, this) else { return };
-    match unsafe { d.CreateQuery(D3DQUERYTYPE(kind as i32)) } {
-        Ok(q) => {
-            real(e).objects.insert(query, Object::Query(q));
-        }
-        Err(err) => answer(e, "CreateQuery", 0, err.code().0 as u32),
-    }
+    let r = real(e);
+    let Some(s) = stream_of(r, this) else { return };
+    s.submit(Cmd::CreateQuery {
+        device: this,
+        query,
+        kind,
+    });
+    r.forwarded.insert(query);
+    *r.queries_made.entry(query).or_default() += 1;
 }
 
-fn query_of(e: &Engine, query: u32) -> Option<IDirect3DQuery9> {
-    match state_ref!(e).graphics.real.objects.get(&query) {
-        Some(Object::Query(q)) => Some(q.clone()),
-        _ => None,
-    }
-}
+/// `D3DISSUE_END`, `D3DGETDATA_FLUSH`, `S_FALSE`.
+const ISSUE_END: u32 = 1;
+const GETDATA_FLUSH: u32 = 1;
+const S_FALSE: u32 = 1;
 
 pub fn query_issue(e: &mut Engine, query: u32, flags: u32) {
-    let Some(q) = query_of(e, query) else { return };
-    let r = unsafe { q.Issue(flags) };
-    answer(e, "Query::Issue", 0, hr(r));
+    if flags == ISSUE_END && is_forwarded(e, query) {
+        *real(e).query_ends.entry(query).or_default() += 1;
+    }
+    record_on(e, query, Cmd::QueryIssue { query, flags });
 }
 
 /// `GetData` of the real query after the game's `END`: its answer and its 4-byte result; `None`
 /// without a real query.
+///
+/// Carried out at once, it is the real query's answer after every earlier call. With the render
+/// thread (an improvement, not the original's order) it does not wait for the render thread to
+/// catch up where it needs not: once the render thread has issued the game's last `END`, the real
+/// query answers at once, the same call with the same flags (`S_FALSE` while the GPU is not done).
+/// Before that, a call without `D3DGETDATA_FLUSH` answers `S_FALSE`, which Direct3D gives whenever
+/// the result is not in yet, and the commands recorded so far are handed over so it comes; a call
+/// with `D3DGETDATA_FLUSH` (the game's sun tests poll with it once a frame, its reference volumes
+/// in a loop until ready: `00b63540`, `00b63680`) waits for the render thread, as before.
 pub fn query_get_data(e: &mut Engine, query: u32, flags: u32) -> Option<(u32, u32)> {
-    let q = query_of(e, query)?;
-    let mut value = 0u32;
-    // The raw slot: `S_FALSE` (not done yet) is a success code the wrapper would fold into Ok.
-    let hr = unsafe {
-        use windows::core::Interface;
-        (Interface::vtable(&q).GetData)(
-            Interface::as_raw(&q),
-            &mut value as *mut u32 as *mut core::ffi::c_void,
-            4,
-            flags,
-        )
+    if !is_forwarded(e, query) {
+        return None;
+    }
+    if let Some(answer) = query_without_waiting(real(e), query, flags) {
+        return answer;
+    }
+    match call(e, Cmd::QueryGetData { query, flags }) {
+        Some(Reply::Query(answer)) => answer,
+        _ => None,
+    }
+}
+
+/// [`query_get_data`] with the render thread, without waiting for it: `None` without the render
+/// thread, or for a `D3DGETDATA_FLUSH` read whose `END` the real device has not issued yet (the
+/// call waits then).
+fn query_without_waiting(r: &mut Real, query: u32, flags: u32) -> Option<Option<(u32, u32)>> {
+    let board = r.query_board.as_ref()?;
+    let recorded = r.query_ends.get(&query).copied().unwrap_or(0);
+    let made = r.queries_made.get(&query).copied().unwrap_or(0);
+    let ready = match board.lock().get(&query) {
+        // This query (not an earlier one at its address): its creation failed on the real
+        // device: no real query, as before; or its last `END` issued there.
+        Some(q) if q.made == made => match &q.query {
+            None => return Some(None),
+            Some(real) if q.ends >= recorded => Some(real.0.clone()),
+            Some(_) => None,
+        },
+        // Not made, or the game's last `END` not issued, on the real device yet.
+        _ => None,
     };
-    Some((hr.0 as u32, value))
+    match ready {
+        Some(q) => {
+            if let Some(s) = r.stream.as_mut() {
+                s.note("query results read at once");
+            }
+            Some(Some(super::d3d9backend::query_data(&q, flags)))
+        }
+        None if flags & GETDATA_FLUSH != 0 => None,
+        None => {
+            if let Some(s) = r.stream.as_mut() {
+                s.flush();
+                s.note("query results not in yet");
+            }
+            Some(Some((S_FALSE, 0)))
+        }
+    }
 }
 
 /// `CreateOffscreenPlainSurface` made the modelled surface `surface`.
@@ -1920,45 +1911,37 @@ pub fn offscreen_created(
     format: u32,
     pool: u32,
 ) {
-    let Some(d) = device(e, this) else { return };
-    let mut out = None;
-    let r = unsafe {
-        d.CreateOffscreenPlainSurface(
-            width,
-            height,
-            D3DFORMAT(format),
-            D3DPOOL(pool as i32),
-            &mut out,
-            std::ptr::null_mut(),
-        )
-    };
-    match out.filter(|_| r.is_ok()) {
-        Some(s) => {
-            real(e).objects.insert(surface, Object::Surface(s));
-        }
-        None => answer(e, "CreateOffscreenPlainSurface", 0, hr(r)),
-    }
+    let r = real(e);
+    let Some(s) = stream_of(r, this) else { return };
+    s.submit(Cmd::CreateOffscreenSurface {
+        device: this,
+        surface,
+        width,
+        height,
+        format,
+        pool,
+    });
+    r.forwarded.insert(surface);
 }
 
 pub fn color_fill(e: &mut Engine, this: u32, surface: u32, at: u32, colour: u32, model: u32) {
-    let Some(d) = device(e, this) else { return };
-    let Some(s) = surface_of(e, surface) else {
-        return missing(e, "ColorFill of a surface without a real one");
-    };
-    let area = rect(e, at);
-    let r = unsafe {
-        d.ColorFill(
-            &s,
-            area.as_ref().map_or(std::ptr::null(), |r| r as *const RECT),
+    let _ = model;
+    let area = rect_words(e, at);
+    record(
+        e,
+        this,
+        Cmd::ColorFill {
+            device: this,
+            surface,
+            rect: area.as_ref().map(|r| Data::from_words(r)),
             colour,
-        )
-    };
-    answer(e, "ColorFill", model, hr(r));
+        },
+    );
 }
 
 /// `GetRenderTargetData` from the real render target into the real destination, whose rows are
-/// then copied into the destination's memory at `bits` (`pitch` apart; nothing copied for 0);
-/// false without real surfaces (the caller stops).
+/// then copied into the destination's memory at `bits` (`pitch` apart; nothing copied for 0),
+/// after every earlier command; false without real surfaces (the caller stops).
 pub fn get_render_target_data(
     e: &mut Engine,
     this: u32,
@@ -1967,96 +1950,44 @@ pub fn get_render_target_data(
     bits: u32,
     pitch: u32,
 ) -> bool {
-    let Some(d) = device(e, this) else {
+    if stream_of(real(e), this).is_none() {
         return false;
-    };
-    let (Some(from), Some(to)) = (surface_of(e, source), surface_of(e, destination)) else {
-        return false;
-    };
-    let r = unsafe { d.GetRenderTargetData(&from, &to) };
-    answer(e, "GetRenderTargetData", 0, hr(r));
-    if bits == 0 {
-        // A texture level kept outside engine memory: the caller takes the real level's bytes.
-        return true;
     }
-    let mut desc = D3DSURFACE_DESC::default();
-    let mut locked = D3DLOCKED_RECT::default();
-    unsafe {
-        if to.GetDesc(&mut desc).is_err()
-            || to.LockRect(&mut locked, std::ptr::null(), 0x10).is_err()
-        {
-            return true;
+    let reply = call(
+        e,
+        Cmd::GetRenderTargetData {
+            device: this,
+            source,
+            destination,
+            pitch: if bits == 0 { 0 } else { pitch },
+        },
+    );
+    let Some(Reply::Rows(Some(rows))) = reply else {
+        return false;
+    };
+    if bits != 0 && rows.row != 0 {
+        for (y, row) in rows.bytes.chunks(rows.row as usize).enumerate() {
+            e.mem.write(bits + y as u32 * pitch, row);
         }
-        let row = pitch.min(locked.Pitch as u32) as usize;
-        for y in 0..desc.Height {
-            let from_row = std::slice::from_raw_parts(
-                (locked.pBits as *const u8).add(y as usize * locked.Pitch as usize),
-                row,
-            );
-            e.mem.write(bits + y * pitch, from_row);
-        }
-        let _ = to.UnlockRect();
     }
     true
-}
-
-/// `Reset` succeeded on the modelled device: the real device is reset with the same present
-/// parameters (the real window), and its new back buffers and depth surface are the
-/// counterparts of the modelled ones.
-pub fn device_reset(
-    e: &mut Engine,
-    this: u32,
-    present: &[u8],
-    back_buffers: &[u32],
-    depth_stencil: u32,
-) {
-    let Some(d) = device(e, this) else { return };
-    let w = |o: usize| u32::from_le_bytes(present[o..o + 4].try_into().expect("a word"));
-    let window = match w(0x1c) {
-        0 => HWND::default(),
-        h => match real_window(e, h) {
-            Some(r) => HWND(r as *mut _),
-            None => return missing(e, "Reset with a window without a real one"),
-        },
-    };
-    let mut pp = D3DPRESENT_PARAMETERS {
-        BackBufferWidth: w(0x0),
-        BackBufferHeight: w(0x4),
-        BackBufferFormat: D3DFORMAT(w(0x8)),
-        BackBufferCount: w(0xc),
-        MultiSampleType: D3DMULTISAMPLE_TYPE(w(0x10) as i32),
-        MultiSampleQuality: w(0x14),
-        SwapEffect: D3DSWAPEFFECT(w(0x18) as i32),
-        hDeviceWindow: window,
-        Windowed: BOOL(w(0x20) as i32),
-        EnableAutoDepthStencil: BOOL(w(0x24) as i32),
-        AutoDepthStencilFormat: D3DFORMAT(w(0x28)),
-        Flags: w(0x2c),
-        FullScreen_RefreshRateInHz: w(0x30),
-        PresentationInterval: presentation_interval(w(0x34)),
-    };
-    let r = unsafe { d.Reset(&mut pp) };
-    answer(e, "Reset", 0, hr(r));
-    for (i, &surface) in back_buffers.iter().enumerate() {
-        if let Ok(s) = unsafe { d.GetBackBuffer(0, i as u32, D3DBACKBUFFER_TYPE_MONO) } {
-            real(e).objects.insert(surface, Object::Surface(s));
-        }
-    }
-    if depth_stencil != 0 {
-        if let Ok(s) = unsafe { d.GetDepthStencilSurface() } {
-            real(e).objects.insert(depth_stencil, Object::Surface(s));
-        }
-    }
 }
 
 /// `SetLOD` on a managed modelled texture: the real texture's `SetLOD` with the same level; a
 /// different previous level than the model's is printed once.
 pub fn texture_set_lod(e: &mut Engine, texture: u32, lod: u32, model: u32) {
-    let Some(t) = base_texture(e, texture) else {
+    if !is_forwarded(e, texture) {
         return missing(e, "SetLOD of a texture without a real one");
-    };
-    let previous = unsafe { t.SetLOD(lod) };
-    answer(e, "SetLOD (the previous level)", model, previous);
+    }
+    record_on(
+        e,
+        texture,
+        Cmd::SetLod {
+            texture,
+            lod,
+            model,
+        },
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2068,14 +1999,14 @@ pub fn texture_set_lod(e: &mut Engine, texture: u32, lod: u32, model: u32) {
 // takes them only at those presents (counted from 1), so a short stretch can be taken every frame.
 // Nothing is read or made when `NV_SHOT` is unset; the game's state and the model are not touched.
 // ---------------------------------------------------------------------------------------------
-mod shot {
+pub(super) mod shot {
     use super::*;
     use std::path::PathBuf;
     use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     /// The directory and the interval (`NV_SHOT=DIR[,every_ms]`), read once.
-    pub(super) struct Shots {
+    pub(crate) struct Shots {
         pub dir: PathBuf,
         pub every: Duration,
         /// `NV_SHOT_FRAMES=FROM-TO`: only these presents (both included).
@@ -2108,7 +2039,7 @@ mod shot {
         })
     }
 
-    pub(super) fn wanted() -> Option<&'static Shots> {
+    pub(crate) fn wanted() -> Option<&'static Shots> {
         static SHOTS: OnceLock<Option<Shots>> = OnceLock::new();
         SHOTS
             .get_or_init(|| {
@@ -2122,9 +2053,9 @@ mod shot {
             .as_ref()
     }
 
-    /// The presents counted and when the last shot was taken.
-    fn timing() -> std::sync::MutexGuard<'static, (u64, Option<Instant>)> {
-        static T: OnceLock<Mutex<(u64, Option<Instant>)>> = OnceLock::new();
+    /// When the last shot was taken.
+    fn timing() -> std::sync::MutexGuard<'static, Option<Instant>> {
+        static T: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
         T.get_or_init(Default::default)
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -2151,24 +2082,23 @@ mod shot {
         out
     }
 
-    /// At a `Present`: one shot when the interval has passed since the last.
-    pub(super) fn at_present(d: &IDirect3DDevice9, shots: &Shots) {
-        let frame = {
-            let mut t = timing();
-            t.0 += 1;
-            let frame = t.0;
+    /// At `Present` number `frame` (the stream's count from 1, the same for every backend of a
+    /// run): one shot when the interval has passed since the last.
+    pub(crate) fn at_present(d: &IDirect3DDevice9, shots: &Shots, frame: u32) {
+        let frame = u64::from(frame);
+        {
+            let mut last = timing();
             if shots
                 .frames
                 .is_some_and(|(from, to)| frame < from || frame > to)
             {
                 return;
             }
-            if t.1.is_some_and(|last| last.elapsed() < shots.every) {
+            if last.is_some_and(|last| last.elapsed() < shots.every) {
                 return;
             }
-            t.1 = Some(Instant::now());
-            t.0
-        };
+            *last = Some(Instant::now());
+        }
         let wall = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_millis());
@@ -2246,7 +2176,7 @@ mod shot {
     /// At a `Present` after F12: `NV_REPORT_DIR\NNN\` with the frame (`picture.bmp`), the log's
     /// end (`log.txt`, from the file `NV_REPORT_LOG` names) and a `note.txt` for the player's own
     /// words; a beep says it is done. The game's state and the model are not touched.
-    pub(super) fn report_at_present(d: &IDirect3DDevice9) {
+    pub(crate) fn report_at_present(d: &IDirect3DDevice9) {
         if !REPORT_ASKED.swap(false, std::sync::atomic::Ordering::Relaxed) {
             return;
         }
@@ -2394,12 +2324,12 @@ mod shot {
 //   left from an earlier draw), and other meshes drawn with a pixel shader a face mesh used are
 //   reported too (`another mesh, same pixel shader as a face pass`: an NPC head to compare with).
 // ---------------------------------------------------------------------------------------------
-mod face_check {
+pub(super) mod face_check {
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Mutex, OnceLock};
 
-    pub(super) fn enabled() -> bool {
+    pub(crate) fn enabled() -> bool {
         static ON: OnceLock<bool> = OnceLock::new();
         *ON.get_or_init(|| std::env::var_os("NV_FACE_CHECK").is_some())
     }
@@ -2414,7 +2344,7 @@ mod face_check {
     }
 
     #[derive(Default)]
-    pub(super) struct State {
+    pub(crate) struct State {
         /// Every texture created: (width, height, format, levels).
         pub textures: HashMap<u32, (u32, u32, u32, u32)>,
         /// The followed face textures and their level surfaces: surface -> (texture, level).
@@ -2448,7 +2378,7 @@ mod face_check {
         pub projection_shown: bool,
     }
 
-    pub(super) fn state() -> std::sync::MutexGuard<'static, State> {
+    pub(crate) fn state() -> std::sync::MutexGuard<'static, State> {
         static STATE: OnceLock<Mutex<State>> = OnceLock::new();
         STATE
             .get_or_init(Default::default)
@@ -2495,7 +2425,7 @@ mod face_check {
 }
 
 /// `NV_FACE_CHECK`: a texture was created (diagnostic only); the face texture is followed.
-fn face_check_texture(
+pub(super) fn face_check_texture(
     texture: u32,
     levels: &[u32],
     size: (u32, u32),
@@ -2533,11 +2463,10 @@ fn face_check_texture(
 }
 
 /// `NV_FACE_CHECK`: a level of the face texture went to the real surface.
-fn face_check_upload(
-    e: &Engine,
+pub(super) fn face_check_upload(
     surface: u32,
     real_surface: &IDirect3DSurface9,
-    bits: u32,
+    model: &[u8],
     row: u32,
     rows: u32,
 ) {
@@ -2549,7 +2478,6 @@ fn face_check_upload(
         .get(&texture)
         .copied()
         .unwrap_or_default();
-    let model = e.mem.bytes(bits, row.saturating_mul(rows));
     let mut desc = D3DSURFACE_DESC::default();
     let _ = unsafe { real_surface.GetDesc(&mut desc) };
     let mut locked = D3DLOCKED_RECT::default();
@@ -2575,7 +2503,7 @@ fn face_check_upload(
         desc.Width,
         desc.Height,
         desc.Format.0,
-        face_check::means(&model),
+        face_check::means(model),
         if read.is_ok() { "ok" } else { "failed" },
         face_check::means(&back),
         back == model,
@@ -2604,7 +2532,7 @@ fn face_check_upload(
 }
 
 /// `NV_FACE_CHECK`: a sampler took a texture.
-fn face_check_bind(sampler: u32, texture: u32) {
+pub(super) fn face_check_bind(sampler: u32, texture: u32) {
     let mut s = face_check::state();
     let old = s.samplers.insert(sampler, texture).unwrap_or(0);
     if s.faces.is_empty() {
@@ -2624,7 +2552,7 @@ fn face_check_bind(sampler: u32, texture: u32) {
 }
 
 /// `NV_FACE_CHECK`: a shader was set.
-fn face_check_shader(shader: u32, pixel: bool) {
+pub(super) fn face_check_shader(shader: u32, pixel: bool) {
     let mut s = face_check::state();
     if pixel {
         s.pixel_shader = shader;
@@ -2635,7 +2563,7 @@ fn face_check_shader(shader: u32, pixel: bool) {
 
 /// `NV_FACE_CHECK`: a frame ends: its indexed draw counts (the first 12 frames once the face texture
 /// exists) and, once, the projection transform as set.
-fn face_check_present() {
+pub(super) fn face_check_present() {
     let mut s = face_check::state();
     if s.faces.is_empty() {
         return;
@@ -2671,23 +2599,20 @@ fn face_check_present() {
 
 /// `NV_FACE_CHECK`: an indexed draw with the face texture bound, or one of the few after it.
 /// `NV_FACE_CHECK`: a render state was set.
-fn face_check_render_state(state: u32, value: u32) {
+pub(super) fn face_check_render_state(state: u32, value: u32) {
     let mut s = face_check::state();
     s.render_states.insert(state, value);
     s.states_since_draw.push((state, value));
 }
 
 /// `NV_FACE_CHECK`: float shader constants were set (`pixel` for the pixel shader's).
-fn face_check_constants(e: &Engine, pixel: bool, start: u32, data: u32, count: u32) {
+/// `NV_FACE_CHECK`: float constants set (`words`: the registers, 4 words each, as the call gave
+/// them).
+pub(super) fn face_check_constants(pixel: bool, start: u32, words: &[u32]) {
     let mut s = face_check::state();
-    for i in 0..count.min(256) {
-        let at = data.wrapping_add(16 * i);
-        let value = [
-            e.mem.u32(at),
-            e.mem.u32(at + 4),
-            e.mem.u32(at + 8),
-            e.mem.u32(at + 12),
-        ];
+    for (i, register) in words.chunks_exact(4).take(256).enumerate() {
+        let i = i as u32;
+        let value = [register[0], register[1], register[2], register[3]];
         let map = if pixel {
             &mut s.pixel_constants
         } else {
@@ -2726,7 +2651,7 @@ fn face_check_det3(rows: [&[u32]; 3]) -> f32 {
 
 /// The determinants the face check prints: view (2), projection (3), world (256) when set, and
 /// of vertex constants c0..c2 (rows) when set.
-fn face_check_determinants(s: &face_check::State) -> String {
+pub(super) fn face_check_determinants(s: &face_check::State) -> String {
     let mut parts = Vec::new();
     for (name, state) in [("view", 2u32), ("projection", 3), ("world", 256)] {
         if let Some(m) = s.transforms.get(&state) {
@@ -2747,7 +2672,7 @@ fn face_check_determinants(s: &face_check::State) -> String {
 }
 
 /// One line of float constants: `cN=(x,y,z,w)` for each register set so far, in order.
-fn face_check_constant_list(map: &HashMap<u32, [u32; 4]>, below: u32) -> String {
+pub(super) fn face_check_constant_list(map: &HashMap<u32, [u32; 4]>, below: u32) -> String {
     let mut registers: Vec<u32> = map.keys().copied().filter(|&r| r < below).collect();
     registers.sort();
     registers
@@ -2762,7 +2687,7 @@ fn face_check_constant_list(map: &HashMap<u32, [u32; 4]>, below: u32) -> String 
 
 /// `NV_FACE_CHECK`: an indexed draw with the face texture bound, or one of the few after it.
 #[allow(clippy::too_many_arguments)]
-fn face_check_draw(
+pub(super) fn face_check_draw(
     kind: u32,
     base_vertex: u32,
     min_index: u32,
@@ -2875,17 +2800,163 @@ fn face_check_draw(
     ));
 }
 
+/// Test only: a hidden window of the window thread (64 by 64), for a real device; `None` when it
+/// could not be made.
+#[cfg(test)]
+pub(crate) fn test_window() -> Option<isize> {
+    let (reply, answer) = std::sync::mpsc::channel();
+    let sent = window_thread()
+        .lock()
+        .map(|tx| {
+            tx.send(Request {
+                title: b"nv-rs test".to_vec(),
+                style: 0,
+                ex_style: 0,
+                rect: [0, 0, 64, 64],
+                parent: 0,
+                reply,
+            })
+            .is_ok()
+        })
+        .unwrap_or(false);
+    answer.recv().ok().filter(|&w| sent && w != 0)
+}
+
+/// Test only: the 64 by 64 windowed `D3DPRESENT_PARAMETERS` words a test device is made with
+/// (one back buffer, `D3DSWAPEFFECT_DISCARD`).
+#[cfg(test)]
+pub(crate) fn test_present() -> [u32; 14] {
+    let mut p = [0u32; 14];
+    p[0] = 64;
+    p[1] = 64;
+    p[3] = 1;
+    p[6] = 1;
+    p[8] = 1;
+    p
+}
+
+/// Test only: a real device on a hidden window of the window thread (`behavior`: the creation
+/// flags, the game's are 0x54, with `D3DCREATE_FPU_PRESERVE` as the backend adds), made the real
+/// counterpart of the modelled device `at` through the engine's stream (a direct one, made here
+/// when the engine has none); `None` where Direct3D 9 has no device (no display adapter, as on
+/// CI).
+#[cfg(test)]
+pub(crate) fn test_real_device(e: &mut Engine, at: u32, behavior: u32) -> Option<IDirect3DDevice9> {
+    test_real_device_on(e, at, behavior, false)
+}
+
+/// Test only: [`test_real_device`], the backend on the render thread with `threaded`.
+#[cfg(test)]
+pub(crate) fn test_real_device_on(
+    e: &mut Engine,
+    at: u32,
+    behavior: u32,
+    threaded: bool,
+) -> Option<IDirect3DDevice9> {
+    let window = test_window()?;
+    if real(e).stream.is_none() {
+        // With the render thread, the queries' board too, as `direct3d_created` makes it.
+        let board = std::sync::Arc::new(super::d3d9backend::QueryBoard::default());
+        let made = if threaded {
+            real(e).query_board = Some(std::sync::Arc::clone(&board));
+            super::d3d9backend::RealBackend::with_query_board(board)
+        } else {
+            super::d3d9backend::RealBackend::new()
+        };
+        let backend = std::sync::Arc::new(std::sync::Mutex::new(made));
+        let shared = Box::new(SharedBackend(std::sync::Arc::clone(&backend)));
+        real(e).stream = Some(if threaded {
+            Stream::threaded(shared, d3d9_stream::Settings::default())
+        } else {
+            Stream::direct(shared)
+        });
+        real(e).test_backend = Some(backend);
+    }
+    let present = test_present();
+    let reply = call(
+        e,
+        Cmd::CreateDevice {
+            device: at,
+            focus: window,
+            window,
+            behavior,
+            present: Data::from_words(&present),
+            back_buffers: Data::from_words(&[]),
+            depth_stencil: 0,
+        },
+    );
+    let Some(Reply::Device {
+        created: true,
+        native,
+    }) = reply
+    else {
+        return None;
+    };
+    let device = native?
+        .0
+        .downcast::<super::d3d9backend::SharedDevice>()
+        .ok()?
+        .0;
+    real(e).devices.push((at, Some(device.clone())));
+    Some(device)
+}
+
+/// Test only: `backend` as the engine's forwarding (carried out at once, or on a render thread
+/// with `threaded`), with the modelled `devices` and `objects` given counterparts there (the
+/// stand-ins of `d3d9backend::stub`).
+#[cfg(test)]
+pub(crate) fn test_forwarding(
+    e: &mut Engine,
+    backend: Box<dyn d3d9_stream::Backend>,
+    threaded: bool,
+    devices: &[u32],
+    objects: &[u32],
+) {
+    let r = real(e);
+    r.stream = Some(if threaded {
+        Stream::threaded(backend, d3d9_stream::Settings::default())
+    } else {
+        Stream::direct(backend)
+    });
+    r.devices = devices.iter().map(|&d| (d, None)).collect();
+    r.forwarded = objects.iter().copied().collect();
+}
+
+/// Test only: returns once every command recorded is carried out (the render thread's too).
+#[cfg(test)]
+pub(crate) fn test_finish(e: &mut Engine) {
+    if let Some(s) = real(e).stream.as_mut() {
+        s.finish();
+    }
+}
+
+/// Test only: a backend shared with the test, which looks at it afterwards (its stand-ins' log,
+/// its real objects).
+#[cfg(test)]
+pub(crate) struct SharedBackend(
+    pub(crate) std::sync::Arc<std::sync::Mutex<super::d3d9backend::RealBackend>>,
+);
+
+#[cfg(test)]
+impl d3d9_stream::Backend for SharedBackend {
+    fn execute(&mut self, cmd: Cmd<Data<'_>>) -> Reply {
+        self.0.lock().unwrap().execute(cmd)
+    }
+}
+
+/// Test only: the real counterpart of the modelled texture or cube texture `texture`, after
+/// [`test_real_device`].
+#[cfg(test)]
+pub(crate) fn real_texture(e: &mut Engine, texture: u32) -> Option<IDirect3DBaseTexture9> {
+    test_finish(e);
+    let backend = real(e).test_backend.clone()?;
+    let b = backend.lock().unwrap();
+    b.test_texture(texture)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The real device keeps the game's interval unless `NV_D3D9_PRESENT=immediate`.
-    #[test]
-    fn the_presentation_interval_is_the_games_unless_immediate_is_asked() {
-        assert_eq!(choose_interval(1, false), 1);
-        assert_eq!(choose_interval(0, false), 0);
-        assert_eq!(choose_interval(1, true), INTERVAL_IMMEDIATE);
-    }
 
     /// An F12 report's `log-start.txt`: the log's first bytes, cut back to a whole line.
     #[test]
@@ -2993,94 +3064,124 @@ mod tests {
         assert_eq!(dik(key(0, false)), None);
     }
 
-    /// p169's crash: on a pure device (the game's behaviour flags 0x54) the runtime keeps no
-    /// reference of its own to a bound vertex buffer. The model lets go of a buffer when the
-    /// program rebinds the stream, before the same call reaches the real device; the real buffer
-    /// must outlive that call (it is released at the next `Present`), or the real
-    /// `SetStreamSource` reads freed memory. Skipped where there is no Direct3D 9 device.
+    /// With the render thread, a query read without `D3DGETDATA_FLUSH` before the real device has
+    /// the game's `END` answers `S_FALSE` (the result is not in) without waiting; one the real
+    /// device could not make answers as before (no real query); once the `END` is issued, the
+    /// real query answers.
     #[test]
-    fn a_buffer_the_model_lets_go_of_stays_alive_until_present() {
-        let (reply, answer) = std::sync::mpsc::channel();
-        let sent = window_thread()
-            .lock()
-            .map(|tx| {
-                tx.send(Request {
-                    title: b"nv-rs test".to_vec(),
-                    style: 0,
-                    ex_style: 0,
-                    rect: [0, 0, 64, 64],
-                    parent: 0,
-                    reply,
-                })
-                .is_ok()
-            })
-            .unwrap_or(false);
-        let Some(window) = answer.recv().ok().filter(|&w| sent && w != 0) else {
-            return;
+    fn query_results_not_in_yet_answer_not_ready_without_waiting() {
+        let mut e = Engine::new();
+        let board = std::sync::Arc::new(super::super::d3d9backend::QueryBoard::default());
+        {
+            let r = real(&mut e);
+            r.stream = Some(Stream::direct(Box::new(
+                super::super::d3d9backend::RealBackend::new(),
+            )));
+            r.query_board = Some(std::sync::Arc::clone(&board));
+            r.forwarded.extend([0x10, 0x20]);
+        }
+        query_issue(&mut e, 0x10, 2);
+        query_issue(&mut e, 0x10, ISSUE_END);
+        assert_eq!(real(&mut e).query_ends.get(&0x10), Some(&1));
+        // Not made on the real device yet.
+        assert_eq!(query_get_data(&mut e, 0x10, 0), Some((S_FALSE, 0)));
+        // A reader that waits (D3DGETDATA_FLUSH) asks the backend after every earlier command
+        // instead: here it has no such query.
+        assert_eq!(query_get_data(&mut e, 0x10, GETDATA_FLUSH), None);
+        // Its creation failed there.
+        let failed = || super::super::d3d9backend::BoardQuery {
+            made: 1,
+            query: None,
+            ends: 0,
         };
-        let Some(d3d) = (unsafe { Direct3DCreate9(32) }) else {
-            return;
-        };
-        let mut pp = D3DPRESENT_PARAMETERS {
-            BackBufferWidth: 64,
-            BackBufferHeight: 64,
-            BackBufferCount: 1,
-            SwapEffect: D3DSWAPEFFECT_DISCARD,
-            hDeviceWindow: HWND(window as *mut _),
-            Windowed: BOOL(1),
-            ..Default::default()
-        };
-        let mut out = None;
-        // Hardware vertex processing, pure, multithreaded: the game's 0x54.
-        let made = unsafe {
-            d3d.CreateDevice(
-                0,
-                D3DDEVTYPE_HAL,
-                HWND(window as *mut _),
-                0x54 | FPU_PRESERVE,
-                &mut pp,
-                &mut out,
-            )
-        };
-        let Some(real_device) = out.filter(|_| made.is_ok()) else {
-            return;
-        };
+        real(&mut e).queries_made.insert(0x20, 1);
+        board.lock().insert(0x20, failed());
+        query_issue(&mut e, 0x20, ISSUE_END);
+        assert_eq!(query_get_data(&mut e, 0x20, 0), None);
+        // Destroyed and made again at the same address before the backend got there: the board
+        // still holds the old one, which is not this one's answer.
+        forget(&mut e, 0x20);
+        real(&mut e).forwarded.insert(0x20);
+        real(&mut e).queries_made.insert(0x20, 2);
+        query_issue(&mut e, 0x20, ISSUE_END);
+        assert_eq!(query_get_data(&mut e, 0x20, 0), Some((S_FALSE, 0)));
+        // Not a forwarded query: none, as before.
+        assert_eq!(query_get_data(&mut e, 0x30, 0), None);
+        forget(&mut e, 0x10);
+        assert_eq!(real(&mut e).query_ends.get(&0x10), None);
+    }
+
+    /// The same on a real device with the render thread: the occlusion query's result comes
+    /// (`S_FALSE` until then, never a wait), and a reader with `D3DGETDATA_FLUSH` gets the real
+    /// answer after waiting. Skipped where Direct3D 9 has no device.
+    #[test]
+    fn a_real_query_answers_without_waiting_for_the_render_thread() {
         let mut e = Engine::new();
         let device = 0x1000;
-        real(&mut e)
-            .objects
-            .insert(device, Object::Device(real_device));
-        let (first, second) = (0x2000, 0x2008);
-        // D3DUSAGE_WRITEONLY, default pool, 96 bytes.
-        buffer_created(&mut e, device, first, false, 96, 8, 0, 0);
-        set_stream_source(&mut e, device, 0, first, 0, 24, 0);
-        // The model rebinds stream 0: the first buffer goes before the real call.
-        buffer_created(&mut e, device, second, false, 96, 8, 0, 0);
-        forget(&mut e, first);
-        assert_eq!(state!(e).graphics.real.graveyard.len(), 1);
-        set_stream_source(&mut e, device, 0, second, 0, 24, 0);
-        set_stream_source(&mut e, device, 0, 0, 0, 0, 0);
-        present(&mut e, device, 0, 0, 0, 0, 0);
-        assert!(state!(e).graphics.real.graveyard.is_empty());
+        if test_real_device_on(&mut e, device, 0x54, true).is_none() {
+            return;
+        }
+        let query = 0x2000;
+        query_created(&mut e, device, query, 9);
+        for _ in 0..3 {
+            query_issue(&mut e, query, 2);
+            query_issue(&mut e, query, ISSUE_END);
+            // At once: not in yet, or the real answer (nothing was drawn: no pixels passed).
+            let at_once = query_get_data(&mut e, query, 0);
+            assert!(
+                matches!(at_once, Some((S_FALSE, 0)) | Some((0, 0))),
+                "{at_once:?}"
+            );
+            // A reader that waits (D3DGETDATA_FLUSH, as the game's loops read): the real answer
+            // after every earlier command, until the GPU is done.
+            let mut answer = None;
+            for _ in 0..2000 {
+                answer = query_get_data(&mut e, query, GETDATA_FLUSH);
+                if answer != Some((S_FALSE, 0)) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert_eq!(answer, Some((0, 0)));
+            // Then the result reads at once.
+            assert_eq!(query_get_data(&mut e, query, 0), Some((0, 0)));
+        }
+        assert!(state!(e).graphics.real.logged_is_empty());
     }
 
-    /// A real device on a hidden window of the window thread, as an engine object at 0x1000
-    /// (`behavior`: the creation flags); `None` where Direct3D 9 has no device.
-    fn test_device(e: &mut Engine, behavior: u32) -> Option<u32> {
-        test_real_device(e, 0x1000, behavior).map(|_| 0x1000)
+    /// A level's rows read as if packed, from rows lying `pitch` apart.
+    #[test]
+    fn rows_are_read_packed_whatever_their_pitch() {
+        let mut e = Engine::new();
+        let bits = e.mem.alloc(64);
+        for i in 0..64u32 {
+            e.mem.set_u8(bits + i, i as u8);
+        }
+        // Three rows of 5 bytes, 16 apart.
+        let mut out = [0u8; 15];
+        read_rows(&e.mem, bits, 16, 5, 0, &mut out);
+        assert_eq!(out, [0, 1, 2, 3, 4, 16, 17, 18, 19, 20, 32, 33, 34, 35, 36]);
+        let mut part = [0u8; 4];
+        read_rows(&e.mem, bits, 16, 5, 3, &mut part);
+        assert_eq!(part, [3, 4, 16, 17]);
+        let mut packed = [0u8; 6];
+        read_rows(&e.mem, bits, 5, 5, 4, &mut packed);
+        assert_eq!(packed, [4, 5, 6, 7, 8, 9]);
     }
 
-    /// Not a check: the host heap allocations of the forwarded per-frame calls on a real device
-    /// (`cargo test --release -p engine-platform --lib allocations_per -- --ignored --nocapture`);
-    /// nothing is listed where Direct3D 9 has no device.
+    /// Not a check: the host heap allocations of the forwarded per-frame calls on a real device,
+    /// recorded and carried out at once (`cargo test --release -p engine-platform --lib
+    /// allocations_per -- --ignored --nocapture`); nothing is listed where Direct3D 9 has no
+    /// device.
     #[test]
     #[ignore]
     fn allocations_per_operation_of_the_real_device() {
         use crate::alloc_count::{per_run, row};
         let mut e = Engine::new();
-        let Some(device) = test_device(&mut e, 0x54) else {
+        let device = 0x1000;
+        if test_real_device(&mut e, device, 0x54).is_none() {
             return;
-        };
+        }
         let matrix = e.mem.alloc(64);
         for i in 0..4 {
             e.mem.set_u32(matrix + 20 * i, 1f32.to_bits());
@@ -3127,10 +3228,6 @@ mod tests {
             per_run(1000, || set_render_state(&mut e, device, 7, 1, 0)),
         ));
         rows.push((
-            "SetVertexShaderConstantF, 16",
-            per_run(1000, || set_constants(&mut e, device, 0, 0, block, 16, 0)),
-        ));
-        rows.push((
             "SetStreamSource",
             per_run(1000, || {
                 set_stream_source(&mut e, device, 0, buffer, 0, 16, 0)
@@ -3139,16 +3236,16 @@ mod tests {
         rows.push((
             "buffer Lock + Unlock, 0x100 bytes",
             per_run(1000, || {
-                buffer_locked(&mut e, buffer, 0, 0x100, LOCK_DISCARD, 0);
+                buffer_locked(&mut e, buffer, 0, 0x100, 0x2000, 0);
                 buffer_unlocked(&mut e, buffer, block, 0x900, 0);
             }),
         ));
         rows.push((
             "DrawPrimitiveUP, 2 triangles of 16-byte vertices",
             per_run(1000, || {
-                let _ = unsafe { device_of(&e, device).BeginScene() };
+                begin_scene(&mut e, device, 0);
                 draw_primitive_up(&mut e, device, 4, 2, block, 16, 6, 0);
-                let _ = unsafe { device_of(&e, device).EndScene() };
+                end_scene(&mut e, device, 0);
             }),
         ));
         for (what, per) in rows {
@@ -3161,448 +3258,5 @@ mod tests {
             "real IDirect3DDevice9 SetLight",
             per_run(1000, || set_light(&mut e, device, 0, block, 0)),
         );
-    }
-
-    fn device_of(e: &Engine, this: u32) -> std::mem::ManuallyDrop<IDirect3DDevice9> {
-        device(e, this).expect("the real device")
-    }
-
-    /// `SetLOD` on a managed texture reaches the real texture, and the real one answers the
-    /// previous level as the model does.
-    #[test]
-    fn set_lod_reaches_the_real_texture() {
-        let mut e = Engine::new();
-        let Some(device) = test_device(&mut e, 0x54) else {
-            return;
-        };
-        let (texture, levels) = (0x3000, [0x3008, 0x3010, 0x3018]);
-        // 64x64, three levels, A8R8G8B8, managed.
-        texture_created(&mut e, device, texture, &levels, 64, 64, 0, 21, 1);
-        texture_set_lod(&mut e, texture, 2, 0);
-        texture_set_lod(&mut e, texture, 1, 2);
-        let t = base_texture(&e, texture).expect("the real texture");
-        assert_eq!(unsafe { t.GetLOD() }, 1);
-        assert!(
-            state!(e).graphics.real.logged.is_empty(),
-            "no answer differed: {:?}",
-            state!(e).graphics.real.logged
-        );
-    }
-}
-
-/// Test only: a real device on a hidden window of the window thread (`behavior`: the creation
-/// flags, the game's are 0x54, with `D3DCREATE_FPU_PRESERVE` as the layer adds), made the real
-/// counterpart of the modelled device `at`; `None` where Direct3D 9 has no device (no display
-/// adapter, as on CI).
-#[cfg(test)]
-pub(crate) fn test_real_device(e: &mut Engine, at: u32, behavior: u32) -> Option<IDirect3DDevice9> {
-    let (reply, answer) = std::sync::mpsc::channel();
-    let sent = window_thread()
-        .lock()
-        .map(|tx| {
-            tx.send(Request {
-                title: b"nv-rs test".to_vec(),
-                style: 0,
-                ex_style: 0,
-                rect: [0, 0, 64, 64],
-                parent: 0,
-                reply,
-            })
-            .is_ok()
-        })
-        .unwrap_or(false);
-    let window = answer.recv().ok().filter(|&w| sent && w != 0)?;
-    let d3d = unsafe { Direct3DCreate9(32) }?;
-    let mut pp = D3DPRESENT_PARAMETERS {
-        BackBufferWidth: 64,
-        BackBufferHeight: 64,
-        BackBufferCount: 1,
-        SwapEffect: D3DSWAPEFFECT_DISCARD,
-        hDeviceWindow: HWND(window as *mut _),
-        Windowed: BOOL(1),
-        ..Default::default()
-    };
-    let mut out = None;
-    let made = unsafe {
-        d3d.CreateDevice(
-            0,
-            D3DDEVTYPE_HAL,
-            HWND(window as *mut _),
-            behavior | FPU_PRESERVE,
-            &mut pp,
-            &mut out,
-        )
-    };
-    let device = out.filter(|_| made.is_ok())?;
-    real(e).objects.insert(at, Object::Device(device.clone()));
-    Some(device)
-}
-
-/// Test only: a stand-in for the real device and its objects (COM objects of this module whose
-/// methods answer `S_OK`), so the forwarding can be driven and measured without a GPU. While
-/// recording ([`stub::record`]) each call that reaches the stand-in device is kept with its
-/// arguments (data behind pointers as words, objects by the number they were installed with).
-#[cfg(test)]
-pub(crate) mod stub {
-    use super::*;
-    use std::cell::RefCell;
-    use std::ffi::c_void;
-    use windows::core::{Interface, HRESULT};
-    use windows::Foundation::Numerics::Matrix4x4;
-
-    /// What each stand-in is installed as.
-    #[derive(Debug, Clone, Copy)]
-    pub(crate) enum Kind {
-        Device,
-        Texture,
-        VertexBuffer,
-        IndexBuffer,
-        VertexShader,
-        PixelShader,
-        Declaration,
-    }
-
-    /// A stand-in COM object: its vtable and the number it is recorded by.
-    #[repr(C)]
-    struct StubObject {
-        vtable: *const usize,
-        id: u32,
-    }
-
-    thread_local! {
-        static LOG: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
-    }
-
-    /// Starts recording the calls that reach stand-in devices on this thread (an empty log).
-    pub(crate) fn record() {
-        LOG.with(|l| *l.borrow_mut() = Some(Vec::new()));
-    }
-
-    /// The calls recorded since [`record`]; recording stops.
-    pub(crate) fn take() -> Vec<String> {
-        LOG.with(|l| l.borrow_mut().take()).unwrap_or_default()
-    }
-
-    fn note(f: impl FnOnce() -> String) {
-        LOG.with(|l| {
-            if let Some(log) = l.borrow_mut().as_mut() {
-                log.push(f());
-            }
-        });
-    }
-
-    fn id(p: *mut c_void) -> String {
-        if p.is_null() {
-            "null".to_string()
-        } else {
-            // SAFETY: every object a stand-in device is given is a `StubObject`.
-            format!("#{}", unsafe { (*(p as *const StubObject)).id })
-        }
-    }
-
-    fn data<T: Copy>(p: *const T, n: usize, word: impl Fn(T) -> u32) -> String {
-        if p.is_null() {
-            return "null".to_string();
-        }
-        // SAFETY: the forwarding passes `n` readable values.
-        let v = unsafe { std::slice::from_raw_parts(p, n) };
-        v.iter()
-            .map(|&x| format!("{:08x}", word(x)))
-            .collect::<Vec<_>>()
-            .join(" ")
-    }
-
-    const OK: HRESULT = HRESULT(0);
-
-    unsafe extern "system" fn unexpected(_this: *mut c_void) -> HRESULT {
-        note(|| "an unexpected method".to_string());
-        HRESULT(0x8000_4005_u32 as i32)
-    }
-    unsafe extern "system" fn add_ref(_this: *mut c_void) -> u32 {
-        1
-    }
-    unsafe extern "system" fn release(_this: *mut c_void) -> u32 {
-        0
-    }
-    unsafe extern "system" fn begin_scene(_this: *mut c_void) -> HRESULT {
-        note(|| "BeginScene".to_string());
-        OK
-    }
-    unsafe extern "system" fn end_scene(_this: *mut c_void) -> HRESULT {
-        note(|| "EndScene".to_string());
-        OK
-    }
-    unsafe extern "system" fn set_transform(
-        _this: *mut c_void,
-        state: D3DTRANSFORMSTATETYPE,
-        m: *const Matrix4x4,
-    ) -> HRESULT {
-        note(|| {
-            format!(
-                "SetTransform({}, {})",
-                state.0,
-                data(m as *const f32, 16, f32::to_bits)
-            )
-        });
-        OK
-    }
-    unsafe extern "system" fn set_viewport(_this: *mut c_void, v: *const D3DVIEWPORT9) -> HRESULT {
-        note(|| {
-            // SAFETY: the forwarding passes a viewport.
-            let v = unsafe { *v };
-            format!(
-                "SetViewport({} {} {} {} {:08x} {:08x})",
-                v.X,
-                v.Y,
-                v.Width,
-                v.Height,
-                v.MinZ.to_bits(),
-                v.MaxZ.to_bits()
-            )
-        });
-        OK
-    }
-    unsafe extern "system" fn set_render_state(
-        _this: *mut c_void,
-        state: D3DRENDERSTATETYPE,
-        value: u32,
-    ) -> HRESULT {
-        note(|| format!("SetRenderState({}, {value:#x})", state.0));
-        OK
-    }
-    unsafe extern "system" fn clear(
-        _this: *mut c_void,
-        count: u32,
-        rects: *const D3DRECT,
-        flags: u32,
-        colour: u32,
-        z: f32,
-        stencil: u32,
-    ) -> HRESULT {
-        note(|| {
-            format!(
-                "Clear({count}, [{}], {flags:#x}, {colour:#x}, {:08x}, {stencil})",
-                data(rects as *const u32, 4 * count as usize, |w| w),
-                z.to_bits()
-            )
-        });
-        OK
-    }
-    unsafe extern "system" fn set_material(_this: *mut c_void, m: *const D3DMATERIAL9) -> HRESULT {
-        note(|| format!("SetMaterial([{}])", data(m as *const u32, 17, |w| w)));
-        OK
-    }
-    unsafe extern "system" fn set_light(
-        _this: *mut c_void,
-        index: u32,
-        l: *const D3DLIGHT9,
-    ) -> HRESULT {
-        note(|| format!("SetLight({index}, [{}])", data(l as *const u32, 26, |w| w)));
-        OK
-    }
-    unsafe extern "system" fn draw_primitive_up(
-        _this: *mut c_void,
-        kind: D3DPRIMITIVETYPE,
-        count: u32,
-        v: *const c_void,
-        stride: u32,
-    ) -> HRESULT {
-        note(|| {
-            let vertices = match kind.0 {
-                1 => count,
-                2 => 2 * count,
-                3 => count + 1,
-                4 => 3 * count,
-                _ => count + 2,
-            };
-            format!(
-                "DrawPrimitiveUP({}, {count}, [{}], {stride})",
-                kind.0,
-                data(v as *const u8, (vertices * stride) as usize, u32::from)
-            )
-        });
-        OK
-    }
-    unsafe extern "system" fn set_texture(
-        _this: *mut c_void,
-        stage: u32,
-        t: *mut c_void,
-    ) -> HRESULT {
-        note(|| format!("SetTexture({stage}, {})", id(t)));
-        OK
-    }
-    unsafe extern "system" fn set_texture_stage_state(
-        _this: *mut c_void,
-        stage: u32,
-        kind: D3DTEXTURESTAGESTATETYPE,
-        value: u32,
-    ) -> HRESULT {
-        note(|| format!("SetTextureStageState({stage}, {}, {value:#x})", kind.0));
-        OK
-    }
-    unsafe extern "system" fn set_sampler_state(
-        _this: *mut c_void,
-        sampler: u32,
-        kind: D3DSAMPLERSTATETYPE,
-        value: u32,
-    ) -> HRESULT {
-        note(|| format!("SetSamplerState({sampler}, {}, {value:#x})", kind.0));
-        OK
-    }
-    unsafe extern "system" fn draw_primitive(
-        _this: *mut c_void,
-        kind: D3DPRIMITIVETYPE,
-        start: u32,
-        count: u32,
-    ) -> HRESULT {
-        note(|| format!("DrawPrimitive({}, {start}, {count})", kind.0));
-        OK
-    }
-    unsafe extern "system" fn draw_indexed_primitive(
-        _this: *mut c_void,
-        kind: D3DPRIMITIVETYPE,
-        base: i32,
-        min: u32,
-        vertices: u32,
-        start: u32,
-        count: u32,
-    ) -> HRESULT {
-        note(|| {
-            format!(
-                "DrawIndexedPrimitive({}, {base}, {min}, {vertices}, {start}, {count})",
-                kind.0
-            )
-        });
-        OK
-    }
-    unsafe extern "system" fn set_vertex_declaration(
-        _this: *mut c_void,
-        d: *mut c_void,
-    ) -> HRESULT {
-        note(|| format!("SetVertexDeclaration({})", id(d)));
-        OK
-    }
-    unsafe extern "system" fn set_fvf(_this: *mut c_void, fvf: u32) -> HRESULT {
-        note(|| format!("SetFVF({fvf:#x})"));
-        OK
-    }
-    unsafe extern "system" fn set_vertex_shader(_this: *mut c_void, s: *mut c_void) -> HRESULT {
-        note(|| format!("SetVertexShader({})", id(s)));
-        OK
-    }
-    unsafe extern "system" fn set_pixel_shader(_this: *mut c_void, s: *mut c_void) -> HRESULT {
-        note(|| format!("SetPixelShader({})", id(s)));
-        OK
-    }
-    macro_rules! constants {
-        ($($name:ident, $t:ty, $per:expr, $word:expr;)*) => {$(
-            unsafe extern "system" fn $name(
-                _this: *mut c_void,
-                start: u32,
-                v: *const $t,
-                count: u32,
-            ) -> HRESULT {
-                note(|| {
-                    format!(
-                        "{}({start}, [{}], {count})",
-                        stringify!($name),
-                        data(v, ($per * count) as usize, $word)
-                    )
-                });
-                OK
-            }
-        )*};
-    }
-    constants! {
-        vertex_constant_f, f32, 4, f32::to_bits;
-        vertex_constant_i, i32, 4, |x: i32| x as u32;
-        vertex_constant_b, BOOL, 1, |x: BOOL| x.0 as u32;
-        pixel_constant_f, f32, 4, f32::to_bits;
-        pixel_constant_i, i32, 4, |x: i32| x as u32;
-        pixel_constant_b, BOOL, 1, |x: BOOL| x.0 as u32;
-    }
-    unsafe extern "system" fn set_stream_source(
-        _this: *mut c_void,
-        stream: u32,
-        b: *mut c_void,
-        offset: u32,
-        stride: u32,
-    ) -> HRESULT {
-        note(|| format!("SetStreamSource({stream}, {}, {offset}, {stride})", id(b)));
-        OK
-    }
-    unsafe extern "system" fn set_indices(_this: *mut c_void, b: *mut c_void) -> HRESULT {
-        note(|| format!("SetIndices({})", id(b)));
-        OK
-    }
-
-    /// The vtable every stand-in shares (`IDirect3DDevice9`'s slots; the other kinds are only
-    /// ever counted and released).
-    fn vtable() -> *const usize {
-        static TABLE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-        *TABLE.get_or_init(|| Box::leak(Box::new(table())).as_ptr() as usize) as *const usize
-    }
-
-    fn table() -> [usize; 128] {
-        let mut t = [unexpected as *const () as usize; 128];
-        t[1] = add_ref as *const () as usize;
-        t[2] = release as *const () as usize;
-        t[41] = begin_scene as *const () as usize;
-        t[42] = end_scene as *const () as usize;
-        t[43] = clear as *const () as usize;
-        t[49] = set_material as *const () as usize;
-        t[51] = set_light as *const () as usize;
-        t[83] = draw_primitive_up as *const () as usize;
-        t[44] = set_transform as *const () as usize;
-        t[47] = set_viewport as *const () as usize;
-        t[57] = set_render_state as *const () as usize;
-        t[65] = set_texture as *const () as usize;
-        t[67] = set_texture_stage_state as *const () as usize;
-        t[69] = set_sampler_state as *const () as usize;
-        t[81] = draw_primitive as *const () as usize;
-        t[82] = draw_indexed_primitive as *const () as usize;
-        t[87] = set_vertex_declaration as *const () as usize;
-        t[89] = set_fvf as *const () as usize;
-        t[92] = set_vertex_shader as *const () as usize;
-        t[94] = vertex_constant_f as *const () as usize;
-        t[96] = vertex_constant_i as *const () as usize;
-        t[98] = vertex_constant_b as *const () as usize;
-        t[100] = set_stream_source as *const () as usize;
-        t[104] = set_indices as *const () as usize;
-        t[107] = set_pixel_shader as *const () as usize;
-        t[109] = pixel_constant_f as *const () as usize;
-        t[111] = pixel_constant_i as *const () as usize;
-        t[113] = pixel_constant_b as *const () as usize;
-        t
-    }
-
-    /// Makes `model` (a modelled object's address) have a stand-in real counterpart of `kind`,
-    /// recorded as `#id`.
-    pub(crate) fn install(e: &mut Engine, model: u32, kind: Kind, id: u32) {
-        let raw = Box::into_raw(Box::new(StubObject {
-            vtable: vtable(),
-            id,
-        })) as *mut c_void;
-        // SAFETY: `raw` is a COM object whose vtable answers every slot these interfaces have
-        // (the stand-ins are never freed: `Release` does nothing).
-        let object = unsafe {
-            match kind {
-                Kind::Device => Object::Device(IDirect3DDevice9::from_raw(raw)),
-                Kind::Texture => Object::Texture(IDirect3DTexture9::from_raw(raw)),
-                Kind::VertexBuffer => Object::VertexBuffer(IDirect3DVertexBuffer9::from_raw(raw)),
-                Kind::IndexBuffer => Object::IndexBuffer(IDirect3DIndexBuffer9::from_raw(raw)),
-                Kind::VertexShader => Object::VertexShader(IDirect3DVertexShader9::from_raw(raw)),
-                Kind::PixelShader => Object::PixelShader(IDirect3DPixelShader9::from_raw(raw)),
-                Kind::Declaration => {
-                    Object::Declaration(IDirect3DVertexDeclaration9::from_raw(raw))
-                }
-            }
-        };
-        real(e).objects.insert(model, object);
-    }
-
-    /// How many differences between the model's and the real answers were printed.
-    pub(crate) fn logged(e: &Engine) -> usize {
-        state_ref!(e).graphics.real.logged.len()
     }
 }

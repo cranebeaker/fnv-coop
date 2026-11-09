@@ -11,6 +11,8 @@ engine-core = { path = "../engine-core" }
 # The Bink layer (bink.rs) decodes with the repository's own Bink 1 decoder.
 bink = { path = "../bink" }
 mp3 = { path = "../mp3" }
+# The Direct3D 9 call stream between the model and the real device (d3d9backend.rs; the render thread).
+d3d9-stream = { path = "../d3d9-stream" }
 vorbis = { path = "../vorbis" }
 
 # The Direct3D 9 layer forwarded to the real d3d9.dll with NV_D3D9=real (ADR-0008, d3d9real.rs):

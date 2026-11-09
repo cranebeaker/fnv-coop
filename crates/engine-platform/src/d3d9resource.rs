@@ -199,7 +199,10 @@ struct Bindings {
 pub struct Resources {
     vtables: HashMap<u32, u32>,
     objects: engine_core::AddrMap<u32, Object>,
-    bindings: engine_core::AddrMap<u32, Bindings>,
+    /// Each device's bindings, made at its first use: a short list (one entry a device, the
+    /// game makes one), found by comparing the device, where a hash map's probe of its large
+    /// entries cost more on each of the thousands of calls a frame.
+    bindings: Vec<(u32, Bindings)>,
     /// `NV_D3D9_BUFFERS=check`: the last unlocks whose buffer read back the same as its staging
     /// block, and those that did not; the bytes compared.
     round_trips: [u64; 2],
@@ -207,6 +210,10 @@ pub struct Resources {
 }
 
 fn resources(e: &mut Engine) -> &mut Resources {
+    debug_assert!(
+        engine_core::real_threads::device_lock_held(e),
+        "the Direct3D 9 state reached without the device lock"
+    );
     &mut state!(e).graphics.device_objects.resources
 }
 
@@ -218,7 +225,20 @@ fn object(e: &mut Engine, this: Ptr) -> &mut Object {
 }
 
 fn bindings(e: &mut Engine, device: Ptr) -> &mut Bindings {
-    resources(e).bindings.entry(device.addr()).or_default()
+    bindings_in(&mut resources(e).bindings, device.addr())
+}
+
+/// The bindings of `device` in `list`, made empty at its first use.
+#[inline]
+fn bindings_in(list: &mut Vec<(u32, Bindings)>, device: u32) -> &mut Bindings {
+    let at = match list.iter().position(|(d, _)| *d == device) {
+        Some(at) => at,
+        None => {
+            list.push((device, Bindings::default()));
+            list.len() - 1
+        }
+    };
+    &mut list[at].1
 }
 
 /// Registers this module's slots and makes its vtables (once).
@@ -835,15 +855,20 @@ fn bind(e: &mut Engine, this: Ptr, new: u32, code: u32, which: Held) -> u32 {
     let Resources {
         objects, bindings, ..
     } = resources(e);
-    let Ok(held) = checked(objects, new, code) else {
-        return D3DERR_INVALIDCALL;
-    };
-    let b = bindings.entry(this.addr()).or_default();
+    let b = bindings_in(bindings, this.addr());
     let word = match which {
         Held::Indices => &mut b.indices,
         Held::Declaration => &mut b.declaration,
         Held::VertexShader => &mut b.vertex_shader,
         Held::PixelShader => &mut b.pixel_shader,
+    };
+    // The object the word holds already: it is of kind `code` (checked when it was bound, and a
+    // bound object lives on), so nothing changes, as below, without looking it up.
+    if *word == new {
+        return D3D_OK;
+    }
+    let Ok(held) = checked(objects, new, code) else {
+        return D3DERR_INVALIDCALL;
     };
     let old = std::mem::replace(word, new);
     if old != new {
@@ -876,10 +901,22 @@ pub(super) fn set_stream_source(
     let Resources {
         objects, bindings, ..
     } = resources(e);
+    let b = bindings_in(bindings, this.addr());
+    // The buffer the stream holds already: it is a vertex buffer (checked when it was bound, and
+    // a bound buffer lives on), so only the offset and stride change, as below, without looking
+    // the buffer up.
+    if buffer != 0 {
+        if let Some(held) = b.streams.get_mut(&stream).filter(|s| s.0 == buffer) {
+            *held = (buffer, offset, stride);
+            if !b.empty_strides.is_empty() {
+                b.empty_strides.remove(&stream);
+            }
+            return D3D_OK;
+        }
+    }
     let Ok(held) = checked(objects, buffer, VERTEX_BUFFER_CODE) else {
         return D3DERR_INVALIDCALL;
     };
-    let b = bindings.entry(this.addr()).or_default();
     if !b.empty_strides.is_empty() {
         b.empty_strides.remove(&stream);
     }
@@ -1064,13 +1101,10 @@ fn set_constants(e: &mut Engine, this: Ptr, kind: u8, start: u32, data: Ptr, cou
         .checked_add((4 * words * count).saturating_sub(1));
     if last.is_some_and(|last| e.mem.is_mapped(data.addr()) && e.mem.is_mapped(last)) {
         let mem = &e.mem;
-        let b = state!(e)
-            .graphics
-            .device_objects
-            .resources
-            .bindings
-            .entry(this.addr())
-            .or_default();
+        let b = bindings_in(
+            &mut state!(e).graphics.device_objects.resources.bindings,
+            this.addr(),
+        );
         if b.constants.is_empty() {
             b.constants = vec![[0; 4]; 6 * CONSTANT_SLOTS];
             b.constants_set = vec![0; 6 * CONSTANT_SLOTS / 64];
@@ -1125,18 +1159,13 @@ fn set_constants(e: &mut Engine, this: Ptr, kind: u8, start: u32, data: Ptr, cou
 /// device's first set.
 #[cfg(windows)]
 pub(super) fn constant_registers(
-    e: &Engine,
+    resources: &Resources,
     device: u32,
     kind: u8,
     start: u32,
     count: u32,
 ) -> Option<&[[u32; 4]]> {
-    let b = state_ref!(e)
-        .graphics
-        .device_objects
-        .resources
-        .bindings
-        .get(&device)?;
+    let (_, b) = resources.bindings.iter().find(|(d, _)| *d == device)?;
     let first = usize::from(kind) * CONSTANT_SLOTS + start as usize;
     b.constants.get(first..first + count as usize)
 }
@@ -1199,9 +1228,11 @@ pub(super) fn default_pool_alive(e: &Engine, device: u32) -> bool {
 
 /// Releases what a device being destroyed binds.
 pub(super) fn release_bindings(e: &mut Engine, device: u32) {
-    let Some(b) = resources(e).bindings.remove(&device) else {
+    let list = &mut resources(e).bindings;
+    let Some(at) = list.iter().position(|(d, _)| *d == device) else {
         return;
     };
+    let (_, b) = list.swap_remove(at);
     let held = b.streams.values().map(|s| s.0).chain([
         b.indices,
         b.declaration,

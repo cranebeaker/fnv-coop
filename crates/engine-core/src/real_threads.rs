@@ -40,7 +40,12 @@
 //! its Direct3D device with `D3DCREATE_MULTITHREADED` (behaviour flags 0x54, `d3dxreal.rs`'s
 //! `GAME_BEHAVIOR`), so the device itself serialises calls too; the lock keeps the platform's own
 //! bookkeeping right. Pure functions are left outside it: the clock imports and D3DX's matrix,
-//! vector and plane maths.
+//! vector and plane maths. The Direct3D 9 device and its objects (the layer's `device_calls`,
+//! about 7,000 calls a frame) take a lock of their own instead, the device lock
+//! ([`device_call`]); kernel-locked code that reaches the device's state takes it inside the
+//! kernel lock ([`device_guard`]). **Lock order: the kernel lock, then the device lock; never the
+//! kernel lock while the device lock is held.** Device functions touch no kernel object and no
+//! last-error code, so they never need the kernel lock.
 //!
 //! **The host (step 9).** [`start`] turns real threads on for an engine before the game's `main`
 //! runs; from then on `CreateThread` starts a real OS thread at once (or at `ResumeThread` to 0).
@@ -469,6 +474,11 @@ unsafe impl Send for SendEngine {}
 /// What the real threads of one run share.
 pub struct World {
     kernel: KernelLock,
+    /// The device lock: the Direct3D 9 platform functions' own ([`device_call`], the layer's
+    /// `device_calls`), so the thousands of device calls a frame do not take the kernel lock.
+    /// Taken inside the kernel lock where both are held (a kernel-locked function that reaches the
+    /// device's state: [`device_guard`]), never the other way round.
+    device: KernelLock,
     /// Critical sections not 4-aligned (a fallback): their owners and holds. Aligned ones keep
     /// theirs in their own guest words ([`section_words`]).
     sections: Mutex<AddrMap<u32, Section>>,
@@ -529,6 +539,7 @@ impl World {
     fn new(import_names: AddrMap<u32, &'static str>) -> Self {
         World {
             kernel: KernelLock::new(),
+            device: KernelLock::new(),
             sections: Mutex::new(AddrMap::default()),
             section_parkers: Mutex::new(Vec::new()),
             unaligned: Mutex::new(()),
@@ -1118,6 +1129,76 @@ impl Drop for Held {
     }
 }
 
+/// Whether the platform function at `addr` runs under the device lock ([`device_call`]): one of
+/// the layer's `device_calls`.
+fn device_addr(addr: u32) -> bool {
+    crate::units::platform::layer_device_calls()
+        .iter()
+        .any(|r| r.contains(&addr))
+}
+
+/// A platform function of the Direct3D 9 device or one of its objects: under the device lock,
+/// not the kernel lock. Their state (the device model and its forwarding, engine-platform's
+/// `Graphics`) is reached only under it: by these functions, and by the kernel-locked ones that
+/// reach it through [`device_guard`]. They touch no kernel object and no last-error code. A
+/// suspended thread (`SuspendThread`, the game's task threads at quit) parks here before it takes
+/// the device lock, as it does at a kernel-locked call; not while it holds the device lock (a
+/// device function calling another), where parking would take the kernel lock inside it.
+fn device_call(e: &mut Engine, args: &[u32]) -> Ret {
+    let addr = *e
+        .call_stack
+        .last()
+        .expect("a platform call is on the call stack");
+    let world = e
+        .real
+        .as_ref()
+        .expect("a device platform call on a real thread's engine")
+        .world;
+    if !world.device.held_here() {
+        park_here(e);
+    }
+    world.device.lock(world);
+    let _held = DeviceGuard(world, std::marker::PhantomData);
+    if world.late_count.load(Ordering::Acquire) != e.real.as_ref().map_or(0, |r| r.late_seen) {
+        sync_registered(e);
+    }
+    let f = *e
+        .real
+        .as_ref()
+        .expect("checked above")
+        .locked
+        .get(&addr)
+        .unwrap_or_else(|| panic!("{addr:08x}: no device platform function"));
+    f(e, args)
+}
+
+/// A hold of the device lock, given back when dropped ([`device_guard`], [`device_call`]); not
+/// `Send`: the lock is the taking thread's, and only it can give it back.
+pub struct DeviceGuard(&'static World, std::marker::PhantomData<*const ()>);
+
+impl Drop for DeviceGuard {
+    fn drop(&mut self) {
+        self.0.device.unlock();
+    }
+}
+
+/// The device lock for a platform function outside the device's own that reaches the device's
+/// state (the windows the device presents in, D3DX's texture calls asking for the real device,
+/// NvAPI's check of an `IDirect3D9`), held until the guard drops; `None` without real threads,
+/// where one game thread runs at a time. Re-entrant: a device function that calls back into such
+/// code takes it again. Take it inside the kernel lock, never the kernel lock inside it.
+pub fn device_guard(e: &Engine) -> Option<DeviceGuard> {
+    let world = e.real.as_ref()?.world;
+    world.device.lock(world);
+    Some(DeviceGuard(world, std::marker::PhantomData))
+}
+
+/// Whether this thread may reach the device's state: it holds the device lock, or there are no
+/// real threads (one game thread runs at a time). For debug assertions in the platform layer.
+pub fn device_lock_held(e: &Engine) -> bool {
+    e.real.as_ref().map_or(true, |r| r.world.device.held_here())
+}
+
 /// `f` registered at `addr` on `e`, as real threads keep it: behind the kernel lock when it is a
 /// platform function there.
 fn install(e: &mut Engine, addr: u32, f: AbiFn) {
@@ -1128,7 +1209,12 @@ fn install(e: &mut Engine, addr: u32, f: AbiFn) {
     let Some(r) = &mut e.real else { return };
     if r.world.locked_addr(addr) {
         r.locked.insert(addr, f);
-        e.register_here(addr, locked_call);
+        let wrapper = if device_addr(addr) {
+            device_call
+        } else {
+            locked_call
+        };
+        e.register_here(addr, wrapper);
     } else {
         e.register_here(addr, f);
     }

@@ -64,6 +64,8 @@ pub mod bink;
 #[cfg(test)]
 mod crt_stdio_tests;
 pub mod d3d9;
+#[cfg(windows)]
+pub mod d3d9backend;
 pub mod d3d9device;
 pub mod d3d9query;
 #[cfg(windows)]
@@ -150,6 +152,7 @@ pub static LAYER: Layer = Layer {
     new_state,
     file_closed,
     proc_address: library::proc_address,
+    device_calls: &d3d9::DEVICE_CALLS,
 };
 
 /// This crate's registered functions, as the `engine` facade takes each engine crate's.

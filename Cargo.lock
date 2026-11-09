@@ -498,6 +498,7 @@ name = "engine-platform"
 version = "0.1.0"
 dependencies = [
  "bink",
+ "d3d9-stream",
  "engine-core",
  "mp3",
  "vorbis",

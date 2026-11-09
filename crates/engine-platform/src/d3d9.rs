@@ -29,6 +29,12 @@ pub const CODE_BASE: u32 = 0x7e02_0000;
 pub const D3D9_CODE: u32 = CODE_BASE;
 /// The procedures `GetProcAddress` gives out for `D3D9.DLL` ([`PROCS`]).
 pub const PROC_CODE: u32 = CODE_BASE + 0x0f00;
+/// The code of the Direct3D 9 device and its objects (`IDirect3D9` up to the cube texture's
+/// slots, and `Direct3DCreate9`): with real threads under the device lock, not the kernel lock
+/// (`engine_core::real_threads::device_guard`; the layer's `device_calls`). D3DX's own objects
+/// (from `CODE_BASE + 0x0a00`) stay under the kernel lock with D3DX's imports.
+pub const DEVICE_CALLS: [std::ops::Range<u32>; 2] =
+    [CODE_BASE..CODE_BASE + 0x0a00, PROC_CODE..PROC_CODE + 0x0100];
 /// The module handle `LoadLibraryA("D3D9.DLL")` answers (a value no image uses).
 pub const D3D9_MODULE: u32 = 0x7e11_0000;
 /// The `HMONITOR` `GetAdapterMonitor` answers for the adapter (an opaque value).
@@ -470,6 +476,7 @@ pub fn system_metric(e: &mut Engine, index: u32) -> Option<u32> {
 
 /// Whether `object` is an `IDirect3D9` of this layer.
 pub fn is_direct3d(e: &Engine, object: u32) -> bool {
+    let _device = engine_core::real_threads::device_guard(e);
     state_ref!(e).graphics.objects.contains_key(&object)
 }
 

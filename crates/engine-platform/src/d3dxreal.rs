@@ -1367,7 +1367,8 @@ mod tests {
             assert_eq!(hr, 0, "cube {cube}");
             let texture = e.mem.u32(out);
             // The real counterpart, as the layer's uploads left it.
-            let t = super::super::d3d9real::real_texture(&e, texture).expect("its real texture");
+            let t =
+                super::super::d3d9real::real_texture(&mut e, texture).expect("its real texture");
             let (levels, surfaces) = read_levels(&t, cube);
             assert_eq!(levels, want.levels, "cube {cube}: the real level count");
             for (i, (got, w)) in surfaces.iter().zip(&want.surfaces).enumerate() {

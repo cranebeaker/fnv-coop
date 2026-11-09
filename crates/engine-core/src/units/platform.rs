@@ -42,6 +42,15 @@ pub struct Layer {
     /// `GetProcAddress` on a module the layer loaded (`LoadLibraryA`): the procedure's address,
     /// `None` for a module that is not the layer's ([`loader::get_proc_address`]).
     pub proc_address: fn(&mut Engine, u32, &[u8]) -> Option<u32>,
+    /// The layer's code addresses whose functions keep their state behind the device lock, not
+    /// the kernel lock, with real threads (the Direct3D 9 device and its objects:
+    /// `real_threads::device_guard`).
+    pub device_calls: &'static [std::ops::Range<u32>],
+}
+
+/// [`Layer::device_calls`], none without the layer.
+pub(crate) fn layer_device_calls() -> &'static [std::ops::Range<u32>] {
+    LAYER.get().map_or(&[], |layer| layer.device_calls)
 }
 
 static LAYER: std::sync::OnceLock<&'static Layer> = std::sync::OnceLock::new();
@@ -1197,8 +1206,16 @@ impl std::ops::Deref for KernelRef {
     type Target = Kernel;
     fn deref(&self) -> &Kernel {
         // SAFETY: the kernel lives while its owner does, and for good once real threads use it (an
-        // alias is made only after `leak`); with real threads every thread reaches it only under the
-        // kernel lock.
+        // alias is made only after `leak`). With real threads every thread reaches it under the
+        // kernel lock, except the Direct3D 9 device's platform functions (the layer's
+        // `device_calls`), which reach only the platform layer's graphics state (in
+        // `Kernel::platform`) under the device lock (`real_threads::device_call`); the
+        // kernel-locked code that reaches that state takes the device lock too
+        // (`real_threads::device_guard`). So two threads can hold a reference to the kernel at once,
+        // one under each lock, touching disjoint fields: Rust's model calls that aliasing undefined
+        // even so, and we rely on it compiling to plain accesses, as the rest of real threads does
+        // for guest memory (`real_threads`, "What Rust's model says"). Moving the graphics state
+        // behind a pointer of its own would end the overlap.
         unsafe { self.kernel.as_ref() }
     }
 }

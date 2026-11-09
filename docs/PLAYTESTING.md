@@ -66,6 +66,9 @@ point the table's folders at a scratch copy of Documents; never at a player's ow
 | `NV_PRESET=fixes` or `vanilla` | What differs from the exe: the fixes set (the default) or the original's behaviour; comparisons and gates pin vanilla ([FIXES.md](FIXES.md)) |
 | `NV_FRAME_LIMIT=n` | Frames a second at most under the fixes preset (0: none) |
 | `NV_THREADS=real` or `stepped` | The game's threads side by side on their own cores (`real`, the default in play) or one at a time (`stepped`, the fallback, and the reference mode); a scripted or measured run without `NV_THREADS` runs them stepped whatever the default ([FIXES.md](FIXES.md)). Players set it with a `NV_THREADS=stepped` line in `settings.ini` (Settings.cmd's threads option) |
+| `NV_RENDER_THREAD=1` | The real Direct3D 9 calls on a render thread of their own: the game's threads record them and go on (`crates/d3d9-stream`, `crates/engine-platform/src/d3d9real.rs`); `Present` returns with at most `NV_RENDER_THREAD_FRAMES` (default 1) earlier frames still to draw. Off by default until measured |
+| `NV_RENDER_THREAD_STATS=1`, `NV_D3D9_STREAM_CHECK=1` | With the render thread: a line a second on its hand-overs and the game's waits; every command hashed as recorded and as carried out, the run stopped at a difference |
+| `NV_D3D9_RECORD=FILE` | Every Direct3D 9 command to FILE (`d3d9_stream::wire`), to replay into another backend |
 | `NV_UNCAP=0` or `1`, `NV_HF_LANDING=0` or `1` | One fix alone; with no `NV_PRESET` the rest of the run is vanilla |
 | `NV_FRAME_LOG=FILE` | One line per main frame (clock, step, player position), with no per-call cost | 
 

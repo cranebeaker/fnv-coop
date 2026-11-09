@@ -506,13 +506,6 @@ pub(crate) fn set_texture_store(e: &mut Engine, store: Store) {
     state!(e).graphics.device_objects.texture_store = Some(store);
 }
 
-impl Objects {
-    /// The addresses of the devices that exist.
-    pub(crate) fn device_addresses(&self) -> impl Iterator<Item = u32> + '_ {
-        self.devices.keys().copied()
-    }
-}
-
 fn vtable(e: &mut Engine, base: u32, slots: usize) -> u32 {
     let table = e.mem.alloc(4 * slots as u32);
     for i in 0..slots as u32 {
@@ -1335,6 +1328,10 @@ pub fn create_device(
 }
 
 fn device(e: &mut Engine, this: Ptr) -> &mut Device {
+    debug_assert!(
+        engine_core::real_threads::device_lock_held(e),
+        "the Direct3D 9 state reached without the device lock"
+    );
     state!(e)
         .graphics
         .device_objects
@@ -2051,6 +2048,17 @@ fn set_texture(e: &mut Engine, this: Ptr, sampler: u32, texture: u32) -> u32 {
     }
     // The texture and the device are looked up once each (they are apart in `Objects`).
     let objects = &mut state!(e).graphics.device_objects;
+    // The texture the sampler holds already: it is a texture of this layer (a bound texture lives
+    // on), and counting it once more and letting go of it once changes nothing, as below, without
+    // looking it up.
+    if texture != 0
+        && objects
+            .devices
+            .get(&this.addr())
+            .is_some_and(|d| d.textures.get(&sampler) == Some(&texture))
+    {
+        return D3D_OK;
+    }
     let held = if texture != 0 {
         let Some(t) = objects.textures.get_mut(&texture) else {
             panic!(
@@ -4331,6 +4339,71 @@ pub(crate) mod tests {
         assert!(!state!(e).graphics.device_objects.resources_hold(vb));
     }
 
+    /// Binding what a stream, the indices, a shader or a sampler holds already (the calls that
+    /// skip looking the object up) changes only a stream's offset and stride: the object stays
+    /// held once, so it goes at the one unbinding after the program let go of it, and a wrong
+    /// kind is still refused.
+    #[test]
+    fn binding_again_what_is_bound_changes_nothing_but_the_stream_offset() {
+        let (mut e, d3d, present) = d3d();
+        let out = e.mem.alloc(4);
+        e.vcall(d3d, CREATE_DEVICE, &[0, 1, 0x11c, 0x40, present, out]);
+        let device = e.mem.u32(out);
+        e.vcall(device, 4 * 26, &[64, 0, 0x142, 1, out, 0]);
+        let vb = e.mem.u32(out);
+        e.vcall(device, 4 * 27, &[12, 0, 101, 1, out, 0]);
+        let ib = e.mem.u32(out);
+        let function = e.mem.alloc(16);
+        for (i, token) in [0xfffe_0300u32, 0x1234, 0x0000_ffff].iter().enumerate() {
+            e.mem.set_u32(function + 4 * i as u32, *token);
+        }
+        e.vcall(device, 4 * 91, &[function, out]);
+        let vs = e.mem.u32(out);
+        let table = test_table() + "\nDomain\td1\t17\nCheckDeviceFormat\t0 1 16 0 3\t0\t\td1";
+        d3d9::load_adapter_table(&mut e, &table);
+        e.vcall(device, 4 * 23, &[4, 4, 1, 0, 0x17, 1, out, 0]);
+        let texture = e.mem.u32(out);
+        for _ in 0..3 {
+            assert_eq!(e.vcall(device, 4 * 100, &[2, vb, 0, 32]).u32(), D3D_OK);
+            assert_eq!(e.vcall(device, 4 * 104, &[ib]).u32(), D3D_OK);
+            assert_eq!(e.vcall(device, 4 * 92, &[vs]).u32(), D3D_OK);
+            assert_eq!(e.vcall(device, 4 * 65, &[1, texture]).u32(), D3D_OK);
+        }
+        // Again with another offset and stride: kept for GetStreamSource.
+        assert_eq!(e.vcall(device, 4 * 100, &[2, vb, 8, 16]).u32(), D3D_OK);
+        let got = e.mem.alloc(12);
+        assert_eq!(
+            e.vcall(device, 4 * 101, &[2, got, got + 4, got + 8]).u32(),
+            D3D_OK
+        );
+        assert_eq!(
+            (e.mem.u32(got), e.mem.u32(got + 4), e.mem.u32(got + 8)),
+            (vb, 8, 16)
+        );
+        assert_eq!(e.vcall(vb, 8, &[]).u32(), 1, "GetStreamSource's reference");
+        // A wrong kind is refused as before, and leaves what is bound.
+        assert_eq!(
+            e.vcall(device, 4 * 100, &[2, ib, 0, 32]).u32(),
+            D3DERR_INVALIDCALL
+        );
+        assert_eq!(e.vcall(device, 4 * 104, &[vb]).u32(), D3DERR_INVALIDCALL);
+        // The program lets go of each: all live on, bound once.
+        for object in [vb, ib, vs, texture] {
+            assert_eq!(e.vcall(object, 8, &[]).u32(), 0, "{object:#x}");
+        }
+        let objects = &state!(e).graphics.device_objects;
+        assert!(objects.resources_hold(vb) && objects.resources_hold(ib));
+        assert!(objects.resources_hold(vs) && !objects.textures.is_empty());
+        // One unbinding each lets go of them.
+        assert_eq!(e.vcall(device, 4 * 100, &[2, 0, 0, 0]).u32(), D3D_OK);
+        assert_eq!(e.vcall(device, 4 * 104, &[0]).u32(), D3D_OK);
+        assert_eq!(e.vcall(device, 4 * 92, &[0]).u32(), D3D_OK);
+        assert_eq!(e.vcall(device, 4 * 65, &[1, 0]).u32(), D3D_OK);
+        let objects = &state!(e).graphics.device_objects;
+        assert!(!objects.resources_hold(vb) && !objects.resources_hold(ib));
+        assert!(!objects.resources_hold(vs) && objects.textures.is_empty());
+    }
+
     #[test]
     fn draws_answer_inside_a_scene_with_their_bindings() {
         let (mut e, d3d, present) = d3d();
@@ -4994,13 +5067,19 @@ pub(crate) mod tests {
         }
     }
 
-    /// Gives every object of the scene a stand-in real counterpart (`d3d9real::stub`): the
-    /// device `#0`, textures `#1000..`, vertex buffers `#2000..`, index buffers `#3000..`,
-    /// declarations `#4000..`, vertex shaders `#5000..`, pixel shaders `#6000..`.
+    /// A backend whose objects are stand-ins (`d3d9backend::stub`) for every object of the scene:
+    /// the device `#0`, textures `#1000..`, vertex buffers `#2000..`, index buffers `#3000..`,
+    /// declarations `#4000..`, vertex shaders `#5000..`, pixel shaders `#6000..`, their calls
+    /// noted in `log`; and the scene's objects.
     #[cfg(windows)]
-    fn stand_in(s: &mut Scene) {
-        use super::super::d3d9real::stub::{install, Kind};
-        install(&mut s.e, s.device, Kind::Device, 0);
+    fn stand_ins(
+        s: &Scene,
+        log: &std::sync::Arc<super::super::d3d9backend::stub::Log>,
+    ) -> (super::super::d3d9backend::RealBackend, Vec<u32>) {
+        use super::super::d3d9backend::stub::{install, Kind};
+        let mut b = super::super::d3d9backend::RealBackend::new();
+        install(&mut b, s.device, Kind::Device, 0, log);
+        let mut all = Vec::new();
         for (kind, objects, base) in [
             (Kind::Texture, &s.textures, 1000),
             (Kind::VertexBuffer, &s.vertex_buffers, 2000),
@@ -5010,9 +5089,37 @@ pub(crate) mod tests {
             (Kind::PixelShader, &s.pixel_shaders, 6000),
         ] {
             for (i, &o) in objects.iter().enumerate() {
-                install(&mut s.e, o, kind, base + i as u32);
+                install(&mut b, o, kind, base + i as u32, log);
+                all.push(o);
             }
         }
+        (b, all)
+    }
+
+    /// Gives every object of the scene a stand-in real counterpart ([`stand_ins`]) as the
+    /// engine's forwarding, carried out at once or on the render thread (`threaded`): the log of
+    /// the calls that reach them, and the backend (shared, to look at afterwards).
+    #[cfg(windows)]
+    fn stand_in(
+        s: &mut Scene,
+        threaded: bool,
+    ) -> (
+        std::sync::Arc<super::super::d3d9backend::stub::Log>,
+        std::sync::Arc<std::sync::Mutex<super::super::d3d9backend::RealBackend>>,
+    ) {
+        let log = std::sync::Arc::default();
+        let (b, objects) = stand_ins(s, &log);
+        let shared = std::sync::Arc::new(std::sync::Mutex::new(b));
+        super::super::d3d9real::test_forwarding(
+            &mut s.e,
+            Box::new(super::super::d3d9real::SharedBackend(
+                std::sync::Arc::clone(&shared),
+            )),
+            threaded,
+            &[s.device],
+            &objects,
+        );
+        (log, shared)
     }
 
     /// The groups of calls a [`draw`] makes, with how many calls each makes.
@@ -5148,18 +5255,34 @@ pub(crate) mod tests {
 
     /// What reaches the real device is the game's calls as given, in the game's order, with
     /// the data behind their pointers as engine memory holds it; a call the model refuses does
-    /// not reach it. Pins the forwarding against a stand-in device (`d3d9real::stub`).
+    /// not reach it. Pins the forwarding against a stand-in device (`d3d9backend::stub`), carried
+    /// out directly or from the render thread.
     #[cfg(windows)]
     #[test]
     fn forwarded_calls_reach_the_real_device_as_given() {
-        use super::super::d3d9real::stub;
+        forwarded_calls_through(false);
+    }
+
+    /// [`forwarded_calls_reach_the_real_device_as_given`] with the render thread: the same calls
+    /// reach the real device in the same order, with the same data (the same digest), and the
+    /// model answers the same.
+    #[cfg(windows)]
+    #[test]
+    fn forwarded_calls_reach_the_real_device_as_given_from_the_render_thread() {
+        forwarded_calls_through(true);
+    }
+
+    #[cfg(windows)]
+    fn forwarded_calls_through(threaded: bool) {
+        use super::super::d3d9real::test_finish;
         let mut s = scene([64, 16, 8, 8]);
-        stand_in(&mut s);
+        let (calls, backend) = stand_in(&mut s, threaded);
         let device = s.device;
-        stub::record();
+        calls.record();
         assert_eq!(s.e.vcall(device, 4 * 41, &[]).u32(), D3D_OK);
         draw(&mut s, device, 0);
-        let log = stub::take();
+        test_finish(&mut s.e);
+        let log = calls.take();
         assert_eq!(log[0], "BeginScene");
         let first: Vec<String> = log[1..]
             .iter()
@@ -5171,7 +5294,7 @@ pub(crate) mod tests {
             .collect();
         assert_eq!(first, expected);
         // Calls the model refuses or takes at their edges, then many draws.
-        stub::record();
+        calls.record();
         let e = &mut s.e;
         let data = s.constants;
         let (t0, t1) = (s.textures[0], s.textures[1]);
@@ -5249,7 +5372,8 @@ pub(crate) mod tests {
             draw(&mut s, device, i);
         }
         assert_eq!(s.e.vcall(device, 4 * 42, &[]).u32(), D3D_OK);
-        let log = stub::take();
+        test_finish(&mut s.e);
+        let log = calls.take();
         assert_eq!(log.len(), 22 + 199 * 28 + 1);
         assert!(!log.iter().any(|l| l.contains("unexpected")));
         let digest = log.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, line| {
@@ -5266,7 +5390,10 @@ pub(crate) mod tests {
             digest, 5_257_225_520_366_858_290,
             "the forwarded calls' digest"
         );
-        assert_eq!(super::super::d3d9real::stub::logged(&s.e), 0);
+        assert_eq!(
+            super::super::d3d9backend::stub::logged(&backend.lock().unwrap()),
+            0
+        );
         // What the model answers the game afterwards: its getters' answers and words, and the
         // objects' counts.
         let answers = model_answers(&mut s);
@@ -5350,7 +5477,7 @@ pub(crate) mod tests {
     /// The cost of the platform's Direct3D 9 calls as the game makes them (through
     /// `Engine::vcall`), per call: the call machinery alone (the same calls to an object whose
     /// slots do nothing), the model alone, and the model forwarding to a stand-in real device
-    /// (`d3d9real::stub`); then the forwarded cost by group of calls. The scene has 2048
+    /// (`d3d9backend::stub`); then the forwarded cost by group of calls. The scene has 2048
     /// textures, 1024 vertex and index buffers, 64 shaders of each kind and 32 declarations.
     /// `cargo test --release -p engine-platform --lib cost_of_d3d9 -- --ignored --nocapture`.
     #[cfg(windows)]
@@ -5404,15 +5531,35 @@ pub(crate) mod tests {
         let model_groups: Vec<f64> = (0..GROUPS.len())
             .map(|g| run(&mut s, device, Some(g)))
             .collect();
-        let mut s = scene(SIZE);
-        stand_in(&mut s);
+        let log = std::sync::Arc::default();
+        let forwarding = |threaded: bool| {
+            let mut s = scene(SIZE);
+            let (b, objects) = stand_ins(&s, &log);
+            let device = s.device;
+            super::super::d3d9real::test_forwarding(
+                &mut s.e,
+                Box::new(b),
+                threaded,
+                &[device],
+                &objects,
+            );
+            s
+        };
+        // The calls recorded for the render thread, which carries them out on its own core.
+        let mut t = forwarding(true);
+        let device = t.device;
+        let recorded = run(&mut t, device, None);
+        drop(t);
+        let mut s = forwarding(false);
         let device = s.device;
         let forwarded = run(&mut s, device, None);
         eprintln!(
             "cost of a Direct3D 9 call: machinery {floor:.1} ns, model {model:.1} ns, \
              model + forwarding to a stand-in device {forwarded:.1} ns \
-             ({draws} draws x 28 calls a frame: {:.2} ms)",
-            forwarded * f64::from(draws as u32 * 28) / 1e6
+             ({draws} draws x 28 calls a frame: {:.2} ms), model + recording for the render \
+             thread {recorded:.1} ns ({:.2} ms)",
+            forwarded * f64::from(draws as u32 * 28) / 1e6,
+            recorded * f64::from(draws as u32 * 28) / 1e6
         );
         for (g, (name, _)) in GROUPS.iter().enumerate() {
             let ns = run(&mut s, device, Some(g));
@@ -5777,11 +5924,24 @@ pub(crate) mod tests {
     #[cfg(windows)]
     #[test]
     fn real_levels_keep_the_bytes_of_managed_textures() {
+        real_levels_keep_the_bytes(false);
+    }
+
+    /// [`real_levels_keep_the_bytes_of_managed_textures`] with the real device on the render
+    /// thread: the reads wait for the uploads before them.
+    #[cfg(windows)]
+    #[test]
+    fn real_levels_keep_the_bytes_of_managed_textures_from_the_render_thread() {
+        real_levels_keep_the_bytes(true);
+    }
+
+    #[cfg(windows)]
+    fn real_levels_keep_the_bytes(threaded: bool) {
         let extra = "\nDomain\td2\t15,31545844\nCheckDeviceFormat\t0 1 16 0 3\t0\t\td2\
                      \nCheckDeviceFormat\t0 1 16 0 5\t0\t\td2";
         let (mut e, device) = device_with(extra, 0x54);
         set_texture_store(&mut e, Store::Host);
-        if super::super::d3d9real::test_real_device(&mut e, device, 0x54).is_none() {
+        if super::super::d3d9real::test_real_device_on(&mut e, device, 0x54, threaded).is_none() {
             return;
         }
         let texture = new_texture(&mut e, device, [64, 32, 0, 0, A8R8G8B8, 1]);
@@ -6119,9 +6279,21 @@ pub(crate) mod tests {
     #[cfg(windows)]
     #[test]
     fn static_buffers_on_a_real_device_keep_their_bytes_in_host_memory() {
+        static_buffers_keep_their_bytes(false);
+    }
+
+    /// The same with the real device on the render thread.
+    #[cfg(windows)]
+    #[test]
+    fn static_buffers_on_a_real_device_keep_their_bytes_from_the_render_thread() {
+        static_buffers_keep_their_bytes(true);
+    }
+
+    #[cfg(windows)]
+    fn static_buffers_keep_their_bytes(threaded: bool) {
         let (mut e, device) = device_with("", 0x54);
         set_buffer_store(&mut e, Store::Host);
-        if super::super::d3d9real::test_real_device(&mut e, device, 0x54).is_none() {
+        if super::super::d3d9real::test_real_device_on(&mut e, device, 0x54, threaded).is_none() {
             return;
         }
         for index in [false, true] {
