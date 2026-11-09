@@ -1,11 +1,13 @@
-//! The platform's Direct3D 9 layer forwarded to the real `d3d9.dll` (ADR-0008), Windows only,
-//! switched on with `NV_D3D9=real`.
+//! The platform's Direct3D 9 layer forwarded to a backend that draws (ADR-0008), Windows only,
+//! switched on with `NV_D3D9`: `real` (the real `d3d9.dll`), `wgpu` (`d3d9_wgpu`, ADR-0007), or
+//! `real,wgpu` (the real one draws and answers, wgpu gets every command after it off screen, for
+//! comparison: `d3d9_stream::Tee`).
 //!
 //! The game's code keeps calling the modelled objects of `super::d3d9`, `super::d3d9device` and
 //! `super::d3d9resource`, and keeps getting the modelled answers (they were measured against the
 //! same runtime). Each modelled call that changes what is drawn is also recorded here as a command
 //! of the Direct3D 9 call stream (`d3d9_stream`), with the data it points at, for a backend that
-//! makes it on a real counterpart: the real device (`super::d3d9backend`). The modelled window
+//! makes it on a counterpart: the real device (`super::d3d9backend`) or wgpu's. The modelled window
 //! gets a real Win32 window (here), the modelled device a real device on it, each modelled
 //! resource a real resource whose contents follow the game's unlocks. Where the real runtime
 //! answers differently from the model, the call is printed once (`NV_D3D9=real: ...`), and the
@@ -25,8 +27,8 @@
 //! `NV_RENDER_THREAD_STATS=1` prints the hand-overs and waits once a second.
 //!
 //! The real window lives on a thread of its own that only creates it and pumps its messages, so
-//! it never waits on the game's threads. It is shown without taking the focus: the viewer's window
-//! keeps the keyboard and mouse the game reads through DirectInput.
+//! it never waits on the game's threads, whatever the backend: each one draws into it (wgpu's
+//! surface is made on it), and its keyboard and mouse feed the game's DirectInput.
 //!
 //! The real device is created with `D3DCREATE_FPU_PRESERVE` added to the game's flags: the
 //! game's x87 precision switch is modelled (`crate::direct3d_device_created`,
@@ -49,9 +51,75 @@ use windows::Win32::UI::Input::{
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-/// Whether the forwarding is asked for (`NV_D3D9=real`).
+/// The backends `NV_D3D9` names.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Backends {
+    /// `real`: the real `d3d9.dll` (the play launcher's).
+    Real,
+    /// `wgpu`: wgpu alone, drawing in the game's window; no real Direct3D 9 in the process.
+    Wgpu,
+    /// `real,wgpu`: the real `d3d9.dll` draws and answers; wgpu gets every command after it and
+    /// draws off screen (`NV_SHOT` captures of both, numbered alike).
+    RealAndWgpu,
+}
+
+impl Backends {
+    /// The backends a value of `NV_D3D9` names (case and spaces aside), `None` for none.
+    pub fn parse(value: &str) -> Result<Option<Backends>, String> {
+        let words: Vec<String> = value
+            .split(',')
+            .map(|w| w.trim().to_ascii_lowercase())
+            .filter(|w| !w.is_empty())
+            .collect();
+        let words: Vec<&str> = words.iter().map(String::as_str).collect();
+        match words.as_slice() {
+            [] => Ok(None),
+            ["real"] => Ok(Some(Backends::Real)),
+            ["wgpu"] => Ok(Some(Backends::Wgpu)),
+            ["real", "wgpu"] => Ok(Some(Backends::RealAndWgpu)),
+            _ => Err(format!(
+                "NV_D3D9={}: use real, wgpu or real,wgpu (nothing is drawn)",
+                value.trim()
+            )),
+        }
+    }
+
+    /// Its words, as `NV_D3D9` names it (the start of the layer's lines).
+    pub fn name(self) -> &'static str {
+        match self {
+            Backends::Real => "real",
+            Backends::Wgpu => "wgpu",
+            Backends::RealAndWgpu => "real,wgpu",
+        }
+    }
+
+    /// Whether the real `d3d9.dll` draws (and answers the read-backs and queries).
+    pub fn real(self) -> bool {
+        self != Backends::Wgpu
+    }
+}
+
+/// The backends asked for (`NV_D3D9`, read once; a value it can't read is printed once and draws
+/// nothing, as an unset one).
+pub fn backends() -> Option<Backends> {
+    static ASKED: std::sync::OnceLock<Option<Backends>> = std::sync::OnceLock::new();
+    *ASKED.get_or_init(|| {
+        let value = std::env::var("NV_D3D9").ok()?;
+        Backends::parse(&value).unwrap_or_else(|why| {
+            eprintln!("{why}");
+            None
+        })
+    })
+}
+
+/// Whether a backend is asked for (`NV_D3D9`): the real window and the stream are made.
 pub fn wanted() -> bool {
-    std::env::var("NV_D3D9").is_ok_and(|v| v.eq_ignore_ascii_case("real"))
+    backends().is_some()
+}
+
+/// The backends' words for the layer's lines (`NV_D3D9=real: ...`, as in play).
+fn tag() -> &'static str {
+    backends().map_or("real", Backends::name)
 }
 
 /// The forwarding's side on the game's threads (`Graphics::real`): the real windows by modelled
@@ -247,7 +315,10 @@ extern "system" fn window_procedure(
     // Closing the game's window ends the run (the player's way out, also when the game has
     // stopped); the window itself is not destroyed first.
     if message == WM_CLOSE {
-        eprintln!("NV_D3D9=real: the game's window was closed: the run ends");
+        eprintln!(
+            "NV_D3D9={}: the game's window was closed: the run ends",
+            tag()
+        );
         std::process::exit(0);
     }
     match message {
@@ -681,7 +752,10 @@ pub fn window_created(
         match real_window(e, parent) {
             Some(p) => p,
             None => {
-                eprintln!("NV_D3D9=real: a child window of a window without a real one");
+                eprintln!(
+                    "NV_D3D9={}: a child window of a window without a real one",
+                    tag()
+                );
                 return;
             }
         }
@@ -704,12 +778,13 @@ pub fn window_created(
     match answer.recv().ok().filter(|&w| sent && w != 0) {
         Some(window) => {
             eprintln!(
-                "NV_D3D9=real: window {handle:#x} (style {style:#x}, parent {parent:#x}, {rect:?}) is real window {window:#x}"
+                "NV_D3D9={}: window {handle:#x} (style {style:#x}, parent {parent:#x}, {rect:?}) is real window {window:#x}",
+                tag()
             );
             let _device = engine_core::real_threads::device_guard(e);
             real(e).windows.insert(handle, window);
         }
-        None => eprintln!("NV_D3D9=real: the real window could not be made"),
+        None => eprintln!("NV_D3D9={}: the real window could not be made", tag()),
     }
 }
 
@@ -767,37 +842,62 @@ pub fn want_render_thread(e: &mut Engine, on: bool) {
     real(e).render_thread = on;
 }
 
-/// `Direct3DCreate9` made a modelled `IDirect3D9`: the stream to the real backend (once), on the
-/// calling thread or on the render thread ([`want_render_thread`]), written to a file with
-/// `NV_D3D9_RECORD=FILE`.
+/// The backend `NV_D3D9` names ([`Backends`]), the real one with the queries' board when the
+/// game's side reads its queries without waiting (the render thread).
+fn backend_of(
+    which: Backends,
+    board: Option<std::sync::Arc<super::d3d9backend::QueryBoard>>,
+) -> Box<dyn d3d9_stream::Backend> {
+    let real = || -> Box<dyn d3d9_stream::Backend> {
+        Box::new(match board.clone() {
+            Some(board) => super::d3d9backend::RealBackend::with_query_board(board),
+            None => super::d3d9backend::RealBackend::new(),
+        })
+    };
+    match which {
+        Backends::Real => real(),
+        Backends::Wgpu => Box::new(d3d9_wgpu::WgpuBackend::new(d3d9_wgpu::Output::Window)),
+        Backends::RealAndWgpu => Box::new(d3d9_stream::Tee::new(
+            real(),
+            Box::new(d3d9_wgpu::WgpuBackend::new(d3d9_wgpu::Output::Offscreen)),
+        )),
+    }
+}
+
+/// `Direct3DCreate9` made a modelled `IDirect3D9`: the stream to the backend `NV_D3D9` names
+/// (once), on the calling thread or on the render thread ([`want_render_thread`]), written to a
+/// file with `NV_D3D9_RECORD=FILE`.
 pub fn direct3d_created(e: &mut Engine) {
-    if !wanted() || real(e).stream.is_some() {
+    let Some(which) = backends() else { return };
+    if real(e).stream.is_some() {
         return;
     }
+    let name = which.name();
     let wanted_thread = real(e).render_thread;
     // `NV_FACE_CHECK` (a diagnostic) follows calls in the game's order on its own thread: it keeps
     // the calls on the game's threads, as diagnostics keep the threads stepped.
     let refused = wanted_thread && face_check::enabled();
     if refused {
         eprintln!(
-            "NV_D3D9=real: the render thread is not taken with NV_FACE_CHECK: the calls stay on the game's threads"
+            "NV_D3D9={name}: the render thread is not taken with NV_FACE_CHECK: the calls stay on the game's threads"
         );
     }
     let mut stream = if wanted_thread && !refused {
         let settings = d3d9_stream::Settings::from_env();
-        let board = std::sync::Arc::new(super::d3d9backend::QueryBoard::default());
-        let backend = Box::new(super::d3d9backend::RealBackend::with_query_board(
-            std::sync::Arc::clone(&board),
-        ));
-        real(e).query_board = Some(board);
+        // The real queries' answers, read without waiting for the render thread
+        // (`query_get_data`); wgpu's are read by a sync command.
+        let board = which
+            .real()
+            .then(|| std::sync::Arc::new(super::d3d9backend::QueryBoard::default()));
+        real(e).query_board = board.clone();
         eprintln!(
-            "NV_D3D9=real: the render thread is on (NV_RENDER_THREAD=0 turns it off; at most {} frame(s) in flight{})",
+            "NV_D3D9={name}: the render thread is on (NV_RENDER_THREAD=0 turns it off; at most {} frame(s) in flight{})",
             settings.frames_in_flight,
             if settings.check { ", the stream checked" } else { "" }
         );
-        Stream::threaded(backend, settings)
+        Stream::threaded(backend_of(which, board), settings)
     } else {
-        Stream::direct(Box::new(super::d3d9backend::RealBackend::new()))
+        Stream::direct(backend_of(which, None))
     };
     if let Some(path) = std::env::var_os("NV_D3D9_RECORD") {
         let recording = std::fs::File::create(&path).and_then(|file| {
@@ -849,7 +949,10 @@ pub fn device_created(
         real_window(e, h)
     };
     let (Some(window), Some(focus)) = (map(e, words[7]), map(e, focus)) else {
-        eprintln!("NV_D3D9=real: CreateDevice: the game's window has no real window");
+        eprintln!(
+            "NV_D3D9={}: CreateDevice: the game's window has no real window",
+            tag()
+        );
         return;
     };
     // The real device takes calls from more than one thread at once: the D3DX side channel's
@@ -2969,6 +3072,30 @@ pub(crate) fn real_texture(e: &mut Engine, texture: u32) -> Option<IDirect3DBase
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `NV_D3D9`'s words: the real `d3d9.dll`, wgpu, or both (the real one answering), any case
+    /// and spaces; anything else is refused (nothing is drawn) rather than guessed.
+    #[test]
+    fn nv_d3d9_names_the_backends() {
+        assert_eq!(Backends::parse("real"), Ok(Some(Backends::Real)));
+        assert_eq!(Backends::parse(" Real "), Ok(Some(Backends::Real)));
+        assert_eq!(Backends::parse("wgpu"), Ok(Some(Backends::Wgpu)));
+        assert_eq!(
+            Backends::parse("real, WGPU"),
+            Ok(Some(Backends::RealAndWgpu))
+        );
+        assert_eq!(Backends::parse(""), Ok(None));
+        assert_eq!(Backends::parse(" , "), Ok(None));
+        for wrong in ["wgpu,real", "real,real", "dx9", "1"] {
+            let why = Backends::parse(wrong).unwrap_err();
+            assert!(why.contains(wrong) && why.contains("real,wgpu"), "{why}");
+        }
+        for b in [Backends::Real, Backends::Wgpu, Backends::RealAndWgpu] {
+            assert_eq!(Backends::parse(b.name()), Ok(Some(b)));
+        }
+        assert!(Backends::Real.real() && Backends::RealAndWgpu.real());
+        assert!(!Backends::Wgpu.real());
+    }
 
     /// An F12 report's `log-start.txt`: the log's first bytes, cut back to a whole line.
     #[test]

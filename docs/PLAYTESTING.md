@@ -53,7 +53,7 @@ point the table's folders at a scratch copy of Documents; never at a player's ow
 
 | Variable | Effect |
 | --- | --- |
-| `NV_D3D9=real` | The game's own window through the real Direct3D 9 (without it nothing is shown) |
+| `NV_D3D9=real`, `wgpu` or `real,wgpu` | The game's own window, drawn by the real Direct3D 9 (`real`, what Play.exe sets), by wgpu alone (`wgpu`, `crates/d3d9-wgpu`: for testing, not yet complete), or by the real one with wgpu drawing every frame off screen beside it (`real,wgpu`, for comparison: with `NV_SHOT` both are captured, numbered alike, wgpu's as `wgpu-frame-*.bmp`); without it nothing is shown |
 | `NV_SOUND=out` | The game's sound through DirectSound |
 | `NV_D3D9_BACKGROUND=1` | The window opens without taking the focus (scripted runs) |
 | `NV_D3D9_TEXTURES=guest` or `check` | Texture pixels in the game's 32-bit memory as before ADR-0015's step 3 (`guest`, for comparisons), or kept outside it with checks printed (`check`); the default keeps them outside it, in the game's memory only while a level is locked |

@@ -119,12 +119,13 @@ extern "system" {
 }
 
 fn main() {
-    // With the game's own window (`NV_D3D9=real`) the process is DPI-unaware, as FalloutNV.exe is
-    // (no `dpiAware` in its manifest): Windows scales the game's window on a display above 100%
-    // from the start, as it does the original's (playtest, 2026-10-30). The same test as the real
-    // device's (`d3d9real::wanted`): any case.
+    // With the game's own window (`NV_D3D9=real`, `wgpu` or `real,wgpu`) the process is
+    // DPI-unaware, as FalloutNV.exe is (no `dpiAware` in its manifest): Windows scales the game's
+    // window on a display above 100% from the start, as it does the original's (playtest,
+    // 2026-10-30). Any backend named, as the window's test (`d3d9real::wanted`; a value that one
+    // refuses draws nothing, and the awareness doesn't matter then).
     #[cfg(windows)]
-    if std::env::var("NV_D3D9").is_ok_and(|v| v.eq_ignore_ascii_case("real")) {
+    if std::env::var("NV_D3D9").is_ok_and(|v| !v.trim().is_empty()) {
         // DPI_AWARENESS_CONTEXT_UNAWARE.
         // SAFETY: no pointers; a failure leaves the awareness as it was.
         unsafe {

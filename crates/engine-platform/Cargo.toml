@@ -21,6 +21,9 @@ d3dx-tex = { path = "../d3dx-tex" }
 # the real window, device and resources. Win32_System_SystemInformation: the machine's memory
 # for GlobalMemoryStatus(Ex) (process.rs).
 [target.'cfg(windows)'.dependencies]
+# The Direct3D 9 calls on wgpu instead, or beside the real d3d9.dll for comparison (NV_D3D9=wgpu,
+# NV_D3D9=real,wgpu; d3d9real.rs): a backend of the same stream.
+d3d9-wgpu = { path = "../d3d9-wgpu" }
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D9", "Win32_Graphics_Gdi", "Foundation_Numerics", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_UI_HiDpi", "Win32_UI_Input", "Win32_UI_WindowsAndMessaging"] }
 
 # The tests of the C runtime's stdio that moved here (crt_stdio_tests.rs) and of the process side

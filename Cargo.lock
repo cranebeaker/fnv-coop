@@ -499,6 +499,7 @@ version = "0.1.0"
 dependencies = [
  "bink",
  "d3d9-stream",
+ "d3d9-wgpu",
  "d3dx-tex",
  "engine-core",
  "mp3",

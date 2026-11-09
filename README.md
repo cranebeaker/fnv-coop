@@ -69,7 +69,7 @@ shows what's left.
 | ✅ | **Windows preview** | [Released](https://github.com/slaterain/nv-rs/releases) |
 | 🔨 | **Native 64-bit code:** speed, no memory limit, every core in use | Started; the game's threads run on their own cores, and its drawing on a thread of its own |
 | 🔨 | **Built-in script extender:** xNVSE's and JIP LN's script commands, with nothing to install | Started |
-| 🔨 | **Modern graphics (wgpu)** | Started: the game's own shaders and frames draw on wgpu beside Direct3D 9 for comparison (the main menu identical); not yet selectable for play |
+| 🔨 | **Modern graphics (wgpu)** | Started: the game's own shaders and frames draw on wgpu beside Direct3D 9 for comparison (the main menu identical), and it can run the game on its own for testing; not yet for play |
 | ⬜ | **More platforms, co-op, VR** | Planned |
 
 ✅ means working, not free of bugs. The details are in [docs/SYSTEMS.md](docs/SYSTEMS.md) and
