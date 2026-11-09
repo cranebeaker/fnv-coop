@@ -40,11 +40,11 @@ impl JournalLog {
     }
 }
 
-/// One line per quest-stage change, then one counting the other forms (none when nothing changed).
+/// One line per quest whose stages changed, then one counting the other forms (none when nothing changed).
 pub fn lines(changes: &[journal::Change]) -> Vec<String> {
     let mut out: Vec<String> = changes
         .iter()
-        .filter(|c| c.flags & addr::CHANGE_QUEST_STAGES != 0)
+        .filter(|c| c.kind == addr::FORM_TYPE_QUEST && c.flags & addr::CHANGE_QUEST_STAGES != 0)
         .map(|c| {
             format!(
                 "coop journal: quest {:08x} stages changed (flags {:08x})",
@@ -66,17 +66,23 @@ mod tests {
 
     #[test]
     fn quest_stage_changes_are_named_and_the_rest_counted() {
-        let c = |form, flags| Change {
+        let c = |form, kind, flags| Change {
             form,
+            kind,
             flags,
             forced: false,
         };
         assert!(lines(&[]).is_empty());
         assert_eq!(
             lines(&[
-                c(0x0010_4c0c, addr::CHANGE_QUEST_STAGES | 2),
-                c(0x14, 4),
-                c(0x0100_2ad1, 1)
+                c(
+                    0x0010_4c0c,
+                    addr::FORM_TYPE_QUEST,
+                    addr::CHANGE_QUEST_STAGES | 2
+                ),
+                c(0x14, 0x3b, 4),
+                // The same bit on a cell is its seen data, not a quest's stages.
+                c(0x0100_2ad1, 0x39, addr::CHANGE_QUEST_STAGES)
             ]),
             [
                 "coop journal: quest 00104c0c stages changed (flags 80000002)",

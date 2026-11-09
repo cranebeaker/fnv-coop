@@ -9,8 +9,9 @@ were checked against the translation in this tree and against fnv_decomp.
   upstream, so this branch has unrelated history by design.
 - `crates/coop-core`, `coop-net`, `coop-policy`, `coop-voice` and `nv-launcher` are copied byte for byte
   from fnv-coop `main` (2107c9b). Their dependencies name no removed crate (checked: no `world::`,
-  `testdata` or `esm::` in their code; two doc comments name `world::` and are updated when `coop-model`
-  exists).
+  `testdata` or `esm::` in their code). Four doc comments name `world::` (`coop-core/src/env.rs`,
+  `coop-core/src/interact/mod.rs`, `nv-launcher/src/party.rs` twice); they are updated when `coop-model`
+  exists.
 - They and `crates/coop-engine` are added to the root `members`.
 - `Cargo.lock` must be regenerated on a machine with crates.io access (`cargo generate-lockfile` or one
   `cargo build`), because CI runs `--locked`. New third-party crates: `serde`, `postcard`, `lz4_flex`,
@@ -26,10 +27,10 @@ In `crates/engine-core/src/extend.rs`:
 - `Owner::Coop` is added. Its rank is 3, so it runs after `Row`, `Nvse` and `Jip`. Co-op sees what the game
   and the extenders did, and is the outermost link of a wrap chain.
 - `WRAPS` gets one row: `0x0084_a690` (`BGSSaveLoadGame::AddChange`), owners `[Coop]`, step `"C-1"`.
+  The existing row `0x005e_0d20` (`ScriptRunner::Run`) gets `Coop` after `Nvse` for the guest gate (S5).
 - The table checks' messages name the new order (rows, nvse, jip, coop).
-- Nothing else in the engine changes. With co-op not installed, the address calls its translation as
-  before (the existing facade test, "every registration besides an address's base is a wrap of WRAPS",
-  still holds).
+- Nothing else in the engine changes. With co-op not installed, each address calls what it called before,
+  and the dispatch check (`Engine::unlisted_wraps`, used by `nvse`'s tests and `extend.rs`'s) still holds.
 
 ## S2: `crates/coop-engine` (M1)
 
@@ -47,6 +48,10 @@ it:
 | `QUEST_SET_STAGE_DONE` | `0060d510` | `TESQuest::SetStageDone(quest, stage)`: false for an unknown stage |
 | `QUEST_GET_CURRENT_STAGE` | `0060d700` | `TESQuest::GetCurrentStage(quest)`: the byte at +0x60 |
 | `SAVE_LOAD_ADD_CHANGE` | `0084a690` | `BGSSaveLoadGame::AddChange(this, form, flags, force)` |
+| `SAVE_LOAD_RECORDS_CHANGE` | `0084a620` | whether the save records a change of the form `(this, form, force)` (only reads) |
+| `SCRIPT_RUNNER_RUN` | `005e0d20` | `ScriptRunner::Run(this, script, reference, locals, container, ...)` |
+| `SCRIPT_IS_QUEST_OFFSET` | +0x28 | `Script::m_header` (+0x18) `.bIsQuestScript` (+0x10) |
+| `SCRIPT_OWNER_QUEST_OFFSET` | +0x40 | `Script::pOwnerQuest` |
 | `FORM_ID_OFFSET` | +0x0c | `TESForm` refID |
 | `FORM_TYPE_OFFSET` | +0x04 | `TESForm` type byte |
 | `GLOBAL_VALUE_OFFSET` | +0x24 | `TESGlobal::fValue` |
@@ -59,13 +64,18 @@ it:
   made on any game thread land in one place.
 - `armed: bool`. Changes are recorded only while it is set. The session arms it on the host once the world
   is loaded. Loading a save makes thousands of changes that are not news.
-- `changes: BTreeMap<u32, u32>`: form id to the union of the flags added since the last drain. A form
-  changed twice in a tick is sent once, with both flags.
-- `force: BTreeSet<u32>`: the forms whose change was forced (`ForceChange`), kept so the apply side can
-  use the same entry.
+- `changes: BTreeMap<u32, (u8, u32, bool)>`: form id to its form type, the union of the flags added
+  since the last drain, and whether any was forced (`ForceChange`). A form changed twice in a tick is
+  sent once, with both flags.
+- The state lives in a lock-free shared slot (`Engine::ext_free`): atomics for `installed` and `armed`
+  and a mutex around the map, held only while an entry is added or the map is taken. Any game thread
+  may record, and the viewer's thread may drain between frames, without engine-core's slot lock.
 - The wrap at `SAVE_LOAD_ADD_CHANGE` calls the next link first (the game's own behaviour, unchanged and
-  its return passed back), then, if armed and the form word is not 0, reads the form's id at +0x0c and
-  records `(id, flags)`. A form id of 0 (the player's reference is `0x14`, never 0) is ignored.
+  its return passed back). Then, if armed, the form word is not 0, and the game recorded the change
+  (`SAVE_LOAD_RECORDS_CHANGE` says yes, the same test the call made), it reads the form's id at +0x0c
+  and its type at +0x04 and records `(id, type, flags, forced)`.
+- The flag `0x80000000` means a quest's stages only on a quest. On a cell it is the seen data, on a
+  topic the said-once, on a package the never-run (`tessaveloadgame.rs`). Readers match the type too.
 - `drain()` hands back the changes in form-id order and empties the journal.
 - Out of scope here: deciding whether a change is shared or per-player. That is `coop-policy`'s job, on the
   session side.
@@ -95,8 +105,8 @@ it:
 ## S3: the host's install point (M1)
 
 In `Host::start_with`, after `nvse::install(&mut engine)`: `if coop_engine::wanted() { coop_engine::install(&mut engine) }`.
-With `NV_COOP=journal`, the host arms the journal after the first main frame and prints each drained
-change once per second. This is the PC check for M1, and is removed once M3's session drives the journal.
+With `NV_COOP=journal`, nv-viewer arms the journal after the first main frame and, once a second, prints
+each quest whose stages changed and a count of the other changed forms (`coop_engine::diag`). This is the PC check for M1, and is removed once M3's session drives the journal.
 
 ## S4: engine backend for conformance (M2)
 
@@ -110,12 +120,19 @@ change once per second. This is the PC check for M1, and is removed once M3's se
 
 ## S5: the story channel and guest gating (M3)
 
-- On the host, each network tick: drain the journal; for each quest id with the `0x80000000` flag, send
-  `(quest id, current stage, stage-done bits)`; send the globals watch's diff. On the guest, apply each
-  through S2 with quest scripts gated.
-- Guest gating: a wrap of `ScriptRunner::Run` (`005e0d20`, already in `WRAPS` for nvse; `Coop` is added to
-  its owners) skips a quest's script on a guest. Object scripts of references the guest owns keep running.
-  Which scripts belong to whom is `coop-policy`'s table.
+- On the host, each network tick: drain the journal; for each change of a quest (type `0x47`) with the
+  `0x80000000` flag, send `(quest id, current stage, stage-done bits)`; send the globals watch's diff. On
+  the guest, apply each through S2 inside `gate::applying`.
+- Guest gating (`coop_engine::gate`, implemented): a wrap of `ScriptRunner::Run` (`005e0d20`, `Coop`
+  after `Nvse`) skips, on a guest, (a) every run while the guest applies the host's state
+  (`gate::applying`, nested, unwind-safe), because `SetStageDone` reaches the stage items' result scripts
+  and their effects arrive from the host, and (b) the story's scripts at any time: a quest script
+  (`bIsQuestScript`) or one with an owner quest (`pOwnerQuest`). A skipped run answers 0 (no references
+  changed). The guest's own object and effect scripts run. Skips are counted (`gate::skipped`) for M3's
+  check that no story script ran on the guest. Whether every result script carries an owner quest is
+  checked on the PC in M3: a story script reaching the guest's runner without one shows as a quest stage
+  or global changing on the guest without a host record (a hash drift).
+- Which per-player quests run on their player's machine instead is `coop-policy`'s table (S6).
 - Every message carries the host's tick. Guests ack, and coop-core's existing reliability and snapshot
   rules apply unchanged.
 

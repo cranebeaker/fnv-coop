@@ -15,10 +15,29 @@ pub const QUEST_SET_STAGE_DONE: u32 = 0x0060_d510;
 /// `TESQuest::GetCurrentStage(quest)` (`0060d700`, `tesquest.rs`): the byte at +0x60.
 pub const QUEST_GET_CURRENT_STAGE: u32 = 0x0060_d700;
 
+/// `ScriptRunner::Run(this, script, reference, locals, container, keep_actions, effect_start,
+/// effect_finish, elapsed)` (`005e0d20`, `tesscriptrunmanager.rs`, `runner_run`): every compiled
+/// script's run, quest, object, effect and result scripts alike. Answers the runner's "references
+/// changed" byte.
+pub const SCRIPT_RUNNER_RUN: u32 = 0x005e_0d20;
+
+/// `Script::m_header.bIsQuestScript`: the header at +0x18, its flag at +0x10 (`tesscript.rs`,
+/// `Script` and `ScriptHeader` layouts).
+pub const SCRIPT_IS_QUEST_OFFSET: u32 = 0x18 + 0x10;
+
+/// `Script::pOwnerQuest`: the word at +0x40 (`tesscript.rs`, `Script` layout).
+pub const SCRIPT_OWNER_QUEST_OFFSET: u32 = 0x40;
+
 /// `BGSSaveLoadGame::AddChange(this, form, flags, force)` (`0084a690`,
 /// `bgssaveloadgame.rs`): where every form's change for the save game ends
 /// (`TESForm::AddChange` `00484b60`, `TESForm::ForceChange` `00484b90`).
 pub const SAVE_LOAD_ADD_CHANGE: u32 = 0x0084_a690;
+
+/// Whether `BGSSaveLoadGame` records a change of a form: `(this, form, force)` (`0084a620`,
+/// `bgssaveloadgame.rs`), the test `AddChange` makes first. The game must be recording or the
+/// change forced, the form must not have form flag 0x4000, and a form with flag 0x20 must not
+/// have a dynamic id. It only reads, so asking it again after the change gives the game's answer.
+pub const SAVE_LOAD_RECORDS_CHANGE: u32 = 0x0084_a620;
 
 /// `TESForm::cFormType`: a byte at +0x04 (`tesform.rs`).
 pub const FORM_TYPE_OFFSET: u32 = 0x04;
@@ -35,5 +54,7 @@ pub const FORM_TYPE_GLOBAL: u8 = 6;
 /// The form type of a `TESQuest` (`QUST`, `run_0060bef0.rs`).
 pub const FORM_TYPE_QUEST: u8 = 0x47;
 
-/// The change flag `SetStageDone` adds to its quest (`tesquest.rs`, `CHANGE_QUEST_STAGES`).
+/// The change flag `SetStageDone` adds to its quest (`tesquest.rs`, `CHANGE_QUEST_STAGES`). The
+/// same bit means other things for other form types (a cell's seen data, a topic's said-once, a
+/// package's never-run: `tessaveloadgame.rs`), so it names a quest's stages only with the type.
 pub const CHANGE_QUEST_STAGES: u32 = 0x8000_0000;

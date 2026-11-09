@@ -98,6 +98,7 @@ pub struct Entry {
 
 const NVSE: &[Owner] = &[Owner::Nvse];
 const COOP: &[Owner] = &[Owner::Coop];
+const NVSE_COOP: &[Owner] = &[Owner::Nvse, Owner::Coop];
 
 /// Every exe address a built-in may wrap (ADR-0016 §3, "Wrappers"), by address. Each is a
 /// function entry registered by a translation (or a fix row's copy of it) and reached by
@@ -128,10 +129,11 @@ pub const WRAPS: &[Entry] = &[
         owners: NVSE,
         step: "I-4",
     },
-    // ScriptRunner::Run: the script context pushed and popped.
+    // ScriptRunner::Run: the script context pushed and popped; co-op's guest gate (the story's
+    // scripts run on the host only, docs/coop/SPECS.md S5).
     Entry {
         addr: 0x005e_0d20,
-        owners: NVSE,
+        owners: NVSE_COOP,
         step: "I-3",
     },
     // ScriptRunner InitActionList: the script context pushed and popped.

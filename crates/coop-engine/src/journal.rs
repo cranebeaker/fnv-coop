@@ -3,8 +3,10 @@
 //! (`0084a690`), wrapped as [`Owner::Coop`].
 //!
 //! The wrap runs the game's own call first and hands back its result unchanged, then records
-//! the form's id and the flags it was given, but only while the journal is armed: loading a save
-//! or starting a game marks thousands of forms that are not news to anyone. The session drains the
+//! the form's id, type and the flags it was given, but only when the game recorded the change
+//! too (the test `0084a620` the call makes first: a change the save never gets is not news), and
+//! only while the journal is armed: loading a save or starting a game marks thousands of forms
+//! that are not news to anyone. The session drains the
 //! journal once per network tick. A form marked twice in a tick is one entry with both flags.
 
 use std::collections::BTreeMap;
@@ -24,6 +26,8 @@ pub(crate) const ADD_CHANGE: WrapSlot = WrapSlot::new(Owner::Coop, addr::SAVE_LO
 pub struct Change {
     /// The form's id (`TESForm::iFormID`).
     pub form: u32,
+    /// Its form type (`TESForm::cFormType`).
+    pub kind: u8,
     /// The union of the change flags it was given.
     pub flags: u32,
     /// Whether any of them was forced (`TESForm::ForceChange`).
@@ -41,28 +45,29 @@ pub struct Journal {
     pub(crate) installed: AtomicBool,
     /// Changes are recorded only while this is set.
     armed: AtomicBool,
-    /// Form id to (flags, forced), since the last drain.
-    changes: Mutex<BTreeMap<u32, (u32, bool)>>,
+    /// Form id to (type, flags, forced), since the last drain.
+    changes: Mutex<BTreeMap<u32, (u8, u32, bool)>>,
 }
 
 impl Journal {
-    fn map(&self) -> std::sync::MutexGuard<'_, BTreeMap<u32, (u32, bool)>> {
+    fn map(&self) -> std::sync::MutexGuard<'_, BTreeMap<u32, (u8, u32, bool)>> {
         // A thread that panicked while holding it left a whole map (each change is one insert).
         self.changes.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn record(&self, form: u32, flags: u32, forced: bool) {
+    fn record(&self, form: u32, kind: u8, flags: u32, forced: bool) {
         let mut map = self.map();
-        let entry = map.entry(form).or_insert((0, false));
-        entry.0 |= flags;
-        entry.1 |= forced;
+        let entry = map.entry(form).or_insert((kind, 0, false));
+        entry.1 |= flags;
+        entry.2 |= forced;
     }
 
     fn drain(&self) -> Vec<Change> {
         std::mem::take(&mut *self.map())
             .into_iter()
-            .map(|(form, (flags, forced))| Change {
+            .map(|(form, (kind, flags, forced))| Change {
                 form,
+                kind,
                 flags,
                 forced,
             })
@@ -90,10 +95,15 @@ pub fn drain(e: &mut Engine) -> Vec<Change> {
 pub(crate) fn add_change(e: &mut Engine, a: &[u32]) -> Ret {
     let r = e.call_next(addr::SAVE_LOAD_ADD_CHANGE, a);
     let word = |i: usize| a.get(i).copied().unwrap_or(0);
-    let (form, flags, forced) = (word(1), word(2), word(3) & 0xff != 0);
-    if form != 0 && armed(e) {
+    let (this, form, flags, force) = (word(0), word(1), word(2), word(3) & 0xff);
+    if form != 0
+        && armed(e)
+        && e.call(addr::SAVE_LOAD_RECORDS_CHANGE, &args![this, form, force])
+            .bool()
+    {
         let id = e.mem.u32(form.wrapping_add(addr::FORM_ID_OFFSET));
-        e.ext_free::<Journal>().record(id, flags, forced);
+        let kind = e.mem.u8(form.wrapping_add(addr::FORM_TYPE_OFFSET));
+        e.ext_free::<Journal>().record(id, kind, flags, force != 0);
     }
     r
 }
@@ -125,6 +135,16 @@ mod tests {
         }
     }
 
+    /// The stand-in for the game's test `0084a620`: a form whose byte at +0x08 is set is not
+    /// recorded unless forced (as the game's form flag 0x4000 or not recording at all).
+    fn records(e: &mut Engine, a: &[u32]) -> Ret {
+        let refused = e.mem.u8(a[1] + 8) != 0 && a[2] & 0xff == 0;
+        Ret {
+            eax: u32::from(!refused),
+            ..Ret::default()
+        }
+    }
+
     fn engine() -> Engine {
         let mut e = Engine::new();
         e.map(BASE_LOG, 0x100);
@@ -135,7 +155,12 @@ mod tests {
         {
             e.mem.set_u32(form(i as u32) + addr::FORM_ID_OFFSET, id);
         }
+        for (i, kind) in [addr::FORM_TYPE_QUEST, 0x3b, 0x39].into_iter().enumerate() {
+            e.mem.set_u8(form(i as u32) + addr::FORM_TYPE_OFFSET, kind);
+        }
         e.register(addr::SAVE_LOAD_ADD_CHANGE, base);
+        e.register(addr::SAVE_LOAD_RECORDS_CHANGE, records);
+        e.register(addr::SCRIPT_RUNNER_RUN, |_, _| Ret::default());
         e
     }
 
@@ -159,11 +184,13 @@ mod tests {
             [
                 Change {
                     form: 0x0000_0014,
+                    kind: 0x3b,
                     flags: 4,
                     forced: false
                 },
                 Change {
                     form: 0x0010_4c0c,
+                    kind: addr::FORM_TYPE_QUEST,
                     flags: addr::CHANGE_QUEST_STAGES | 2,
                     forced: true
                 },
@@ -196,6 +223,21 @@ mod tests {
         arm(&mut e, true);
         add(&mut e, 0, 1, 0);
         assert!(drain(&mut e).is_empty());
+        assert_eq!(e.mem.u32(BASE_LOG), 2);
+    }
+
+    #[test]
+    fn a_change_the_game_does_not_record_is_not_recorded() {
+        let mut e = engine();
+        crate::install(&mut e);
+        arm(&mut e, true);
+        e.mem.set_u8(form(2) + 8, 1);
+        add(&mut e, form(2), 1, 0);
+        assert!(drain(&mut e).is_empty());
+        // Forced, the game records it, and so does the journal.
+        add(&mut e, form(2), 1, 1);
+        assert_eq!(drain(&mut e).len(), 1);
+        // The game's own call ran both times.
         assert_eq!(e.mem.u32(BASE_LOG), 2);
     }
 
