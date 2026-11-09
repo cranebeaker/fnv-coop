@@ -1,13 +1,12 @@
-//! More of xNVSE's `Commands_Inventory.cpp` (xNVSE), batch I-15a: whether a form is playable and
+//! More of xNVSE's `Commands_Inventory.cpp` (xNVSE), batch of I-12: whether a form is playable and
 //! the biped slot and flag masks, the equipped object of a slot and its health, a reference's
-//! current health and whether it is worn; with `GetRefCount` of `Commands_MiscRef.cpp`. Each reads
-//! or flips data the game already has; the setters that make extra data (`SetCurrentHealth`,
-//! `SetEquippedCurrentHealth`, `SetRefCount`) come with the next batch.
+//! current health (and setting it, also on an equipped item) and whether it is worn, `CompareNames`;
+//! with `GetRefCount` and `SetRefCount` of `Commands_MiscRef.cpp`.
 
 use super::{
     console_print, double_words, dynamic_cast, form_or_caller, is_console_mode, rtti, Read,
 };
-use crate::invref::{self, has_type, list_items};
+use crate::invref::{self, has_type};
 use crate::table::{Command, Param, Returns};
 use crate::{handled, CommandArgs, EvalArgs};
 use engine_core::prelude::*;
@@ -23,6 +22,19 @@ const fn p(name: &'static str, kind: u32, optional: bool) -> Param {
 const ONE_OPTIONAL_OBJECT_ID: &[Param] = &[p("item", 0x03, true)];
 const INT_OPTIONAL_OBJECT_ID: &[Param] = &[p("path type", 0x01, false), p("item", 0x03, true)];
 const ONE_INT: &[Param] = &[p("int", 0x01, false)];
+/// `kParams_OneFloat`, `kParams_SetEquippedFloat`, `kParams_OneObject_OneOptionalObject` (xNVSE).
+const ONE_FLOAT: &[Param] = &[p("float", 0x02, false)];
+const SET_EQUIPPED_FLOAT: &[Param] = &[p("val", 0x02, false), p("slot", 0x01, false)];
+const ONE_OBJECT_OPTIONAL_OBJECT: &[Param] =
+    &[p("target item", 0x3d, false), p("object", 0x3d, true)];
+/// `ExtraHealth` and `ExtraCount` (0x10 bytes, their vtables), `kExtraData_Count`, `ExtraCount::count` (a
+/// `SInt16` at `+0xC`), and the `TESForm::MarkAsModified` slot (`+0x48`).
+const EXTRA_SIZE: u32 = 0x10;
+const EXTRA_HEALTH_VTBL: u32 = 0x0101_58e4;
+const EXTRA_COUNT_VTBL: u32 = 0x0101_58d8;
+const EXTRA_COUNT: u32 = 0x24;
+const EXTRA_COUNT_VALUE: u32 = 0xc;
+const MARK_AS_MODIFIED: u32 = 0x48;
 
 /// `TESBipedModelForm` (xNVSE): `partMask` (`+4`, the slots; `eSlot_Full` the 20 used bits) and
 /// `bipedFlags` (`+8`, a byte; `eBipedFlag_NonPlayable` 0x40).
@@ -75,6 +87,42 @@ const fn cmd(
 }
 
 pub static COMMANDS: &[Command] = &[
+    cmd(
+        0x144b,
+        "CompareNames",
+        "",
+        "compares one name to another",
+        false,
+        ONE_OBJECT_OPTIONAL_OBJECT,
+        compare_names,
+    ),
+    cmd(
+        0x1450,
+        "SetEquippedCurrentHealth",
+        "SetEqCurHealth",
+        "sets the current health of the equipped object at the given slot.",
+        true,
+        SET_EQUIPPED_FLOAT,
+        set_equipped_current_health,
+    ),
+    cmd(
+        0x1452,
+        "SetCurrentHealth",
+        "",
+        "sets the current health of the calling ref",
+        true,
+        ONE_FLOAT,
+        set_current_health,
+    ),
+    cmd(
+        0x1477,
+        "SetRefCount",
+        "",
+        "sets the count on a stacked reference",
+        true,
+        ONE_INT,
+        set_ref_count,
+    ),
     Command {
         returns: Returns::Form,
         ..cmd(
@@ -347,28 +395,43 @@ fn matches_slot(e: &mut Engine, item: u32, mask: u32) -> bool {
 // ExtraContainerChanges::FindEquipped, GetMatchingEquipped.
 /// The first stack in the reference's container changes, in list order, whose item uses a slot
 /// of `mask` and one of whose extra data lists (up to the first empty node) is worn in either
-/// hand: the item and that list; `(0, 0)` for none.
+/// hand: the item and that list; `(0, 0)` for none. Both walks share one bound
+/// ([`invref::MAX_LIST_NODES`]), so two lists that run back into themselves stay within it.
 fn find_equipped(e: &mut Engine, reference: u32, mask: u32) -> (u32, u32) {
     let list = invref::entry_list(e, reference);
     if list == 0 {
         return (0, 0);
     }
-    for entry in list_items(e, list) {
+    // One count over both walks, so that two lists that run back into themselves stay bounded.
+    let mut walked = 0usize;
+    let mut node = list;
+    while node != 0 {
+        if !invref::list_step(e, &mut walked) {
+            return (0, 0);
+        }
+        let entry = e.mem.u32(node);
+        node = e.mem.u32(node + 4);
+        if entry == 0 {
+            continue;
+        }
         let extend = e.mem.u32(entry + invref::ENTRY_EXTEND_DATA);
         let item = e.mem.u32(entry + invref::ENTRY_TYPE);
         if extend == 0 || !matches_slot(e, item, mask) {
             continue;
         }
-        let mut node = extend;
-        while node != 0 {
-            let xdata = e.mem.u32(node);
+        let mut inner = extend;
+        while inner != 0 {
+            if !invref::list_step(e, &mut walked) {
+                return (0, 0);
+            }
+            let xdata = e.mem.u32(inner);
             if xdata == 0 {
                 break;
             }
             if has_type(e, xdata, invref::EXTRA_WORN) || has_type(e, xdata, EXTRA_WORN_LEFT) {
                 return (item, xdata);
             }
-            node = e.mem.u32(node + 4);
+            inner = e.mem.u32(inner + 4);
         }
     }
     (0, 0)
@@ -556,6 +619,153 @@ fn get_ref_count(e: &mut Engine, w: &[u32]) -> Ret {
     handled(true)
 }
 
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Commands_Inventory.cpp: AdjustHealth.
+/// Sets the health in an extra data list: at or above the base health its `ExtraHealth` goes (and
+/// is freed), below it the `ExtraHealth` holds it (made and added when missing); below 0 is 0.
+fn adjust_health(e: &mut Engine, health_form: u32, list: u32, health: f32) {
+    let extra = invref::get_by_type(e, list, EXTRA_HEALTH);
+    let health = if health < 0.0 { 0.0 } else { health };
+    let base = e.mem.u32(health_form + HEALTH_FORM_HEALTH) as f32;
+    if health >= base {
+        if extra != 0 {
+            invref::extra_remove(e, list, extra, true);
+        }
+    } else if extra != 0 {
+        e.mem.set_f32(extra + EXTRA_HEALTH_VALUE, health);
+    } else {
+        let extra = invref::create_extra(e, EXTRA_HEALTH, EXTRA_SIZE, EXTRA_HEALTH_VTBL);
+        if extra != 0 {
+            e.mem.set_f32(extra + EXTRA_HEALTH_VALUE, health);
+            invref::extra_add(e, list, extra);
+        }
+    }
+}
+
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Commands_Inventory.cpp:
+// Cmd_SetCurrentHealth_Execute.
+fn set_current_health(e: &mut Engine, w: &[u32]) -> Ret {
+    let a = CommandArgs::new(w);
+    a.set_result(e, 0.0);
+    if a.this_obj == 0 {
+        return handled(true);
+    }
+    let base = e.mem.u32(a.this_obj + 0x20);
+    let health_form = dynamic_cast(e, base, rtti::TES_FORM, rtti::TES_HEALTH_FORM);
+    if health_form == 0 {
+        return handled(true);
+    }
+    let read = Read::of(e, &a);
+    if read.ok {
+        let health = read.float(0, 0.0);
+        let health = if health < 0.0 { 0.0 } else { health };
+        adjust_health(e, health_form, a.this_obj + invref::REFR_EXTRA, health);
+    }
+    handled(true)
+}
+
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Commands_Inventory.cpp:
+// Cmd_SetEquippedCurrentHealth_Execute.
+fn set_equipped_current_health(e: &mut Engine, w: &[u32]) -> Ret {
+    let a = CommandArgs::new(w);
+    a.set_result(e, 0.0);
+    if a.this_obj == 0 {
+        return handled(true);
+    }
+    let read = Read::of(e, &a);
+    if !read.ok {
+        return handled(true);
+    }
+    let (health, slot) = (read.float(0, 0.0), read.int(1, 0));
+    let (item, xdata) = find_equipped(e, a.this_obj, mask_for_slot(slot));
+    if item != 0 && xdata != 0 {
+        let health_form = dynamic_cast(e, item, rtti::TES_FORM, rtti::TES_HEALTH_FORM);
+        if health_form != 0 {
+            adjust_health(e, health_form, xdata, health);
+        }
+    }
+    handled(true)
+}
+
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Commands_MiscRef.cpp:
+// Cmd_SetRefCount_Execute.
+/// A count from 1 to 0x7FFF: an inventory reference's stack (its `ExtraCount`, when it has
+/// one, and its entry's count delta), else the reference's `ExtraCount` (made when missing), then
+/// the reference marked changed (0x400).
+fn set_ref_count(e: &mut Engine, w: &[u32]) -> Ret {
+    let a = CommandArgs::new(w);
+    let read = Read::of(e, &a);
+    let count = read.int(0, 0);
+    if !read.ok || count == 0 || count > 0x7fff {
+        return handled(true);
+    }
+    let id = e.mem.u32(a.this_obj + FORM_ID);
+    if let Some((entry, xdata)) = invref::get(e, id).map(|r| (r.data.entry, r.data.xdata)) {
+        if xdata != 0 {
+            let extra = invref::get_by_type(e, xdata, EXTRA_COUNT);
+            if extra != 0 {
+                e.mem.set_u16(extra + EXTRA_COUNT_VALUE, count as u16);
+            }
+        }
+        e.mem.set_u32(entry + invref::ENTRY_COUNT_DELTA, count);
+        return handled(true);
+    }
+    let list = a.this_obj + invref::REFR_EXTRA;
+    let extra = invref::get_by_type(e, list, EXTRA_COUNT);
+    if extra != 0 {
+        e.mem.set_u16(extra + EXTRA_COUNT_VALUE, count as u16);
+    } else {
+        let extra = invref::create_extra(e, EXTRA_COUNT, EXTRA_SIZE, EXTRA_COUNT_VTBL);
+        e.mem.set_u16(extra + EXTRA_COUNT_VALUE, count as u16);
+        invref::extra_add(e, list, extra);
+    }
+    e.vcall(a.this_obj, MARK_AS_MODIFIED, &[0x400]);
+    handled(true)
+}
+
+/// A `String`'s text (`m_data`, `m_dataLen`), `None` without data.
+fn name_text(e: &Engine, full_name: u32) -> Option<Vec<u8>> {
+    let data = e.mem.u32(full_name + 4);
+    (data != 0).then(|| e.mem.bytes(data, u32::from(e.mem.u16(full_name + 8))))
+}
+
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Commands_Inventory.cpp:
+// Cmd_CompareNames_Execute, GameTypes.cpp: String::Compare.
+/// -1, 0 or 1 as the base form's name (the second argument's, else the caller's base form's) orders
+/// before, with or after the first argument's, compared without case (ASCII); -2 when the base
+/// form's name has no text.
+fn compare_names(e: &mut Engine, w: &[u32]) -> Ret {
+    let a = CommandArgs::new(w);
+    a.set_result(e, 0.0);
+    let read = Read::of(e, &a);
+    let form = super::try_get_refr_parent(e, read.form(0));
+    let mut base = super::try_get_refr_parent(e, read.form(1));
+    if form == 0 {
+        return handled(true);
+    }
+    if base == 0 {
+        if a.this_obj == 0 {
+            return handled(true);
+        }
+        base = e.mem.u32(a.this_obj + 0x20);
+    }
+    let first = dynamic_cast(e, base, rtti::TES_FORM, rtti::TES_FULL_NAME);
+    let second = dynamic_cast(e, form, rtti::TES_FORM, rtti::TES_FULL_NAME);
+    if first != 0 && second != 0 {
+        let result = match name_text(e, first) {
+            None => -2.0,
+            Some(mine) => {
+                let theirs = name_text(e, second).unwrap_or_default();
+                match mine.to_ascii_lowercase().cmp(&theirs.to_ascii_lowercase()) {
+                    std::cmp::Ordering::Less => -1.0,
+                    std::cmp::Ordering::Equal => 0.0,
+                    std::cmp::Ordering::Greater => 1.0,
+                }
+            }
+        };
+        a.set_result(e, result);
+    }
+    handled(true)
+}
 #[cfg(test)]
 #[path = "inventory_forms_tests.rs"]
 mod tests;

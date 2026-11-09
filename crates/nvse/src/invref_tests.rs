@@ -562,3 +562,38 @@ fn a_destination_without_changes_gets_empty_ones() {
     assert!(move_to_container(&mut e, id, third));
     assert_ne!(e.mem.u32(third + REFR_EXTRA + 4), 0);
 }
+
+/// Lists that run back into themselves: every walk of the game's lists stops the game past
+/// `MAX_LIST_NODES` nodes, or with the list guard row ends there.
+#[test]
+fn cyclic_lists_stop_the_game_or_end_the_walk() {
+    let mut e = Engine::new();
+    e.map(AREA, 0x10000);
+    let list = AREA + 0x9000;
+    e.mem.set_u32(list, 0x77);
+    e.mem.set_u32(list + 4, list + 8);
+    e.mem.set_u32(list + 8, 0x78);
+    e.mem.set_u32(list + 12, list);
+    for walk in [
+        |e: &mut Engine, l: u32| {
+            list_index_of(e, l, 0x99);
+        },
+        |e: &mut Engine, l: u32| {
+            list_count(e, l);
+        },
+        |e: &mut Engine, l: u32| {
+            list_nth(e, l, u32::MAX);
+        },
+        |e: &mut Engine, l: u32| {
+            list_items(e, l);
+        },
+    ] {
+        let stop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| walk(&mut e, list)));
+        assert!(stop.is_err());
+    }
+    crate::commands::array::set_fix(&mut e, crate::commands::array::LIST_GUARD, true);
+    assert_eq!(list_index_of(&e, list, 0x99), -1);
+    assert_eq!(list_count(&e, list) as usize, MAX_LIST_NODES + 1);
+    assert_eq!(list_nth(&e, list, u32::MAX), 0);
+    assert_eq!(list_items(&e, list).len(), MAX_LIST_NODES);
+}

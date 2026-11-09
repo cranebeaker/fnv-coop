@@ -198,3 +198,130 @@ fn the_real_games_form_answers() {
     let biped = run(&mut e, 0x15c5, 0, &[r(1)]);
     assert_eq!([playable, slots, biped], [0.0, 1_048_575.0, 165.0]);
 }
+
+const HEAP: u32 = 0x0200_9000;
+const REF_VTABLE: u32 = 0x0200_a000;
+
+/// The form heap as a bump allocator, `BaseExtraList::Add` and `Remove` on the stand-in lists,
+/// `MarkAsModified` recording its flags at `REF_VTABLE + 0x100`.
+fn with_extra_writes(e: &mut Engine) {
+    e.register(0x0040_1000, |e, a| {
+        let at = e.mem.u32(HEAP).max(HEAP + 0x10);
+        e.mem.set_u32(HEAP, at + a[0].next_multiple_of(16));
+        Ret {
+            eax: at,
+            ..Ret::default()
+        }
+    });
+    e.register(0x0040_ff60, |e, a| {
+        let kind = u32::from(e.mem.u8(a[1] + 4));
+        put_extra(e, a[0], kind, a[1]);
+        Ret::default()
+    });
+    e.register(0x0041_0020, |e, a| {
+        let kind = u32::from(e.mem.u8(a[1] + 4));
+        let at = a[0] + 8 + (kind >> 3);
+        let bits = e.mem.u8(at) & !(1 << (kind & 7));
+        e.mem.set_u8(at, bits);
+        e.mem.set_u32(a[0] + 0x100 + 4 * kind, 0);
+        Ret::default()
+    });
+    e.mem.set_u32(REF, REF_VTABLE);
+    e.mem.set_u32(REF_VTABLE + 0x48, 0x0060_0048);
+    e.register(0x0060_0048, |e, a| {
+        e.mem.set_u32(REF_VTABLE + 0x100, a[1]);
+        Ret::default()
+    });
+}
+
+/// `SetCurrentHealth`: below the base health an `ExtraHealth` is made, then changed; at or above
+/// it the `ExtraHealth` goes; below 0 is 0. `SetEquippedCurrentHealth` the same on the worn stack.
+#[test]
+fn setting_health_makes_changes_and_drops_extra_health() {
+    let mut e = setup();
+    with_extra_writes(&mut e);
+    let health = |e: &mut Engine| {
+        let x = e.mem.u32(REF + 0x44 + 0x100 + 4 * 0x25);
+        (x != 0).then(|| e.mem.f32(x + 0xc))
+    };
+    run(&mut e, 0x1452, REF, &[z(50.0)]);
+    assert_eq!(health(&mut e), Some(50.0));
+    run(&mut e, 0x1452, REF, &[z(-5.0)]);
+    assert_eq!(health(&mut e), Some(0.0));
+    run(&mut e, 0x1452, REF, &[z(100.0)]);
+    assert_eq!(health(&mut e), None, "at the base health");
+    wearing(&mut e);
+    run(&mut e, 0x1450, ACTOR, &[z(20.0), n(5)]);
+    assert_eq!(e.mem.f32(EXTRA + 0xc), 20.0, "the worn stack's ExtraHealth");
+    run(&mut e, 0x1450, ACTOR, &[z(40.0), n(2)]);
+    let made = e.mem.u32(XDATA[2] + 0x100 + 4 * 0x25);
+    assert_eq!(e.mem.f32(made + 0xc), 40.0);
+}
+
+/// `SetRefCount` 1-0x7FFF: the reference's `ExtraCount` made, then changed, and the reference
+/// marked (0x400); 0 and 0x8000 change nothing.
+#[test]
+fn set_ref_count_writes_extra_count() {
+    let mut e = setup();
+    with_extra_writes(&mut e);
+    run(&mut e, 0x1477, REF, &[n(5)]);
+    assert_eq!(run(&mut e, 0x1476, REF, &[]), 5.0);
+    assert_eq!(e.mem.u32(REF_VTABLE + 0x100), 0x400);
+    run(&mut e, 0x1477, REF, &[n(0x7fff)]);
+    assert_eq!(run(&mut e, 0x1476, REF, &[]), 32767.0);
+    run(&mut e, 0x1477, REF, &[n(0)]);
+    run(&mut e, 0x1477, REF, &[n(0x8000)]);
+    assert_eq!(run(&mut e, 0x1476, REF, &[]), 32767.0);
+}
+
+/// `CompareNames`: the base form's name (the second argument, else the caller's base) against the
+/// first's, without case: -1/0/1; -2 when the base's name has no text; 0 when a form has no name.
+#[test]
+fn compare_names_orders_without_case() {
+    let mut e = setup();
+    let name = |e: &mut Engine, form: u32, text: &str| {
+        let bits = e.mem.u32(form + 0x7f0) | (1 << 20);
+        e.mem.set_u32(form + 0x7f0, bits);
+        let at = form + 0x7a0;
+        e.mem.write(at, text.as_bytes());
+        e.mem
+            .set_u32(form + 0x7d4, if text.is_empty() { 0 } else { at });
+        e.mem.set_u16(form + 0x7d8, text.len() as u16);
+    };
+    name(&mut e, ARMOR, "Leather Armor");
+    name(&mut e, WEAPON, "leather armor");
+    assert_eq!(run(&mut e, 0x144b, 0, &[r(1), r(2)]), 0.0);
+    name(&mut e, WEAPON, "Leather");
+    assert_eq!(
+        run(&mut e, 0x144b, 0, &[r(1), r(2)]),
+        -1.0,
+        "the base's is a prefix"
+    );
+    assert_eq!(run(&mut e, 0x144b, REF, &[r(2)]), 1.0, "the caller's base");
+    name(&mut e, WEAPON, "");
+    assert_eq!(run(&mut e, 0x144b, 0, &[r(1), r(2)]), -2.0);
+    assert_eq!(
+        run(&mut e, 0x144b, 0, &[r(3), r(1)]),
+        0.0,
+        "ammo has no name here"
+    );
+}
+
+/// A container list that runs back into itself: the walk stops the game, or ends with the list
+/// guard row.
+#[test]
+fn a_cyclic_list_stops_the_game_or_ends_the_walk() {
+    let mut e = setup();
+    wearing(&mut e);
+    e.mem.set_u32(NODES + 0xc, NODES);
+    let stop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        call(&mut e, 0x1449, ACTOR, &[n(0)]);
+    }));
+    assert!(stop.is_err());
+    let mut e = setup();
+    wearing(&mut e);
+    e.mem.set_u32(NODES + 0xc, NODES);
+    crate::commands::array::set_fix(&mut e, crate::commands::array::LIST_GUARD, true);
+    let (_, form) = call(&mut e, 0x1449, ACTOR, &[n(0)]);
+    assert_eq!(form, 0.0);
+}

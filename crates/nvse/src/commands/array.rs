@@ -49,7 +49,7 @@ pub const MAX_MADE: usize = 1 << 23;
 /// reads them.
 #[derive(Default)]
 pub struct CommandFixes {
-    rows: [AtomicBool; 3],
+    rows: [AtomicBool; 4],
 }
 
 /// `NV_NVSE_SIZE_CAPS`: arrays made or grown here stop at [`MAX_MADE`] elements, an empty text
@@ -61,6 +61,9 @@ pub const SIZE_CAPS: usize = 0;
 pub const NULL_GUARD: usize = 1;
 /// `NV_NVSE_CYCLE_GUARD`: an array met again inside itself ends the walk.
 pub const CYCLE_GUARD: usize = 2;
+/// `NV_NVSE_LIST_GUARD`: a game list walked by the inventory commands that runs back into itself ends
+/// the walk instead of stopping the game ([`crate::invref::MAX_LIST_NODES`]).
+pub const LIST_GUARD: usize = 3;
 
 /// Turns one of the rows on or off (the host's fix rows; before the game's threads start).
 pub fn set_fix(e: &mut Engine, row: usize, on: bool) {

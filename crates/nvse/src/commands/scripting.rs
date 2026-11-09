@@ -254,7 +254,12 @@ pub enum Loop {
         script: u32,
     },
     /// `FormListIterLoop`: the list node (0 at the end) and the reference variable's local.
-    FormList { node: u32, local: u32 },
+    FormList {
+        node: u32,
+        local: u32,
+        /// The nodes walked so far ([`crate::invref::list_step`]).
+        walked: usize,
+    },
     /// `ContainerIterLoop`: its inventory reference (by the temporary reference's id), the
     /// reference variable's local, the stacks (changes entries of its own) and the index.
     Container {
@@ -547,12 +552,20 @@ fn update(e: &mut Engine, a: &CommandArgs, kind: &mut Loop) -> bool {
             *index += 1;
             set_container_iterator(e, *invref, *local, elements, *index)
         }
-        Loop::FormList { node, local } => {
+        Loop::FormList {
+            node,
+            local,
+            walked,
+        } => {
             if *node == 0 {
                 return false;
             }
             *node = e.mem.u32(*node + 4);
             while *node != 0 {
+                if !crate::invref::list_step(e, walked) {
+                    *node = 0;
+                    return false;
+                }
                 let form = e.mem.u32(*node);
                 if form != 0 {
                     e.mem.set_u32(*local + 8, e.mem.u32(form + 0xc));
@@ -714,7 +727,12 @@ fn foreach_execute(e: &mut Engine, w: &[u32]) -> Ret {
         _ => {
             // A form list.
             let mut node = source + 0x18;
+            let mut walked = 0usize;
             while node != 0 && e.mem.u32(node) == 0 {
+                if !crate::invref::list_step(e, &mut walked) {
+                    node = 0;
+                    break;
+                }
                 node = e.mem.u32(node + 4);
             }
             if node != 0 {
@@ -722,7 +740,14 @@ fn foreach_execute(e: &mut Engine, w: &[u32]) -> Ret {
                 e.mem.set_u32(local + 8, e.mem.u32(form + 0xc));
                 e.mem.set_u32(local + 12, 0);
             }
-            (Loop::FormList { node, local }, node == 0)
+            (
+                Loop::FormList {
+                    node,
+                    local,
+                    walked,
+                },
+                node == 0,
+            )
         }
     };
     add_loop(e, kind, runner, start, end);

@@ -45,6 +45,7 @@ pub static FIXES: &[Fix] = &[
     SCRIPT_SIZE_CAPS,
     SCRIPT_NULL_GUARD,
     SCRIPT_CYCLE_GUARD,
+    SCRIPT_LIST_GUARD,
 ];
 
 /// The built-in script extender's rows (docs/FIXES.md, "The script extender"): each sets a flag
@@ -139,6 +140,19 @@ fn install_script_cycle_guard(e: &mut Engine) {
     nvse::commands::array::set_fix(e, nvse::commands::array::CYCLE_GUARD, true);
 }
 
+pub const SCRIPT_LIST_GUARD: Fix = Fix {
+    name: "script inventory list guard",
+    env: "NV_NVSE_LIST_GUARD",
+    addresses: &[],
+    summary:
+        "a container list that runs back into itself ends the walk of the inventory commands instead of stopping the game",
+    install: install_script_list_guard,
+};
+
+fn install_script_list_guard(e: &mut Engine) {
+    nvse::commands::array::set_fix(e, nvse::commands::array::LIST_GUARD, true);
+}
+
 /// The rows that register nothing at an exe address: the menu limit paces the uncapped step;
 /// the extender's rows set flags `crates/nvse` reads.
 #[cfg(test)]
@@ -151,6 +165,7 @@ const NO_ADDRESS: &[&str] = &[
     SCRIPT_SIZE_CAPS.name,
     SCRIPT_NULL_GUARD.name,
     SCRIPT_CYCLE_GUARD.name,
+    SCRIPT_LIST_GUARD.name,
 ];
 
 /// Menus' frames a second at most when nothing says otherwise (the maintainer, 2026-11-07).

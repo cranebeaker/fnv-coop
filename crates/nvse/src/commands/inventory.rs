@@ -1110,7 +1110,11 @@ fn set_ammo_consumed_percent(e: &mut Engine, w: &[u32]) -> Ret {
 fn list_contains(e: &Engine, list: u32, form: u32) -> bool {
     let id = ref_id(e, form);
     let mut node = list + 0x18;
+    let mut walked = 0usize;
     while node != 0 {
+        if !crate::invref::list_step(e, &mut walked) {
+            return false;
+        }
         let item = e.mem.u32(node);
         if item != 0 && ref_id(e, item) == id {
             return true;
