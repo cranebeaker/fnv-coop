@@ -294,6 +294,9 @@ pub fn garbage_collector_add(e: &mut Engine, object: Ptr) {
         let model_loader = loader(e);
         // ModelLoader::CancelReference (Xbox PDB)
         e.call(0x0044_5570, &args![model_loader, this]);
+        // The seam at this call (`0x008680A4`, ADR-0016): the script extender forgets what it
+        // kept for the reference (its form extra data).
+        e.site(0x0086_80a4, &[this]);
         // TESForm::RemoveFromDataStructures (Xbox PDB)
         e.call(0x0048_3c70, &args![this]);
         // BGSSaveFormBuffer::GetForm (Xbox PDB)

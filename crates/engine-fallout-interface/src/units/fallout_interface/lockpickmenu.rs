@@ -1610,6 +1610,8 @@ fn open_lock(e: &mut Engine, base: u32) {
     }
     play_sound(e, UNLOCK_SOUND, 0x101);
     let target = e.mem.u32(base + LOCK_TARGET);
+    // The seam at this call (`0x0078F8E5`, ADR-0016): the script extender's OnLockPickSuccess.
+    e.site(0x0078_f8e5, &[target]);
     e.call(UNLOCK, &args![target]);
     let target = e.mem.u32(base + LOCK_TARGET);
     if e.call(FORM_TYPE, &args![target]).u32() == 0x1c {
@@ -1728,6 +1730,10 @@ fn idle_bending(e: &mut Engine, idle: &Idle) {
     }
     e.call(SOUND_FADE_OUT, &args![LOOP_SOUND, 0x64u32]);
     play_sound(e, BREAK_SOUND, 0x101);
+    // The seam at the sound handle's (empty) release (`0x0078FE24`, ADR-0016): the script
+    // extender's OnLockPickBroken, for the menu's target.
+    let target = e.mem.u32(base + LOCK_TARGET);
+    e.site(0x0078_fe24, &[target]);
     if e.mem.u32(base + LOCK_TARGET) != 0 {
         let item: u32 = e.global(LOCKPICK_ITEM);
         let player = the_player(e);
@@ -2582,6 +2588,9 @@ fn lock_pick_menu_force(e: &mut Engine, base: u32) {
             return;
         }
         let target = e.mem.u32(base + LOCK_TARGET);
+        // The seam at this call (`0x00790461`, ADR-0016): the script extender's OnLockBroken (a
+        // failed force).
+        e.site(0x0079_0461, &[target]);
         let lock = e.call(GET_LOCK, &args![target]).u32();
         let tries = e.mem.u32(lock + 0xc).wrapping_add(1);
         e.mem.set_u32(lock + 0xc, tries);

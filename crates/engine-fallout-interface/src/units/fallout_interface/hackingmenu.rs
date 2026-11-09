@@ -3163,6 +3163,9 @@ pub fn hacking_menu_do_click(e: &mut Engine, this: Ptr<HackingMenu>, id: i32, ti
             {
                 log_setting(e, strings + 8 * (i as u32 + 1), setting);
             }
+            // The seam at the log's scroll (`0x0076717A`, ADR-0016): the script extender's
+            // OnTerminalHacked.
+            e.site(0x0076_717a, &[base]);
             scroll_log_strings(e, this, strings, 5, 5);
             e.call(
                 SOUND_HANDLE_PLAY_AFTER,
@@ -3230,6 +3233,9 @@ pub fn hacking_menu_do_click(e: &mut Engine, this: Ptr<HackingMenu>, id: i32, ti
                 log_setting(e, strings + 0x10, 0x011d_3144);
                 let text = e.call(SETTING_STRING, &args![0x011d_339cu32]).u32();
                 e.call(STRING_SPRINTF, &args![strings + 0x18, PLAIN_FORMAT, text]);
+                // The seam at the log's scroll (`0x007674B0`, ADR-0016): the script extender's
+                // OnTerminalHackFailed.
+                e.site(0x0076_74b0, &[base]);
                 scroll_log_strings(e, this, strings, 4, 4);
                 e.set(this, HackingMenu::eStage, 3);
                 if e.get(this, HackingMenu::pTerminal) != 0 {

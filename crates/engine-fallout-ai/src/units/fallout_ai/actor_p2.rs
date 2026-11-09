@@ -5543,6 +5543,31 @@ const BIPED_SLOT_ENTRY: u32 = 0x0088_e0f0;
 /// `__RTDynamicCast` (CRT), `cdecl`: (object, 0, source type, target type,
 /// 0).
 const RT_DYNAMIC_CAST_FN: u32 = 0x00ec_43fb;
+/// `Actor::AddWornItem` (`fn_0088db20`) at one of `EquipObject`'s three calls (`0x0088CAEB`,
+/// `0x0088CB97`, `0x0088CD11`): the seam there (ADR-0016) may take the call, as the script
+/// extender does to run it with its "inside AddWornItem" flag set.
+fn add_worn_item_at(
+    e: &mut Engine,
+    site: u32,
+    this: Ptr<Actor>,
+    item: Ptr,
+    count: i32,
+    extra: Ptr,
+    flag: u8,
+) -> u8 {
+    let words = [
+        this.addr(),
+        item.addr(),
+        count as u32,
+        extra.addr(),
+        u32::from(flag),
+    ];
+    match e.site(site, &words) {
+        Some(answer) => answer as u8,
+        None => fn_0088db20(e, this, item, count, extra, flag),
+    }
+}
+
 /// The two run-time type descriptors `fn_0088db20` casts between.
 const CAST_SOURCE_TYPE: u32 = 0x0118_3028;
 const CAST_TARGET_TYPE: u32 = 0x0118_3978;
@@ -5926,7 +5951,7 @@ pub fn actor_equip_object(
                 count = 1;
             }
             if health as f64 > zero {
-                fn_0088db20(e, this, item, count, extra, flag_b);
+                add_worn_item_at(e, 0x0088_caeb, this, item, count, extra, flag_b);
             } else if is_player {
                 show_message(e, CREATE_MESSAGE, BROKEN_ITEM_MESSAGE, MESSAGE_ICON_PATH);
                 action_flag_pending = false;
@@ -5942,7 +5967,7 @@ pub fn actor_equip_object(
             e.call(ACTOR_EQUIP_STEP_D, &args![this]);
         }
         FORM_TYPE_0X33 => {
-            fn_0088db20(e, this, item, count, extra, flag_b);
+            add_worn_item_at(e, 0x0088_cb97, this, item, count, extra, flag_b);
             e.call(PLAYER_EQUIP_STEP, &args![player]);
             e.vcall(this.addr(), VSLOT_AFTER_EQUIP_CHANGE, &args![]);
         }
@@ -6070,7 +6095,7 @@ pub fn actor_equip_object(
             if count > 1 {
                 count = 1;
             }
-            if fn_0088db20(e, this, item, count, extra, flag_b) != 0 {
+            if add_worn_item_at(e, 0x0088_cd11, this, item, count, extra, flag_b) != 0 {
                 if is_player && flag_a == 0 {
                     e.call(PLAYER_NOTIFY_EQUIPPED, &args![player, item, extra]);
                 } else {

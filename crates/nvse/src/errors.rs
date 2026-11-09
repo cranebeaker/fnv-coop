@@ -123,16 +123,23 @@ pub fn show(e: &mut Engine, script: u32, message: &str) {
     if !inside {
         s.in_error_event.push(thread);
     }
-    crate::events::message_text(
-        e,
-        crate::events::id::RUNTIME_SCRIPT_ERROR,
-        message.as_bytes(),
-    );
+    // A dispatch that panics (a stop on the way) still takes this thread's entry out, so later
+    // errors of the thread reach the handlers; the panic goes on.
+    let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::events::message_text(
+            e,
+            crate::events::id::RUNTIME_SCRIPT_ERROR,
+            message.as_bytes(),
+        )
+    }));
     if !inside {
         e.ext::<Nvse>()
             .events
             .in_error_event
             .retain(|&t| t != thread);
+    }
+    if let Err(panic) = dispatched {
+        std::panic::resume_unwind(panic);
     }
 }
 

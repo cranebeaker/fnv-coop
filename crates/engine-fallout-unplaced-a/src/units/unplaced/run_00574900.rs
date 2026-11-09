@@ -431,6 +431,9 @@ pub fn fn_005750a0(
             ],
         )
         .u32();
+    // The seam after that call (`0x0057515A`, ADR-0016): the script extender's OnDrop and
+    // OnDropItem (the dropper, the item, the reference made).
+    e.site(0x0057_515a, &[reference, item.addr(), result]);
     if e.vcall(reference, SLOT_100, &[]).bool() {
         let actor = reference;
         if actor != 0

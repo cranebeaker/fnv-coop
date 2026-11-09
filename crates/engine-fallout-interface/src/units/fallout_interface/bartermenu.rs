@@ -2519,6 +2519,9 @@ fn complete_transaction_body(e: &mut Engine, this: Ptr<BarterMenu>, base: u32) {
             e.call(SET_ACTION_FLAG, &args![vendor, extra, 0x4000u32]);
         }
         let vendor = e.get(this, BarterMenu::pVendorRef);
+        // The seam at the count's read (`0x0072FE3E`, ADR-0016): the script extender's OnSell,
+        // the vendor selling the entry's item.
+        e.site(0x0072_fe3e, &[item, vendor]);
         let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
         let handler = e.global::<u32>(DATA_HANDLER);
         e.call(
@@ -2538,6 +2541,10 @@ fn complete_transaction_body(e: &mut Engine, this: Ptr<BarterMenu>, base: u32) {
             let player = e.global::<u32>(PLAYER);
             e.call(SET_ACTION_FLAG, &args![player, extra, 0x4000u32]);
         }
+        // The seam at the count's read (`0x0072FF20`, ADR-0016): the script extender's OnSell,
+        // the player selling the entry's item.
+        let player = e.global::<u32>(PLAYER);
+        e.site(0x0072_ff20, &[item, player]);
         let count = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, item));
         let object = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
         let player = e.global::<u32>(PLAYER);

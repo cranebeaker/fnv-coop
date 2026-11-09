@@ -2253,6 +2253,9 @@ pub fn tes_object_cell_perform_cell_node_attach(
         SHADOW_SCENE_NODE_UPDATE_LIGHTING,
         &args![scene, node_3d, 0u32],
     );
+    // The seam at the lock's release (`0x00549787`, ADR-0016): the script extender's
+    // OnRefAttach, the lock still held.
+    e.site(0x0054_9787, &[reference.addr()]);
     lock_leave(e, this);
 }
 
@@ -7557,7 +7560,11 @@ fn sky_texture_color(e: &mut Engine, object: u32, destination: u32) {
 ///
 /// The compiler's exception frame is not translated.
 pub fn fn_00551890(e: &mut Engine, this: Ptr<TESObjectCELL>, time: f32, large_only: u8) {
-    if is_interior(e, this) && e.call(CELL_STATE_IS_6, &args![this]).bool() {
+    let interior = is_interior(e, this);
+    // The seam after that first call (`0x005518A5`, ADR-0016): the script extender's
+    // OnCellRefsLoaded, once the attached cell has every reference loaded.
+    e.site(0x0055_18a5, &[this.addr()]);
+    if interior && e.call(CELL_STATE_IS_6, &args![this]).bool() {
         let water = e.call(CELL_WATER_OBJECT, &args![this]).u32();
         if water != 0 {
             e.vcall(water, WATER_OBJECT_SLOT_C4, &args![]);

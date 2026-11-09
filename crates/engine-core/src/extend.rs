@@ -151,11 +151,65 @@ pub const WRAPS: &[Entry] = &[
 /// calls [`Engine::site`] there once the step named on the row has made it. xNVSE's own patch
 /// sites (xNVSE) and JIP LN NVSE's (JIP LN NVSE) are added by the step that needs them.
 pub const SITES: &[Entry] = &[
-    // TESForm::~TESForm 00483630: the form extra data detour (FormExtraData).
+    // TESForm::~TESForm 00483630: the form extra data detour (FormExtraData; for now the cells
+    // whose references all loaded).
     Entry {
         addr: 0x0048_3669,
         owners: NVSE,
-        step: "I-12",
+        step: "I-9",
+    },
+    // The equip of 004bffe0 (InventoryChanges): OnActorEquip (xNVSE's OnActorEquipHook).
+    Entry {
+        addr: 0x004c_0032,
+        owners: NVSE,
+        step: "I-9",
+    },
+    // ImageSpaceModifierInstanceForm::Trigger 005299a0 and ::Stop 00529c90: OnApplyIMOD,
+    // OnRemoveIMOD.
+    Entry {
+        addr: 0x0052_9a37,
+        owners: NVSE,
+        step: "I-9",
+    },
+    Entry {
+        addr: 0x0052_9d37,
+        owners: NVSE,
+        step: "I-9",
+    },
+    // TESObjectCELL::PerformCellNodeAttach 005496b0: OnRefAttach.
+    Entry {
+        addr: 0x0054_9787,
+        owners: NVSE,
+        step: "I-9",
+    },
+    // The cell's per-frame update 00551890: OnCellRefsLoaded.
+    Entry {
+        addr: 0x0055_18a5,
+        owners: NVSE,
+        step: "I-9",
+    },
+    // TESObjectREFR::Set3DVerySimple 00571080: OnRefSet3D, OnRefUnset3D.
+    Entry {
+        addr: 0x0057_1090,
+        owners: NVSE,
+        step: "I-9",
+    },
+    Entry {
+        addr: 0x0057_10ac,
+        owners: NVSE,
+        step: "I-9",
+    },
+    // TESObjectREFR::Activate 00573170: OnActivate (xNVSE's TESObjectREFR_ActivateHook).
+    Entry {
+        addr: 0x0057_318e,
+        owners: NVSE,
+        step: "I-9",
+    },
+    // The dropped reference made in 005750a0: OnDrop, OnDropItem (xNVSE's DroppedItemHook).
+    Entry {
+        addr: 0x0057_515a,
+        owners: NVSE,
+        step: "I-9",
     },
     // CExpression::Eval: a command inside a vanilla expression called with the script's data.
     Entry {
@@ -187,6 +241,17 @@ pub const SITES: &[Entry] = &[
         owners: NVSE,
         step: "I-14",
     },
+    // EnableFunction 005c43d0 and DisableFunction 005c45e0: OnEnable, OnDisable.
+    Entry {
+        addr: 0x005c_453c,
+        owners: NVSE,
+        step: "I-9",
+    },
+    Entry {
+        addr: 0x005c_47b6,
+        owners: NVSE,
+        step: "I-9",
+    },
     // ScriptRunner::EvaluateLine: the result zeroed before its first and second handler calls.
     Entry {
         addr: 0x005e_16c3,
@@ -203,6 +268,45 @@ pub const SITES: &[Entry] = &[
         addr: 0x0071_47c4,
         owners: NVSE,
         step: "I-8",
+    },
+    // BarterMenu::CompleteTransaction 0072fd10: OnSell, an item bought and one sold.
+    Entry {
+        addr: 0x0072_fe3e,
+        owners: NVSE,
+        step: "I-9",
+    },
+    Entry {
+        addr: 0x0072_ff20,
+        owners: NVSE,
+        step: "I-9",
+    },
+    // HackingMenu::DoClick 00766b80: OnTerminalHacked, OnTerminalHackFailed.
+    Entry {
+        addr: 0x0076_717a,
+        owners: NVSE,
+        step: "I-9",
+    },
+    Entry {
+        addr: 0x0076_74b0,
+        owners: NVSE,
+        step: "I-9",
+    },
+    // LockPickMenu::DoIdle 0078eb50 and ::DoClick 00790330: OnLockPickSuccess,
+    // OnLockPickBroken, OnLockBroken.
+    Entry {
+        addr: 0x0078_f8e5,
+        owners: NVSE,
+        step: "I-9",
+    },
+    Entry {
+        addr: 0x0078_fe24,
+        owners: NVSE,
+        step: "I-9",
+    },
+    Entry {
+        addr: 0x0079_0461,
+        owners: NVSE,
+        step: "I-9",
     },
     // Exits of the game in ChooseMainMenu 007d0a70 and 007d0bf0 (xNVSE's exit messages).
     Entry {
@@ -254,11 +358,12 @@ pub const SITES: &[Entry] = &[
         owners: NVSE,
         step: "I-10",
     },
-    // The form extra data detour in 00867f90 (FormExtraData).
+    // The form extra data detour in 00867f90 (FormExtraData; for now the cells whose references
+    // all loaded).
     Entry {
         addr: 0x0086_80a4,
         owners: NVSE,
-        step: "I-12",
+        step: "I-9",
     },
     // main: the extender's tick, in place of the call to 0043c4b0, before Main::OnIdle.
     Entry {
@@ -266,11 +371,34 @@ pub const SITES: &[Entry] = &[
         owners: NVSE,
         step: "I-5",
     },
+    // Main::OnIdle_UpdateImageSpace 0086fd90: OnRemoveIMOD, an instance that ran out.
+    Entry {
+        addr: 0x0086_fe75,
+        owners: NVSE,
+        step: "I-9",
+    },
     // The present in 0086ff70 (Main::Swap in ADR-0016): the present notification.
     Entry {
         addr: 0x0087_055e,
         owners: NVSE,
         step: "I-8",
+    },
+    // Actor::EquipObject 0088c830's three calls to Actor::AddWornItem: no OnActorEquip from the
+    // mark while they run (xNVSE's g_inActivateItemInInventory).
+    Entry {
+        addr: 0x0088_caeb,
+        owners: NVSE,
+        step: "I-9",
+    },
+    Entry {
+        addr: 0x0088_cb97,
+        owners: NVSE,
+        step: "I-9",
+    },
+    Entry {
+        addr: 0x0088_cd11,
+        owners: NVSE,
+        step: "I-9",
     },
     // New game through CenterOnCell 0093db60: the co-save cleared.
     Entry {
@@ -1538,7 +1666,7 @@ mod tests {
         ] {
             assert!(find(SITES, Owner::Nvse, a).is_some(), "{a:08x}");
         }
-        assert_eq!(SITES.len(), 22);
+        assert_eq!(SITES.len(), 44);
     }
 
     /// The tables' order rules, checked at build time, also reject a bad table here.

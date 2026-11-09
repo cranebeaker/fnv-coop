@@ -39,6 +39,7 @@
 //! crates' own tests never install it, so they run the exe as it is.
 
 pub mod args;
+pub mod call_sites;
 pub mod cnum;
 pub mod commands;
 pub mod context;
@@ -213,6 +214,7 @@ pub fn install(e: &mut Engine) {
     tick::install(e);
     saveload::install(e);
     events::install(e);
+    call_sites::install(e);
     e.ext::<Nvse>().installed = true;
     // The extender's state is the game's, not one engine's: real threads' engines share it
     // (engine-core's shared slot, one lock), so an event raised or a variable used on another
@@ -247,13 +249,38 @@ mod tests {
             0x005a_ccb0,
             0x0041_af70,
             0x005a_c750,
+            0x0045_12a0,
         ] {
             e.register(addr, base);
         }
         install(&mut e);
         assert!(e.unlisted_wraps().is_empty());
-        assert_eq!(e.wrapped().len(), 7);
+        assert_eq!(e.wrapped().len(), 8);
         for site in [
+            0x0048_3669,
+            0x004c_0032,
+            0x0052_9a37,
+            0x0052_9d37,
+            0x0054_9787,
+            0x0055_18a5,
+            0x0057_1090,
+            0x0057_10ac,
+            0x0057_318e,
+            0x0057_515a,
+            0x005c_453c,
+            0x005c_47b6,
+            0x0072_fe3e,
+            0x0072_ff20,
+            0x0076_717a,
+            0x0076_74b0,
+            0x0078_f8e5,
+            0x0078_fe24,
+            0x0079_0461,
+            0x0086_80a4,
+            0x0086_fe75,
+            0x0088_caeb,
+            0x0088_cb97,
+            0x0088_cd11,
             0x005a_cb9d,
             0x005b_6ca6,
             0x005e_16c3,

@@ -566,6 +566,9 @@ pub fn tes_form_scalar_deleting_destructor(
 /// file list and, with the last form, the registries.
 pub fn tes_form_dtor(e: &mut Engine, this: Ptr<TESForm>) {
     e.mem.set_u32(this.addr(), TES_FORM_VTABLE);
+    // The seam at this call (`0x00483669`, ADR-0016): the script extender forgets what it kept
+    // for the form (its form extra data).
+    e.site(0x0048_3669, &[this.addr()]);
     tes_form_remove_from_data_structures(e, this);
     e.call(SIMPLE_LIST_DESTROY, &args![this.byte_add(0x10)]);
     let save_load = e.global::<u32>(SAVE_LOAD_GAME);

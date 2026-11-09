@@ -1496,10 +1496,15 @@ pub fn fn_00570f70(e: &mut Engine, this: Ptr<TESObjectREFR>, node: u32) {
 pub fn tes_object_refr_set_3d_very_simple(e: &mut Engine, this: Ptr<TESObjectREFR>, node: u32) {
     if node != 0 {
         e.call(0x0057_c180, &args![this]);
+        // The seam at this call (`0x00571090`, ADR-0016): the script extender's OnRefSet3D,
+        // once the loaded data exists.
+        e.site(0x0057_1090, &[this.addr()]);
         // TESObjectREFR::pLoadedData (Xbox PDB) +0x64
         let loaded = e.get(this, TESObjectREFR::pLoadedData).addr();
         e.call(0x0066_b0d0, &args![loaded + 0x14, node]);
     } else {
+        // The seam at this call (`0x005710AC`, ADR-0016): the script extender's OnRefUnset3D.
+        e.site(0x0057_10ac, &[this.addr()]);
         e.call(0x0057_c300, &args![this]);
     }
 }
@@ -2883,6 +2888,8 @@ pub fn tes_object_refr_activate(
     arg_10: u32,
     arg_14: u32,
 ) -> bool {
+    // The seam at `0x0057318E` (ADR-0016): the script extender's OnActivate, first thing.
+    e.site(0x0057_318e, &[this.addr(), activator]);
     let me = this.addr();
     let mut busy = false;
     if typed_call!(leaf::FAMILY, 0x007a_f430, leaf::word_at_20(e, me))

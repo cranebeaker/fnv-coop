@@ -985,6 +985,8 @@ pub fn script_enable_function(e: &mut Engine, a: ScriptArgs) -> bool {
             0x0044_0da0,
             leaf::form_flag_800(e, a.this_obj)
         ) {
+            // The seam at this call (`0x005C453C`, ADR-0016): the script extender's OnEnable.
+            e.site(0x005c_453c, &[a.this_obj.addr()]);
             e.call(ADD_PENDING_ENABLED_REFERENCE, &args![a.this_obj]);
         }
         let process = e.vcall(a.this_obj.addr(), 0x1d0, &args![]).u32();
@@ -1046,6 +1048,8 @@ pub fn script_disable_function(e: &mut Engine, a: ScriptArgs) -> bool {
                 e.call(SET_EXTRA_FLAG_0X8, &args![a.this_obj, 1u32]);
             }
         }
+        // The seam at this call (`0x005C47B6`, ADR-0016): the script extender's OnDisable.
+        e.site(0x005c_47b6, &[a.this_obj.addr()]);
         e.call(
             ADD_PENDING_DISABLED_REFERENCE,
             &args![a.this_obj, fade != 0],

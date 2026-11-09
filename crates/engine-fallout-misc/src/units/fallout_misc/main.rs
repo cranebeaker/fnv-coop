@@ -3510,6 +3510,9 @@ pub fn main_on_idle_update_image_space(e: &mut Engine, _this: Ptr, running: u8) 
                 let current = list;
                 e.with_stack(4, |e, temporary| {
                     e.call(0x0063_3c90, &args![temporary, node]);
+                    // The seam at the removal (`0x0086FE75`, ADR-0016): the script extender's
+                    // OnRemoveIMOD for an instance that ran out.
+                    e.site(0x0086_fe75, &[node]);
                     e.call(0x0063_1620, &args![current, temporary]);
                     e.call(0x0045_cec0, &args![temporary]);
                 });

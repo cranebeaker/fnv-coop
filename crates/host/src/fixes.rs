@@ -40,6 +40,7 @@ pub static FIXES: &[Fix] = &[
     crate::topic_index::FIX,
     KEEP_COSAVE_PLUGINS,
     SCRIPT_ERROR_GUARD,
+    IMOD_EVENT_FORM_CHECK,
 ];
 
 /// The built-in script extender's rows (docs/FIXES.md, "The script extender"): each sets a flag
@@ -69,6 +70,19 @@ fn install_script_error_guard(e: &mut Engine) {
     nvse::events::set_error_guard(e, true);
 }
 
+pub const IMOD_EVENT_FORM_CHECK: Fix = Fix {
+    name: "image-space event form check",
+    env: "NV_NVSE_IMOD_CHECK",
+    addresses: &[],
+    summary:
+        "OnRemoveIMOD only for a modifier form's instance that ran out (not depth of field or blur)",
+    install: install_imod_event_form_check,
+};
+
+fn install_imod_event_form_check(e: &mut Engine) {
+    nvse::call_sites::set_imod_form_check(e, true);
+}
+
 /// The rows that register nothing at an exe address: the menu limit paces the uncapped step;
 /// the extender's rows set flags `crates/nvse` reads.
 #[cfg(test)]
@@ -76,6 +90,7 @@ const NO_ADDRESS: &[&str] = &[
     crate::uncap::MENU_FIX.name,
     KEEP_COSAVE_PLUGINS.name,
     SCRIPT_ERROR_GUARD.name,
+    IMOD_EVENT_FORM_CHECK.name,
 ];
 
 /// Menus' frames a second at most when nothing says otherwise (the maintainer, 2026-11-07).

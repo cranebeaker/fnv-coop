@@ -2975,6 +2975,9 @@ pub fn fn_004bffe0(
     cannot_wear: u8,
 ) {
     with_scope_guard(e, 0x960, |e| {
+        // The seam at this call (`0x004C0032`, ADR-0016): the script extender's OnActorEquip
+        // (the actor, the item).
+        e.site(0x004c_0032, &[actor, form]);
         fn_004bf0e0(e, this);
         let owner = e.get(this, InventoryChanges::pRef).addr();
         if owner != 0 {

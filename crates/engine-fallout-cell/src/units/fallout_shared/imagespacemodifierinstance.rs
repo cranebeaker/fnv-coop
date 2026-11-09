@@ -576,13 +576,22 @@ pub fn form_trigger(e: &mut Engine, form: Ptr, strength: f32, target: Ptr) -> Pt
     if form.is_null() {
         return Ptr::NULL;
     }
-    start_instance(e, form, strength, target)
+    let instance = new_form_instance(e, form, strength, target);
+    // The seam at the instance's pointer copy (`0x00529A37`, ADR-0016): the script extender's
+    // OnApplyIMOD, before the instance is listed. `TriggerIfNotActive` has none.
+    e.site(0x0052_9a37, &[form.addr()]);
+    list_and_sound(e, form, instance)
 }
 
 /// The common tail of `Trigger` and `TriggerIfNotActive`: creates the
 /// instance, lists it and plays the form's sound when it has one.
 fn start_instance(e: &mut Engine, form: Ptr, strength: f32, target: Ptr) -> Ptr {
     let instance = new_form_instance(e, form, strength, target);
+    list_and_sound(e, form, instance)
+}
+
+/// Lists a new instance and plays the form's sound when it has one.
+fn list_and_sound(e: &mut Engine, form: Ptr, instance: Ptr) -> Ptr {
     add_to_list(e, instance);
     if e.call(GET_FIELD_1C, &args![form]).u32() != 0 {
         play_sound(e, GET_FIELD_1C, form);
@@ -630,6 +639,9 @@ pub fn form_stop(e: &mut Engine, form: Ptr) {
         if item != 0 && e.vcall(item, SLOT_AS_FORM, &args![]).u32() != 0 {
             let as_form = e.vcall(item, SLOT_AS_FORM, &args![]).u32();
             if e.call(GET_FIELD_1C, &args![as_form]).u32() == form.addr() {
+                // The seam at the pointer copy (`0x00529D37`, ADR-0016): the script extender's
+                // OnRemoveIMOD, for each instance of the form taken out.
+                e.site(0x0052_9d37, &[form.addr()]);
                 remove_from_list(e, node, item);
                 if e.call(GET_FIELD_18, &args![form]).u32() != 0 && !played {
                     played = true;

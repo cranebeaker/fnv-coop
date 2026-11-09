@@ -157,10 +157,28 @@ pub mod id {
     pub const RENAME_NEW_GAME_NAME: usize = 40;
     pub const PRE_LOAD_GAME: usize = 41;
     pub const DEBUG: usize = 42;
+    pub const ON_ACTOR_EQUIP: usize = 1;
+    pub const ON_DROP: usize = 2;
+    // The events xNVSE raises at its own call sites (`crate::call_sites`).
+    pub const ON_APPLY_IMOD: usize = 43;
+    pub const ON_REMOVE_IMOD: usize = 44;
+    pub const ON_LOCK_BROKEN: usize = 45;
+    pub const ON_LOCK_PICK_SUCCESS: usize = 46;
+    pub const ON_LOCK_PICK_BROKEN: usize = 47;
+    pub const ON_TERMINAL_HACKED: usize = 49;
+    pub const ON_TERMINAL_HACK_FAILED: usize = 50;
+    pub const ON_DISABLE: usize = 52;
+    pub const ON_ENABLE: usize = 53;
+    pub const ON_REF_SET_3D: usize = 54;
+    pub const ON_REF_UNSET_3D: usize = 55;
+    pub const ON_REF_ATTACH: usize = 56;
+    pub const ON_CELL_ATTACH: usize = 57;
+    pub const ON_CELL_DETACH: usize = 58;
+    pub const ON_CELL_REFS_LOADED: usize = 59;
 }
 
 /// `kEventMask_OnActivate`: not a script event mask; only its own hook raises it.
-const MASK_ON_ACTIVATE: u32 = 0x0100_0000;
+pub const MASK_ON_ACTIVATE: u32 = 0x0100_0000;
 
 /// Which of xNVSE's hooks setting a handler for an event installs (`EventHookInstaller`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -419,14 +437,13 @@ pub struct State {
     next_serial: u64,
     /// `recursiveLevel`: form lists inside form lists.
     recursion: u32,
-    /// `g_inActivateItemInInventory`: set around `Actor::AddWornItem` (its sites come with the
-    /// equip hook).
-    pub in_activate_item_in_inventory: bool,
     /// The fixes preset's row [`set_error_guard`], and the game threads a `RuntimeScriptError`
     /// dispatch is under way on (`thread_host::current_id`): an error of another thread is its
     /// own, not one raised by a handler.
     pub error_guard: bool,
     pub in_error_event: Vec<u32>,
+    /// The fixes preset's row `crate::call_sites::set_imod_form_check`.
+    pub imod_form_check: bool,
     /// `NV_NVSE_EVENT_LOG`: every handler call, one line each (a test variable).
     log: Option<std::fs::File>,
 }
@@ -1379,23 +1396,75 @@ fn should_remove(
 
 // ---- setting and removing ----
 
-/// The masks of the game events the `005ac750` wrap passes on (`s_eventsInUse` once the main
-/// hook is installed, else none), in a lock-free shared slot: the wrap runs on every
-/// `SetActionFlag` of every thread, so it checks this first and takes the extender's state (and
-/// its lock) only for a mask with handlers. Stored under the lock whenever either changes.
+/// What the hooks on paths every thread runs often read without the lock (a lock-free shared
+/// slot), stored under the lock whenever handlers or hooks change, so with no extender script
+/// none of them takes the extender's state:
+/// - `marks`: the masks of the game events the `005ac750` wrap passes on (`s_eventsInUse` once
+///   the main hook is installed) and `kEventMask_OnActivate` once its own hook is;
+/// - `handlers`: the internal events (ids below 64) with a handler, for the call sites'
+///   events (`crate::call_sites`).
 #[derive(Default)]
-pub struct MarkMasks(std::sync::atomic::AtomicU32);
+pub struct LockFree {
+    marks: std::sync::atomic::AtomicU32,
+    handlers: std::sync::atomic::AtomicU64,
+}
 
-fn publish_mark_masks(e: &mut Engine) {
+fn publish_lock_free(e: &mut Engine) {
     let s = state(e);
-    let masks = if s.hooks & HOOK_MAIN != 0 {
-        s.in_use
-    } else {
-        0
-    };
-    e.ext_free::<MarkMasks>()
-        .0
-        .store(masks, std::sync::atomic::Ordering::Relaxed);
+    let mut marks = 0;
+    if s.hooks & HOOK_MAIN != 0 {
+        marks |= s.in_use & !MASK_ON_ACTIVATE;
+    }
+    if s.hooks & HOOK_ACTIVATE != 0 {
+        marks |= s.in_use & MASK_ON_ACTIVATE;
+    }
+    let handlers = s
+        .infos
+        .iter()
+        .take(64)
+        .enumerate()
+        .filter(|(_, i)| !i.callbacks.is_empty())
+        .fold(0u64, |bits, (at, _)| bits | (1 << at));
+    let free = e.ext_free::<LockFree>();
+    free.marks
+        .store(marks, std::sync::atomic::Ordering::Relaxed);
+    free.handlers
+        .store(handlers, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The game-event masks with handlers whose hook is installed, read without the lock.
+pub fn marks_lock_free(e: &mut Engine) -> u32 {
+    e.ext_free::<LockFree>()
+        .marks
+        .load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether internal event `at` has a handler, read without the lock (a hint: the dispatch
+/// checks again under it).
+pub fn has_handlers_lock_free(e: &mut Engine, at: usize) -> bool {
+    at < 64
+        && e.ext_free::<LockFree>()
+            .handlers
+            .load(std::sync::atomic::Ordering::Relaxed)
+            & (1 << at)
+            != 0
+}
+
+/// `s_eventsInUse`.
+pub fn in_use(e: &mut Engine) -> u32 {
+    state(e).in_use
+}
+
+thread_local! {
+    /// `g_inActivateItemInInventory` (thread-local in xNVSE too): set while one of
+    /// `Actor::EquipObject`'s calls to `Actor::AddWornItem` runs (`crate::call_sites`), when the
+    /// equip hook raises OnActorEquip itself.
+    static IN_ADD_WORN_ITEM: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Sets or clears `g_inActivateItemInInventory` for this thread.
+pub fn set_in_add_worn_item(on: bool) {
+    IN_ADD_WORN_ITEM.with(|f| f.set(on));
 }
 
 fn install_hook(e: &mut Engine, hook: Hook) {
@@ -1406,7 +1475,7 @@ fn install_hook(e: &mut Engine, hook: Hook) {
         Hook::ActorEquip => s.hooks |= HOOK_MAIN | HOOK_EQUIP,
         Hook::Activate => s.hooks |= HOOK_ACTIVATE,
     }
-    publish_mark_masks(e);
+    publish_lock_free(e);
 }
 
 /// Whether the hook at `005ac750` is installed (a game event's handler was set once).
@@ -1502,7 +1571,7 @@ fn do_set(e: &mut Engine, at: usize, cb: Callback, priority: i32) -> (bool, Opti
         },
     );
     s.in_use |= s.infos[at].mask;
-    publish_mark_masks(e);
+    publish_lock_free(e);
     (true, None)
 }
 
@@ -1660,7 +1729,7 @@ fn erase(e: &mut Engine, at: usize, serial: u64) {
     if s.infos[at].callbacks.is_empty() && s.infos[at].mask != 0 {
         s.in_use &= !s.infos[at].mask;
     }
-    publish_mark_masks(e);
+    publish_lock_free(e);
 }
 
 /// `s_deferredRemoveList.Clear()`: the handlers still removed are erased, the others kept.
@@ -1704,7 +1773,7 @@ pub fn clear_flush_on_load(e: &mut Engine) {
             s.in_use &= !s.infos[at].mask;
         }
     }
-    publish_mark_masks(e);
+    publish_lock_free(e);
 }
 
 // ---- dispatch ----
@@ -1793,10 +1862,32 @@ fn log_line(e: &mut Engine, at: usize, what: &str, script: u32, args: &[u32]) {
     } else {
         0
     };
+    // The form ids of the form arguments (by the event's parameter types), for comparing runs.
+    let params = state(e).infos[at].params.clone();
+    let ids: Vec<String> = args
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| {
+            params
+                .get(i)
+                .is_some_and(|&p| matches!(non_ptr(p), REFERENCE | ANY_FORM | BASE_FORM))
+        })
+        .map(|(_, &a)| {
+            let mut word = [0u8; 4];
+            if a != 0 && e.mem.try_read(a + 0xc, &mut word).is_ok() {
+                format!("{:08X}", u32::from_le_bytes(word))
+            } else {
+                "-".to_string()
+            }
+        })
+        .collect();
     let s = state(e);
     let name = String::from_utf8_lossy(&s.infos[at].name).into_owned();
     if let Some(f) = s.log.as_mut() {
-        let _ = writeln!(f, "{name} {what} {id:08X} thread {thread} args {args:08X?}");
+        let _ = writeln!(
+            f,
+            "{name} {what} {id:08X} thread {thread} args {args:08X?} ids {ids:?}"
+        );
     }
 }
 
@@ -2046,9 +2137,22 @@ pub fn dispatch_raw(
     Dispatch::Normal
 }
 
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), EventManager.cpp: DispatchEvent,
+// vDispatchEvent.
 /// `DispatchEvent(name, thisObj, ...)` for a built-in event: by name, its own argument types,
 /// not deferred; true unless the event is unknown.
 pub fn dispatch(e: &mut Engine, name: &[u8], this_obj: u32, args: &[u32]) -> bool {
+    dispatch_named(e, name, this_obj, args, false)
+}
+
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), EventManager.cpp: DispatchEventThreadSafe.
+/// `DispatchEventThreadSafe(name, nullptr, thisObj, ...)`: as [`dispatch`], deferred to the main
+/// thread's tick when raised on another thread.
+pub fn dispatch_thread_safe(e: &mut Engine, name: &[u8], this_obj: u32, args: &[u32]) -> bool {
+    dispatch_named(e, name, this_obj, args, true)
+}
+
+fn dispatch_named(e: &mut Engine, name: &[u8], this_obj: u32, args: &[u32], defer: bool) -> bool {
     let Some(at) = find(e, name) else {
         return false;
     };
@@ -2056,7 +2160,7 @@ pub fn dispatch(e: &mut Engine, name: &[u8], this_obj: u32, args: &[u32]) -> boo
     let mut words = args.to_vec();
     words.resize(n, 0);
     let types = info(e, at).arg_types();
-    dispatch_raw(e, at, this_obj, &words, &types, false, false, None) > Dispatch::GenericError
+    dispatch_raw(e, at, this_obj, &words, &types, defer, false, None) > Dispatch::GenericError
 }
 
 // Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), EventManager.cpp:
@@ -2200,7 +2304,7 @@ fn event_for_mask(mask: u32) -> Option<usize> {
 /// A game event on `source` (with `object`), once: the game marks some twice in a row, and
 /// `OnHitWith` and `OnHit` several times per hit.
 pub fn handle_game_event(e: &mut Engine, mask: u32, source: u32, object: u32) {
-    if state(e).in_activate_item_in_inventory && mask == 2 {
+    if IN_ADD_WORN_ITEM.with(|f| f.get()) && mask == 2 {
         return;
     }
     if !is_valid_reference(e, source) {
@@ -2238,10 +2342,7 @@ pub fn handle_game_event(e: &mut Engine, mask: u32, source: u32, object: u32) {
 fn set_action_flag(e: &mut Engine, a: &[u32]) -> Ret {
     let (target, extra, mask) = (a[0], a[1], a[2]);
     // Lock-free first: no handler for the mask (no extender script at all, by default), no lock.
-    let marked = e
-        .ext_free::<MarkMasks>()
-        .0
-        .load(std::sync::atomic::Ordering::Relaxed);
+    let marked = marks_lock_free(e);
     if extra != 0 && marked & mask != 0 && main_hook_installed(e) && state(e).in_use & mask != 0 {
         handle_game_event(e, mask, extra.wrapping_sub(0x44), target);
     }
@@ -2267,7 +2368,7 @@ fn quit_from_menu(e: &mut Engine, _: &[u32]) -> Option<u32> {
 pub fn install(e: &mut Engine) {
     init(e);
     // Made before the threads start, so every thread's engine shares it.
-    e.ext_free::<MarkMasks>();
+    e.ext_free::<LockFree>();
     if let Some(path) = std::env::var_os("NV_NVSE_EVENT_LOG") {
         state(e).log = std::fs::File::create(path).ok();
     }

@@ -358,9 +358,7 @@ fn classic_handlers_must_fit_the_event() {
 
 /// What the `005ac750` wrap reads without the lock.
 fn mark_masks(e: &mut Engine) -> u32 {
-    e.ext_free::<MarkMasks>()
-        .0
-        .load(std::sync::atomic::Ordering::Relaxed)
+    marks_lock_free(e)
 }
 
 /// The game's marks through the wrap at `005ac750`: only once a game event's handler installed
@@ -1005,3 +1003,6 @@ fn the_error_guard_is_per_thread() {
     );
     assert_eq!(state(&mut e).in_error_event, [other]);
 }
+
+#[path = "call_sites_tests.rs"]
+mod call_sites_tests;
