@@ -943,12 +943,31 @@ pub fn read_dds(data: &[u8]) -> Result<DdsImage, u32> {
 /// With a real device behind one of the game's (`NV_D3D9=real`, Windows) and the DLL installed,
 /// the player's DLL answers instead, in this process ([`texture_source`], the texture calls' own
 /// rule): it reads every image file format and pixel format D3DX does.
+///
+/// By default ([`TextureMode::Translated`]) `d3dx_tex` answers first, for every file it reads (DDS,
+/// the formats it translates); the DLL or the reader below only for the others.
 pub fn get_image_info_from_file_in_memory(e: &mut Engine, data: Ptr, size: u32, info: Ptr) -> u32 {
     assert!(
         !info.is_null(),
         "D3DXGetImageInfoFromFileInMemory without an info is not provided"
     );
     let bytes = e.mem.bytes(data.addr(), size);
+    if texture_mode(e) == TextureMode::Translated {
+        match d3dx_tex::get_image_info_from_file_in_memory(&bytes) {
+            Ok(image) => {
+                note_source(e, TextureSource::Translated);
+                for (i, w) in image.words().iter().enumerate() {
+                    e.mem.set_u32(info.addr() + 4 * i as u32, *w);
+                }
+                return 0;
+            }
+            Err(d3dx_tex::Error::D3dx(hr)) => {
+                note_source(e, TextureSource::Translated);
+                return hr;
+            }
+            Err(d3dx_tex::Error::NotProvided(why)) => note_not_translated(e, why),
+        }
+    }
     #[cfg(windows)]
     if choose_source(e, None) == TextureSource::Dll {
         let before: [u32; 7] = std::array::from_fn(|i| e.mem.u32(info.addr() + 4 * i as u32));
@@ -994,6 +1013,117 @@ pub enum TextureSource {
     /// used: runs without the real Direct3D 9 (tests, other platforms), or a system without the
     /// DLL.
     Cache(&'static str),
+    /// `d3dx_tex`: D3DX's texture loading translated, byte for byte the 32-bit DLL's (what the
+    /// original game gets), on every platform, no DLL and no cache (maintainer, 2026-11-08).
+    Translated,
+}
+
+/// What answers the texture calls first (`NV_TEXTURES`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextureMode {
+    /// The default: `d3dx_tex` ([`TextureSource::Translated`]); a file it does not translate goes
+    /// on to the DLL or the cache ([`texture_source`]).
+    Translated,
+    /// `NV_TEXTURES=dll`: the DLL or the cache, as before the translation (the 64-bit DLL's DXT
+    /// levels differ from the 32-bit DLL's on 3,420 of the game's textures).
+    Dll,
+}
+
+/// The texture mode: set by [`set_texture_mode`], else `NV_TEXTURES` (`dll`, or anything else for
+/// the translation), read once.
+pub fn texture_mode(e: &mut Engine) -> TextureMode {
+    if let Some(mode) = state!(e).graphics.d3dx_texture_mode {
+        return mode;
+    }
+    let mode = match std::env::var("NV_TEXTURES").as_deref() {
+        Ok("dll") => TextureMode::Dll,
+        _ => TextureMode::Translated,
+    };
+    state!(e).graphics.d3dx_texture_mode = Some(mode);
+    mode
+}
+
+/// Sets the texture mode (tests; a host that chooses).
+pub fn set_texture_mode(e: &mut Engine, mode: TextureMode) {
+    state!(e).graphics.d3dx_texture_mode = Some(mode);
+}
+
+/// Prints a texture source the first time it answers.
+fn note_source(e: &mut Engine, source: TextureSource) {
+    if state!(e).graphics.d3dx_texture_sources.contains(&source) {
+        return;
+    }
+    state!(e).graphics.d3dx_texture_sources.push(source);
+    match source {
+        TextureSource::Dll => eprintln!(
+            "D3DX textures: through the player's 64-bit d3dx9_38.dll in this process, on the real device"
+        ),
+        TextureSource::Cache(why) => {
+            eprintln!("D3DX textures: from the texture cache ({why})")
+        }
+        TextureSource::Translated => eprintln!(
+            "D3DX textures: translated (d3dx-tex), byte for byte the 32-bit d3dx9_38.dll's"
+        ),
+    }
+}
+
+/// Prints, once per kind, what the translation left to the DLL or the cache.
+fn note_not_translated(e: &mut Engine, why: String) {
+    if !state!(e).graphics.d3dx_not_translated.contains(&why) {
+        eprintln!("D3DX textures: {why} is not translated; the DLL or the cache answers");
+        state!(e).graphics.d3dx_not_translated.push(why);
+    }
+}
+
+/// The precision the calling game thread computes in: the precision control of its own x87
+/// control word (`FSTCW`, kept in the game thread's block), since D3DX keeps the thread's
+/// precision and a texture's bytes depend on it. The game's main thread is at 24 bits once it
+/// has made the device (no `D3DCREATE_FPU_PRESERVE`); its loading threads (`BSTaskThread`),
+/// which create most textures, at 53. `None` for 64 bits (and the reserved setting), which
+/// `d3dx_tex` does not translate and the game never uses: the DLL or the cache answers.
+fn calling_precision(e: &mut Engine) -> Option<d3dx_tex::Precision> {
+    match engine_core::units::crt::x87_control_word(e) & 0x0300 {
+        0x0000 => Some(d3dx_tex::Precision::Single),
+        0x0200 => Some(d3dx_tex::Precision::Double),
+        _ => None,
+    }
+}
+
+/// `d3dx_tex`'s answer for the create calls on the calling thread, as a texture cache entry with
+/// the bytes beside it.
+fn translated_texture(
+    e: &mut Engine,
+    bytes: &[u8],
+    cube: bool,
+) -> Result<(CachedTexture, Vec<Vec<u8>>), d3dx_tex::Error> {
+    let caps = d3dx_tex::Caps::default();
+    let Some(precision) = calling_precision(e) else {
+        return Err(d3dx_tex::Error::NotProvided(
+            "a texture made at an x87 precision other than 24 or 53 bits".into(),
+        ));
+    };
+    let t = if cube {
+        d3dx_tex::create_cube_texture_from_file_in_memory(bytes, &caps, precision)
+    } else {
+        d3dx_tex::create_texture_from_file_in_memory(bytes, &caps, precision)
+    }?;
+    let surfaces = t
+        .surfaces
+        .iter()
+        .map(|s| CachedSurface {
+            format: s.format,
+            width: s.width,
+            height: s.height,
+            bytes: None,
+        })
+        .collect();
+    let entry = CachedTexture {
+        hr: 0,
+        levels: t.levels,
+        faces: t.faces,
+        surfaces,
+    };
+    Ok((entry, t.surfaces.into_iter().map(|s| s.bytes).collect()))
 }
 
 /// The texture calls' source: the DLL when there is a real device to make the texture on and
@@ -1029,17 +1159,7 @@ fn choose_source(e: &mut Engine, device: Option<u32>) -> TextureSource {
     #[cfg(not(windows))]
     let dll = false;
     let source = texture_source(real, dll);
-    if !state!(e).graphics.d3dx_texture_sources.contains(&source) {
-        state!(e).graphics.d3dx_texture_sources.push(source);
-        match source {
-            TextureSource::Dll => eprintln!(
-                "D3DX textures: through the player's 64-bit d3dx9_38.dll in this process, on the real device"
-            ),
-            TextureSource::Cache(why) => {
-                eprintln!("D3DX textures: from the texture cache ({why})")
-            }
-        }
-    }
+    note_source(e, source);
     source
 }
 
@@ -1221,6 +1341,20 @@ fn create_from_file(
     } else {
         "CreateTextureFromFileInMemory"
     };
+    if texture_mode(e) == TextureMode::Translated {
+        match translated_texture(e, &bytes, cube) {
+            Ok((entry, levels)) => {
+                note_source(e, TextureSource::Translated);
+                let levels: Vec<&[u8]> = levels.iter().map(|l| &l[..]).collect();
+                return fill_texture(e, device, out, call, &entry, cube, &levels);
+            }
+            Err(d3dx_tex::Error::D3dx(hr)) => {
+                note_source(e, TextureSource::Translated);
+                return hr;
+            }
+            Err(d3dx_tex::Error::NotProvided(why)) => note_not_translated(e, why),
+        }
+    }
     let source = choose_source(e, Some(device.addr()));
     #[cfg(windows)]
     if source == TextureSource::Dll {
@@ -1890,38 +2024,8 @@ mod tests {
     #[test]
     fn a_texture_is_made_through_the_device_from_the_file_and_the_cache() {
         let mut e = Engine::new();
-        // The device and texture doubles: CreateTexture records its words, LockRect hands out
-        // each level's memory with a pitch of the packed row.
-        const CREATE: u32 = 0x7f00_0100;
-        const LOCK: u32 = 0x7f00_0200;
-        const UNLOCK: u32 = 0x7f00_0204;
-        let device_vtable = e.mem.alloc(4 * 30);
-        e.mem.set_u32(device_vtable + DEVICE_CREATE_TEXTURE, CREATE);
-        let device = e.mem.alloc(4);
-        e.mem.set_u32(device, device_vtable);
-        let texture_vtable = e.mem.alloc(4 * 30);
-        e.mem.set_u32(texture_vtable + TEXTURE_LOCK_RECT, LOCK);
-        e.mem.set_u32(texture_vtable + TEXTURE_UNLOCK_RECT, UNLOCK);
-        let texture = e.mem.alloc(4);
-        e.mem.set_u32(texture, texture_vtable);
-        let levels = e.mem.alloc(4 * 16);
-        e.register_double(CREATE, move |e, a| {
-            assert_eq!(&a[1..7], &[8, 4, 4, 0, u32::from_le_bytes(*b"DXT1"), 1]);
-            e.mem.set_u32(a[7], texture);
-            Ret::default()
-        });
-        e.register_double(LOCK, move |e, a| {
-            let (pitch, bits) = [
-                (16, levels),
-                (8, levels + 16),
-                (8, levels + 24),
-                (8, levels + 32),
-            ][a[1] as usize];
-            e.mem.set_u32(a[2], pitch);
-            e.mem.set_u32(a[2] + 4, bits);
-            Ret::default()
-        });
-        e.register(UNLOCK, |_, _| Ret::default());
+        set_texture_mode(&mut e, TextureMode::Dll);
+        let (device, texture, levels) = texture_doubles(&mut e);
         let dir = std::env::temp_dir().join(format!("nv-rs-d3dx-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut file = dxt1(8, 4, 4, 40);
@@ -1969,6 +2073,149 @@ mod tests {
             .flatten()
             .any(|d| d.file_name().to_string_lossy().starts_with("missing-")));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// By default the texture calls take `d3dx_tex`: no cache, no DLL. The layer's texture holds
+    /// `d3dx_tex`'s levels for the file (the stored one as stored, the ones under a block
+    /// re-encoded), at the calling game thread's precision (a loading thread's, 53 bits, here); the image info is
+    /// the header's; a file D3DX refuses answers its error; the source is printed once.
+    #[test]
+    fn the_texture_calls_take_the_translation_by_default() {
+        let mut e = Engine::new();
+        engine_core::units::crt::set_x87_control_word(&mut e, 0x027f);
+        assert_eq!(texture_mode(&mut e), TextureMode::Translated);
+        let (device, texture, levels) = texture_doubles(&mut e);
+        let mut file = dxt1(8, 4, 4, 40);
+        file[128..144].copy_from_slice(&[0x11; 16]);
+        let data = e.mem.alloc(file.len() as u32);
+        e.mem.write(data, &file);
+        let out = e.mem.alloc(4);
+        let call = |e: &mut Engine, size: u32| {
+            create_texture_from_file_in_memory(
+                e,
+                Ptr::new(device),
+                Ptr::new(data),
+                size,
+                Ptr::new(out),
+            )
+        };
+        assert_eq!(call(&mut e, file.len() as u32), 0);
+        assert_eq!(e.mem.u32(out), texture);
+        let want = d3dx_tex::create_texture_from_file_in_memory(
+            &file,
+            &d3dx_tex::Caps::default(),
+            d3dx_tex::Precision::Double,
+        )
+        .expect("a DXT1 file");
+        assert_eq!(want.levels, 4);
+        for (i, at) in [levels, levels + 16, levels + 24, levels + 32]
+            .into_iter()
+            .enumerate()
+        {
+            let s = &want.surfaces[i];
+            assert_eq!(e.mem.bytes(at, s.bytes.len() as u32), s.bytes, "level {i}");
+        }
+        assert_eq!(
+            e.mem.bytes(levels, 16),
+            vec![0x11; 16],
+            "the stored level, copied"
+        );
+        assert_eq!(
+            state!(e).graphics.d3dx_texture_sources,
+            vec![TextureSource::Translated]
+        );
+        // The image info.
+        let info = e.mem.alloc(28);
+        assert_eq!(
+            get_image_info_from_file_in_memory(
+                &mut e,
+                Ptr::new(data),
+                file.len() as u32,
+                Ptr::new(info)
+            ),
+            0
+        );
+        let words: Vec<u32> = (0..7).map(|i| e.mem.u32(info + 4 * i)).collect();
+        assert_eq!(words, [8, 4, 1, 4, u32::from_le_bytes(*b"DXT1"), 3, 4]);
+        // Cut short: D3DX's error, nothing made.
+        assert_eq!(call(&mut e, file.len() as u32 - 1), D3DXERR_INVALIDDATA);
+        assert_eq!(
+            state!(e).graphics.d3dx_texture_sources.len(),
+            1,
+            "said once"
+        );
+    }
+
+    /// The precision comes from the calling game thread's own control word: 24 bits at 0x007f
+    /// (the main thread after the device), 53 at 0x027f (a loading thread); at 64 bits the
+    /// translation steps aside for the DLL or the cache.
+    #[test]
+    fn the_translation_takes_the_game_threads_precision() {
+        let mut e = Engine::new();
+        let mut file = dxt1(8, 4, 4, 40);
+        for (i, b) in file[128..144].iter_mut().enumerate() {
+            *b = (i as u8).wrapping_mul(73) ^ 0x5a;
+        }
+        let caps = d3dx_tex::Caps::default();
+        for (cw, precision) in [
+            (0x007f, Some(d3dx_tex::Precision::Single)),
+            (0x027f, Some(d3dx_tex::Precision::Double)),
+            (0x037f, None),
+        ] {
+            engine_core::units::crt::set_x87_control_word(&mut e, cw);
+            assert_eq!(calling_precision(&mut e), precision, "{cw:#x}");
+            let ours = translated_texture(&mut e, &file, false).map(|(_, levels)| levels);
+            match precision {
+                Some(p) => {
+                    let want = d3dx_tex::create_texture_from_file_in_memory(&file, &caps, p)
+                        .expect("a DXT1 file");
+                    let want: Vec<Vec<u8>> = want.surfaces.into_iter().map(|s| s.bytes).collect();
+                    assert_eq!(ours.expect("translated"), want, "{cw:#x}");
+                }
+                None => assert!(
+                    matches!(ours, Err(d3dx_tex::Error::NotProvided(_))),
+                    "{cw:#x}"
+                ),
+            }
+        }
+        engine_core::units::crt::set_x87_control_word(&mut e, 0x027f);
+    }
+
+    /// The device and texture doubles: CreateTexture (of an 8x4 DXT1 texture of 4 levels)
+    /// records its words and hands out the texture, LockRect each level's memory with a pitch of
+    /// the packed row; the device, the texture and the levels' memory.
+    fn texture_doubles(e: &mut Engine) -> (u32, u32, u32) {
+        const CREATE: u32 = 0x7f00_0100;
+        const LOCK: u32 = 0x7f00_0200;
+        const UNLOCK: u32 = 0x7f00_0204;
+        let device_vtable = e.mem.alloc(4 * 30);
+        e.mem.set_u32(device_vtable + DEVICE_CREATE_TEXTURE, CREATE);
+        let device = e.mem.alloc(4);
+        e.mem.set_u32(device, device_vtable);
+        let texture_vtable = e.mem.alloc(4 * 30);
+        e.mem.set_u32(texture_vtable + TEXTURE_LOCK_RECT, LOCK);
+        e.mem.set_u32(texture_vtable + TEXTURE_UNLOCK_RECT, UNLOCK);
+        let texture = e.mem.alloc(4);
+        e.mem.set_u32(texture, texture_vtable);
+        let levels = e.mem.alloc(4 * 16);
+        e.register_double(CREATE, move |e, a| {
+            assert_eq!(&a[1..7], &[8, 4, 4, 0, u32::from_le_bytes(*b"DXT1"), 1]);
+            e.mem.set_u32(a[7], texture);
+            Ret::default()
+        });
+        e.register_double(LOCK, move |e, a| {
+            let (pitch, bits) = [
+                (16, levels),
+                (8, levels + 16),
+                (8, levels + 24),
+                (8, levels + 32),
+            ][a[1] as usize];
+            e.mem.set_u32(a[2], pitch);
+            e.mem.set_u32(a[2] + 4, bits);
+            Ret::default()
+        });
+        e.register(UNLOCK, |_, _| Ret::default());
+        (device, texture, levels)
     }
 }
 

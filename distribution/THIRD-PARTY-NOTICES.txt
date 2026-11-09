@@ -1,6 +1,6 @@
 THIRD-PARTY NOTICES — nv-rs Windows build (nv-viewer)
 
-This file indexes the license texts of the 117 external packages in the repository's root Cargo.lock, which nv-viewer is built from (the build-time macro crates and every platform variant of windows-targets included). Package names, versions and license expressions come from each package's Cargo.toml in the local Cargo registry; the files were copied from that exact version there. A package that ships no license file gets the standard text of its license expression (MIT with its authors as the copyright line), marked in its entry.
+This file indexes the license texts of the 117 external packages in the repository's root Cargo.lock, which nv-viewer is built from (the build-time macro crates and every platform variant of windows-targets included). Package names, versions and license expressions come from each package's Cargo.toml in the local Cargo registry; the files were copied from that exact version there. A package that ships no license file gets the standard text of its license expression (MIT with its authors as the copyright line), marked in its entry. It ends with the notice of source code the translation followed that is not a package.
 
 Files are bundled under licenses/<package>-<version>/ in release ZIPs (distribution/licenses/ in the source tree). No crate source or game assets are included.
 
@@ -828,3 +828,30 @@ zerocopy-derive 0.8.63
     zerocopy-derive-0.8.63/LICENSE-BSD
     zerocopy-derive-0.8.63/LICENSE-MIT
 
+
+Source code followed, not a package
+
+DirectXTex (Microsoft)
+  License: MIT
+  Repository: https://github.com/microsoft/DirectXTex
+  Used for: crates/d3dx-tex (src/dxt.rs), D3DX's DXT block encoder translated from the 32-bit d3dx9_38.dll. DirectXTex's BC.cpp, a descendant of that encoder, was the map while reading the DLL, and some names and the endpoint search's shape follow it.
+  Notice:
+    The MIT License (MIT)
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy of this
+    software and associated documentation files (the "Software"), to deal in the Software
+    without restriction, including without limitation the rights to use, copy, modify, merge,
+    publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons
+    to whom the Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all copies or
+    substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+    INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+    PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+    FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+    OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.

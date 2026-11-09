@@ -282,6 +282,11 @@ pub struct Graphics {
     pub(crate) d3dx_texture_cache: Option<std::path::PathBuf>,
     /// The texture sources already printed (`super::d3dx::texture_source`).
     pub(crate) d3dx_texture_sources: Vec<super::d3dx::TextureSource>,
+    /// What answers the texture calls (`super::d3dx::texture_mode`): `None` until first read
+    /// from `NV_TEXTURES`.
+    pub(crate) d3dx_texture_mode: Option<super::d3dx::TextureMode>,
+    /// The parts of D3DX the translation does not cover, already printed.
+    pub(crate) d3dx_not_translated: Vec<String>,
     /// The real `d3d9.dll` objects behind the modelled ones (`NV_D3D9=real`, ADR-0008).
     #[cfg(windows)]
     pub(crate) real: super::d3d9real::Real,

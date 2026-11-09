@@ -602,10 +602,17 @@ fn capture_blocks(out: &std::path::Path, oracle: &mut Oracle) {
     };
     let mut text = format!("# DXT blocks through the 32-bit d3dx9_38.dll's encoders (d3dx-measure blocks, x87 control word {:#x}): 16 pixels (red, green, blue, alpha float bits), then the DLL's DXT1, DXT3 and DXT5 blocks without and with dither\n", control_word());
     // At double precision only blocks the DLL encodes differently at single precision are kept,
-    // so each one tests what the precision changes.
+    // so each one tests what the precision changes: until each encoder, without and with
+    // dither, has 8 of them (the register-or-store choices of every encoder's paths).
     let double = DOUBLE.load(Ordering::Relaxed);
+    let mut need = [if double { 8usize } else { 0 }; 6];
     let (mut kept, mut next_k) = (0, 0usize);
-    while kept < 24 {
+    while if double {
+        need.iter().any(|&n| n > 0)
+    } else {
+        kept < 24
+    } {
+        assert!(next_k < 10_000_000, "no blocks left that differ: {need:?}");
         let k = next_k;
         next_k += 1;
         let unit = |r: u64| (r >> 40) as f32 / (1u64 << 24) as f32;
@@ -634,15 +641,19 @@ fn capture_blocks(out: &std::path::Path, oracle: &mut Oracle) {
             }
         });
         let mut blocks = Vec::new();
-        let mut differs = false;
+        let mut useful = false;
         for f in [0x3154_5844u32, 0x3354_5844, 0x3554_5844] {
             for dither in [false, true] {
                 let b = oracle.encode(f, control_word(), dither, &px);
-                differs |= double && b != oracle.encode(f, 0x7f, dither, &px);
+                let col = blocks.len();
+                if double && need[col] > 0 && b != oracle.encode(f, 0x7f, dither, &px) {
+                    need[col] -= 1;
+                    useful = true;
+                }
                 blocks.push(b);
             }
         }
-        if double && !differs {
+        if double && !useful {
             continue;
         }
         kept += 1;

@@ -10,20 +10,24 @@ fn dxt_blocks_are_the_32_bit_dlls() {
     blocks(
         include_str!("../data/blocks_32bit.tsv"),
         d3dx_tex::Precision::Single,
+        24,
     );
 }
 
 /// `data/blocks_32bit_double.tsv`: the same at 0x27f (a loading thread), blocks the DLL encodes
-/// differently at the two precisions.
+/// differently at the two precisions: for each encoder, without and with dither, at least 8, so
+/// what the DLL keeps in registers and what it stores is pinned here, not only by the game's
+/// textures.
 #[test]
 fn dxt_blocks_are_the_32_bit_dlls_at_double_precision() {
     blocks(
         include_str!("../data/blocks_32bit_double.tsv"),
         d3dx_tex::Precision::Double,
+        38,
     );
 }
 
-fn blocks(data: &str, precision: d3dx_tex::Precision) {
+fn blocks(data: &str, precision: d3dx_tex::Precision, count: usize) {
     let mut n = 0;
     for line in data.lines().filter(|l| !l.starts_with('#')) {
         let mut f = line.split('\t');
@@ -51,7 +55,7 @@ fn blocks(data: &str, precision: d3dx_tex::Precision) {
             }
         }
     }
-    assert_eq!(n, 24 * 6);
+    assert_eq!(n, count * 6);
 }
 
 /// `data/synthetic_32bit.tsv`: the synthetic DDS files (`d3dx_tex::synthetic`) through the DLL's
