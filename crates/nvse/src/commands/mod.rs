@@ -6,6 +6,7 @@ pub mod array;
 pub mod inventory;
 pub mod inventory_ref;
 pub mod math;
+pub mod printf;
 pub mod scripting;
 pub mod string;
 pub mod weapons;

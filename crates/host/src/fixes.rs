@@ -105,7 +105,7 @@ pub const SCRIPT_SIZE_CAPS: Fix = Fix {
     env: "NV_NVSE_SIZE_CAPS",
     addresses: &[],
     summary:
-        "arrays the script commands make or grow stop at 8,388,608 elements; an empty text replaced a given number of times stops at 64 MiB",
+        "arrays the script commands make or grow stop at 8,388,608 elements; an empty text replaced a given number of times stops at 64 MiB; a format string the C runtime refuses or has no memory for is made safely instead of ending the game",
     install: install_script_size_caps,
 };
 

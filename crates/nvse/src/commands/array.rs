@@ -53,7 +53,8 @@ pub struct CommandFixes {
 }
 
 /// `NV_NVSE_SIZE_CAPS`: arrays made or grown here stop at [`MAX_MADE`] elements, an empty text
-/// replaced a given number of times at 64 MiB.
+/// replaced a given number of times at 64 MiB, and a format string the C runtime refuses or has
+/// no working memory for is made safely ([`super::printf`]).
 pub const SIZE_CAPS: usize = 0;
 /// `NV_NVSE_NULL_GUARD`: a missing array or a string outside the game's memory answers 0 or ends
 /// the text instead of stopping the game.
@@ -900,7 +901,7 @@ fn ar_packed(e: &mut Engine, w: &[u32]) -> Ret {
 
 /// `%f` of the C runtime.
 fn fixed(e: &Engine, v: f64) -> Vec<u8> {
-    super::string::ucrt_format(e, b"%f", &v.to_le_bytes())
+    super::printf::ucrt_format(e, b"%f", &v.to_le_bytes())
 }
 
 // Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), ArrayVar.cpp: ArrayElement::
