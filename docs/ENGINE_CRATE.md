@@ -428,7 +428,11 @@ The migration of [ADR-0012](adr/0012-modern-64-bit-engine.md) and
 [ADR-0014](adr/0014-typed-migration-in-two-stages.md) replaces a translation with typed, native
 Rust, a family of functions at a time. `engine_core::typed` is the seam it plugs into. The first
 family is `leaves` (`typed/leaf.rs`): the small functions the translations call most, on since its
-speed gate passed (G1, 2026-11-06: Goodsprings +7.1%, Doc's room +3.0%); `NV_TYPED=off` turns it off.
+speed gate passed (G1, 2026-11-06: Goodsprings +7.1%, Doc's room +3.0%). It is no longer the only one on: by default
+`leaves`, `topic_search`, `topic_order` and, since their speed gate (2026-11-08), `lockfree`, `culling`,
+`pathing`, `shader`, `crt` and `dispatch` are on (below); `NV_TYPED=off` turns every family off, and
+`<family>:off` one. A run compared call for call with the original's record (nv-trace's `NV_TRACE_OUT`,
+`NV_TRACE_LIST`) has every family off unless `NV_TYPED` says otherwise (`typed::switch_for`).
 The second is `topic_search` (`crates/engine-fallout-forms/src/topic_search.rs`, provided from that
 crate): the search for the topic that holds a topic info (`TESTopic::GetOwnerTopic`) and the functions
 its loops call. A plugin that replaces dialogue runs it once per replaced info over every topic's infos
@@ -445,21 +449,27 @@ too; the float check `0040eb10`; the priority `00526ae0`; `TESTopic`'s editor id
 `NV_TYPED=topic_order:off` changes more than the topic order, and a trace loses the two CRT calls under each
 `00404dc0` while it is on.
 Then `lockfree` (`crates/engine-typed`, a crate above the core that provides its family): the
-lock-free maps, their interfaces, iterators and holder, stage 1 (objects stay in guest memory), off by
-default (`NV_TYPED=lockfree` tries it); its differential tests are `crates/engine/tests/typed_lockfree.rs`.
-And `culling` (same crate): the culling walk, stage 1, off by default (`NV_TYPED=culling`);
-its tests are `crates/engine/tests/typed_culling.rs`. And `pathing` (same crate): what the AI's pathfinding threads
+lock-free maps, their interfaces, iterators and holder, stage 1 (objects stay in guest memory); its
+differential tests are `crates/engine/tests/typed_lockfree.rs`. And `culling` (same crate): the culling
+walk, stage 1; its tests are `crates/engine/tests/typed_culling.rs`. And `pathing` (same crate): what the AI's pathfinding threads
 run most (navmesh getters, matching edges, the triangle under a point, the search's keys, goal test and
-arrays, the point-of-view geometry, pathing locations, the point helpers), stage 1, off by default
-(`NV_TYPED=pathing`); its tests are `crates/engine/tests/typed_pathing.rs`.
+arrays, the point-of-view geometry, pathing locations, the point helpers), stage 1; its tests are
+`crates/engine/tests/typed_pathing.rs`.
 And `crt` (same crate): the C runtime's square root with the x87 error path every square root takes on
 the main thread, `floor`, the float-to-integer conversions, the 64-bit helpers, and the copy, fill and
-string routines, off by default (`NV_TYPED=crt`); its tests are `crates/engine/tests/typed_crt.rs`.
+string routines; its tests are `crates/engine/tests/typed_crt.rs`.
 And `dispatch` (same crate, id 9): a speed batch picked by calls by address a frame in town, each function with the callers whose call sites
 make those calls, so they become Rust calls (the transforms' and matrices' arithmetic, the scene graph's
 controller and children walks and getters, counted references, the recursive spin lock, the AI's and the
-inventory's getters), stage 1, off by default (`NV_TYPED=dispatch`; its calls into `leaves`, `culling` and
-`pathing` go direct only when those are on); its tests are `crates/engine/tests/typed_dispatch.rs`.
+inventory's getters), stage 1 (its calls into `leaves`, `culling` and `pathing` go direct only when those
+are on); its tests are `crates/engine/tests/typed_dispatch.rs`. And `shader` (same crate, id 17): the shader
+set-up and batch renderer (render state setters and caches, the batch renderer's lists and passes, the
+accumulator's registration and the shaders' per-geometry set-ups), stage 1; its tests are
+`crates/engine/tests/typed_shader.rs`. These six are on since their speed gate, taken together (2026-11-08,
+real threads, fixes preset, the same exe with `NV_TYPED` unset and with the six on, BAAB): Goodsprings 55.0 to
+60.1 fps (+9.3%), the crowded street at 2560x1440 8x AA 52.3 to 57.7 fps (+10.3%), the sky above it 117 to
+134 fps (+14%). Each alone had been within the noise (shader +0.2%, dispatch +1.5%): they call each other, and a
+`typed_call!` goes direct only when both ends are on. `NV_TYPED=off` or `<family>:off` turns them off.
 
 **The switch.** `NV_TYPED` is read once per process, and `Engine::new` runs `typed::apply` after
 all registration: each family that is on is registered over the translations with

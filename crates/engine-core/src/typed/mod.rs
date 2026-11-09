@@ -414,13 +414,33 @@ fn switch_text() -> Option<&'static str> {
     .as_deref()
 }
 
+/// The variables of a run whose record is compared call for call with the original's: nv-trace's port
+/// side (`NV_TRACE_OUT`, `NV_TRACE_LIST`; research/nv-trace). The original makes the translations'
+/// calls, and a typed function may do in its own body what its translation called by address, so with
+/// no `NV_TYPED` such a run has every family off ([`switch_for`]).
+pub const COMPARED_RUN_VARIABLES: &[&str] = &["NV_TRACE_OUT", "NV_TRACE_LIST"];
+
+/// The switch a run goes by: `NV_TYPED` when it is set; else `off` for a run compared call for call
+/// with the original ([`COMPARED_RUN_VARIABLES`]); else none, the default (the families past their
+/// gate).
+pub fn switch_for(spec: Option<&str>, compared: bool) -> Option<&str> {
+    match spec {
+        Some(spec) => Some(spec),
+        None if compared => Some("off"),
+        None => None,
+    }
+}
+
 /// Registers every family the switch has on over the translations ([`Engine::new`], after all
 /// registration). With no family, or with `NV_TYPED=off`, it registers nothing and leaves the flags
-/// clear.
+/// clear; so does a run compared with the original's record and no `NV_TYPED` ([`switch_for`]).
 pub fn apply(e: &mut Engine) {
     let provided = PROVIDED.lock().unwrap_or_else(|p| p.into_inner()).clone();
     let families: Vec<&Family> = FAMILIES.iter().copied().chain(provided).collect();
-    apply_families(e, &families, switch_text());
+    let compared = COMPARED_RUN_VARIABLES
+        .iter()
+        .any(|name| std::env::var_os(name).is_some());
+    apply_families(e, &families, switch_for(switch_text(), compared));
 }
 
 /// [`apply`] with the table and the switch given.
@@ -850,6 +870,31 @@ mod tests {
         assert_eq!(direct, by_address);
         // The two forms read the result alike.
         assert_eq!(<f32 as RetVal>::from_ret(42.5f32.into_ret()), 42.5);
+    }
+
+    /// A run compared call for call with the original's record (nv-trace) has every family off unless
+    /// `NV_TYPED` says otherwise; any other run goes by the switch, the default with none.
+    #[test]
+    fn a_compared_run_has_every_family_off_unless_the_switch_says() {
+        use Mode::*;
+        assert_eq!(switch_for(None, false), None);
+        assert_eq!(switch_for(None, true), Some("off"));
+        assert_eq!(switch_for(Some("stand_in"), true), Some("stand_in"));
+        assert_eq!(switch_for(Some(""), true), Some(""));
+        let table: &[&Family] = &[&STAND_IN, &PAST_GATE];
+        assert_eq!(
+            parse_switch(switch_for(None, true), table),
+            Ok(vec![Off, Off])
+        );
+        assert_eq!(
+            parse_switch(switch_for(None, false), table),
+            Ok(vec![Off, On])
+        );
+        assert_eq!(
+            parse_switch(switch_for(Some("all"), true), table),
+            Ok(vec![Off, On])
+        );
+        assert_eq!(COMPARED_RUN_VARIABLES, ["NV_TRACE_OUT", "NV_TRACE_LIST"]);
     }
 
     #[test]

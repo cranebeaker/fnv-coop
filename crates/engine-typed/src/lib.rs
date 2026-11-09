@@ -81,3 +81,81 @@ pub mod units {
 // This crate's unit tests: `Engine::new()` registers the core's functions and provides the family.
 #[cfg(test)]
 engine_core::assemble!(units::funcs);
+
+#[cfg(test)]
+mod tests {
+    use engine_core::typed::{parse_switch, Family, Mode};
+
+    /// This crate's families, in the order `units::funcs` provides them.
+    fn families() -> [&'static Family; 6] {
+        [
+            &crate::lockfree::LOCKFREE,
+            &crate::culling::CULLING,
+            &crate::pathing::PATHING,
+            &crate::shader::SHADER,
+            &crate::crt::CRT,
+            &crate::dispatch::DISPATCH,
+        ]
+    }
+
+    /// Which of this crate's families are past their gate, and so on with no switch: all six since
+    /// their speed gate together (2026-11-08); `NV_TYPED=off` or `<family>:off` turns one off.
+    #[test]
+    fn families_past_their_gate_are_on_by_default() {
+        let families = families();
+        let past: Vec<&str> = families
+            .iter()
+            .filter(|f| f.past_gate)
+            .map(|f| f.name)
+            .collect();
+        assert_eq!(
+            past,
+            ["lockfree", "culling", "pathing", "shader", "crt", "dispatch"]
+        );
+        let defaults = parse_switch(None, &families).unwrap();
+        for (f, m) in families.iter().zip(&defaults) {
+            assert_eq!(*m == Mode::On, f.past_gate, "{}", f.name);
+        }
+        let off = parse_switch(Some("off"), &families).unwrap();
+        assert!(off.iter().all(|m| *m == Mode::Off));
+        let one_off = parse_switch(Some("shader:off"), &families).unwrap();
+        assert_eq!(one_off[3], Mode::Off);
+        assert!(one_off.iter().filter(|m| **m == Mode::On).count() == 5);
+    }
+
+    /// With no switch, `Engine::new` registers every function of each family, and its calls between
+    /// typed functions go direct. Not the default, so not checked: a test process started with
+    /// `NV_TYPED` set (the differential runs) or as a run compared with the original's record
+    /// (`typed::COMPARED_RUN_VARIABLES`, every family off). A diagnostic the shell has on at start (a
+    /// profile, a block check, a census, the touch record) keeps every call by address: the functions
+    /// are registered, and only that is checked.
+    #[test]
+    fn engine_new_has_them_on_with_no_switch() {
+        let set = |name: &str| std::env::var_os(name).is_some();
+        if set("NV_TYPED")
+            || engine_core::typed::COMPARED_RUN_VARIABLES
+                .iter()
+                .any(|n| set(n))
+        {
+            return;
+        }
+        let diagnosing = [
+            "NV_PROFILE",
+            "NV_BLOCK_CHECK",
+            "NV_CENSUS",
+            "NV_RACE_CENSUS",
+            "NV_TOUCH",
+        ]
+        .iter()
+        .any(|n| set(n));
+        let e = engine_core::Engine::new();
+        for f in families() {
+            for (addr, _) in (f.funcs)() {
+                assert!(e.is_registered(addr), "{} at {addr:08x}", f.name);
+                if !diagnosing {
+                    assert!(e.typed_direct(f.id, addr), "{} at {addr:08x}", f.name);
+                }
+            }
+        }
+    }
+}

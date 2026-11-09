@@ -15,6 +15,7 @@ use engine as _;
 use engine_core::prelude::*;
 use engine_core::typed::diff::{Case, Diff, Input};
 use engine_typed::culling::{self, bound, compound, planes, process, update, visible};
+use engine_typed::{dispatch, pathing};
 
 /// Where the test's virtual functions are registered: past `.text`, one per vtable slot.
 const VT_FN: u32 = 0x00ff_2000;
@@ -378,6 +379,10 @@ fn scene(e: &mut Engine) -> Scene {
 /// What every test adds to its comparison: the families and the call budget.
 trait Common {
     fn common(self) -> Diff;
+    /// The same with the dispatch family on too, and pathing, which it calls: the walk's calls into
+    /// dispatch (the transform product `0062c250`, the box's corners `00c39270`) go direct, as in play
+    /// with every family on. The translations dispatch reaches call its two counted helpers plainly.
+    fn with_dispatch(self) -> Diff;
 }
 
 impl Common for Diff {
@@ -386,6 +391,16 @@ impl Common for Diff {
             .family(&leaf::LEAVES)
             // The transform product and the box's corners are the dispatch family's (its own test).
             .goes_by_address(&[0x0062_c250, 0x00c3_9270])
+            .max_calls(MAX_CALLS)
+            .float_sweep(FLOAT_SWEEP)
+    }
+
+    fn with_dispatch(self) -> Diff {
+        self.family(&culling::CULLING)
+            .family(&leaf::LEAVES)
+            .family(&dispatch::DISPATCH)
+            .family(&pathing::PATHING)
+            .translation_calls_plainly(&[0x0040_19d0, 0x0040_8860])
             .max_calls(MAX_CALLS)
             .float_sweep(FLOAT_SWEEP)
     }
@@ -1242,4 +1257,46 @@ fn frustum_planes_set() {
     })
     .run()
     .assert_same();
+}
+
+/// `within_frustum` with the dispatch family on: its call of the box's corners (`00c39270`) is a Rust
+/// call on the direct run.
+#[test]
+fn within_frustum_with_dispatch() {
+    Diff::new(entry!(
+        0x00c3_87f0,
+        process::within_frustum(Ptr<_>, Ptr<_>) -> bool
+    ))
+    .with_dispatch()
+    .inputs(&[Input::F32, Input::F32, Input::Of(&[0x3f, 0x2, 0])])
+    .max_cases(192)
+    .setup(|e, case| {
+        let s = scene(e);
+        let b = aabb(e, &s, case.f32(0).to_bits(), case.f32(1).to_bits(), 0, 0);
+        e.mem.set_u32(s.process + 0x8c, case.word(2));
+        vec![b, s.process + 0x2c]
+    })
+    .run()
+    .assert_same();
+}
+
+/// `update_world_transform` with the dispatch family on: its call of the transform product
+/// (`0062c250`) is a Rust call on the direct run.
+#[test]
+fn update_world_transform_with_dispatch() {
+    Diff::new(entry!(0x00a6_8bf0, update::update_world_transform(Ptr<_>)))
+        .with_dispatch()
+        .inputs(&[Input::Flag, Input::Of(&[0, 0x200]), Input::F32])
+        .setup(|e, case| {
+            let s = scene(e);
+            let g = s.geometry;
+            e.mem.set_u32(s.node + 0x68 + 4, case.f32(2).to_bits());
+            if case.word(0) == 0 {
+                e.mem.set_u32(g + 0x18, 0);
+            }
+            e.mem.set_u32(g + 0x30, case.word(1));
+            vec![g]
+        })
+        .run()
+        .assert_same();
 }

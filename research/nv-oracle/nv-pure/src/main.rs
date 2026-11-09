@@ -279,6 +279,12 @@ fn cmd_x87(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn main() -> ExitCode {
+    // `check` compares the translations with the exe: the typed families (several on by default since
+    // 2026-11-08) stay off unless `NV_TYPED` names them. The engine reads it once, at the first
+    // `Engine::new`, after this.
+    if std::env::var_os("NV_TYPED").is_none() {
+        std::env::set_var("NV_TYPED", "off");
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let res = match args.first().map(String::as_str) {
         Some("list") => cmd_list(&args),

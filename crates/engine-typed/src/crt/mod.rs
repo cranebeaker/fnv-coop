@@ -30,11 +30,14 @@ pub mod string;
 /// This family's bit: what each `typed_call!` of it names.
 pub const FAMILY: FamilyId = FamilyId::new(8);
 
-/// `NV_TYPED=crt`. Not past its gate.
+/// `NV_TYPED=crt`. Past its speed gate (2026-11-08, together with the other five families of this crate: real
+/// threads, the fixes preset, the same exe off and on, BAAB): Goodsprings 55.0 to 60.1 fps (+9.3%), the crowded
+/// street at 2560x1440 8x AA 52.3 to 57.7 fps (+10.3%), the sky above it 117 to 134 fps (+14%). On unless
+/// `NV_TYPED` says otherwise (`NV_TYPED=off` or `crt:off`).
 pub static CRT: Family = Family {
     name: "crt",
     id: FAMILY,
-    past_gate: false,
+    past_gate: true,
     threads: Threads::Both,
     funcs,
 };

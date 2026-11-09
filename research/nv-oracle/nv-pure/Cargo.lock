@@ -26,7 +26,9 @@ dependencies = [
  "engine-fallout-unplaced-b",
  "engine-gamebryo",
  "engine-havok",
+ "engine-platform",
  "engine-speedtree",
+ "engine-typed",
 ]
 
 [[package]]
@@ -41,9 +43,6 @@ dependencies = [
 name = "engine-core"
 version = "0.1.0"
 dependencies = [
- "bink",
- "mp3",
- "vorbis",
  "windows",
 ]
 
@@ -213,7 +212,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-platform"
+version = "0.1.0"
+dependencies = [
+ "bink",
+ "engine-core",
+ "mp3",
+ "vorbis",
+ "windows",
+]
+
+[[package]]
 name = "engine-speedtree"
+version = "0.1.0"
+dependencies = [
+ "engine-core",
+]
+
+[[package]]
+name = "engine-typed"
 version = "0.1.0"
 dependencies = [
  "engine-core",
