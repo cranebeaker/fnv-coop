@@ -64,6 +64,9 @@ pub fn set_global_value(e: &mut Engine, id: u32, v: f32) -> bool {
 #[derive(Debug, Default, Clone)]
 pub struct GlobalWatch {
     last: BTreeMap<u32, Option<u32>>,
+    /// Each found global's form, after its first lookup: a global is a form of the game's data and
+    /// lives as long as the game, so the per-frame comparison reads its value without the lookup.
+    at: BTreeMap<u32, u32>,
 }
 
 impl GlobalWatch {
@@ -71,6 +74,7 @@ impl GlobalWatch {
     pub fn new(ids: impl IntoIterator<Item = u32>) -> GlobalWatch {
         GlobalWatch {
             last: ids.into_iter().map(|id| (id, None)).collect(),
+            at: BTreeMap::new(),
         }
     }
 
@@ -80,9 +84,17 @@ impl GlobalWatch {
     pub fn diff(&mut self, e: &mut Engine) -> Vec<(u32, f32)> {
         let mut out = Vec::new();
         for (&id, last) in self.last.iter_mut() {
-            let Some(v) = global_value(e, id) else {
-                continue;
+            let g = match self.at.get(&id) {
+                Some(&g) => g,
+                None => match form_of(e, id, addr::FORM_TYPE_GLOBAL) {
+                    Some(g) => {
+                        self.at.insert(id, g);
+                        g
+                    }
+                    None => continue,
+                },
             };
+            let v = e.mem.f32(g.wrapping_add(addr::GLOBAL_VALUE_OFFSET));
             if *last != Some(v.to_bits()) {
                 *last = Some(v.to_bits());
                 out.push((id, v));

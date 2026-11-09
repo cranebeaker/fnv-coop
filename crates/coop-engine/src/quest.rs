@@ -1,5 +1,7 @@
 //! A quest's story state as the host sends it and a guest applies it (docs/coop/SPECS.md S5): the
-//! current stage, the quest data flags (enabled, completed, failed) and which stages are done.
+//! current stage, the quest data flags (enabled, completed, failed), which stages are done, and
+//! each objective's state (displayed, completed). The quest script's variables are separate
+//! ([`vars`]).
 //!
 //! The host reads a [`QuestRecord`] for each quest the change journal names with its stage flag.
 //! The guest applies it inside [`crate::gate::applying`]: each stage the host has done and the guest
@@ -23,14 +25,15 @@ pub struct QuestRecord {
     pub flags: u8,
     /// The numbers of the stages that are done, in list order.
     pub done: Vec<u8>,
+    /// (objective number, `eState`) for every objective, in list order.
+    pub objectives: Vec<(u32, u32)>,
 }
 
-/// The stages of quest `q`: (stage object, its number, done), in list order. The list is walked as
-/// the exe does: a node whose two words are zero is an empty list.
-fn stages(e: &mut Engine, q: u32) -> Vec<(u32, u8, bool)> {
+/// The items of the list whose first node is at `node`, walked as the exe does: a first node
+/// whose two words are zero is an empty list, null items are skipped.
+pub(crate) fn list_items(e: &mut Engine, mut node: u32) -> Vec<u32> {
     let mut out = Vec::new();
-    let mut node = q.wrapping_add(addr::QUEST_STAGE_LIST_OFFSET);
-    if e.mem.u32(node) == 0 && e.mem.u32(node + 4) == 0 {
+    if node == 0 || (e.mem.u32(node) == 0 && e.mem.u32(node.wrapping_add(4)) == 0) {
         return out;
     }
     // A list is never longer than this; a cycle in a damaged list stops here.
@@ -38,17 +41,35 @@ fn stages(e: &mut Engine, q: u32) -> Vec<(u32, u8, bool)> {
         if node == 0 {
             break;
         }
-        let stage = e.mem.u32(node);
-        if stage != 0 {
-            out.push((
-                stage,
-                e.mem.u8(stage.wrapping_add(addr::STAGE_INDEX_OFFSET)),
-                e.mem.u8(stage.wrapping_add(addr::STAGE_DONE_OFFSET)) != 0,
-            ));
+        let item = e.mem.u32(node);
+        if item != 0 {
+            out.push(item);
         }
         node = e.mem.u32(node.wrapping_add(4));
     }
     out
+}
+
+/// The stages of quest `q`: (stage object, its number, done), in list order.
+fn stages(e: &mut Engine, q: u32) -> Vec<(u32, u8, bool)> {
+    list_items(e, q.wrapping_add(addr::QUEST_STAGE_LIST_OFFSET))
+        .into_iter()
+        .map(|stage| {
+            (
+                stage,
+                e.mem.u8(stage.wrapping_add(addr::STAGE_INDEX_OFFSET)),
+                e.mem.u8(stage.wrapping_add(addr::STAGE_DONE_OFFSET)) != 0,
+            )
+        })
+        .collect()
+}
+
+/// The objectives of quest `q`: (objective object, its number), in list order.
+fn objectives(e: &mut Engine, q: u32) -> Vec<(u32, u32)> {
+    list_items(e, q.wrapping_add(addr::QUEST_OBJECTIVE_LIST_OFFSET))
+        .into_iter()
+        .map(|o| (o, e.mem.u32(o.wrapping_add(addr::OBJECTIVE_INDEX_OFFSET))))
+        .collect()
 }
 
 /// The record of quest `id`, or `None` when it is not a quest.
@@ -63,17 +84,31 @@ pub fn record(e: &mut Engine, id: u32) -> Option<QuestRecord> {
             .filter(|s| s.2)
             .map(|s| s.1)
             .collect(),
+        objectives: objectives(e, q)
+            .into_iter()
+            .map(|(o, n)| (n, e.mem.u32(o.wrapping_add(addr::OBJECTIVE_STATE_OFFSET))))
+            .collect(),
     })
 }
 
-/// Makes the guest's quest the host's record. False when the form is not a quest or a done stage
-/// of the record is not one of the quest's (the two machines' data differ: nothing is changed).
+/// Makes the guest's quest the host's record. False when the form is not a quest, or a done stage
+/// or an objective of the record is not one of the quest's (the two machines' data differ: nothing
+/// is changed). Objective states are written as the game keeps them; the HUD's "objective added"
+/// line the script command shows on the host is presentation, not state.
 pub fn apply(e: &mut Engine, rec: &QuestRecord) -> bool {
     let Some(q) = forms::quest(e, rec.form) else {
         return false;
     };
     let local = stages(e, q);
     if rec.done.iter().any(|n| !local.iter().any(|s| s.1 == *n)) {
+        return false;
+    }
+    let local_objectives = objectives(e, q);
+    if rec
+        .objectives
+        .iter()
+        .any(|(n, _)| !local_objectives.iter().any(|o| o.1 == *n))
+    {
         return false;
     }
     gate::applying(e, |e| {
@@ -89,6 +124,12 @@ pub fn apply(e: &mut Engine, rec: &QuestRecord) -> bool {
             .set_u8(q.wrapping_add(addr::QUEST_CURRENT_STAGE_OFFSET), rec.stage);
         e.mem
             .set_u8(q.wrapping_add(addr::QUEST_FLAGS_OFFSET), rec.flags);
+        for &(o, n) in &local_objectives {
+            if let Some(&(_, state)) = rec.objectives.iter().find(|r| r.0 == n) {
+                e.mem
+                    .set_u32(o.wrapping_add(addr::OBJECTIVE_STATE_OFFSET), state);
+            }
+        }
     });
     true
 }
@@ -194,7 +235,8 @@ mod tests {
                 form: QUEST_ID,
                 stage: 0,
                 flags: 0,
-                done: vec![]
+                done: vec![],
+                objectives: vec![]
             })
         );
         forms::set_quest_stage(&mut w.e, QUEST_ID, 20);
@@ -240,6 +282,7 @@ mod tests {
             stage: 40,
             flags: 1,
             done: vec![10, 40],
+            objectives: vec![],
         };
         assert!(!apply(&mut guest.e, &bad));
         let r = record(&mut guest.e, QUEST_ID).unwrap();

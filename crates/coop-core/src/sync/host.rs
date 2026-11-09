@@ -33,6 +33,9 @@ pub struct HostConfig {
     pub mode: Mode,
     /// Join compatibility policy (the developer override lives here).
     pub compat: crate::compat::CompatPolicy,
+    /// Most changes in one delta before the encoder's own halving (24). Tests set 1 to send every
+    /// key in a delta of its own, so a record that spans keys would show up split.
+    pub delta_cap: usize,
 }
 
 impl HostConfig {
@@ -46,6 +49,7 @@ impl HostConfig {
             hash_history: 32,
             mode: Mode::CoopBalanced,
             compat: Default::default(),
+            delta_cap: 24,
         }
     }
 }
@@ -454,7 +458,7 @@ impl HostSync {
                 SendPlan::Nothing => {}
                 SendPlan::Delta { base } => {
                     let seq = self.ring.next_seq(p);
-                    let mut n = 24;
+                    let mut n = self.cfg.delta_cap.max(1);
                     loop {
                         let delta = self.store.delta_since(base, self.tick, n);
                         let rev = delta.rev;

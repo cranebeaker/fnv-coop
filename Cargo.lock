@@ -343,6 +343,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "coop-engine-session"
+version = "0.1.0"
+dependencies = [
+ "coop-core",
+ "coop-engine",
+ "coop-net",
+ "engine-core",
+]
+
+[[package]]
 name = "coop-net"
 version = "0.1.0"
 dependencies = [
@@ -1369,6 +1379,12 @@ dependencies = [
 name = "nv-viewer"
 version = "0.1.0"
 dependencies = [
+ "coop-core",
+ "coop-engine",
+ "coop-engine-session",
+ "coop-net",
+ "engine-core",
+ "esm",
  "host",
 ]
 

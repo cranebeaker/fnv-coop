@@ -75,3 +75,34 @@ pub const STAGE_INDEX_OFFSET: u32 = 0x00;
 
 /// `TESQuestStage::bIsDone`: the byte at +0x01 (`tesquest.rs`).
 pub const STAGE_DONE_OFFSET: u32 = 0x01;
+
+/// `TESQuest::m_listObjectives`: a `BSSimpleList<BGSQuestObjective *>` embedded at +0x4c
+/// (`run_0060bef0.rs`, `LIST_OBJECTIVES`), walked as the stage list.
+pub const QUEST_OBJECTIVE_LIST_OFFSET: u32 = 0x4c;
+
+/// `BGSQuestObjective::iIndex`: the objective number at +0x04 (`bgsquestobjective.rs`).
+pub const OBJECTIVE_INDEX_OFFSET: u32 = 0x04;
+
+/// `BGSQuestObjective::eState`: `QUEST_OBJECTIVE_STATE` at +0x20, bit 0 displayed, bit 1
+/// completed (`bgsquestobjective.rs`; the save's quest record keeps the same word, `crates/fos`).
+pub const OBJECTIVE_STATE_OFFSET: u32 = 0x20;
+
+/// `TESQuest::pScriptLocals`: the quest script's `ScriptLocals` at +0x5c (`run_0060bef0.rs`),
+/// made when the quest is initialised at load (`0060cba0`), on every machine.
+pub const QUEST_SCRIPT_LOCALS_OFFSET: u32 = 0x5c;
+
+/// `ScriptLocals::m_pLocalList`: the pointer at +0x0c to the first node of its
+/// `BSSimpleList<SCRIPT_LOCAL *>` (`tesscript.rs`).
+pub const LOCALS_LIST_OFFSET: u32 = 0x0c;
+
+/// `SCRIPT_LOCAL::uiID` at +0x00 and `fValue` (an `f64`) at +0x08 (`tesscript.rs`); the game's
+/// `ScriptLocals::SetVariable` (`005a9290`) writes the value there.
+pub const LOCAL_ID_OFFSET: u32 = 0x00;
+/// See [`LOCAL_ID_OFFSET`].
+pub const LOCAL_VALUE_OFFSET: u32 = 0x08;
+
+/// The change flag of a quest's script variables (`CHANGE_SCRIPT_LOCALS`, `tesquest.rs`).
+pub const CHANGE_SCRIPT_LOCALS: u32 = 0x4000_0000;
+
+/// The change flag of a quest's objectives (the save writes them under it, `crates/fos`).
+pub const CHANGE_QUEST_OBJECTIVES: u32 = 0x2000_0000;

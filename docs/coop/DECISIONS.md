@@ -59,3 +59,39 @@ feasibility 0.20, upstream compatibility 0.15, effort 0.10.
   replicates globals by comparing every global's value each tick, not through the change journal.
 - `Host::start_with` has no install point for outside crates. The fork adds one call, `coop_engine::install`,
   next to `nvse::install`. It does nothing unless `NV_COOP` is set.
+
+## D2 (2026-11-09): the session layer on the engine
+
+**Question.** coop-session (12k lines) drove the old world layer. How does the session go onto the engine, so
+that M3 (two processes sharing the opening) is reachable with as much as possible verified headlessly first?
+
+**Proposals.** A: make the old Session generic over a `CoopWorld` trait and bring about 4k lines over. B: a new
+thin driver crate (`coop-engine-session`) on coop-core's `HostSync`/`GuestSync`, coop-net and coop-engine, with
+each quest's whole record (stage, flags, done-stage bitmap) as one `Field::Custom`, an "engine echo" check of the
+guest engine itself, and two-fake-engine loopback tests. C: an `EngineWorld` mirroring the old backend, a testkit,
+a small link crate, and traces recorded on the PC replayed here.
+
+**Factors.** Correctness and verifiability here 0.30, path to the whole story 0.25, effort 0.15, reuse 0.15,
+maintainability 0.15.
+
+| Member | A | B | C | Vote |
+| --- | --- | --- | --- | --- |
+| 1 (sceptic) | 6.65 | 7.90 | 7.10 | B + C's record/replay |
+| 2 (pragmatist) | 7.25 | 7.05 | 7.40 | A spine + B's record + C's replay |
+| 3 (correctness) | 6.80 | 7.50 | 6.95 | B + C's record/replay |
+
+**Decision: B plus C's record/replay corpus ("B+R"), 2 votes to 1.**
+
+**Deciding fact (checked in code).** `StateStore::delta_since` cuts a delta after `max_changes` keys, and
+`HostSync::tick` halves that down to 1 when a message does not encode. With a quest's stage, flags and done
+stages as separate keys (old encoding, A and C), a guest can hold a stage without its done set for a tick: a
+state the host never had. One key per quest cannot be split.
+
+**Binding conditions.**
+1. A loopback test forces one key per delta and, after every applied delta, reads the guest *engine* (not its
+   store) and finds each quest's stage, flags and done set equal to a record the host actually had.
+2. The same test proves no story script ran on the guest.
+3. Stage numbers are bytes in the engine (`TESQuestStage::ucIndex`), so a 256-bit done bitmap covers them all;
+   the codec refuses malformed records.
+4. Noted from the minority: later milestones bring over coop-session's ext, start, party and live pieces as
+   they are needed, rather than rebuilding them blind.

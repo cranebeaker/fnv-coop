@@ -42,6 +42,17 @@ machine with FNV 1.4.0.525. "Headless" means `cargo test` with no game files.
 | M8 | **Whole story**: base game main quest to every ending, then Dead Money, Honest Hearts, Old World Blues, Lonesome Road; DLC FormIDs resolved by load order | Recorded two-player runs reach each ending; all 709 checklist rows green on the engine backend |
 | M9 | **Release**: packaged launcher, join codes, Steam invites, voice wired in | A player with no build tools hosts and joins from the package |
 
+## Status (2026-11-09)
+
+| # | State |
+| --- | --- |
+| M0 | Done here: branch, agnostic crates, `Cargo.lock`; their tests pass (four nv-launcher tests expect a Windows install and fail on Linux, as before) |
+| M1 | Done here, PC check pending: owner, journal, gate, forms; `NV_COOP=journal` |
+| M2 | Superseded for M3 by D2's driver; the checklist's engine backend follows |
+| M3 | Built and verified headlessly (S7); the two-PC run is next (TESTING.md) |
+| M4 | Quests, objectives, quest variables and globals carried as fields; the generic changed-form stream for other types is next |
+| M5 to M9 | Not started |
+
 ## Ownership and order
 
 M0 and M1 come first, because every later milestone stands on them. M2 runs next to M3. M4 gates the

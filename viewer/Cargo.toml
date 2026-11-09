@@ -10,3 +10,11 @@ publish = false
 [dependencies]
 # The game's own translated code (crates/engine), started on the player's FalloutNV.exe.
 host = { path = "../crates/host" }
+# Co-op (docs/coop/PLAN.md M3): the session on the engine, its network and the load order the
+# handshake and the replicated globals come from.
+coop-core = { path = "../crates/coop-core" }
+coop-net = { path = "../crates/coop-net" }
+coop-engine = { path = "../crates/coop-engine" }
+coop-engine-session = { path = "../crates/coop-engine-session" }
+engine-core = { path = "../crates/engine-core" }
+esm = { path = "../crates/esm" }

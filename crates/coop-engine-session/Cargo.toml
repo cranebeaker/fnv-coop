@@ -1,0 +1,17 @@
+[package]
+name = "coop-engine-session"
+version = "0.1.0"
+description = "Co-op's session on the translated engine: the host's story channel and the guest's apply over coop-core's sync (docs/coop/DECISIONS.md D2, docs/coop/SPECS.md S5)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coop-core = { path = "../coop-core" }
+coop-engine = { path = "../coop-engine" }
+engine-core = { path = "../engine-core" }
+
+[dev-dependencies]
+coop-engine = { path = "../coop-engine", features = ["testkit"] }
+# The real UDP endpoint the viewer uses, on this machine's loopback address (tests/udp.rs).
+coop-net = { path = "../coop-net" }

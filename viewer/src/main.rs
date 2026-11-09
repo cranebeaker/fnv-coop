@@ -10,6 +10,8 @@
 //! Until 2026-11-03 this was also a hand-written reimplementation of the game drawn with Bevy;
 //! that layer was removed (docs/adr/0011-old-layer-removed.md).
 
+mod coop;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -220,6 +222,30 @@ fn main() {
     // `NV_COOP=journal` (docs/coop/PLAN.md, M1's check): the co-op change journal, once a second.
     let mut coop_log =
         host::coop_engine::diag::wanted().then(host::coop_engine::diag::JournalLog::default);
+    // `NV_COOP=host`, `host:PORT` or `join:CODE` (docs/coop/PLAN.md M3): a co-op session, its step
+    // after each of main's frames.
+    let mut coop_session = match coop::parse(&std::env::var("NV_COOP").unwrap_or_default()) {
+        Ok(None) => None,
+        Ok(Some(ask)) => {
+            let name = std::env::var("NV_COOP_NAME").unwrap_or_else(|_| "player".into());
+            match coop::Coop::open(&ask, &data, &name) {
+                Ok((session, lines)) => {
+                    for line in lines {
+                        println!("{line}");
+                    }
+                    Some(session)
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    };
     loop {
         game.set_keys_down(&[]);
         game.mouse([0; 3], [false; 8]);
@@ -235,6 +261,11 @@ fn main() {
         }
         if let Some(log) = &mut coop_log {
             for line in log.after_frame(&mut game.engine) {
+                println!("{line}");
+            }
+        }
+        if let Some(session) = &mut coop_session {
+            for line in session.after_frame(&mut game.engine) {
                 println!("{line}");
             }
         }

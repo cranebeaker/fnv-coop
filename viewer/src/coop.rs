@@ -1,0 +1,340 @@
+//! Co-op in nv-viewer (docs/coop/PLAN.md M3): `NV_COOP=host` (or `host:PORT`) hosts the story,
+//! `NV_COOP=join:CODE` follows a host's story with the join code the host printed. Between two of
+//! the game's frames the session takes the network's messages and runs its step
+//! (`coop_engine_session`): the host sends its story's changes, a guest applies them to its game
+//! with the story's scripts gated. `NV_COOP=journal` is the change journal's log
+//! (`coop_engine::diag`), not a session.
+//!
+//! Both players start the same game (a new game, or the same save) from installations whose
+//! plugins load in the same order; the handshake refuses a guest whose plugins differ.
+
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
+use std::path::Path;
+use std::time::Instant;
+
+use coop_core::sync::HostConfig;
+use coop_engine_session::{self as session, GuestDriver, HostDriver};
+use coop_net::{
+    random_token, Endpoint, EndpointConfig, JoinCode, JoinTarget, NetEvent, UdpBackend, UdpConfig,
+};
+use engine_core::Engine;
+
+/// The UDP port a host uses unless told another.
+pub const DEFAULT_PORT: u16 = 27961;
+
+/// What `NV_COOP` asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ask {
+    /// Host on this UDP port.
+    Host(u16),
+    /// Join with this join code.
+    Join(String),
+}
+
+/// `NV_COOP`'s value as a session request; `None` for no session (unset, `0`, `journal`).
+pub fn parse(v: &str) -> Result<Option<Ask>, String> {
+    let v = v.trim();
+    if v.is_empty() || v == "0" || v == "journal" {
+        return Ok(None);
+    }
+    if v == "host" {
+        return Ok(Some(Ask::Host(DEFAULT_PORT)));
+    }
+    if let Some(port) = v.strip_prefix("host:") {
+        return port
+            .trim()
+            .parse::<u16>()
+            .ok()
+            .filter(|p| *p != 0)
+            .map(|p| Some(Ask::Host(p)))
+            .ok_or_else(|| format!("NV_COOP={v}: the port must be a number from 1 to 65535"));
+    }
+    if let Some(code) = v.strip_prefix("join:") {
+        let code = code.trim();
+        code.parse::<JoinCode>()
+            .map_err(|e| format!("NV_COOP={v}: not a join code ({e:?})"))?;
+        return Ok(Some(Ask::Join(code.to_string())));
+    }
+    Err(format!(
+        "NV_COOP={v}: use host, host:PORT, join:CODE or journal"
+    ))
+}
+
+/// Globals the game's clock moves by itself on every machine (coop-core's volatile keys and the
+/// calendar that turns over with them). They are not story state, and sending them would set each
+/// guest's clock back every frame; time is shared separately.
+const CLOCK_GLOBALS: &[&str] = &["GameDay", "GameMonth", "GameYear"];
+
+fn is_clock_global(editor_id: &str) -> bool {
+    coop_core::compat::VOLATILE_KEYS
+        .iter()
+        .chain(CLOCK_GLOBALS)
+        .any(|k| k.eq_ignore_ascii_case(editor_id))
+}
+
+/// The game's data as co-op needs it: the plugin names in load order, and every quest's and every
+/// story global's form id, from the game's `Data` folder.
+struct GameData {
+    plugins: Vec<String>,
+    quests: Vec<u32>,
+    globals: Vec<u32>,
+}
+
+fn game_data(data: &Path) -> Result<GameData, String> {
+    let active = match esm::load_order::default_plugins_txt().and_then(|p| std::fs::read(p).ok()) {
+        Some(bytes) => esm::ActivePlugins::List(esm::load_order::parse_plugins_txt(&bytes)),
+        None => esm::ActivePlugins::OfficialOnly,
+    };
+    let order = esm::LoadOrder::from_data_dir(data, &active)
+        .map_err(|e| format!("co-op: reading the load order: {e}"))?;
+    let plugins = order.plugins().iter().map(|p| p.name.clone()).collect();
+    let quests = order
+        .records_of_type(esm::FourCC::new(b"QUST"))
+        .map(|r| r.form_id.0)
+        .collect();
+    let globals = order
+        .records_of_type(esm::FourCC::new(b"GLOB"))
+        .filter(|r| {
+            !r.editor_id()
+                .ok()
+                .flatten()
+                .is_some_and(|id| is_clock_global(&id))
+        })
+        .map(|r| r.form_id.0)
+        .collect();
+    Ok(GameData {
+        plugins,
+        quests,
+        globals,
+    })
+}
+
+/// This machine's address on its local network, for the join code (a guest on the internet needs
+/// the host's public address and the port forwarded).
+fn local_ip() -> IpAddr {
+    UdpSocket::bind("0.0.0.0:0")
+        .and_then(|s| {
+            s.connect("192.0.2.1:9")?;
+            s.local_addr()
+        })
+        .map(|a| a.ip())
+        .ok()
+        .filter(|ip| !ip.is_unspecified())
+        .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST))
+}
+
+enum Role {
+    Host(Box<HostDriver>),
+    /// A guest before the host accepted it, then with its driver.
+    Guest(Option<Box<GuestDriver>>),
+}
+
+/// A running session.
+pub struct Coop {
+    ep: Endpoint<UdpBackend>,
+    role: Role,
+    plugins: Vec<String>,
+    started: Instant,
+    last_status: Option<Instant>,
+}
+
+impl Coop {
+    /// Opens the session `ask` asks for, for the installation whose `Data` folder is `data`.
+    /// Returns the session and the lines to print (the join code).
+    pub fn open(ask: &Ask, data: &Path, name: &str) -> Result<(Coop, Vec<String>), String> {
+        let GameData {
+            plugins,
+            quests,
+            globals,
+        } = game_data(data)?;
+        let cfg = EndpointConfig {
+            name: name.to_string(),
+            ..EndpointConfig::default()
+        };
+        let mut lines = Vec::new();
+        let (ep, role) = match ask {
+            Ask::Host(port) => {
+                let token = random_token();
+                let bind = SocketAddr::from(([0, 0, 0, 0], *port));
+                let b = UdpBackend::host(bind, token, UdpConfig::default())
+                    .map_err(|e| format!("co-op: UDP port {port}: {e}"))?;
+                let ip = local_ip();
+                let code = JoinCode::new(JoinTarget::Direct(SocketAddr::new(ip, *port)), token);
+                lines.push(format!(
+                    "co-op: hosting on UDP port {port}; join code for this network: {code} (over the internet: forward UDP port {port} and give your public address)"
+                ));
+                let session_id = u64::from_le_bytes(token[..8].try_into().expect("8 bytes"));
+                let host = HostDriver::new(
+                    HostConfig::new(session::hello(plugins.clone()), session_id),
+                    quests,
+                    globals,
+                );
+                (Endpoint::host(b, token, cfg), Role::Host(Box::new(host)))
+            }
+            Ask::Join(code) => {
+                let code: JoinCode = code
+                    .parse()
+                    .map_err(|e| format!("co-op: join code: {e:?}"))?;
+                let JoinTarget::Direct(addr) = code.target else {
+                    return Err("co-op: this build joins UDP codes only (not a Steam lobby)".into());
+                };
+                let b = UdpBackend::guest(addr, code.token, UdpConfig::default())
+                    .map_err(|e| format!("co-op: {addr}: {e}"))?;
+                lines.push(format!("co-op: joining {addr}"));
+                (Endpoint::guest(b, code.token, cfg), Role::Guest(None))
+            }
+        };
+        Ok((
+            Coop {
+                ep,
+                role,
+                plugins,
+                started: Instant::now(),
+                last_status: None,
+            },
+            lines,
+        ))
+    }
+
+    /// One step after one of the game's frames (no frame in flight). Returns lines to print.
+    pub fn after_frame(&mut self, e: &mut Engine) -> Vec<String> {
+        let now_ms = self.started.elapsed().as_millis() as u64;
+        let mut lines = Vec::new();
+        self.ep.pump();
+        for ev in self.ep.events() {
+            match ev {
+                NetEvent::Connected { local } => {
+                    lines.push(format!("co-op: joined as player {}", local.0));
+                    match &mut self.role {
+                        Role::Guest(slot @ None) => {
+                            *slot = Some(Box::new(GuestDriver::new(
+                                local,
+                                session::hello(self.plugins.clone()),
+                            )));
+                        }
+                        // Joined again after losing the host: resume from what this guest has.
+                        Role::Guest(Some(g)) => g.rejoin(local, &mut self.ep),
+                        Role::Host(_) => {}
+                    }
+                }
+                NetEvent::PeerJoined { player, name } => {
+                    lines.push(format!("co-op: {name} joined (player {})", player.0));
+                }
+                NetEvent::PeerLeft { player, reason } => {
+                    lines.push(format!("co-op: player {} left ({reason:?})", player.0));
+                    match &mut self.role {
+                        Role::Host(h) => h.sync.disconnect(player),
+                        // The host is gone: keep the game gated and try to join again.
+                        Role::Guest(_) => {
+                            lines.push("co-op: lost the host; joining again".into());
+                            self.ep.rejoin();
+                        }
+                    }
+                }
+                NetEvent::Rejected(code) => {
+                    lines.push(format!("co-op: the host refused us ({code:?})"))
+                }
+                NetEvent::JoinFailed(why) => {
+                    lines.push(format!("co-op: could not join: {why}"));
+                    // A guest that already follows the story keeps trying to get back.
+                    if let Role::Guest(Some(_)) = self.role {
+                        self.ep.rejoin();
+                    }
+                }
+                NetEvent::SendError(why) => lines.push(format!("co-op: send failed: {why}")),
+            }
+        }
+        if let Role::Guest(_) = self.role {
+            // Gated from the first frame of a join, before the host answers.
+            session::gate_guest(e);
+        }
+        match &mut self.role {
+            Role::Host(h) => {
+                if h.sync.tick_no().0 == 0 {
+                    h.start(e);
+                }
+                h.step(e, &mut self.ep, now_ms);
+            }
+            Role::Guest(Some(g)) => g.step(e, &mut self.ep, now_ms),
+            Role::Guest(None) => {}
+        }
+        if self
+            .last_status
+            .map_or(true, |t| t.elapsed().as_secs() >= 5)
+        {
+            self.last_status = Some(Instant::now());
+            lines.push(self.status(e));
+        }
+        lines
+    }
+
+    /// A one-line status: players and the story's revision on a host; on a guest what it applied,
+    /// the hash checks, drift healed, refusals and the story scripts it did not run.
+    fn status(&self, e: &mut Engine) -> String {
+        match &self.role {
+            Role::Host(h) => format!(
+                "co-op host: {} guest(s), story revision {}, not sendable {}",
+                h.sync.players().len(),
+                h.sync.store.rev().0,
+                h.unencodable
+            ),
+            Role::Guest(Some(g)) => {
+                let (applying, story) = coop_engine::gate::skipped(e);
+                let drift = session::echo(e, &g.sync.store).len();
+                format!(
+                    "co-op guest: story revision {}, hash checks {} (desyncs {}), game differs from the host's story on {drift} entries, healed {}, refused {} (again on heal {}), story scripts not run {story}, result scripts not rerun {applying}",
+                    g.sync.store.rev().0,
+                    g.sync.hash_checks,
+                    g.sync.desyncs_detected,
+                    g.healed,
+                    g.refused,
+                    g.heal_refused,
+                )
+            }
+            Role::Guest(None) => "co-op guest: waiting for the host".into(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_clock_globals_are_left_out() {
+        for id in [
+            "GameHour",
+            "gamedayspassed",
+            "GameDay",
+            "GameMonth",
+            "GameYear",
+        ] {
+            assert!(is_clock_global(id), "{id}");
+        }
+        for id in ["TimeScale", "GameDaysPassedStart", "PlayerKarma"] {
+            assert!(!is_clock_global(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn nv_coop_values() {
+        assert_eq!(parse(""), Ok(None));
+        assert_eq!(parse("0"), Ok(None));
+        assert_eq!(parse("journal"), Ok(None));
+        assert_eq!(parse("host"), Ok(Some(Ask::Host(DEFAULT_PORT))));
+        assert_eq!(parse("host:4000"), Ok(Some(Ask::Host(4000))));
+        assert!(parse("host:0").is_err());
+        assert!(parse("host:x").is_err());
+        assert!(parse("join:nonsense").is_err());
+        assert!(parse("play").is_err());
+        let code = JoinCode::new(
+            JoinTarget::Direct(SocketAddr::from(([127, 0, 0, 1], 4000))),
+            [7; 16],
+        )
+        .to_string();
+        assert_eq!(
+            parse(&format!("join:{code}")),
+            Ok(Some(Ask::Join(code.clone())))
+        );
+    }
+}

@@ -149,3 +149,41 @@ The game has one player. The other players are actors that the host's game treat
 own inventory, skills and perks, and each guest's machine plays its own character as the player. A
 per-player quest (from the policy table) runs on the machine of the player it belongs to. Its records go
 to the host for the party save, never into the shared world.
+
+## S7: the session on the engine (implemented; docs/coop/DECISIONS.md D2)
+
+`crates/coop-engine-session`, a thin driver over coop-core's `HostSync` and `GuestSync`:
+
+- **Fields.** Each quest is one `Field::Custom` (tag `0x5152`): stage, flags, a 256-bit done-stage
+  set, then its objectives (count; number as 4 bytes, state as 1 byte). A delta can never split it.
+  A record that cannot be carried exactly (more objectives than fit in 512 bytes, a state above
+  255) is not sent and is counted. Each quest script variable is a `Field::ScriptVar` (index = the
+  variable's id, the `f64`'s bits). Each story global is a `Field::Global`.
+- **Host.** `start` arms the journal and writes every quest of the load order (the viewer lists
+  the plugins' `QUST` records) and every story global, so a join snapshot holds the whole story
+  whatever either game did before. Each step: the journal's quest changes are read again
+  (record and variables), and the globals' watch compares values (form addresses cached after the
+  first lookup).
+- **Guest.** Gated from the first frame of a join (`gate_guest`). Each step applies the replica's
+  entries newer than the applied mark, or all of them after a snapshot or repair. Quests go through
+  `quest::apply`; variables and globals are written in place; all inside `gate::applying`. Every 20
+  steps the game is read back (`echo`) and drifted entries are applied again (`heal`). `rejoin`
+  resumes from the replica after the transport joins again; a host with a new session answers
+  with a fresh join and a snapshot.
+- **Viewer.** `NV_COOP=host`, `host:PORT` or `join:CODE`. The globals the clock moves on every
+  machine (coop-core's volatile keys and GameDay, GameMonth, GameYear) are not replicated; time is
+  shared separately (later milestone). Objective changes are written as state; the "objective
+  added" HUD line is presentation, for M6.
+- **Known limits.** A stage undone on a guest (drift) clears its done byte but not its items' log
+  dates, so the game's log may not show it again if redone; a guest's game only drifts from the
+  host's through its own scripts, and the gate stops the story's.
+
+**Verified here** (no game): 8 loopback tests on two and three games joined over coop-core's
+loopback and chaos transports, with one key per delta, a late join, a bad network, rejoin, a host
+restarting its session, drift healing and data that differ; the guest's game is read back after
+every step and must hold, for every quest, a record the host really had, and no story script may
+run on a guest while its own quest scripts are tried every frame. 2 tests over coop-net's real UDP
+endpoint on 127.0.0.1. Each guarded behaviour was removed once to see the tests fail.
+
+**Not verified here:** the real translated functions behind the stand-ins, the real load order,
+and two real games (docs/coop/TESTING.md).

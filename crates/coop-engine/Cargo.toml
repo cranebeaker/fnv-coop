@@ -10,3 +10,8 @@ rust-version.workspace = true
 # The engine's core only, as nvse: game functions are called by address, the change journal is a
 # wrap of ADR-0016's table.
 engine-core = { path = "../engine-core" }
+
+[features]
+# A small story in engine memory with stand-ins for the game functions co-op calls, for other
+# crates' tests (coop-engine-session's loopback tests).
+testkit = []
