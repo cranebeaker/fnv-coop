@@ -7,6 +7,13 @@ machinery runs.
 
 ## Resume here
 
+### Claude, 2026-11-08 (render thread, NV_D3D9 backends, the device state apart from the kernel)
+
+- **The call stream** (`crates/d3d9-stream`, #339): every Direct3D 9 call the platform model forwards is a command (`Cmd`) for a `Backend`, carried out on the calling thread or on a render thread of its own (`Stream::threaded`, at most one frame in flight). `NV_D3D9_RECORD` writes it to a file, `wire::replay` plays it into any backend, `NV_D3D9_STREAM_CHECK` hashes it on both sides. Design and measurements: `build43-scratch/measure/render-thread/DESIGN.md`.
+- **The render thread** (#347, on in play since #351): the forwarding (`d3d9real.rs`) records, and the real `d3d9.dll` (`d3d9backend.rs`) draws on the render thread. Town +15.6%, the crowded main street +16.9%, with real threads (`rt3.sum`). Calls that need an answer wait; the sun tests' `FLUSH` query reads go straight to the real query once its end is issued. `NV_RENDER_THREAD=0` (Settings.cmd's "Drawing thread") is the fallback; tests and scripted runs run without it unless they name it (`host::fixes::Choice::render_thread`).
+- **The device lock** (`engine-core/src/real_threads.rs`): the device's functions (`d3d9::DEVICE_CALLS`) run under a lock of their own, not the kernel lock. Lock order: kernel, then device, never the reverse. Kernel-locked code that reaches the device's state takes `device_guard`. Since #358 that state is `d3d9::DeviceState` behind `Engine::device` (`DeviceRef`), apart from the kernel: a device call never makes a reference to the kernel, and `device!` checks the lock in debug builds.
+- **Backends** (#354): `NV_D3D9=real` (Play.exe), `wgpu` (wgpu alone, in the game's window; textures from d3dx-tex), or `real,wgpu` (wgpu draws off screen beside the real one; `NV_SHOT` captures both, numbered alike). The window thread serves all three. The main menu matches pixel for pixel.
+
 ### Claude, 2026-11-08 (D3DX texture loading translated: crates/d3dx-tex)
 
 - **What it is:** the texture `D3DXCreateTextureFromFileInMemory` / `...CubeTexture...` make for the game's call, from the 32-bit `d3dx9_38.dll`: DDS reading, copied and re-encoded levels, R8G8B8 to X8R8G8B8, the box filter and the DXT1/3/5 encoder. No DLL, no device, any platform.

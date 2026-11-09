@@ -267,15 +267,16 @@ struct Direct3D {
     references: u32,
 }
 
-/// The Direct3D 9 objects (`State::graphics`).
+/// The graphics state the kernel-locked functions keep (`State::graphics`): the machine table,
+/// `GetProcAddress`'s, NvAPI's and D3DX's. The Direct3D 9 device's is apart ([`DeviceState`]).
 #[derive(Debug, Default)]
 pub struct Graphics {
-    adapter: Option<Adapter>,
-    d3d9_vtable: u32,
-    objects: HashMap<u32, Direct3D>,
+    /// The machine table, read by the kernel-locked functions (window styles, metrics, code
+    /// pages, time zones, `cpuid`); the same table as [`DeviceState`]'s, which never changes after
+    /// it is loaded.
+    adapter: Option<std::sync::Arc<Adapter>>,
+    /// Whether `Direct3DCreate9` is registered: `GetProcAddress` (kernel-locked) asks for it.
     procs_registered: bool,
-    /// The devices and their resources (`super::d3d9device`).
-    pub(crate) device_objects: super::d3d9device::Objects,
     /// The NvAPI answers and the functions handed out (`super::nvapi`).
     pub(crate) nvapi: super::nvapi::State,
     /// The machine-local D3DX texture cache folder (`super::d3dx`).
@@ -287,24 +288,50 @@ pub struct Graphics {
     pub(crate) d3dx_texture_mode: Option<super::d3dx::TextureMode>,
     /// The kinds of what the translation leaves to the DLL or the cache, already printed.
     pub(crate) d3dx_not_translated: Vec<super::d3dx::NotTranslated>,
-    /// The real `d3d9.dll` objects behind the modelled ones (`NV_D3D9=real`, ADR-0008).
-    #[cfg(windows)]
-    pub(crate) real: super::d3d9real::Real,
     /// The shader compiler's buffers and constant tables (`super::d3dxreal`).
     #[cfg(windows)]
     pub(crate) d3dx: super::d3dxreal::Objects,
 }
 
-/// Gives the layer the player's adapter table (`scripts/d3d9-capture`'s output).
-pub fn load_adapter_table(e: &mut Engine, table: &str) {
-    let adapter = Adapter::parse(table);
-    state!(e).graphics.nvapi.table = adapter.nvapi.clone();
-    state!(e).graphics.adapter = Some(adapter);
+/// The Direct3D 9 device's state (`Engine::device`, the layer's `new_device_state`): the
+/// `IDirect3D9` objects, the devices and their resources, the forwarding to a backend. Apart from
+/// the kernel, reached under the device lock with real threads (`device!`): the
+/// functions of `DEVICE_CALLS` reach nothing else.
+#[derive(Debug, Default)]
+pub struct DeviceState {
+    /// The machine table, as `IDirect3D9`'s functions and `CreateQuery` read it ([`Graphics`]'s).
+    adapter: Option<std::sync::Arc<Adapter>>,
+    d3d9_vtable: u32,
+    objects: HashMap<u32, Direct3D>,
+    /// The devices and their resources (`super::d3d9device`).
+    pub(crate) device_objects: super::d3d9device::Objects,
+    /// The backend behind the modelled objects (`NV_D3D9`, ADR-0008).
+    #[cfg(windows)]
+    pub(crate) real: super::d3d9real::Real,
 }
 
-/// The loaded adapter; without one the run stops and says how to capture it.
+/// Gives the layer the player's adapter table (`scripts/d3d9-capture`'s output): to the kernel's
+/// side and the device's (before the game's threads run).
+pub fn load_adapter_table(e: &mut Engine, table: &str) {
+    let adapter = std::sync::Arc::new(Adapter::parse(table));
+    state!(e).graphics.nvapi.table = adapter.nvapi.clone();
+    state!(e).graphics.adapter = Some(std::sync::Arc::clone(&adapter));
+    let _device = engine_core::real_threads::device_guard(e);
+    device!(e).adapter = Some(adapter);
+}
+
+/// The loaded adapter, for a kernel-locked function; without one the run stops and says how to
+/// capture it.
 fn adapter(e: &mut Engine) -> &Adapter {
-    match state!(e).graphics.adapter.as_ref() {
+    match state!(e).graphics.adapter.as_deref() {
+        Some(a) => a,
+        None => panic!("the Direct3D 9 adapter table is not loaded: {CAPTURE_HINT}"),
+    }
+}
+
+/// [`adapter`] for a function of `DEVICE_CALLS` (the device's own copy).
+fn device_adapter(e: &mut Engine) -> &Adapter {
+    match device!(e).adapter.as_deref() {
         Some(a) => a,
         None => panic!("the Direct3D 9 adapter table is not loaded: {CAPTURE_HINT}"),
     }
@@ -322,7 +349,7 @@ fn not_captured(kind: &str, words: &[u32]) -> ! {
 /// child window), if the capture has them.
 /// What `CreateQuery(type, NULL)` answers on the player's device, when the table has it.
 pub fn query_support(e: &mut Engine, kind: u32) -> Option<u32> {
-    adapter(e).queries.get(&kind).copied()
+    device_adapter(e).queries.get(&kind).copied()
 }
 
 pub fn window_style(e: &mut Engine, style: u32, child: u32) -> Option<(u32, u32)> {
@@ -482,7 +509,7 @@ pub fn system_metric(e: &mut Engine, index: u32) -> Option<u32> {
 /// Whether `object` is an `IDirect3D9` of this layer.
 pub fn is_direct3d(e: &Engine, object: u32) -> bool {
     let _device = engine_core::real_threads::device_guard(e);
-    state_ref!(e).graphics.objects.contains_key(&object)
+    device_ref!(e).objects.contains_key(&object)
 }
 
 fn register_code(e: &mut Engine) {
@@ -556,18 +583,17 @@ pub fn direct3d_create9(e: &mut Engine, sdk: u32) -> u32 {
     if sdk != D3D_SDK_VERSION && sdk != D3D_SDK_VERSION_DEBUG {
         return 0;
     }
-    if state!(e).graphics.d3d9_vtable == 0 {
+    if device!(e).d3d9_vtable == 0 {
         register_code(e);
         let table = e.mem.alloc(4 * D3D9_SLOTS.len() as u32);
         for i in 0..D3D9_SLOTS.len() as u32 {
             e.mem.set_u32(table + 4 * i, D3D9_CODE + 4 * i);
         }
-        state!(e).graphics.d3d9_vtable = table;
+        device!(e).d3d9_vtable = table;
     }
     let object = e.mem.alloc(8);
-    e.mem.set_u32(object, state!(e).graphics.d3d9_vtable);
-    state!(e)
-        .graphics
+    e.mem.set_u32(object, device!(e).d3d9_vtable);
+    device!(e)
         .objects
         .insert(object, Direct3D { references: 1 });
     #[cfg(windows)]
@@ -576,8 +602,7 @@ pub fn direct3d_create9(e: &mut Engine, sdk: u32) -> u32 {
 }
 
 fn this_object(e: &mut Engine, this: Ptr) -> &mut Direct3D {
-    state!(e)
-        .graphics
+    device!(e)
         .objects
         .get_mut(&this.addr())
         .expect("an IDirect3D9 of this layer")
@@ -601,7 +626,7 @@ fn release(e: &mut Engine, this: Ptr) -> u32 {
     d.references -= 1;
     let left = d.references;
     if left == 0 {
-        state!(e).graphics.objects.remove(&this.addr());
+        device!(e).objects.remove(&this.addr());
         e.mem.free(this.addr());
     }
     left
@@ -624,7 +649,7 @@ fn get_adapter_identifier(e: &mut Engine, _this: Ptr, index: u32, flags: u32, ou
     if index != 0 || out.is_null() {
         return D3DERR_INVALIDCALL;
     }
-    let Some((hr, data)) = adapter(e).identifiers.get(&flags).cloned() else {
+    let Some((hr, data)) = device_adapter(e).identifiers.get(&flags).cloned() else {
         not_captured("GetAdapterIdentifier", &[index, flags]);
     };
     debug_assert_eq!(data.len(), IDENTIFIER_SIZE);
@@ -637,7 +662,7 @@ fn get_adapter_mode_count(e: &mut Engine, _this: Ptr, index: u32, format: u32) -
     if index != 0 {
         return 0;
     }
-    match adapter(e).mode_counts.get(&format) {
+    match device_adapter(e).mode_counts.get(&format) {
         Some(&n) => n,
         None => not_captured("GetAdapterModeCount", &[index, format]),
     }
@@ -660,7 +685,7 @@ fn enum_adapter_modes(
     if mode >= count {
         return D3DERR_INVALIDCALL;
     }
-    let (hr, data) = adapter(e).modes[&(format, mode)].clone();
+    let (hr, data) = device_adapter(e).modes[&(format, mode)].clone();
     debug_assert_eq!(data.len(), DISPLAY_MODE_SIZE);
     e.mem.write(out.addr(), &data);
     hr
@@ -671,7 +696,7 @@ fn get_adapter_display_mode(e: &mut Engine, _this: Ptr, index: u32, out: Ptr) ->
     if index != 0 || out.is_null() {
         return D3DERR_INVALIDCALL;
     }
-    let (hr, data) = adapter(e).display_mode.clone();
+    let (hr, data) = device_adapter(e).display_mode.clone();
     e.mem.write(out.addr(), &data);
     hr
 }
@@ -680,7 +705,7 @@ fn checked(e: &mut Engine, kind: &str, words: &[u32]) -> u32 {
     if words[0] != 0 {
         return D3DERR_INVALIDCALL;
     }
-    match adapter(e).check(kind, words) {
+    match device_adapter(e).check(kind, words) {
         Some(r) => u32::from_str_radix(r, 16).expect("a hex result"),
         None => not_captured(kind, words),
     }
@@ -739,7 +764,7 @@ fn check_device_multi_sample_type(
     if index != 0 {
         return D3DERR_INVALIDCALL;
     }
-    let Some(answer) = adapter(e).check("CheckDeviceMultiSampleType", &words) else {
+    let Some(answer) = device_adapter(e).check("CheckDeviceMultiSampleType", &words) else {
         not_captured("CheckDeviceMultiSampleType", &words);
     };
     let (hr, levels) = answer.split_once('/').expect("hr/quality");
@@ -790,7 +815,7 @@ fn get_device_caps(e: &mut Engine, _this: Ptr, index: u32, device: u32, out: Ptr
     if index != 0 || out.is_null() {
         return D3DERR_INVALIDCALL;
     }
-    let Some((hr, data)) = adapter(e).caps.get(&device).cloned() else {
+    let Some((hr, data)) = device_adapter(e).caps.get(&device).cloned() else {
         not_captured("GetDeviceCaps", &[index, device]);
     };
     debug_assert_eq!(data.len(), CAPS_SIZE);

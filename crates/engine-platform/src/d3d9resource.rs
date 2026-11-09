@@ -194,7 +194,7 @@ struct Bindings {
     drawn_from_memory: bool,
 }
 
-/// The buffers, shaders and declarations (`State::graphics`).
+/// The buffers, shaders and declarations (`d3d9::DeviceState`).
 #[derive(Debug, Default)]
 pub struct Resources {
     vtables: HashMap<u32, u32>,
@@ -210,11 +210,7 @@ pub struct Resources {
 }
 
 fn resources(e: &mut Engine) -> &mut Resources {
-    debug_assert!(
-        engine_core::real_threads::device_lock_held(e),
-        "the Direct3D 9 state reached without the device lock"
-    );
-    &mut state!(e).graphics.device_objects.resources
+    &mut device!(e).device_objects.resources
 }
 
 fn object(e: &mut Engine, this: Ptr) -> &mut Object {
@@ -675,8 +671,7 @@ fn kept_of(e: &mut Engine, this: Ptr) -> &mut Vec<u8> {
 /// last unlock.
 fn stage_buffer(e: &mut Engine, this: Ptr, length: u32) -> u32 {
     let block = e.mem.alloc(length);
-    let o = state!(e)
-        .graphics
+    let o = device!(e)
         .device_objects
         .resources
         .objects
@@ -704,8 +699,7 @@ fn stage_buffer(e: &mut Engine, this: Ptr, length: u32) -> u32 {
 /// compared with the block, and the block compared again when it is freed.
 fn unstage_buffer(e: &mut Engine, this: Ptr, block: u32, length: u32) {
     let check = buffer_store(e) == Store::Check;
-    let o = state!(e)
-        .graphics
+    let o = device!(e)
         .device_objects
         .resources
         .objects
@@ -1102,7 +1096,7 @@ fn set_constants(e: &mut Engine, this: Ptr, kind: u8, start: u32, data: Ptr, cou
     if last.is_some_and(|last| e.mem.is_mapped(data.addr()) && e.mem.is_mapped(last)) {
         let mem = &e.mem;
         let b = bindings_in(
-            &mut state!(e).graphics.device_objects.resources.bindings,
+            &mut device!(e).device_objects.resources.bindings,
             this.addr(),
         );
         if b.constants.is_empty() {
@@ -1216,9 +1210,9 @@ constants!(set_pixel_constant_i, get_pixel_constant_i, 4);
 constants!(set_pixel_constant_b, get_pixel_constant_b, 5);
 
 /// Whether the device has a buffer of its own in `D3DPOOL_DEFAULT` alive (`Reset` refuses then).
+/// Under the device lock: its one caller is `d3d9device::default_pool_alive`, for `Reset`.
 pub(super) fn default_pool_alive(e: &Engine, device: u32) -> bool {
-    state_ref!(e)
-        .graphics
+    device_ref!(e)
         .device_objects
         .resources
         .objects

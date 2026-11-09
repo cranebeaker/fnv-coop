@@ -243,6 +243,10 @@ pub struct Engine {
     /// The Windows kernel objects the platform imports hand out (events,
     /// semaphores, threads, `VirtualAlloc` regions; `units/platform.rs`).
     pub kernel: crate::units::platform::KernelRef,
+    /// The platform layer's Direct3D device state, apart from the kernel: with real threads every
+    /// thread's engine shares it and reaches it under the device lock only
+    /// (`units::platform::DeviceRef`, `real_threads::device_call`).
+    pub device: crate::units::platform::DeviceRef,
     /// The functions entered through [`Engine::call`] that haven't returned,
     /// innermost last: the nearest caller entered by address of whatever
     /// runs now (calls within one unit file are direct and not on it). A
@@ -428,6 +432,7 @@ impl Engine {
             clock_us: 0,
             real_clock: None,
             kernel: Default::default(),
+            device: Default::default(),
             call_stack: Vec::new(),
             on_open: None,
             trace: None,
@@ -451,6 +456,9 @@ impl Engine {
         // The platform layer's state, when the program links the layer (`units::platform::Layer`:
         // its `units::funcs`, run above with the other crates' functions, installs it).
         engine.kernel.platform = crate::units::platform::new_layer_state();
+        engine.device = crate::units::platform::DeviceRef::new(
+            crate::units::platform::new_layer_device_state(),
+        );
         // `NV_WATCH` (a diagnostic, not exe behaviour): reports the writers of a range of memory.
         crate::watch_check::install(&mut engine);
         engine
@@ -701,9 +709,9 @@ impl Engine {
 
     /// A new engine for a real thread (`crate::real_threads`), made from this one (the real
     /// threads' template): the same functions (plain ones; test doubles stay with their engine),
-    /// typed families, clock and platform slots, a view of the same memory and the same kernel
-    /// objects; its own call cache, call stack, TLS block (none yet), guest stack and time slice
-    /// (none). No diagnostic. `real` is the new thread's context.
+    /// typed families, clock and platform slots, a view of the same memory, the same kernel
+    /// objects and the same device state; its own call cache, call stack, TLS block (none yet),
+    /// guest stack and time slice (none). No diagnostic. `real` is the new thread's context.
     pub(crate) fn thread_context(&self, real: crate::real_threads::Ctx) -> Engine {
         let mut e = Engine {
             mem: self.mem.view(),
@@ -721,6 +729,7 @@ impl Engine {
             clock_us: self.clock_us,
             real_clock: self.real_clock,
             kernel: self.kernel.alias(),
+            device: self.device.alias(),
             call_stack: Vec::with_capacity(256),
             on_open: None,
             trace: None,

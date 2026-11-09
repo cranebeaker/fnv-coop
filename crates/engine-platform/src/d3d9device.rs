@@ -445,7 +445,7 @@ impl Store {
     }
 }
 
-/// The devices and their resources (`State::graphics`).
+/// The devices and their resources (`d3d9::DeviceState`).
 #[derive(Debug, Default)]
 pub struct Objects {
     device_vtable: u32,
@@ -478,8 +478,7 @@ pub struct Objects {
 
 /// Where texture levels keep their pixels in this run ([`Store`]).
 fn texture_store(e: &mut Engine) -> Store {
-    *state!(e)
-        .graphics
+    *device!(e)
         .device_objects
         .texture_store
         .get_or_insert_with(|| Store::from_env("NV_D3D9_TEXTURES"))
@@ -487,8 +486,7 @@ fn texture_store(e: &mut Engine) -> Store {
 
 /// Where static vertex and index buffers keep their bytes in this run ([`Store`]).
 pub(super) fn buffer_store(e: &mut Engine) -> Store {
-    *state!(e)
-        .graphics
+    *device!(e)
         .device_objects
         .buffer_store
         .get_or_insert_with(|| Store::from_env("NV_D3D9_BUFFERS"))
@@ -497,13 +495,13 @@ pub(super) fn buffer_store(e: &mut Engine) -> Store {
 /// Sets where static buffers keep their bytes (tests), before the first buffer.
 #[cfg(test)]
 pub(crate) fn set_buffer_store(e: &mut Engine, store: Store) {
-    state!(e).graphics.device_objects.buffer_store = Some(store);
+    device!(e).device_objects.buffer_store = Some(store);
 }
 
 /// Sets where texture levels keep their pixels (tests), before the first texture.
 #[cfg(test)]
 pub(crate) fn set_texture_store(e: &mut Engine, store: Store) {
-    state!(e).graphics.device_objects.texture_store = Some(store);
+    device!(e).device_objects.texture_store = Some(store);
 }
 
 fn vtable(e: &mut Engine, base: u32, slots: usize) -> u32 {
@@ -594,9 +592,7 @@ fn fwd_create_texture(
     #[cfg(windows)]
     if model == D3D_OK {
         let texture = e.mem.u32(out.addr());
-        let surfaces = state!(e).graphics.device_objects.textures[&texture]
-            .levels
-            .clone();
+        let surfaces = device!(e).device_objects.textures[&texture].levels.clone();
         super::d3d9real::texture_created(
             e,
             this.addr(),
@@ -630,9 +626,7 @@ fn fwd_create_cube_texture(
     #[cfg(windows)]
     if model == D3D_OK {
         let texture = e.mem.u32(out.addr());
-        let surfaces = state!(e).graphics.device_objects.textures[&texture]
-            .levels
-            .clone();
+        let surfaces = device!(e).device_objects.textures[&texture].levels.clone();
         super::d3d9real::cube_created(
             e,
             this.addr(),
@@ -1114,12 +1108,12 @@ fn register_code(e: &mut Engine) {
     for (slot, f) in cube {
         e.register(CUBE_CODE + 4 * slot, f);
     }
-    if state!(e).graphics.device_objects.device_vtable == 0 {
+    if device!(e).device_objects.device_vtable == 0 {
         let device = vtable(e, DEVICE_CODE, DEVICE_SLOTS.len());
         let surface = vtable(e, SURFACE_CODE, SURFACE_SLOTS.len());
         let texture = vtable(e, TEXTURE_CODE, TEXTURE_SLOTS.len());
         let cube = vtable(e, CUBE_CODE, TEXTURE_SLOTS.len());
-        let objects = &mut state!(e).graphics.device_objects;
+        let objects = &mut device!(e).device_objects;
         objects.device_vtable = device;
         objects.surface_vtable = surface;
         objects.texture_vtable = texture;
@@ -1133,10 +1127,10 @@ fn not_provided(what: &str) -> ! {
 
 fn new_surface(e: &mut Engine, device: u32, implicit: bool, desc: [u32; 8]) -> u32 {
     let object = e.mem.alloc(8);
-    let table = state!(e).graphics.device_objects.surface_vtable;
+    let table = device!(e).device_objects.surface_vtable;
     e.mem.set_u32(object, table);
     let references = u32::from(!implicit);
-    state!(e).graphics.device_objects.surfaces.insert(
+    device!(e).device_objects.surfaces.insert(
         object,
         Surface {
             references,
@@ -1242,7 +1236,7 @@ pub fn create_device(
     }
     register_code(e);
     let object = e.mem.alloc(8);
-    let table = state!(e).graphics.device_objects.device_vtable;
+    let table = device!(e).device_objects.device_vtable;
     e.mem.set_u32(object, table);
     let (width, height) = (field(e, PP_WIDTH), field(e, PP_HEIGHT));
     let quality = field(e, PP_QUALITY);
@@ -1310,15 +1304,11 @@ pub fn create_device(
         software_vertex_processing: false,
         lost: false,
     };
-    state!(e)
-        .graphics
-        .device_objects
-        .devices
-        .insert(object, device);
+    device!(e).device_objects.devices.insert(object, device);
     crate::direct3d_device_created(e, behavior);
     #[cfg(windows)]
     {
-        let d = &state!(e).graphics.device_objects.devices[&object];
+        let d = &device!(e).device_objects.devices[&object];
         let (present, back_buffers, depth) =
             (d.present.clone(), d.back_buffers.clone(), d.depth_stencil);
         super::d3d9real::device_created(e, object, focus, behavior, &present, &back_buffers, depth);
@@ -1328,12 +1318,7 @@ pub fn create_device(
 }
 
 fn device(e: &mut Engine, this: Ptr) -> &mut Device {
-    debug_assert!(
-        engine_core::real_threads::device_lock_held(e),
-        "the Direct3D 9 state reached without the device lock"
-    );
-    state!(e)
-        .graphics
+    device!(e)
         .device_objects
         .devices
         .get_mut(&this.addr())
@@ -1382,8 +1367,7 @@ pub(super) fn device_release(e: &mut Engine, this: Ptr) -> u32 {
     d.references -= 1;
     let left = d.references;
     if left == 0 {
-        let d = state!(e)
-            .graphics
+        let d = device!(e)
             .device_objects
             .devices
             .remove(&this.addr())
@@ -1397,8 +1381,7 @@ pub(super) fn device_release(e: &mut Engine, this: Ptr) -> u32 {
             texture_unbind(e, Ptr::new(*texture));
         }
         super::d3d9resource::release_bindings(e, this.addr());
-        let implicit: Vec<u32> = state!(e)
-            .graphics
+        let implicit: Vec<u32> = device!(e)
             .device_objects
             .surfaces
             .iter()
@@ -1406,7 +1389,7 @@ pub(super) fn device_release(e: &mut Engine, this: Ptr) -> u32 {
             .map(|(a, _)| *a)
             .collect();
         for surface in implicit {
-            state!(e).graphics.device_objects.surfaces.remove(&surface);
+            device!(e).device_objects.surfaces.remove(&surface);
             #[cfg(windows)]
             super::d3d9real::forget(e, surface);
             e.mem.free(surface);
@@ -1511,7 +1494,7 @@ fn set_render_target(e: &mut Engine, this: Ptr, index: u32, surface: u32) -> u32
         return D3DERR_INVALIDCALL;
     }
     let desc = if surface != 0 {
-        match state!(e).graphics.device_objects.surfaces.get(&surface) {
+        match device!(e).device_objects.surfaces.get(&surface) {
             Some(s) if s.desc[2] & D3DUSAGE_RENDERTARGET != 0 => Some(s.desc),
             _ => return D3DERR_INVALIDCALL,
         }
@@ -1556,7 +1539,7 @@ fn get_render_target(e: &mut Engine, this: Ptr, index: u32, out: Ptr) -> u32 {
 /// (counted) and releases the old one.
 fn set_depth_stencil_surface(e: &mut Engine, this: Ptr, surface: u32) -> u32 {
     if surface != 0 {
-        match state!(e).graphics.device_objects.surfaces.get(&surface) {
+        match device!(e).device_objects.surfaces.get(&surface) {
             Some(s) if s.desc[2] & D3DUSAGE_DEPTHSTENCIL != 0 => {}
             _ => return D3DERR_INVALIDCALL,
         }
@@ -1592,7 +1575,7 @@ fn set_viewport(e: &mut Engine, this: Ptr, viewport: Ptr) -> u32 {
     }
     let words: [u32; 6] = std::array::from_fn(|i| e.mem.u32(viewport.addr() + 4 * i as u32));
     let target = device(e, this).render_targets[0];
-    let desc = state!(e).graphics.device_objects.surfaces[&target].desc;
+    let desc = device!(e).device_objects.surfaces[&target].desc;
     let right = u64::from(words[0]) + u64::from(words[2]);
     let bottom = u64::from(words[1]) + u64::from(words[3]);
     if right > u64::from(desc[6]) || bottom > u64::from(desc[7]) {
@@ -1616,8 +1599,7 @@ fn get_viewport(e: &mut Engine, this: Ptr, out: Ptr) -> u32 {
 }
 
 fn surface(e: &mut Engine, this: Ptr) -> &mut Surface {
-    state!(e)
-        .graphics
+    device!(e)
         .device_objects
         .surfaces
         .get_mut(&this.addr())
@@ -1665,11 +1647,7 @@ fn surface_release(e: &mut Engine, this: Ptr) -> u32 {
     let (left, implicit) = (s.references, s.implicit);
     let surface_owner = s.device;
     if left == 0 && !implicit {
-        let removed = state!(e)
-            .graphics
-            .device_objects
-            .surfaces
-            .remove(&this.addr());
+        let removed = device!(e).device_objects.surfaces.remove(&this.addr());
         if let Some(s) = removed {
             if s.bits != 0 {
                 e.mem.free(s.bits);
@@ -1903,12 +1881,7 @@ fn present(e: &mut Engine, this: Ptr, source: u32, dest: u32, window: u32, dirty
         // Diagnostic only (`NV_QUEUE_CHECK`, not exe behaviour): the frame ends here.
         crate::queue_check::frame(e);
     }
-    if !state!(e)
-        .graphics
-        .device_objects
-        .unlocked_staging
-        .is_empty()
-    {
+    if !device!(e).device_objects.unlocked_staging.is_empty() {
         // The texture levels' and buffers' staging blocks unlocked in the frame.
         free_all_unlocked_staging(e);
     }
@@ -2047,7 +2020,7 @@ fn set_texture(e: &mut Engine, this: Ptr, sampler: u32, texture: u32) -> u32 {
         return D3DERR_INVALIDCALL;
     }
     // The texture and the device are looked up once each (they are apart in `Objects`).
-    let objects = &mut state!(e).graphics.device_objects;
+    let objects = &mut device!(e).device_objects;
     // The texture the sampler holds already: it is a texture of this layer (a bound texture lives
     // on), and counting it once more and letting go of it once changes nothing, as below, without
     // looking it up.
@@ -2198,8 +2171,7 @@ fn new_level(e: &mut Engine, device: u32, texture: u32, desc: [u32; 8], lockable
 
 /// The surface at `surface`.
 fn surface_mut(e: &mut Engine, surface: u32) -> &mut Surface {
-    state!(e)
-        .graphics
+    device!(e)
         .device_objects
         .surfaces
         .get_mut(&surface)
@@ -2243,8 +2215,7 @@ struct Texture {
 }
 
 fn texture(e: &mut Engine, this: Ptr) -> &mut Texture {
-    state!(e)
-        .graphics
+    device!(e)
         .device_objects
         .textures
         .get_mut(&this.addr())
@@ -2343,7 +2314,7 @@ fn create_texture(
     let count = if levels == 0 { full } else { levels };
     let lockable = pool != D3DPOOL_DEFAULT || usage & D3DUSAGE_DYNAMIC != 0;
     let object = e.mem.alloc(8);
-    let table = state!(e).graphics.device_objects.texture_vtable;
+    let table = device!(e).device_objects.texture_vtable;
     e.mem.set_u32(object, table);
     let device_addr = this.addr();
     let surfaces: Vec<u32> = (0..count)
@@ -2353,7 +2324,7 @@ fn create_texture(
             new_level(e, device_addr, object, desc, lockable)
         })
         .collect();
-    state!(e).graphics.device_objects.textures.insert(
+    device!(e).device_objects.textures.insert(
         object,
         Texture {
             references: 1,
@@ -2443,7 +2414,7 @@ fn create_cube_texture(
     let count = if levels == 0 { full } else { levels };
     let lockable = pool != D3DPOOL_DEFAULT || usage & D3DUSAGE_DYNAMIC != 0;
     let object = e.mem.alloc(8);
-    let table = state!(e).graphics.device_objects.cube_vtable;
+    let table = device!(e).device_objects.cube_vtable;
     e.mem.set_u32(object, table);
     let device_addr = this.addr();
     let mut surfaces = Vec::new();
@@ -2454,7 +2425,7 @@ fn create_cube_texture(
             surfaces.push(new_level(e, device_addr, object, desc, lockable));
         }
     }
-    state!(e).graphics.device_objects.textures.insert(
+    device!(e).device_objects.textures.insert(
         object,
         Texture {
             references: 1,
@@ -2581,8 +2552,7 @@ fn create_render_target(
     if lockable != 0 {
         let (pitch, size) = level_layout(format, width, height);
         let bits = e.mem.alloc(size);
-        let s = state!(e)
-            .graphics
+        let s = device!(e)
             .device_objects
             .surfaces
             .get_mut(&surface)
@@ -2718,8 +2688,7 @@ fn create_offscreen_plain_surface(
     let surface = new_surface(e, this.addr(), false, desc);
     let (pitch, size) = level_layout(format, width, height);
     let bits = e.mem.alloc(size);
-    let s = state!(e)
-        .graphics
+    let s = device!(e)
         .device_objects
         .surfaces
         .get_mut(&surface)
@@ -2756,13 +2725,7 @@ fn rect_inside(e: &Engine, rect: Ptr, width: u32, height: u32) -> Option<[u32; 4
 /// formats with memory are not provided. A render target's pixels are the real device's
 /// (`NV_D3D9=real`).
 fn color_fill(e: &mut Engine, this: Ptr, surface: u32, rect: Ptr, colour: u32) -> u32 {
-    let Some(s) = state!(e)
-        .graphics
-        .device_objects
-        .surfaces
-        .get(&surface)
-        .cloned()
-    else {
+    let Some(s) = device!(e).device_objects.surfaces.get(&surface).cloned() else {
         return D3DERR_INVALIDCALL;
     };
     if s.desc[3] != D3DPOOL_DEFAULT {
@@ -2817,7 +2780,7 @@ fn color_fill(e: &mut Engine, this: Ptr, surface: u32, rect: Ptr, colour: u32) -
 /// read back into the destination's memory; without it nothing is drawn and the copy is not
 /// provided (the run stops).
 fn get_render_target_data(e: &mut Engine, this: Ptr, source: u32, destination: u32) -> u32 {
-    let surfaces = &state!(e).graphics.device_objects.surfaces;
+    let surfaces = &device!(e).device_objects.surfaces;
     let (Some(from), Some(to)) = (
         surfaces.get(&source).cloned(),
         surfaces.get(&destination).cloned(),
@@ -2866,9 +2829,10 @@ fn get_render_target_data(e: &mut Engine, this: Ptr, source: u32, destination: u
 }
 
 /// Whether the device has a resource of its own in `D3DPOOL_DEFAULT` alive (a texture, a
-/// surface it did not make itself, a buffer).
+/// surface it did not make itself, a buffer). Under the device lock: its one caller is `Reset`,
+/// a device function.
 fn default_pool_alive(e: &Engine, device: u32) -> bool {
-    let o = &state_ref!(e).graphics.device_objects;
+    let o = &device_ref!(e).device_objects;
     o.textures
         .values()
         .any(|t| t.device == device && t.pool == D3DPOOL_DEFAULT)
@@ -2964,8 +2928,7 @@ fn reset(e: &mut Engine, this: Ptr, present: Ptr) -> u32 {
         texture_unbind(e, Ptr::new(texture));
     }
     super::d3d9resource::release_bindings(e, this.addr());
-    let implicit: Vec<u32> = state!(e)
-        .graphics
+    let implicit: Vec<u32> = device!(e)
         .device_objects
         .surfaces
         .iter()
@@ -2973,7 +2936,7 @@ fn reset(e: &mut Engine, this: Ptr, present: Ptr) -> u32 {
         .map(|(a, _)| *a)
         .collect();
     for surface in implicit {
-        state!(e).graphics.device_objects.surfaces.remove(&surface);
+        device!(e).device_objects.surfaces.remove(&surface);
         #[cfg(windows)]
         super::d3d9real::forget(e, surface);
         e.mem.free(surface);
@@ -3112,15 +3075,13 @@ fn texture_unbind(e: &mut Engine, this: Ptr) {
 fn texture_destroy(e: &mut Engine, this: Ptr) {
     note_reference(e, this, "destroyed", 0);
     {
-        let t = state!(e)
-            .graphics
+        let t = device!(e)
             .device_objects
             .textures
             .remove(&this.addr())
             .expect("the texture");
         for level in t.levels {
-            let s = state!(e)
-                .graphics
+            let s = device!(e)
                 .device_objects
                 .surfaces
                 .remove(&level)
@@ -3408,8 +3369,7 @@ fn level_size(s: &Surface) -> u32 {
 fn stage(e: &mut Engine, this: Ptr) -> u32 {
     let size = level_size(surface(e, this));
     let block = e.mem.alloc(size);
-    let s = state!(e)
-        .graphics
+    let s = device!(e)
         .device_objects
         .surfaces
         .get_mut(&this.addr())
@@ -3453,8 +3413,7 @@ const KEPT_STAGING_MAX: u64 = 16 << 20;
 fn unstage(e: &mut Engine, this: Ptr, staging: u32, uploaded: bool) {
     let size = level_size(surface(e, this));
     let check = texture_store(e) == Store::Check;
-    let s = state!(e)
-        .graphics
+    let s = device!(e)
         .device_objects
         .surfaces
         .get_mut(&this.addr())
@@ -3481,11 +3440,11 @@ fn unstage(e: &mut Engine, this: Ptr, staging: u32, uploaded: bool) {
 /// whether a buffer's) waits for the next `Present` to be freed; past [`KEPT_STAGING_MAX`]
 /// bytes waiting the oldest are freed now (the newest always waits).
 pub(super) fn wait_for_present(e: &mut Engine, unlocked: (u32, u32, u32, Vec<u8>, bool)) {
-    let objects = &mut state!(e).graphics.device_objects;
+    let objects = &mut device!(e).device_objects;
     objects.unlocked_staging_bytes += u64::from(unlocked.2);
     objects.unlocked_staging.push_back(unlocked);
     loop {
-        let objects = &mut state!(e).graphics.device_objects;
+        let objects = &mut device!(e).device_objects;
         if objects.unlocked_staging_bytes <= KEPT_STAGING_MAX || objects.unlocked_staging.len() < 2
         {
             break;
@@ -3504,7 +3463,7 @@ pub(super) fn wait_for_present(e: &mut Engine, unlocked: (u32, u32, u32, Vec<u8>
 fn check_round_trip(e: &mut Engine, this: Ptr, staging: u32, size: u32) -> Vec<u8> {
     let held = e.mem.bytes(staging, size);
     let kept = stored_bytes(e, this, size);
-    let objects = &mut state!(e).graphics.device_objects;
+    let objects = &mut device!(e).device_objects;
     let same = kept == held;
     objects.round_trips[usize::from(!same)] += 1;
     objects.round_trip_bytes += u64::from(size);
@@ -3554,7 +3513,7 @@ fn stored_bytes(e: &mut Engine, this: Ptr, size: u32) -> Vec<u8> {
 /// At each `Present`: the staging blocks unlocked since the last one are freed
 /// ([`free_unlocked_staging`]).
 fn free_all_unlocked_staging(e: &mut Engine) {
-    let objects = &mut state!(e).graphics.device_objects;
+    let objects = &mut device!(e).device_objects;
     let kept = std::mem::take(&mut objects.unlocked_staging);
     objects.unlocked_staging_bytes = 0;
     for block in kept {
@@ -3570,11 +3529,7 @@ fn free_unlocked_staging(
 ) {
     if !held.is_empty()
         && e.mem.bytes(block, size) != held
-        && state!(e)
-            .graphics
-            .device_objects
-            .written_after_unlock
-            .insert(level)
+        && device!(e).device_objects.written_after_unlock.insert(level)
     {
         if buffer {
             eprintln!(
@@ -3595,17 +3550,16 @@ fn free_unlocked_staging(
 /// (tests).
 #[cfg(test)]
 pub(crate) fn written_after_unlock(e: &mut Engine, object: u32) -> bool {
-    state!(e)
-        .graphics
+    device!(e)
         .device_objects
         .written_after_unlock
         .contains(&object)
 }
 
-/// The present parameters a device took (for the viewer and tests).
-pub fn device_present_parameters(e: &Engine, device: u32) -> Option<Vec<u8>> {
-    state_ref!(e)
-        .graphics
+/// The present parameters a device took (tests, with no real threads: `device_ref!` checks).
+#[cfg(test)]
+pub(crate) fn device_present_parameters(e: &Engine, device: u32) -> Option<Vec<u8>> {
+    device_ref!(e)
         .device_objects
         .devices
         .get(&device)
@@ -3704,8 +3658,7 @@ const D3DPOOL_SYSTEMMEM: u32 = 2;
 /// is not a texture of this layer.
 fn update_texture(e: &mut Engine, _this: Ptr, source: u32, destination: u32) -> u32 {
     let pools = |e: &Engine, t: u32| {
-        state_ref!(e)
-            .graphics
+        device_ref!(e)
             .device_objects
             .textures
             .get(&t)
@@ -3740,8 +3693,7 @@ fn stretch_rect(
     _filter: u32,
 ) -> u32 {
     let desc = |e: &Engine, s: u32| {
-        state_ref!(e)
-            .graphics
+        device_ref!(e)
             .device_objects
             .surfaces
             .get(&s)
@@ -3827,10 +3779,7 @@ pub(crate) mod tests {
             .u32();
         assert_eq!(hr, D3D_OK);
         let device = e.mem.u32(out);
-        assert_eq!(
-            e.mem.u32(device),
-            state!(e).graphics.device_objects.device_vtable
-        );
+        assert_eq!(e.mem.u32(device), device!(e).device_objects.device_vtable);
         assert_eq!(e.mem.u32(present + PP_COUNT), 1);
         assert_eq!(e.mem.u32(present + PP_FORMAT), 0x16);
         // The device holds a reference to the IDirect3D9.
@@ -3853,11 +3802,7 @@ pub(crate) mod tests {
         // Two references taken, two released; the back buffer stays with the device.
         assert_eq!(e.vcall(target, 8, &[]).u32(), 2);
         assert_eq!(e.vcall(target, 8, &[]).u32(), 1);
-        assert!(state!(e)
-            .graphics
-            .device_objects
-            .surfaces
-            .contains_key(&target));
+        assert!(device!(e).device_objects.surfaces.contains_key(&target));
         assert_eq!(e.vcall(device, 4 * 40, &[slot]).u32(), D3DERR_NOTFOUND);
         assert_eq!(e.mem.u32(slot), 0);
         assert_eq!(e.vcall(device, 4 * 38, &[1, slot]).u32(), D3DERR_NOTFOUND);
@@ -3884,8 +3829,8 @@ pub(crate) mod tests {
         assert_eq!(e.vcall(device, 4 * 7, &[caps]).u32(), D3D_OK);
         assert_eq!(e.mem.u32(caps), 1);
         assert_eq!(e.vcall(device, 4 * 2, &[]).u32(), 0);
-        assert!(state!(e).graphics.device_objects.devices.is_empty());
-        assert!(state!(e).graphics.device_objects.surfaces.is_empty());
+        assert!(device!(e).device_objects.devices.is_empty());
+        assert!(device!(e).device_objects.surfaces.is_empty());
         assert_eq!(e.vcall(d3d, 4, &[]).u32(), 2);
     }
 
@@ -3992,11 +3937,7 @@ pub(crate) mod tests {
         e.vcall(cube, 8, &[]);
         e.vcall(cube, 8, &[]);
         assert_eq!(e.vcall(cube, 8, &[]).u32(), 0);
-        assert!(!state!(e)
-            .graphics
-            .device_objects
-            .surfaces
-            .contains_key(&last));
+        assert!(!device!(e).device_objects.surfaces.contains_key(&last));
     }
 
     #[test]
@@ -4071,11 +4012,7 @@ pub(crate) mod tests {
             D3DERR_INVALIDCALL
         );
         assert_eq!(e.vcall(surface, 8, &[]).u32(), 0);
-        assert!(!state!(e)
-            .graphics
-            .device_objects
-            .surfaces
-            .contains_key(&surface));
+        assert!(!device!(e).device_objects.surfaces.contains_key(&surface));
         assert_eq!(refs(&mut e), before);
     }
 
@@ -4168,7 +4105,7 @@ pub(crate) mod tests {
         assert_eq!(e.vcall(texture, 8, &[]).u32(), 1);
         assert_eq!(e.vcall(texture, 8, &[]).u32(), 0);
         assert_eq!(e.vcall(compressed, 8, &[]).u32(), 0);
-        assert!(state!(e).graphics.device_objects.textures.is_empty());
+        assert!(device!(e).device_objects.textures.is_empty());
         assert_eq!(e.vcall(device, 8, &[]).u32(), 0);
     }
 
@@ -4231,9 +4168,9 @@ pub(crate) mod tests {
         // the texture lives on until the sampler lets go.
         assert_eq!(e.vcall(texture, 8, &[]).u32(), 1);
         assert_eq!(e.vcall(texture, 8, &[]).u32(), 0);
-        assert!(!state!(e).graphics.device_objects.textures.is_empty());
+        assert!(!device!(e).device_objects.textures.is_empty());
         assert_eq!(e.vcall(device, 4 * 65, &[0, 0]).u32(), D3D_OK);
-        assert!(state!(e).graphics.device_objects.textures.is_empty());
+        assert!(device!(e).device_objects.textures.is_empty());
         assert_eq!(e.vcall(device, 4 * 64, &[0, value]).u32(), D3D_OK);
         assert_eq!(e.mem.u32(value), 0);
     }
@@ -4322,7 +4259,7 @@ pub(crate) mod tests {
         // GetStreamSource's reference and the program's; the stream's binding is not counted.
         assert_eq!(e.vcall(vb, 8, &[]).u32(), 1, "the program's");
         assert_eq!(e.vcall(vb, 8, &[]).u32(), 0, "none: still bound");
-        assert!(state!(e).graphics.device_objects.resources_hold(vb));
+        assert!(device!(e).device_objects.resources_hold(vb));
         // Constants.
         let four = e.mem.alloc(32);
         e.mem.set_u32(four + 16, 7);
@@ -4336,7 +4273,7 @@ pub(crate) mod tests {
         assert_eq!(e.mem.u32(back), 7);
         // Unbinding releases: the stream's buffer goes.
         assert_eq!(e.vcall(device, 4 * 100, &[0, 0, 0, 0]).u32(), D3D_OK);
-        assert!(!state!(e).graphics.device_objects.resources_hold(vb));
+        assert!(!device!(e).device_objects.resources_hold(vb));
     }
 
     /// Binding what a stream, the indices, a shader or a sampler holds already (the calls that
@@ -4391,7 +4328,7 @@ pub(crate) mod tests {
         for object in [vb, ib, vs, texture] {
             assert_eq!(e.vcall(object, 8, &[]).u32(), 0, "{object:#x}");
         }
-        let objects = &state!(e).graphics.device_objects;
+        let objects = &device!(e).device_objects;
         assert!(objects.resources_hold(vb) && objects.resources_hold(ib));
         assert!(objects.resources_hold(vs) && !objects.textures.is_empty());
         // One unbinding each lets go of them.
@@ -4399,7 +4336,7 @@ pub(crate) mod tests {
         assert_eq!(e.vcall(device, 4 * 104, &[0]).u32(), D3D_OK);
         assert_eq!(e.vcall(device, 4 * 92, &[0]).u32(), D3D_OK);
         assert_eq!(e.vcall(device, 4 * 65, &[1, 0]).u32(), D3D_OK);
-        let objects = &state!(e).graphics.device_objects;
+        let objects = &device!(e).device_objects;
         assert!(!objects.resources_hold(vb) && !objects.resources_hold(ib));
         assert!(!objects.resources_hold(vs) && objects.textures.is_empty());
     }
@@ -4651,7 +4588,7 @@ pub(crate) mod tests {
     }
 
     fn device_state(e: &Engine, device: u32) -> &Device {
-        &state_ref!(e).graphics.device_objects.devices[&device]
+        &device_ref!(e).device_objects.devices[&device]
     }
 
     /// The test table with what the offscreen, fill and query calls ask: `CheckDeviceFormat` of
@@ -4972,7 +4909,7 @@ pub(crate) mod tests {
         let back = d.back_buffers[0];
         assert_eq!(d.render_targets[0], back);
         assert_eq!(
-            state!(e).graphics.device_objects.surfaces[&back].desc[6..8],
+            device!(e).device_objects.surfaces[&back].desc[6..8],
             [800, 480]
         );
         // In a scene too; the scene ends.
@@ -5945,9 +5882,7 @@ pub(crate) mod tests {
             return;
         }
         let texture = new_texture(&mut e, device, [64, 32, 0, 0, A8R8G8B8, 1]);
-        let levels = state!(e).graphics.device_objects.textures[&texture]
-            .levels
-            .clone();
+        let levels = device!(e).device_objects.textures[&texture].levels.clone();
         for &level in &levels {
             assert!(matches!(
                 surface_mut(&mut e, level).pixels,
@@ -6006,7 +5941,7 @@ pub(crate) mod tests {
         assert_eq!(unlock(&mut e, dxt, None, 0), D3D_OK);
         assert_eq!(read_level(&mut e, dxt, None, 0, 32), pattern(5, 32));
         assert!(
-            state!(e).graphics.real.logged_is_empty(),
+            device!(e).real.logged_is_empty(),
             "no answer of the real device differed"
         );
     }
@@ -6019,16 +5954,15 @@ pub(crate) mod tests {
         e.mem.write(at, &pattern(1, 64));
         assert_eq!(unlock(&mut e, texture, None, 0), D3D_OK);
         assert_eq!(
-            state!(e).graphics.device_objects.round_trips,
+            device!(e).device_objects.round_trips,
             [1, 0],
             "read back the same"
         );
         assert!(e.mem.block_size(at).is_some(), "kept until the Present");
         e.mem.set_u32(at + 8, 0xdead_beef);
-        let level = state!(e).graphics.device_objects.textures[&texture].levels[0];
+        let level = device!(e).device_objects.textures[&texture].levels[0];
         assert_eq!(e.vcall(device, 4 * 17, &[0, 0, 0, 0]).u32(), D3D_OK);
-        assert!(state!(e)
-            .graphics
+        assert!(device!(e)
             .device_objects
             .written_after_unlock
             .contains(&level));
@@ -6099,7 +6033,7 @@ pub(crate) mod tests {
     }
 
     fn buffer_kept(e: &mut Engine, buffer: u32) -> &'static str {
-        state!(e).graphics.device_objects.buffer_kept(buffer).0
+        device!(e).device_objects.buffer_kept(buffer).0
     }
 
     #[test]
@@ -6257,7 +6191,7 @@ pub(crate) mod tests {
         e.mem.write(at, &pattern(1, 64));
         assert_eq!(unlock_buffer(&mut e, buffer), D3D_OK);
         assert_eq!(
-            state!(e).graphics.device_objects.buffer_kept(buffer).1,
+            device!(e).device_objects.buffer_kept(buffer).1,
             [1, 0],
             "read back the same"
         );
@@ -6328,7 +6262,7 @@ pub(crate) mod tests {
             }
         }
         assert!(
-            state!(e).graphics.real.logged_is_empty(),
+            device!(e).real.logged_is_empty(),
             "no answer of the real device differed"
         );
         eprintln!(

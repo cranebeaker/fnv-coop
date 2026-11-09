@@ -58,6 +58,25 @@ macro_rules! state_ref {
     };
 }
 
+/// The Direct3D 9 device's state ([`d3d9::DeviceState`]) in the engine `$e` (`&mut`), apart from
+/// the kernel (`Engine::device`): under the device lock with real threads (the device's own
+/// functions, or `real_threads::device_guard` in a kernel-locked one), checked in debug builds.
+/// It borrows only `$e.device`.
+macro_rules! device {
+    ($e:expr) => {{
+        let held = $crate::device_held(&$e);
+        $crate::device_mut(&mut $e.device, held)
+    }};
+}
+
+/// [`device!`] to read, where `$e` is `&Engine` or something else in it is borrowed beside it.
+macro_rules! device_ref {
+    ($e:expr) => {{
+        let held = $crate::device_held(&$e);
+        $crate::device(&$e.device, held)
+    }};
+}
+
 #[cfg(test)]
 pub(crate) mod alloc_count;
 pub mod bink;
@@ -102,7 +121,8 @@ pub struct State {
     pub input: dinput::Input,
     /// The DirectSound 8 objects ([`dsound`]).
     pub sound: dsound::Sound,
-    /// The Direct3D 9 objects ([`d3d9`]).
+    /// The machine table, NvAPI's and D3DX's state ([`d3d9::Graphics`]); the Direct3D 9 device and
+    /// its objects are apart, outside the kernel ([`d3d9::DeviceState`], [`device!`]).
     pub graphics: d3d9::Graphics,
     /// Window classes, windows, the message queue and the command line ([`window`]).
     pub windows: window::Windows,
@@ -139,6 +159,45 @@ fn new_state() -> Box<dyn std::any::Any> {
     Box::<State>::default()
 }
 
+/// Whether the Direct3D 9 device's state may be reached now ([`device!`]'s check): this thread
+/// holds the device lock, or there are no real threads. Always true in release builds, which don't
+/// check.
+#[inline]
+pub fn device_held(e: &Engine) -> bool {
+    !cfg!(debug_assertions) || engine_core::real_threads::device_lock_held(e)
+}
+
+/// The [`d3d9::DeviceState`] in an engine's `Engine::device`; `held` is [`device_held`].
+#[inline]
+pub fn device(slot: &DeviceRef, held: bool) -> &d3d9::DeviceState {
+    debug_assert!(held, "the Direct3D 9 state reached without the device lock");
+    let any = slot
+        .get()
+        .expect("the engine has the platform layer's device state");
+    debug_assert!(any.is::<d3d9::DeviceState>());
+    // SAFETY: only `Engine::new` fills `Engine::device`, from the one `LAYER`'s
+    // `new_device_state`, which makes a `DeviceState`. This runs on every Direct3D call, so no
+    // `TypeId` check in release.
+    unsafe { &*(any as *const dyn std::any::Any as *const d3d9::DeviceState) }
+}
+
+/// The [`d3d9::DeviceState`] in an engine's `Engine::device`, to change; `held` is
+/// [`device_held`].
+#[inline]
+pub fn device_mut(slot: &mut DeviceRef, held: bool) -> &mut d3d9::DeviceState {
+    debug_assert!(held, "the Direct3D 9 state reached without the device lock");
+    let any = slot
+        .get_mut()
+        .expect("the engine has the platform layer's device state");
+    debug_assert!(any.is::<d3d9::DeviceState>());
+    // SAFETY: as in [`device`].
+    unsafe { &mut *(any as *mut dyn std::any::Any as *mut d3d9::DeviceState) }
+}
+
+fn new_device_state() -> Box<dyn std::any::Any> {
+    Box::<d3d9::DeviceState>::default()
+}
+
 /// `CloseHandle` on a file handle: [`files::closed`].
 fn file_closed(e: &mut Engine, file: &Opaque) {
     if let Some(file) = file.get::<files::OpenFile>() {
@@ -150,6 +209,7 @@ fn file_closed(e: &mut Engine, file: &Opaque) {
 pub static LAYER: Layer = Layer {
     imports: layer_imports,
     new_state,
+    new_device_state,
     file_closed,
     proc_address: library::proc_address,
     device_calls: &d3d9::DEVICE_CALLS,

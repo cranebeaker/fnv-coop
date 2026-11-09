@@ -37,6 +37,9 @@ pub struct Layer {
     pub imports: fn() -> Vec<(&'static str, &'static str, AbiFn)>,
     /// A new engine's layer state.
     pub new_state: fn() -> Box<dyn std::any::Any>,
+    /// A new engine's Direct3D device state, kept apart from the kernel ([`DeviceRef`],
+    /// `Engine::device`): what the [`Layer::device_calls`] reach.
+    pub new_device_state: fn() -> Box<dyn std::any::Any>,
     /// Runs as `CloseHandle` closes a [`KernelObject::File`].
     pub file_closed: fn(&mut Engine, &Opaque),
     /// `GetProcAddress` on a module the layer loaded (`LoadLibraryA`): the procedure's address,
@@ -44,7 +47,8 @@ pub struct Layer {
     pub proc_address: fn(&mut Engine, u32, &[u8]) -> Option<u32>,
     /// The layer's code addresses whose functions keep their state behind the device lock, not
     /// the kernel lock, with real threads (the Direct3D 9 device and its objects:
-    /// `real_threads::device_guard`).
+    /// `real_threads::device_guard`). They reach only the device state
+    /// ([`Layer::new_device_state`]), never the kernel.
     pub device_calls: &'static [std::ops::Range<u32>],
 }
 
@@ -71,6 +75,11 @@ fn layer_proc_address(e: &mut Engine, module: u32, name: &[u8]) -> Option<u32> {
 /// A new engine's platform layer state ([`Layer::new_state`]), `None` without the layer.
 pub fn new_layer_state() -> Option<Box<dyn std::any::Any>> {
     LAYER.get().map(|layer| (layer.new_state)())
+}
+
+/// A new engine's Direct3D device state ([`Layer::new_device_state`]), `None` without the layer.
+pub fn new_layer_device_state() -> Option<Box<dyn std::any::Any>> {
+    LAYER.get().map(|layer| (layer.new_device_state)())
 }
 
 /// An object the platform layer keeps behind a handle ([`KernelObject::File`],
@@ -1140,9 +1149,10 @@ pub struct Kernel {
     /// Whether `SwapMouseButton` swapped the buttons.
     mouse_buttons_swapped: bool,
     /// The platform layer's state ([`Layer::new_state`]): in `engine-platform`, the DirectInput 8
-    /// objects and the keyboard and mouse state behind them, the DirectSound 8 and Direct3D 9
-    /// objects, the window classes, windows, message queue and command line, the
-    /// files the game made in this run and the process side. `None` without the layer.
+    /// objects and the keyboard and mouse state behind them, the DirectSound 8 objects, D3DX's and
+    /// NvAPI's state and the machine table, the window classes, windows, message queue and command
+    /// line, the files the game made in this run and the process side (the Direct3D 9 device and
+    /// its objects are apart: `Engine::device`, [`DeviceRef`]). `None` without the layer.
     pub platform: Option<Box<dyn std::any::Any>>,
     /// Fiber-local storage ([`loader`]).
     pub fls: loader::Fls,
@@ -1207,15 +1217,11 @@ impl std::ops::Deref for KernelRef {
     fn deref(&self) -> &Kernel {
         // SAFETY: the kernel lives while its owner does, and for good once real threads use it (an
         // alias is made only after `leak`). With real threads every thread reaches it under the
-        // kernel lock, except the Direct3D 9 device's platform functions (the layer's
-        // `device_calls`), which reach only the platform layer's graphics state (in
-        // `Kernel::platform`) under the device lock (`real_threads::device_call`); the
-        // kernel-locked code that reaches that state takes the device lock too
-        // (`real_threads::device_guard`). So two threads can hold a reference to the kernel at once,
-        // one under each lock, touching disjoint fields: Rust's model calls that aliasing undefined
-        // even so, and we rely on it compiling to plain accesses, as the rest of real threads does
-        // for guest memory (`real_threads`, "What Rust's model says"). Moving the graphics state
-        // behind a pointer of its own would end the overlap.
+        // kernel lock only. The Direct3D 9 device's platform functions (the layer's
+        // `device_calls`), which run under the device lock instead (`real_threads::device_call`),
+        // never reach the kernel: their state is the layer's device state, behind a pointer of its
+        // own ([`DeviceRef`], `Engine::device`). So no two threads hold a reference to the kernel
+        // at once.
         unsafe { self.kernel.as_ref() }
     }
 }
@@ -1239,6 +1245,83 @@ impl Drop for KernelRef {
 impl std::fmt::Debug for KernelRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         (**self).fmt(f)
+    }
+}
+
+/// The platform layer's Direct3D device state ([`Layer::new_device_state`], `Engine::device`),
+/// kept apart from the kernel: an allocation of its own behind a pointer of its own, which every
+/// real thread's engine shares ([`DeviceRef::alias`], `crate::real_threads`) and reaches only
+/// under the device lock (`real_threads::device_call`, or `real_threads::device_guard` from a
+/// kernel-locked function). The device's functions then never make a reference to the kernel,
+/// which other threads change under the kernel lock at the same time ([`KernelRef`]). `None`
+/// without the layer.
+#[derive(Default)]
+pub struct DeviceRef {
+    state: Option<std::ptr::NonNull<dyn std::any::Any>>,
+    /// Whether this one owns the state (frees it when dropped).
+    owned: bool,
+}
+
+impl DeviceRef {
+    /// A new engine's device state ([`new_layer_device_state`]), owned.
+    pub(crate) fn new(state: Option<Box<dyn std::any::Any>>) -> DeviceRef {
+        DeviceRef {
+            state: state.map(|b| std::ptr::NonNull::from(Box::leak(b))),
+            owned: true,
+        }
+    }
+
+    /// Another reference to this state, for a real thread's engine. Made only after
+    /// [`DeviceRef::leak`], so it never outlives the state.
+    pub(crate) fn alias(&self) -> DeviceRef {
+        debug_assert!(
+            !self.owned,
+            "the device state is aliased before it is leaked: the alias could outlive it"
+        );
+        DeviceRef {
+            state: self.state,
+            owned: false,
+        }
+    }
+
+    /// Real threads (`crate::real_threads::start`): the state lives for good, as the kernel does.
+    pub(crate) fn leak(&mut self) {
+        self.owned = false;
+    }
+
+    /// The layer's device state, to read.
+    #[inline]
+    pub fn get(&self) -> Option<&dyn std::any::Any> {
+        // SAFETY: the state lives while its owner does, and for good once real threads share it
+        // (an alias is made only after `leak`). With real threads every thread reaches it under
+        // the device lock only (the layer checks that in debug builds), so no two threads hold a
+        // reference to it at once.
+        self.state.map(|p| unsafe { &*p.as_ptr() })
+    }
+
+    /// The layer's device state, to change.
+    #[inline]
+    pub fn get_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        // SAFETY: as for `get`.
+        self.state.map(|p| unsafe { &mut *p.as_ptr() })
+    }
+}
+
+impl Drop for DeviceRef {
+    fn drop(&mut self) {
+        if let (true, Some(p)) = (self.owned, self.state) {
+            // SAFETY: an owning reference made the box (`new`) and nothing uses it after this.
+            drop(unsafe { Box::from_raw(p.as_ptr()) });
+        }
+    }
+}
+
+impl std::fmt::Debug for DeviceRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceRef")
+            .field("state", &self.state.is_some())
+            .field("owned", &self.owned)
+            .finish()
     }
 }
 
@@ -2510,6 +2593,25 @@ pub fn imports() -> Vec<(&'static str, &'static str, AbiFn)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The device state is one allocation that a real thread's engine shares ([`DeviceRef::alias`]):
+    /// a change through one reference is seen through the other, outside the kernel; only the owner
+    /// frees it, and nothing frees it once leaked.
+    #[test]
+    fn the_device_state_is_shared_apart_from_the_kernel() {
+        let mut owner = DeviceRef::new(Some(Box::new(7u32)));
+        owner.leak();
+        let mut other = owner.alias();
+        *other.get_mut().unwrap().downcast_mut::<u32>().unwrap() = 9;
+        assert_eq!(owner.get().unwrap().downcast_ref::<u32>(), Some(&9));
+        drop(other);
+        assert_eq!(owner.get().unwrap().downcast_ref::<u32>(), Some(&9));
+        let none = DeviceRef::new(None);
+        assert!(none.get().is_none());
+        assert!(DeviceRef::default().get().is_none());
+        // An owned one frees its state when dropped (Miri or a leak checker would see otherwise).
+        drop(DeviceRef::new(Some(Box::new(String::from("freed")))));
+    }
 
     /// No XInput controller: reading and rumbling (the shot's vibration, `00a255b0`) both answer
     /// `ERROR_DEVICE_NOT_CONNECTED` for every user index, without touching the game's memory.

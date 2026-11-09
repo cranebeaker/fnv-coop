@@ -72,11 +72,7 @@ pub struct Queries {
 }
 
 fn queries(e: &mut Engine) -> &mut Queries {
-    debug_assert!(
-        engine_core::real_threads::device_lock_held(e),
-        "the Direct3D 9 state reached without the device lock"
-    );
-    &mut state!(e).graphics.device_objects.queries
+    &mut device!(e).device_objects.queries
 }
 
 fn query(e: &mut Engine, this: Ptr) -> &mut Query {

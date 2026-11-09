@@ -182,18 +182,14 @@ impl Real {
 }
 
 fn real(e: &mut Engine) -> &mut Real {
-    debug_assert!(
-        engine_core::real_threads::device_lock_held(e),
-        "the Direct3D 9 state reached without the device lock"
-    );
-    &mut state!(e).graphics.real
+    &mut device!(e).real
 }
 
 /// The real window of a modelled window handle, when it has one (under the device lock with real
 /// threads: the window functions make them, the device presents in them).
 pub fn real_window(e: &Engine, handle: u32) -> Option<isize> {
     let _device = engine_core::real_threads::device_guard(e);
-    state_ref!(e).graphics.real.windows.get(&handle).copied()
+    device_ref!(e).real.windows.get(&handle).copied()
 }
 
 /// Prints once a call the game's side could not forward (`NV_D3D9=real: ...`, as the backend
@@ -255,8 +251,7 @@ fn call(e: &mut Engine, cmd: Cmd<Data<'_>>) -> Option<Reply> {
 /// failed, or the backend has no such device.
 pub fn real_device(e: &Engine, this: u32) -> Option<IDirect3DDevice9> {
     let _device = engine_core::real_threads::device_guard(e);
-    state_ref!(e)
-        .graphics
+    device_ref!(e)
         .real
         .devices
         .iter()
@@ -268,8 +263,7 @@ pub fn real_device(e: &Engine, this: u32) -> Option<IDirect3DDevice9> {
 /// takes no device, the image info).
 pub fn any_real_device(e: &Engine) -> bool {
     let _device = engine_core::real_threads::device_guard(e);
-    state_ref!(e)
-        .graphics
+    device_ref!(e)
         .real
         .devices
         .iter()
@@ -297,9 +291,10 @@ pub fn forget(e: &mut Engine, object: u32) {
     }
 }
 
-/// Whether the modelled object's counterpart was asked of the backend.
+/// Whether the modelled object's counterpart was asked of the backend. Under the device lock:
+/// its callers are the query's `Issue` and `GetData` and the texture's `SetLOD`, device functions.
 fn is_forwarded(e: &Engine, object: u32) -> bool {
-    state_ref!(e).graphics.real.forwarded.contains(&object)
+    device_ref!(e).real.forwarded.contains(&object)
 }
 
 // The window.
@@ -1415,8 +1410,10 @@ pub fn surface_created(
 
 /// Whether the modelled surface `surface` has a real counterpart (asked of the backend; one it
 /// could not make keeps its bytes there, so the level reads back what it was given either way).
-pub fn has_surface(e: &Engine, surface: u32) -> bool {
-    state_ref!(e).graphics.real.forwarded.contains(&surface)
+/// Under the device lock: its callers are device functions (texture creation, a level's lock and
+/// unlock, `GetRenderTargetData`; through [`read_surface`] and [`surface_unlocked`]).
+pub(crate) fn has_surface(e: &Engine, surface: u32) -> bool {
+    device_ref!(e).real.forwarded.contains(&surface)
 }
 
 /// The modelled `surface` as the backend keeps it read into engine memory at `at` (`size`
@@ -1473,8 +1470,9 @@ pub fn surface_unlocked(
     if !has_surface(e, surface) {
         return false;
     }
+    let held = crate::device_held(e);
     let mem = &e.mem;
-    let r = &mut crate::state_mut(&mut e.kernel.platform).graphics.real;
+    let r = &mut crate::device_mut(&mut e.device, held).real;
     let Some(s) = r.stream.as_mut() else {
         return false;
     };
@@ -1542,8 +1540,9 @@ pub fn buffer_unlocked(e: &mut Engine, buffer: u32, bits: u32, length: u32, mode
     if model != 0 {
         return;
     }
+    let held = crate::device_held(e);
     let mem = &e.mem;
-    let r = &mut crate::state_mut(&mut e.kernel.platform).graphics.real;
+    let r = &mut crate::device_mut(&mut e.device, held).real;
     let Some((offset, size, flags)) = r.locks.get_mut(&buffer).and_then(|l| l.pop()) else {
         return;
     };
@@ -1653,8 +1652,9 @@ pub fn set_constants(
     if data == 0 {
         return;
     }
+    let held = crate::device_held(e);
     let mem = &e.mem;
-    let g = &mut crate::state_mut(&mut e.kernel.platform).graphics;
+    let g = crate::device_mut(&mut e.device, held);
     let Some(s) = stream_of(&mut g.real, this) else {
         return;
     };
@@ -1813,8 +1813,9 @@ pub fn draw_primitive_up(
     model: u32,
 ) {
     let _ = model;
+    let held = crate::device_held(e);
     let mem = &e.mem;
-    let r = &mut crate::state_mut(&mut e.kernel.platform).graphics.real;
+    let r = &mut crate::device_mut(&mut e.device, held).real;
     let Some(s) = stream_of(r, this) else { return };
     let read = |at: u32, into: &mut [u8]| mem.read(data + at, into);
     s.submit(Cmd::DrawPrimitiveUp {
@@ -3073,6 +3074,65 @@ pub(crate) fn real_texture(e: &mut Engine, texture: u32) -> Option<IDirect3DBase
 mod tests {
     use super::*;
 
+    /// With real threads, a kernel-locked function that reaches the device's state takes the device
+    /// lock first: `SetWindowPos` (an import, run under the kernel lock) moves the real window
+    /// through [`window_moved`] and [`real_window`], whose `device_ref!` checks the device lock
+    /// (debug builds). Outside any lock the check is live, and the lock is free again afterwards.
+    #[test]
+    fn a_kernel_locked_function_reaches_the_device_state_under_the_device_lock() {
+        let mut e = Engine::new();
+        let table = crate::imports();
+        e.mem.map(0x00fd_f000, 0x2000);
+        let imports: Vec<engine_core::exe::Import> = table
+            .iter()
+            .enumerate()
+            .map(|(i, (dll, name, _))| engine_core::exe::Import {
+                dll: dll.to_string(),
+                name: name.to_string(),
+                slot: 0x00fd_f000 + 4 * i as u32,
+            })
+            .collect();
+        e.register_imports(&imports);
+        let slot = |name: &str| {
+            imports
+                .iter()
+                .find(|i| i.name == name)
+                .unwrap_or_else(|| panic!("no import {name}"))
+                .slot
+        };
+        let window = 0x1234;
+        state!(e).windows.windows.insert(
+            window,
+            crate::window::Window {
+                class: 0,
+                title: Vec::new(),
+                style: 0,
+                ex_style: 0,
+                parent: 0,
+                rect: [0, 0, 640, 480],
+            },
+        );
+        engine_core::real_threads::start(&mut e).expect("real threads on");
+        if cfg!(debug_assertions) {
+            assert!(
+                !crate::device_held(&e),
+                "the main thread holds no lock here"
+            );
+        }
+        let moved = e.call(
+            slot("SetWindowPos"),
+            &crate::args![window, 0u32, 10i32, 20i32, 800i32, 600i32, 0u32],
+        );
+        assert_eq!(moved.eax, 1);
+        assert_eq!(state!(e).windows.windows[&window].rect, [10, 20, 810, 620]);
+        if cfg!(debug_assertions) {
+            assert!(!crate::device_held(&e), "the device lock is given back");
+        }
+        let held = engine_core::real_threads::device_guard(&e);
+        assert!(held.is_some() && crate::device_held(&e));
+        assert!(real_window(&e, window).is_none(), "NV_D3D9 is not set here");
+    }
+
     /// `NV_D3D9`'s words: the real `d3d9.dll`, wgpu, or both (the real one answering), any case
     /// and spaces; anything else is refused (nothing is drawn) rather than guessed.
     #[test]
@@ -3285,7 +3345,7 @@ mod tests {
             // Then the result reads at once.
             assert_eq!(query_get_data(&mut e, query, 0), Some((0, 0)));
         }
-        assert!(state!(e).graphics.real.logged_is_empty());
+        assert!(device!(e).real.logged_is_empty());
     }
 
     /// A level's rows read as if packed, from rows lying `pitch` apart.

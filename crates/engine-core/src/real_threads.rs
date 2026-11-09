@@ -45,7 +45,9 @@
 //! ([`device_call`]); kernel-locked code that reaches the device's state takes it inside the
 //! kernel lock ([`device_guard`]). **Lock order: the kernel lock, then the device lock; never the
 //! kernel lock while the device lock is held.** Device functions touch no kernel object and no
-//! last-error code, so they never need the kernel lock.
+//! last-error code, so they never need the kernel lock; their state is the layer's device state,
+//! behind a pointer of its own (`Engine::device`, `units::platform::DeviceRef`), so they never
+//! make a reference to the kernel either.
 //!
 //! **The host (step 9).** [`start`] turns real threads on for an engine before the game's `main`
 //! runs; from then on `CreateThread` starts a real OS thread at once (or at `ResumeThread` to 0).
@@ -1053,9 +1055,10 @@ pub fn start(e: &mut Engine) -> Result<(), String> {
     e.slice_left = 0;
     e.kernel.threads.wake_pending = false;
     e.kernel.threads.overrun = false;
-    // The kernel table, the memory and the world below live for good: game threads may still use
-    // them after the main engine is gone.
+    // The kernel table, the device state, the memory and the world below live for good: game
+    // threads may still use them after the main engine is gone.
     e.kernel.leak();
+    e.device.leak();
     e.mem.start_sharing();
     let world: &'static World = Box::leak(Box::new(World::new(e.kernel.import_names.clone())));
     let mut locked = AddrMap::default();
@@ -1290,8 +1293,9 @@ fn device_addr(addr: u32) -> bool {
 
 /// A platform function of the Direct3D 9 device or one of its objects: under the device lock,
 /// not the kernel lock. Their state (the device model and its forwarding, engine-platform's
-/// `Graphics`) is reached only under it: by these functions, and by the kernel-locked ones that
-/// reach it through [`device_guard`]. They touch no kernel object and no last-error code. A
+/// `d3d9::DeviceState` behind `Engine::device`, apart from the kernel) is reached only under it:
+/// by these functions, and by the kernel-locked ones that reach it through [`device_guard`]. They
+/// touch no kernel object and no last-error code, and never make a reference to the kernel. A
 /// suspended thread (`SuspendThread`, the game's task threads at quit) parks here before it takes
 /// the device lock, as it does at a kernel-locked call; not while it holds the device lock (a
 /// device function calling another), where parking would take the kernel lock inside it.
