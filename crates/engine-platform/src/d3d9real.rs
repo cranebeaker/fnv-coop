@@ -149,6 +149,9 @@ pub struct Real {
     logged: HashSet<&'static str>,
     /// Whether the stream gets a render thread ([`want_render_thread`]).
     render_thread: bool,
+    /// Whether the real backend compiles the game's shaders ahead of their first draw
+    /// ([`want_shader_warm`]).
+    shader_warm: bool,
     /// Tests: the real backend behind the stream, to look at ([`real_texture`]).
     #[cfg(test)]
     test_backend: Option<std::sync::Arc<std::sync::Mutex<super::d3d9backend::RealBackend>>>,
@@ -842,12 +845,16 @@ pub fn want_render_thread(e: &mut Engine, on: bool) {
 fn backend_of(
     which: Backends,
     board: Option<std::sync::Arc<super::d3d9backend::QueryBoard>>,
+    warm: bool,
 ) -> Box<dyn d3d9_stream::Backend> {
     let real = || -> Box<dyn d3d9_stream::Backend> {
-        Box::new(match board.clone() {
-            Some(board) => super::d3d9backend::RealBackend::with_query_board(board),
-            None => super::d3d9backend::RealBackend::new(),
-        })
+        Box::new(
+            match board.clone() {
+                Some(board) => super::d3d9backend::RealBackend::with_query_board(board),
+                None => super::d3d9backend::RealBackend::new(),
+            }
+            .with_warm(warm),
+        )
     };
     match which {
         Backends::Real => real(),
@@ -857,6 +864,14 @@ fn backend_of(
             Box::new(d3d9_wgpu::WgpuBackend::new(d3d9_wgpu::Output::Offscreen)),
         )),
     }
+}
+
+/// Whether the real backend draws once with each shader the game makes, ahead of the game's first
+/// draw with it, so the driver's compile of it doesn't stall a frame in play
+/// (`d3d9backend::Warm`): the fixes preset's "shaders compiled ahead of first use" row, set
+/// before the game starts. Off until set.
+pub fn want_shader_warm(e: &mut Engine, on: bool) {
+    real(e).shader_warm = on;
 }
 
 /// `Direct3DCreate9` made a modelled `IDirect3D9`: the stream to the backend `NV_D3D9` names
@@ -869,6 +884,7 @@ pub fn direct3d_created(e: &mut Engine) {
     }
     let name = which.name();
     let wanted_thread = real(e).render_thread;
+    let warm = real(e).shader_warm;
     // `NV_FACE_CHECK` (a diagnostic) follows calls in the game's order on its own thread: it keeps
     // the calls on the game's threads, as diagnostics keep the threads stepped.
     let refused = wanted_thread && face_check::enabled();
@@ -890,9 +906,9 @@ pub fn direct3d_created(e: &mut Engine) {
             settings.frames_in_flight,
             if settings.check { ", the stream checked" } else { "" }
         );
-        Stream::threaded(backend_of(which, board), settings)
+        Stream::threaded(backend_of(which, board, warm), settings)
     } else {
-        Stream::direct(backend_of(which, None))
+        Stream::direct(backend_of(which, None, warm))
     };
     if let Some(path) = std::env::var_os("NV_D3D9_RECORD") {
         let recording = std::fs::File::create(&path).and_then(|file| {

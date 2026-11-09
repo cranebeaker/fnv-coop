@@ -46,6 +46,7 @@ pub static FIXES: &[Fix] = &[
     SCRIPT_NULL_GUARD,
     SCRIPT_CYCLE_GUARD,
     SCRIPT_LIST_GUARD,
+    SHADER_WARM,
 ];
 
 /// The built-in script extender's rows (docs/FIXES.md, "The script extender"): each sets a flag
@@ -61,6 +62,27 @@ pub const KEEP_COSAVE_PLUGINS: Fix = Fix {
 
 fn install_keep_cosave_plugins(e: &mut Engine) {
     nvse::saveload::set_keep_other_plugins(e, true);
+}
+
+/// The driver compiles a Direct3D 9 shader at its first draw: the first shot's frame took 25-46 ms
+/// (7 shaders the game made at start-up, first drawn with at the shot). With the row the real
+/// backend draws once with each shader the game makes, into a 1x1 target of its own, a few
+/// milliseconds after each `Present` (`engine_platform::d3d9backend`): the compiles happen in the
+/// menus and loading screens instead. No exe address; nothing the game draws changes.
+pub const SHADER_WARM: Fix = Fix {
+    name: "shaders compiled ahead of first use",
+    env: "NV_SHADER_WARM",
+    addresses: &[],
+    summary:
+        "the driver compiles each of the game's shaders in the menus, not at its first draw in play",
+    install: install_shader_warm,
+};
+
+fn install_shader_warm(e: &mut Engine) {
+    #[cfg(windows)]
+    engine_platform::d3d9real::want_shader_warm(e, true);
+    #[cfg(not(windows))]
+    let _ = e;
 }
 
 pub const SCRIPT_ERROR_GUARD: Fix = Fix {
@@ -166,6 +188,7 @@ const NO_ADDRESS: &[&str] = &[
     SCRIPT_NULL_GUARD.name,
     SCRIPT_CYCLE_GUARD.name,
     SCRIPT_LIST_GUARD.name,
+    SHADER_WARM.name,
 ];
 
 /// Menus' frames a second at most when nothing says otherwise (the maintainer, 2026-11-07).
