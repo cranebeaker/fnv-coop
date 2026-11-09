@@ -11,7 +11,7 @@ use super::layout::{
     NiGeometryBufferData, NiGeometryData, NiSkinInstance, NiSkinPartition, NiTArray, Partition,
     StageStateCache,
 };
-use super::{elem_addr, FAMILY};
+use super::{elem_addr, low8, FAMILY};
 use crate::culling::fstp;
 use engine_core::ptr::{Field, Ptr};
 use engine_core::typed::leaf;
@@ -89,6 +89,112 @@ const ATEXIT: u32 = 0x00ec_658f;
 /// A geometry group's `AddObject`, virtual slot 8: `thiscall(group, data, skin, partition)`.
 const SLOT_GROUP_ADD: u32 = 0x8;
 
+/// The functions the render state cache's class (`NiDX9RenderState`, vtable `010f088c`) has in the
+/// slots the typed code calls; a call through one of these slots that reaches the typed function is
+/// a [`typed_call!`] ([`crate::slot_target`]).
+const CACHE_SET_RENDER_STATE: u32 = 0x00e8_8780;
+const CACHE_SET_STAGE_STATE: u32 = 0x00e8_8930;
+const CACHE_SET_SAMPLER_STATE: u32 = 0x00e9_10a0;
+const CACHE_SET_TEXTURE: u32 = 0x00e8_8a20;
+
+/// `cache->SetRenderState(state, value, unused, lock)` (slot 0x68): [`set_render_state`] when the
+/// slot holds it (and `lock` is a byte, all the typed function reads of the word), else through the
+/// vtable.
+#[inline(always)]
+pub(crate) fn cache_render_state(
+    e: &mut Engine,
+    cache: u32,
+    state: u32,
+    value: u32,
+    unused: u32,
+    lock: u32,
+) {
+    if lock <= 0xff && crate::slot_target(e, cache, SLOT_SET_RENDER_STATE) == CACHE_SET_RENDER_STATE
+    {
+        typed_call!(
+            FAMILY,
+            0x00e8_8780,
+            set_render_state(e, Ptr::new(cache), state, value, unused, low8(lock))
+        );
+    } else {
+        e.vcall(
+            cache,
+            SLOT_SET_RENDER_STATE,
+            &args![state, value, unused, lock],
+        );
+    }
+}
+
+/// `cache->SetTextureStageState(stage, state, value, unused)` (slot 0xc0): [`set_stage_state`] when
+/// the slot holds it, else through the vtable.
+#[inline(always)]
+pub(crate) fn cache_stage_state(
+    e: &mut Engine,
+    cache: u32,
+    stage: u32,
+    state: u32,
+    value: u32,
+    unused: u32,
+) {
+    if crate::slot_target(e, cache, SLOT_TARGET_STAGE_STATE) == CACHE_SET_STAGE_STATE {
+        typed_call!(
+            FAMILY,
+            0x00e8_8930,
+            set_stage_state(e, Ptr::new(cache), stage, state, value, unused)
+        );
+    } else {
+        e.vcall(
+            cache,
+            SLOT_TARGET_STAGE_STATE,
+            &args![stage, state, value, unused],
+        );
+    }
+}
+
+/// `cache->SetSamplerState(stage, state, value, unused)` (slot 0xcc): [`set_sampler_state`] when the
+/// slot holds it, else through the vtable.
+#[inline(always)]
+pub(crate) fn cache_sampler_state(
+    e: &mut Engine,
+    cache: u32,
+    stage: u32,
+    state: u32,
+    value: u32,
+    unused: u32,
+) {
+    if crate::slot_target(e, cache, SLOT_TARGET_SAMPLER_STATE) == CACHE_SET_SAMPLER_STATE {
+        typed_call!(
+            FAMILY,
+            0x00e9_10a0,
+            set_sampler_state(e, Ptr::new(cache), stage, state, value, unused)
+        );
+    } else {
+        e.vcall(
+            cache,
+            SLOT_TARGET_SAMPLER_STATE,
+            &args![stage, state, value, unused],
+        );
+    }
+}
+
+/// `cache->SetTexture(stage, texture)` (slot 0xdc): [`set_texture`] when the slot holds it, else
+/// through the vtable.
+#[inline(always)]
+pub(crate) fn cache_texture(e: &mut Engine, cache: u32, stage: u32, texture: u32) {
+    if crate::slot_target(e, cache, SLOT_CACHE_TEXTURE) == CACHE_SET_TEXTURE {
+        typed_call!(
+            FAMILY,
+            0x00e8_8a20,
+            set_texture(e, Ptr::new(cache), stage, texture)
+        );
+    } else {
+        e.vcall(cache, SLOT_CACHE_TEXTURE, &args![stage, texture]);
+    }
+}
+
+/// The cache's `SetTexture` slot.
+const SLOT_CACHE_TEXTURE: u32 = 0xdc;
+
 /// The renderer's state cache.
 #[inline(always)]
 pub(crate) fn render_state(e: &Engine) -> Ptr<NiDX9RenderState> {
@@ -103,11 +209,7 @@ fn counted(e: &mut Engine, index_at: u32, state: u32, value: u32, lock: u32) {
     let counter = LOCK_COUNTERS.wrapping_add(e.global::<u32>(index_at).wrapping_mul(4));
     if e.global::<u32>(counter) == 0 {
         let cache = render_state(e);
-        e.vcall(
-            cache.addr(),
-            SLOT_SET_RENDER_STATE,
-            &args![state, value, 0u32, 0u32],
-        );
+        cache_render_state(e, cache.addr(), state, value, 0, 0);
     }
     let count = e.global::<u32>(counter).wrapping_add(lock);
     e.set_global(counter, count);
@@ -197,11 +299,7 @@ pub fn set_alpha_to_coverage(e: &mut Engine, enable: u8, lock: u32) {
         };
         if let Some((state, value)) = call {
             let cache = render_state(e);
-            e.vcall(
-                cache.addr(),
-                SLOT_SET_RENDER_STATE,
-                &args![state, value, 0u32, 0u32],
-            );
+            cache_render_state(e, cache.addr(), state, value, 0, 0);
             let count = e.global::<u32>(COVERAGE_COUNTER).wrapping_add(lock);
             e.set_global(COVERAGE_COUNTER, count);
             return;
@@ -228,11 +326,7 @@ pub fn set_cull_mode(e: &mut Engine, this: Ptr<NiDX9RenderState>, index: u32, lo
         side.wrapping_add(index.wrapping_mul(2)),
         4,
     ));
-    e.vcall(
-        this.addr(),
-        SLOT_SET_RENDER_STATE,
-        &args![0x16u32, value, 0u32, lock],
-    );
+    cache_render_state(e, this.addr(), 0x16, value, 0, lock);
 }
 
 // Typed from 00e88780
@@ -427,11 +521,7 @@ pub fn set_alpha_test_of(e: &mut Engine, this: Ptr<NiDX9RenderState>, object: u3
         && high >= alpha
         && e.get(this, NiDX9RenderState::ucForceAlphaTestB) == 0
         && e.get(this, NiDX9RenderState::ucForceAlphaTestA) == 0;
-    e.vcall(
-        this.addr(),
-        SLOT_SET_RENDER_STATE,
-        &args![0x8fu32, u32::from(!off), 0u32, 0u32],
-    );
+    cache_render_state(e, this.addr(), 0x8f, u32::from(!off), 0, 0);
 }
 
 // Typed from 00e88730
@@ -497,11 +587,7 @@ pub fn apply_stage_states(e: &mut Engine, this: Ptr<StageStateCache>, stage: u32
         };
         let target = e.global::<u32>(STATE_TARGET);
         let state = u32::from(e.global::<u16>(STAGE_STATE_OF_SLOT.wrapping_add(slot * 2)));
-        e.vcall(
-            target,
-            SLOT_TARGET_STAGE_STATE,
-            &args![stage, state, value, 0u32],
-        );
+        cache_stage_state(e, target, stage, state, value, 0);
     }
     0
 }
@@ -521,11 +607,7 @@ pub fn apply_sampler_states(e: &mut Engine, this: Ptr<StageStateCache>, stage: u
         };
         let target = e.global::<u32>(STATE_TARGET);
         let state = e.global::<u32>(SAMPLER_STATE_OF_SLOT.wrapping_add(slot * 4));
-        e.vcall(
-            target,
-            SLOT_TARGET_SAMPLER_STATE,
-            &args![stage, state, value, 0u32],
-        );
+        cache_sampler_state(e, target, stage, state, value, 0);
     }
     0
 }

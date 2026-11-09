@@ -15,6 +15,7 @@ use engine as _;
 use engine_core::prelude::*;
 use engine_core::typed::diff::{Case, Diff, Input};
 use engine_core::{entry, Engine};
+use engine_typed::culling;
 use engine_typed::shader::{self, accumulator as acc, batch, state};
 
 /// The stand-in virtual functions, one per slot, and the table of what each answers.
@@ -573,6 +574,8 @@ impl Common for Diff {
     fn common(self) -> Diff {
         self.family(&shader::SHADER)
             .family(&leaf::LEAVES)
+            // The plain geometry pass (pass types 0xfc, 0xfd) is the render family's (its own test).
+            .goes_by_address(&[0x00b7_dde0])
             .max_calls(MAX_CALLS)
             .max_cases(160)
     }
@@ -2552,4 +2555,96 @@ fn compare_by_depth_stores_before_the_radius() {
         })
         .run()
         .assert_same();
+}
+
+/// `set_world_transform` with the render state cache's slot 0x30 holding the typed `00e879e0`: that call
+/// made direct (the plain world has a stand-in there).
+#[test]
+fn world_transform_typed_slot() {
+    Diff::new(entry!(
+        0x00e6_fbb0,
+        acc::set_world_transform(Ptr<_>, Ptr<_>, u8)
+    ))
+    .common()
+    .inputs(&[Input::F32, Input::F32, Input::Of(BYTES)])
+    .translation_calls_plainly(&[])
+    .float_sweep(0)
+    .setup(|e, c| {
+        let w = world(e);
+        let vt = vtable(e, &[(0x68, 0x00e8_8780), (0x30, 0x00e8_79e0)]);
+        set(e, w.cache, vt);
+        set(e, w.transform, bits(c, 0));
+        set(e, w.transform + 0x30, bits(c, 1));
+        vec![w.renderer, w.transform, c.word(2)]
+    })
+    .run()
+    .assert_same();
+}
+
+/// `render_pass` with the geometry's slots 0x30 and 0x34 holding the leaf `00acbb70`, as every geometry
+/// class has them: both calls made direct (the plain world has stand-ins there).
+#[test]
+fn render_pass_typed_geometry_slots() {
+    Diff::new(entry!(
+        0x00b9_94f0,
+        batch::render_pass(Ptr<_>, u32, u32, u32, u32)
+    ))
+    .common()
+    .inputs(&[
+        Input::Of(&[0, 1, 2, 3]),
+        Input::Of(&[0, 1, 2]),
+        Input::Of(BYTES),
+    ])
+    .translation_calls_plainly(&[0x00b9_8e80, 0x00b9_9110, 0x00b9_9390])
+    .float_sweep(0)
+    .setup(|e, c| {
+        let w = world(e);
+        begun(e, &w, c.word(1));
+        let pass = w.passes[c.word(0) as usize];
+        let geometry = e.mem.u32(pass);
+        let vt = vtable(e, &[(0x30, 0x00ac_bb70), (0x34, 0x00ac_bb70)]);
+        set(e, geometry, vt);
+        let pass_type = u32::from(e.mem.u16(pass + 4));
+        vec![pass, pass_type, c.word(2), 1, c.word(2) ^ 1]
+    })
+    .run()
+    .assert_same();
+}
+
+/// The culling walk's `AppendVirtual` (`00c4f1d0`) with the accumulator's slot 0x98 holding the typed
+/// `RegisterObject` (`00b63f10`), or a stand-in: the call made direct, the culling family on too.
+#[test]
+fn append_virtual_registers_through_the_typed_slot() {
+    Diff::new(entry!(
+        0x00c4_f1d0,
+        culling::process::append_virtual(Ptr<_>, Ptr<_>)
+    ))
+    .common()
+    .family(&culling::CULLING)
+    .inputs(&[Input::Of(TWO_WAYS), Input::Of(&[0, 1, 2])])
+    .translation_calls_plainly(&[
+        0x00b9_9840,
+        0x00b9_9a50,
+        0x00b9_9770,
+        0x00b9_9a90,
+        0x00b9_9b00,
+        0x00b9_8e20,
+    ])
+    .float_sweep(0)
+    .setup(|e, c| {
+        let w = world(e);
+        let target = if c.word(0) != 0 {
+            0x00b6_3f10
+        } else {
+            VT_FN + 0x30
+        };
+        let vt = vtable(e, &[(0x98, target)]);
+        set(e, w.acc, vt);
+        set(e, w.acc + 0x19c, c.word(1));
+        let process = e.mem.alloc(0xc8);
+        set(e, process + 0xc4, w.acc);
+        vec![process, w.geometry]
+    })
+    .run()
+    .assert_same();
 }

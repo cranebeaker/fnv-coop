@@ -253,11 +253,30 @@ pub fn update_downward(e: &mut Engine, this: Ptr<NiNode>, data: u32, update_flag
             update_object_controllers(e, this.cast(), Ptr::new(data), 1)
         );
     }
-    e.vcall(t, 0xb8, &args![data]);
+    // `NiAVObject::UpdateWorldData` (`00a68c60`, every class this reaches) directly when the slot
+    // holds it.
+    if crate::slot_target(e, t, 0xb8) == 0x00a6_8c60 {
+        typed_call!(
+            crate::culling::FAMILY,
+            0x00a6_8c60,
+            crate::culling::update::update_world_data(e, this.cast(), data)
+        );
+    } else {
+        e.vcall(t, 0xb8, &args![data]);
+    }
     let update_flags = update_flags | (flags(e, t) & 1);
     let count = children_size(e, t);
     update_children(e, t, count, true, &mut |e, child| {
-        e.vcall(child, 0xa4, &args![data, update_flags]);
+        // A child node's `UpdateDownwardPass` (`00a5dd70`, this function) directly.
+        if crate::slot_target(e, child, 0xa4) == 0x00a5_dd70 {
+            typed_call!(
+                FAMILY,
+                0x00a5_dd70,
+                update_downward(e, Ptr::new(child), data, update_flags)
+            );
+        } else {
+            e.vcall(child, 0xa4, &args![data, update_flags]);
+        }
     });
 }
 

@@ -12,8 +12,6 @@ use engine_core::x87::{
 };
 use engine_core::{args, typed_call, Engine};
 
-/// `eh vector constructor iterator` (`00401050`): runs a constructor over an array.
-const VECTOR_CONSTRUCTOR: u32 = 0x0040_1050;
 /// `NiMatrix3::NiMatrix3` (`006815c0`), which returns `this` and does nothing else.
 const MATRIX_NEW: u32 = 0x0068_15c0;
 /// `D3DXMatrixInverse` (`00ee6dda`).
@@ -190,6 +188,29 @@ pub fn multiply(
     out
 }
 
+// Typed from 00401050
+/// The compiler's `eh vector constructor iterator` (`stdcall(array, size, count, constructor)`):
+/// the `thiscall` constructor on each of `count` elements of `size` bytes from `array`, its answer
+/// unread; a zero or negative count constructs nothing. `NiMatrix3::NiMatrix3` and `NiPoint3`'s
+/// (`006815c0`, the leaf that answers `this`), what the matrices' arrays are made with, are called
+/// directly; any other constructor by address.
+pub fn construct_array(e: &mut Engine, array: u32, size: u32, count: i32, constructor: u32) {
+    let mut element = array;
+    let mut remaining = count;
+    loop {
+        remaining = remaining.wrapping_sub(1);
+        if remaining < 0 {
+            break;
+        }
+        if constructor == MATRIX_NEW {
+            typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, element));
+        } else {
+            e.call(constructor, &args![element]);
+        }
+        element = element.wrapping_add(size);
+    }
+}
+
 // Typed from 004768c0
 /// `NiMatrix3::Transpose` (`thiscall(this, result)`): the three rows of `this` (`00476930`) into a
 /// local array (constructed with `00401050` and `006815c0`), set as the columns of `result`
@@ -197,7 +218,11 @@ pub fn multiply(
 pub fn transpose(e: &mut Engine, this: Ptr<NiMatrix3>, result: Ptr<NiMatrix3>) -> Ptr<NiMatrix3> {
     e.with_stack(0x24, |e, rows| {
         let at = |i: u32| Ptr::<NiPoint3>::new(rows.addr() + 12 * i);
-        e.call(VECTOR_CONSTRUCTOR, &args![rows, 12u32, 3i32, MATRIX_NEW]);
+        typed_call!(
+            FAMILY,
+            0x0040_1050,
+            construct_array(e, rows.addr(), 12u32, 3i32, MATRIX_NEW)
+        );
         for i in 0..3 {
             typed_call!(FAMILY, 0x0047_6930, row(e, this, i, at(i)));
         }

@@ -470,6 +470,11 @@ real threads, fixes preset, the same exe with `NV_TYPED` unset and with the six 
 60.1 fps (+9.3%), the crowded street at 2560x1440 8x AA 52.3 to 57.7 fps (+10.3%), the sky above it 117 to
 134 fps (+14%). Each alone had been within the noise (shader +0.2%, dispatch +1.5%): they call each other, and a
 `typed_call!` goes direct only when both ends are on. `NV_TYPED=off` or `<family>:off` turns them off.
+And `render` (same crate, id 10, off by default, `NV_TYPED=render`): a speed batch picked by calls through dispatch
+a frame in the crowded street view, with every family on: a texture stage's binding (its texture, states,
+transform and sampler commands), the texture manager's query with the texture data getters it reaches, the current
+pass's stage binding and the shadow light shader's plain geometry pass; its tests are
+`crates/engine/tests/typed_render.rs`.
 
 **The switch.** `NV_TYPED` is read once per process, and `Engine::new` runs `typed::apply` after
 all registration: each family that is on is registered over the translations with
@@ -497,6 +502,11 @@ the differential test read.
   function is registered at its exe address, so vtables and callback words keep exe addresses.
 - From typed code to untyped: `e.call` as ever. A local whose address reaches untyped code stays in
   `with_stack`.
+- A virtual call in typed code (through a vtable slot or a function pointer) whose target is a typed function:
+  typed code reads the slot's word as `Engine::vcall` would (`engine_typed::slot_target`) and, when it is the
+  typed function the game's classes hold there, calls it with `typed_call!`; any other target goes through
+  `e.vcall` as before. The target decides, so a class with another function in the slot, a double or a fix over
+  the typed one, or the callee's family off, all run what the vtable call ran.
 - Between typed functions, or from a translation to a typed function: `typed_call!(FAMILY, 0x00abc123,
   path::f(e, a, b))`, with the address written as a literal. It is a Rust call when the family's direct
   flag is set, else `e.call` with the same words. Its callee's crate must be the caller's or one below

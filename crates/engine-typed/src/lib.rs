@@ -20,7 +20,21 @@ pub mod culling;
 pub mod dispatch;
 pub mod lockfree;
 pub mod pathing;
+pub mod render;
 pub mod shader;
+
+/// The function a virtual call on `this` through vtable `slot` reaches: the word in that slot of
+/// `this`'s vtable, read as `Engine::vcall` reads both words (an unmapped object or vtable stops here
+/// as it would there). Typed code compares it with the typed function the game's classes hold in
+/// the slot and makes that call a `typed_call!`, a Rust call while the callee's family is direct and
+/// a call at the same address, with the same words, otherwise; any other target goes through
+/// `Engine::vcall` as before. The target decides, so a class whose slot holds something else is
+/// called as the exe calls it.
+#[inline(always)]
+pub(crate) fn slot_target(e: &engine_core::Engine, this: u32, slot: u32) -> u32 {
+    let vtable = e.mem.u32(this);
+    e.mem.u32(vtable.wrapping_add(slot))
+}
 
 /// Declares a class of the game once: a marker type with its PC size and fields at their PC offsets
 /// (as [`engine_core::layout!`] does), and beside it a `#[repr(C)]` struct of the same bytes, whose
@@ -75,6 +89,7 @@ pub mod units {
         engine_core::typed::provide(&crate::shader::SHADER);
         engine_core::typed::provide(&crate::crt::CRT);
         engine_core::typed::provide(&crate::dispatch::DISPATCH);
+        engine_core::typed::provide(&crate::render::RENDER);
     }
 }
 

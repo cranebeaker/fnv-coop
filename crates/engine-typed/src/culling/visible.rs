@@ -39,7 +39,16 @@ fn child(e: &Engine, node: Ptr<NiNode>, index: u32) -> Ptr<NiAVObject> {
 /// object, the process's `Process` (slot 0x44) gets it.
 pub fn cull(e: &mut Engine, this: Ptr<NiAVObject>, process: Ptr<NiCullingProcess>) {
     if e.get(this, NiAVObject::m_uFlags) & FLAG_APP_CULLED == 0 {
-        e.vcall(process.addr(), SLOT_PROCESS, &args![this]);
+        // `BSCullingProcess::Process` (`00c4ee90`) directly when the slot holds it.
+        if crate::slot_target(e, process.addr(), SLOT_PROCESS) == 0x00c4_ee90 {
+            typed_call!(
+                FAMILY,
+                0x00c4_ee90,
+                super::process::bs_process(e, process.cast(), this)
+            );
+        } else {
+            e.vcall(process.addr(), SLOT_PROCESS, &args![this]);
+        }
     }
 }
 
@@ -66,7 +75,16 @@ pub fn node_on_visible(e: &mut Engine, this: Ptr<NiNode>, process: Ptr<NiCulling
 /// `NiGeometry::OnVisible` (Xbox PDB, `thiscall(geometry, process)`): the process's `AppendVirtual`
 /// (slot 0x4c) gets the geometry.
 pub fn geometry_on_visible(e: &mut Engine, this: Ptr<NiGeometry>, process: Ptr<NiCullingProcess>) {
-    e.vcall(process.addr(), SLOT_APPEND_VIRTUAL, &args![this]);
+    // `BSCullingProcess::AppendVirtual` (`00c4f1d0`) directly when the slot holds it.
+    if crate::slot_target(e, process.addr(), SLOT_APPEND_VIRTUAL) == 0x00c4_f1d0 {
+        typed_call!(
+            FAMILY,
+            0x00c4_f1d0,
+            super::process::append_virtual(e, process.cast(), this)
+        );
+    } else {
+        e.vcall(process.addr(), SLOT_APPEND_VIRTUAL, &args![this]);
+    }
 }
 
 // Typed from 00c46f60

@@ -560,7 +560,12 @@ pub fn set_world_transform(
         e.vcall(device, DEVICE_SET_TRANSFORM, &args![WORLD, world]);
     }
     let state = e.get(this, R::m_pkRenderState);
-    e.vcall(state.addr(), SLOT_STATE_TRANSFORM, &args![t]);
+    // `NiDX9RenderState`'s slot 0x30 is `00e879e0` ([`state::set_alpha_test_of`]).
+    if crate::slot_target(e, state.addr(), SLOT_STATE_TRANSFORM) == 0x00e8_79e0 {
+        typed_call!(FAMILY, 0x00e8_79e0, state::set_alpha_test_of(e, state, t));
+    } else {
+        e.vcall(state.addr(), SLOT_STATE_TRANSFORM, &args![t]);
+    }
     let s = x87_load32(x87_quiet_bits(
         e.get(transform, NiTransform::m_fScale).to_bits(),
     ));

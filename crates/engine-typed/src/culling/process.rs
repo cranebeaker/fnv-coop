@@ -108,7 +108,7 @@ pub fn do_culling(e: &mut Engine, this: Ptr<NiCullingProcess>, object: Ptr<NiAVO
         mask = mask.rotate_left(1);
     }
     if index == 6 {
-        e.vcall(object.addr(), SLOT_ON_VISIBLE, &args![this]);
+        object_on_visible(e, object, this.addr());
     }
     e.set(planes, NiFrustumPlanes::m_uiActivePlanes, saved);
 }
@@ -117,7 +117,34 @@ pub fn do_culling(e: &mut Engine, this: Ptr<NiCullingProcess>, object: Ptr<NiAVO
 /// node walks its children).
 #[inline(always)]
 fn on_visible(e: &mut Engine, this: Ptr<BSCullingProcess>, object: Ptr<NiAVObject>) {
-    e.vcall(object.addr(), SLOT_ON_VISIBLE, &args![this]);
+    object_on_visible(e, object, this.addr());
+}
+
+/// `object->OnVisible(process)` (slot 0xd4): directly when the slot holds the typed `OnVisible` of
+/// `NiNode` (`00a5dbe0`), `NiGeometry` (`00a7fd90`, every geometry class) or `BSMultiBoundNode`
+/// (`00c46f60`), else through the vtable.
+#[inline(always)]
+pub(crate) fn object_on_visible(e: &mut Engine, object: Ptr<NiAVObject>, process: u32) {
+    match crate::slot_target(e, object.addr(), SLOT_ON_VISIBLE) {
+        0x00a5_dbe0 => typed_call!(
+            FAMILY,
+            0x00a5_dbe0,
+            super::visible::node_on_visible(e, object.cast(), Ptr::new(process))
+        ),
+        0x00a7_fd90 => typed_call!(
+            FAMILY,
+            0x00a7_fd90,
+            super::visible::geometry_on_visible(e, object.cast(), Ptr::new(process))
+        ),
+        0x00c4_6f60 => typed_call!(
+            FAMILY,
+            0x00c4_6f60,
+            super::visible::multibound_node_on_visible(e, object.cast(), Ptr::new(process))
+        ),
+        _ => {
+            e.vcall(object.addr(), SLOT_ON_VISIBLE, &args![process]);
+        }
+    }
 }
 
 /// Whether the compound frustum is there and holds operations.
@@ -197,9 +224,22 @@ pub fn append_virtual(e: &mut Engine, this: Ptr<BSCullingProcess>, geometry: Ptr
     let mut registered = false;
     if e.get(this, BSCullingProcess::spAccumulator) != 0 {
         let accumulator = e.get(this, BSCullingProcess::spAccumulator);
-        if e.vcall(accumulator, SLOT_REGISTER_OBJECT, &args![geometry])
-            .bool()
-        {
+        // `BSShaderAccumulator::RegisterObject` (`00b63f10`) directly when the slot holds it.
+        let accepted = if crate::slot_target(e, accumulator, SLOT_REGISTER_OBJECT) == 0x00b6_3f10 {
+            typed_call!(
+                crate::shader::FAMILY,
+                0x00b6_3f10,
+                crate::shader::accumulator::register_object(
+                    e,
+                    Ptr::new(accumulator),
+                    geometry.cast()
+                )
+            )
+        } else {
+            e.vcall(accumulator, SLOT_REGISTER_OBJECT, &args![geometry])
+                .bool()
+        };
+        if accepted {
             registered = true;
         }
     }

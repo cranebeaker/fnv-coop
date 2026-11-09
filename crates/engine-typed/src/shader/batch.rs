@@ -452,9 +452,9 @@ pub fn render_pass(
         );
     } else {
         let geometry = e.get(pass, RenderPass::pGeometry);
-        let own = e.vcall(geometry.addr(), slot::OWN_A, &[]).u32() != 0 || {
+        let own = geometry_word(e, geometry.addr(), slot::OWN_A) != 0 || {
             let geometry = e.get(pass, RenderPass::pGeometry);
-            e.vcall(geometry.addr(), slot::OWN_B, &[]).u32() != 0
+            geometry_word(e, geometry.addr(), slot::OWN_B) != 0
         };
         if own {
             let geometry = e.get(pass, RenderPass::pGeometry);
@@ -550,7 +550,15 @@ pub fn render_standard(e: &mut Engine, pass: Ptr<RenderPass>, first: u32, second
         _ => None,
     };
     if let Some((setup, then_third)) = own {
-        e.call(setup, &args![shader, state]);
+        if setup == SETUP_TYPES_FC_FD {
+            typed_call!(
+                crate::render::FAMILY,
+                0x00b7_dde0,
+                crate::render::pass::geometry_pass(e, Ptr::new(shader), Ptr::new(state))
+            );
+        } else {
+            e.call(setup, &args![shader, state]);
+        }
         first_then_second(e);
         if then_third {
             call_third(e);
@@ -824,6 +832,17 @@ pub fn sort_alphas(e: &mut Engine, this: Ptr<BSBatchRenderer>, camera: u32, subt
         let holder = e.global::<u32>(elem_addr(this, BSBatchRenderer::pAlphaGroups, index, 4));
         let list = Ptr::<PassHolder>::new(holder).at(PassHolder::kList);
         typed_call!(FAMILY, 0x00b9_9630, sort_list(e, list, COMPARE_BY_DEPTH));
+    }
+}
+
+/// A geometry's word-answering slot with no arguments (0x30, 0x34): the leaf `00acbb70` (0) that
+/// every geometry class holds there, directly; another target through the vtable.
+#[inline(always)]
+fn geometry_word(e: &mut Engine, geometry: u32, slot: u32) -> u32 {
+    if crate::slot_target(e, geometry, slot) == 0x00ac_bb70 {
+        typed_call!(leaf::FAMILY, 0x00ac_bb70, leaf::zero_of_this(e, geometry))
+    } else {
+        e.vcall(geometry, slot, &[]).u32()
     }
 }
 

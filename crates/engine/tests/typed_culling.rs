@@ -524,7 +524,8 @@ fn merge() {
 
 #[test]
 fn do_culling() {
-    // The bound: none, or its centre's x and radius; the active planes.
+    // The bound: none, or its centre's x and radius; the active planes; the object's `OnVisible`: a stand-in, or the typed
+    // node's or geometry's in its slot.
     Diff::new(entry!(0x00a6_94e0, process::do_culling(Ptr<_>, Ptr<_>)))
         .common()
         .inputs(&[
@@ -532,6 +533,7 @@ fn do_culling() {
             Input::F32,
             Input::F32,
             Input::Of(&[0x3f, 0x2a, 0]),
+            Input::Of(&[0, 1, 2]),
         ])
         .max_cases(256)
         .setup(|e, case| {
@@ -541,7 +543,8 @@ fn do_culling() {
             } else {
                 bound_of(e, case.f32(1).to_bits(), ONE, 0, case.f32(2).to_bits())
             };
-            let o = object(e, 0xc8, s.stand_in_vt, b, 0);
+            let vt = [s.stand_in_vt, s.node_vt, s.geometry_vt][case.word(4) as usize];
+            let o = object(e, 0xc8, vt, b, 0);
             e.mem.set_u32(s.process + 0x8c, case.word(3));
             vec![s.process, o]
         })
@@ -826,11 +829,19 @@ fn geometry_on_visible() {
         visible::geometry_on_visible(Ptr<_>, Ptr<_>)
     ))
     .common()
-    .inputs(&[Input::Flag])
+    // The accumulator's answer; the process: the real one (`AppendVirtual` typed in its slot) or a stand-in.
+    .inputs(&[Input::Flag, Input::Flag])
     .setup(|e, case| {
         let s = scene(e);
         e.mem.set_u32(s.accumulator + 0x10, case.word(0));
-        vec![s.geometry, s.process]
+        let process = if case.word(1) != 0 {
+            s.process
+        } else {
+            let p = e.mem.alloc(0xc8);
+            e.mem.set_u32(p, s.stand_in_vt);
+            p
+        };
+        vec![s.geometry, process]
     })
     .run()
     .assert_same();

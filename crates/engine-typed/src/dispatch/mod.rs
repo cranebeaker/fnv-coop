@@ -70,6 +70,7 @@ fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x004b_4500, math::rotate(Ptr<NiMatrix3>, Ptr<NiPoint3>, Ptr<NiPoint3>) -> Ptr<NiPoint3>),
         entry!(0x0043_f8d0, math::multiply(Ptr<NiMatrix3>, Ptr<NiMatrix3>, Ptr<NiMatrix3>) -> Ptr<NiMatrix3>),
         entry!(0x0047_68c0, math::transpose(Ptr<NiMatrix3>, Ptr<NiMatrix3>) -> Ptr<NiMatrix3>),
+        entry!(0x0040_1050, math::construct_array(u32, u32, i32, u32)),
         entry!(0x0047_6930, math::row(Ptr<NiMatrix3>, u32, Ptr<NiPoint3>)),
         entry!(0x0047_6980, math::set_columns(Ptr<NiMatrix3>, Ptr<NiPoint3>, Ptr<NiPoint3>, Ptr<NiPoint3>) -> Ptr<NiMatrix3>),
         entry!(0x0047_69c0, math::set_column(Ptr<NiMatrix3>, u32, Ptr<NiPoint3>)),

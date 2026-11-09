@@ -859,6 +859,37 @@ fn update_downward() {
     .assert_same();
 }
 
+/// `update_downward` with the node's slot 0xb8 holding the typed `UpdateWorldData` (`00a68c60`) and each child's
+/// slot 0xa4 holding the typed `UpdateDownwardPass` (`00a5dd70`): both calls made direct (the plain test has
+/// stand-ins there).
+#[test]
+fn update_downward_typed_slots() {
+    Diff::new(entry!(
+        0x00a5_dd70,
+        scene::update_downward(Ptr<_>, u32, u32)
+    ))
+    .common(0x00a5_dd70)
+    .inputs(&inputs(&[&PASS, &[Input::Of(&[0, 1, 6])]]))
+    .setup(|e, case| {
+        stand_ins(e);
+        let n = node(e, case.word(0), case.word(1), case.word(2));
+        let vt = e.mem.u32(n);
+        e.mem.set_u32(vt + 0xb8, 0x00a6_8c60);
+        let base = e.mem.u32(n + 0xa0);
+        for i in 0..case.word(1) {
+            let child = e.mem.u32(base + 4 * i);
+            if child != 0 {
+                let vt = e.mem.u32(child);
+                e.mem.set_u32(vt + 0xa4, 0x00a5_dd70);
+                e.mem.set_u32(vt + 0xb8, 0x00a6_8c60);
+            }
+        }
+        vec![n, data(e, case, 3), case.word(4)]
+    })
+    .run()
+    .assert_same();
+}
+
 #[test]
 fn update_selected_downward() {
     Diff::new(entry!(
