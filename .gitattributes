@@ -5,6 +5,7 @@
 *.toml text eol=lf
 *.yml text eol=lf
 *.ps1 text eol=lf
+*.sh text eol=lf
 *.cmd text eol=crlf
 # An open call has an empty final system column; its trailing tab is data.
 research/engine-map/frame_wiring.tsv text eol=lf whitespace=-blank-at-eol

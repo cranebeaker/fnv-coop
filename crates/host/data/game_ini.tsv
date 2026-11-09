@@ -1,0 +1,29 @@
+# nv-rs's own options in the run's Fallout.ini (crates/host/src/game_ini.rs; measure/ini/DESIGN.md).
+# One row per key: section, key, the environment variable that wins over it (tests and scripts
+# only), the value the generated file writes, and the one comment line written above the key.
+# scripts/game-ini-sections.sh writes distribution/nv-rs-sections.ini from this table; the
+# [nv-rs Fixes] rows are written commented out, so sPreset decides until a line is uncommented.
+nv-rs General	sPreset	NV_PRESET	fixes	fixes = nv-rs's fixes on (recommended); vanilla = exactly the original game's behaviour.
+nv-rs Display	bBorderless	NV_BORDERLESS	0	1 = the game's window has no frame and fills the screen; 0 = the window as the game makes it.
+nv-rs Display	iFrameLimit	NV_FRAME_LIMIT	0	Most frames a second in play, with the fixes' uncapped frame rate; 0 = no limit.
+nv-rs Display	iMenuFrameLimit	NV_MENU_FRAME_LIMIT	120	Most frames a second in menus (main menu, Pip-Boy, dialogue, inventory, pause); 0 = no limit of their own.
+nv-rs Threads	bSteppedThreads	NV_THREADS	0	1 = the game's threads take turns, one at a time (the fallback); 0 = side by side on their own cores.
+nv-rs Threads	bRenderThread	NV_RENDER_THREAD	1	1 = the Direct3D 9 calls go to a drawing thread of their own; 0 = on the game's threads, as the original makes them.
+nv-rs Fixes	bUncap	NV_UNCAP	1	Uncapped frame rate: the game's frame step without its sleep, so frames are not held to the original's pace (iFrameLimit paces it).
+nv-rs Fixes	bHighFrameRateLanding	NV_HF_LANDING	1	High-frame-rate landing: the player landing standing still falls as far as at 60 frames a second.
+nv-rs Fixes	bHighFrameRateSlowMotion	NV_HF_SLOWMO	1	High-frame-rate slow motion: the game's time multiplier moves to its target by the time passed, not by the frame.
+nv-rs Fixes	bMenuCap	NV_MENU_CAP	1	Menu frame limit: menus at most iMenuFrameLimit frames a second, loading screens unlimited (only with bUncap).
+nv-rs Fixes	bGrabPush	NV_GRAB_PUSH	1	Dragged bodies by time: a held body's pull is scaled by the frame's time, as at 60 frames a second.
+nv-rs Fixes	bPhysicsBlend	NV_PHYS_BLEND	1	Smooth physics drawing: dropped and thrown items, ragdolls and debris are drawn between the physics steps, not frozen on frames without one.
+nv-rs Fixes	bModFitWorn	NV_MOD_WORN	1	Mod fit worn question: fitting a weapon mod asks whether the mod is worn before removing it, not after.
+nv-rs Fixes	bTopicIndex	NV_TOPIC_INDEX	1	Dialogue topic index: the topic that holds a dialogue line is looked up, not searched for (the same answers, faster loads with dialogue mods).
+nv-rs Fixes	bShaderWarm	NV_SHADER_WARM	1	Shaders compiled ahead of first use: the graphics driver compiles each of the game's shaders in the menus, not at its first use in play.
+nv-rs Fixes	bIOWait	NV_IO_WAIT	1	IO wait ends on completion: the wait for queued loads (a cell border, a load, a save) ends when they are done, not at its next 50 ms step.
+nv-rs Fixes	bCosaveKeep	NV_COSAVE_KEEP	1	Co-save keeps other plugins: a co-save's parts from plugins not built in (JIP LN NVSE's) are written back while the same files are loaded.
+nv-rs Fixes	bNVSEErrorGuard	NV_NVSE_ERROR_GUARD	1	Script error loop guard: an error inside a script's error handler is not sent to the handlers again.
+nv-rs Fixes	bNVSEImodCheck	NV_NVSE_IMOD_CHECK	1	Image-space event form check: OnRemoveIMOD only for an image-space modifier form's instance that ran out, not for depth of field or blur.
+nv-rs Fixes	bNVSEInvRefCheck	NV_NVSE_INVREF_CHECK	1	Inventory reference checks: a removed stack leaves the container before its data is freed; a sale ends with its event; an entry without a form is passed over.
+nv-rs Fixes	bNVSESizeCaps	NV_NVSE_SIZE_CAPS	1	Script array and string size caps: arrays stop at 8,388,608 elements and repeated empty text at 64 MiB; a bad format string no longer ends the game.
+nv-rs Fixes	bNVSENullGuard	NV_NVSE_NULL_GUARD	1	Script missing array guard: ar_Count and ar_GetNth on a missing array answer 0, and a bad text in a format string ends the text, instead of stopping the game.
+nv-rs Fixes	bNVSECycleGuard	NV_NVSE_CYCLE_GUARD	1	Script array cycle guard: copying, comparing or dumping an array that holds itself stops where it meets itself, instead of running out of stack.
+nv-rs Fixes	bNVSEListGuard	NV_NVSE_LIST_GUARD	1	Script inventory list guard: a container list that runs back into itself ends the inventory commands' walk instead of stopping the game.

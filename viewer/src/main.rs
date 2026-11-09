@@ -175,18 +175,17 @@ fn main() {
     // as Data: any build but 1.4.0.525 is refused here, with the reason (2026-10-13). Starting
     // runs main's first frame. What differs from the exe: the fixes preset unless the settings or
     // the environment say otherwise (docs/FIXES.md).
-    let mut choice = match host::fixes::Choice::read() {
+    // `--movement-missing` and `--movement-probe` make the run a test: its threads run stepped
+    // (the recorder and the probe are the main thread's engine's) unless `NV_THREADS` says, and
+    // the player's Fallout.ini options are not read.
+    let command_line_test = args.movement_missing.is_some() || args.movement_probe;
+    let choice = match host::fixes::Choice::read_with(command_line_test) {
         Ok(choice) => choice,
         Err(e) => {
             eprintln!("error: {e}");
             std::process::exit(1);
         }
     };
-    // `--movement-missing` and `--movement-probe` make the run a test: its threads run stepped
-    // (the recorder and the probe are the main thread's engine's) unless `NV_THREADS` says.
-    if args.movement_missing.is_some() || args.movement_probe {
-        choice.pin_test_threads(|name| std::env::var(name).ok());
-    }
     let mut game = match host::Host::start_with(&data, &choice) {
         Ok(host) => host,
         Err(e) => {

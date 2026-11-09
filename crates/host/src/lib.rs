@@ -20,6 +20,7 @@ pub mod fixes;
 pub mod form_types;
 pub mod frame_log;
 pub mod game_file;
+pub mod game_ini;
 pub mod mod_fit_worn;
 pub mod native_inflate;
 pub mod phys_blend;
@@ -110,6 +111,9 @@ impl Host {
         // vanilla commands is a row.
         nvse::install(&mut engine);
         eprintln!("{}", choice.describe());
+        if let Some(note) = &choice.ini_note {
+            eprintln!("{note}");
+        }
         // The game's clock (`GetTickCount`, `timeGetTime`, `QueryPerformanceCounter`) runs with
         // the real time from here on, `Sleep` moving it on too (`Engine::clock_now_ms`).
         engine.start_real_clock();
@@ -151,6 +155,12 @@ impl Host {
         // without it); `NV_RENDER_THREAD=0` makes them on the game's threads.
         #[cfg(windows)]
         engine_platform::d3d9real::want_render_thread(&mut engine, choice.render_thread);
+        // The borderless window (`fixes::Choice::borderless`: `NV_BORDERLESS`, else Fallout.ini's
+        // `[nv-rs Display] bBorderless`); with neither, the window layer reads `NV_BORDERLESS`.
+        #[cfg(windows)]
+        if let Some(on) = choice.borderless {
+            engine_platform::d3d9real::want_borderless(on);
+        }
         // `NV_SOUND=out`: the game's sound on the player's default device, from when the game
         // makes its DirectSound device on; `NV_SOUND_RECORD=FILE.wav` also records what goes
         // to the device, with a log of what started when (`FILE.log`). Off by default.

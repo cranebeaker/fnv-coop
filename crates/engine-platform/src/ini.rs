@@ -215,6 +215,20 @@ mod tests {
         assert_eq!(ini_value(text, b"General", b"Back"), None);
     }
 
+    /// A `;` line is never found: a key nv-rs's `Fallout.ini` writes commented out
+    /// (`distribution/nv-rs-sections.ini`) or a player commented out is not the key, and the
+    /// `[nv-rs ...]` sections are sections like any other.
+    #[test]
+    fn a_commented_key_is_never_found() {
+        let text = b"[nv-rs Fixes]\r\n; Uncapped frame rate: a note\r\n;bUncap=1\r\n\
+                     [Display]\r\n;iPresentInterval=0\r\niPresentInterval=1\r\n";
+        assert_eq!(ini_value(text, b"nv-rs Fixes", b"bUncap"), None);
+        assert_eq!(
+            ini_value(text, b"Display", b"iPresentInterval").unwrap(),
+            b"1"
+        );
+    }
+
     /// Windows' `GetPrivateProfileIntA` answers, measured on the player's machine (2026-10-21).
     #[test]
     fn profile_ints_read_as_windows_does() {

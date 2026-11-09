@@ -619,8 +619,23 @@ fn shown_in_background() -> bool {
 /// DPI aware, so the window covers the monitor's real pixels (with display scaling, an unaware
 /// one is told the scaled size: 2048x1152 for 2560x1440 at 125%), and the game's child window
 /// (the one it draws in, made at its resolution) is sized to fill it.
+/// The run's choice ([`want_borderless`]) when it made one, else `NV_BORDERLESS=1`.
 fn borderless() -> bool {
-    std::env::var("NV_BORDERLESS").is_ok_and(|v| v == "1")
+    match BORDERLESS_CHOICE.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => std::env::var("NV_BORDERLESS").is_ok_and(|v| v == "1"),
+    }
+}
+
+/// The run's borderless choice: 0 none made, 1 on, 2 off ([`want_borderless`]).
+static BORDERLESS_CHOICE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Makes the game's window borderless or framed ([`borderless`]) whatever `NV_BORDERLESS`
+/// says: the run's choice (`host::fixes::Choice::borderless`, which reads `NV_BORDERLESS` and
+/// `Fallout.ini`'s `[nv-rs Display] bBorderless`), made before the game opens its window.
+pub fn want_borderless(on: bool) {
+    BORDERLESS_CHOICE.store(if on { 1 } else { 2 }, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// The borderless window ([`borderless`]), which keeps the monitor's size when the game moves or

@@ -68,22 +68,47 @@ Unset means the default in the table. A switch that is off by default needs a va
 `TEST_VARIABLES` in `crates/host/src/fixes.rs`) and no `NV_PRESET` runs vanilla, the original's
 behaviour ([FIXES.md](FIXES.md)).
 
+### The game's Fallout.ini
+
+Groups 1 and 2 are also keys of the run's own `Fallout.ini` (in `My Games\FalloutNV` of the
+Documents folder the run uses), in four sections of their own: `[nv-rs General]`, `[nv-rs Display]`,
+`[nv-rs Threads]` and `[nv-rs Fixes]`. The original game never asks for them, and the rest of the file
+keeps the original's sections, keys and meaning. `distribution/nv-rs-sections.ini` is the block with one
+note line above each key; `scripts/game-ini-sections.sh` writes it from `crates/host/data/game_ini.tsv`,
+and the host's tests check one against the other. The fix lines are written with a `;` in front, so
+`sPreset` decides; removing the `;` turns that one fix on (`1`) or off (`0`).
+
+- Lowest to highest: the built-in default, the preset, the `Fallout.ini` keys, then the `NV_...`
+  variables (for tests and scripts).
+- `settings.ini` is still read, below `Fallout.ini`, until it is moved over: a line `Fallout.ini`
+  already sets is not read.
+- A key nv-rs does not know is passed over, as the game passes over one it never asks for. A value it
+  can't use leaves the default, and one line in the log names it; the game still starts.
+- Only a launcher's play run reads these sections: `NV_SETTINGS` set (Play.exe; the
+  play folder's Play.cmd), with no starred name, no fix's own variable and no test flag on the viewer's
+  command line. Every scripted, gated or measured run ignores them, so a player's file can't change a
+  result.
+- Play.exe passes the player options on as variables; for each one `Fallout.ini` sets, it passes the
+  file's value instead of `settings.ini`'s, so the file wins there too (but not in a run a settings.ini line makes a test, which never reads the file).
+
 ### 1. Player settings
 
-| Variable (settings.ini line) | What it does | Default |
+| Variable (Fallout.ini key; settings.ini line) | What it does | Default |
 | --- | --- | --- |
-| `NV_PRESET=fixes` or `vanilla` (`Preset=`) | What differs from the original program: the fixes set, or the original's behaviour exactly | `fixes` |
-| `NV_FRAME_LIMIT=n` (`FrameLimit=`) | Frames a second at most in play (0: none) | none under `fixes`; the original's own pacing under `vanilla` |
-| `NV_MENU_FRAME_LIMIT=n` (`MenuFrameLimit=`) | Frames a second at most in menus (0: none) | 120 |
-| `NV_THREADS=stepped` (a line in `settings.ini`; Settings.cmd's threads option) | The game's threads one at a time (the fallback, and the reference mode) instead of side by side on their own cores | side by side in play; a scripted or measured run is stepped whatever the default |
-| `NV_RENDER_THREAD=0` (a line in `settings.ini`; Settings.cmd's drawing thread option) | The real Direct3D 9 calls on the game's own threads, as the original makes them, instead of a render thread of their own | render thread in play; a scripted or measured run draws on the game's threads |
-| `NV_BORDERLESS=1` (`Borderless=`) | The game's window without a frame, filling the screen | off |
+| `NV_PRESET=fixes` or `vanilla` (`sPreset`; `Preset=`) | What differs from the original program: the fixes set, or the original's behaviour exactly | `fixes` |
+| `NV_FRAME_LIMIT=n` (`iFrameLimit`; `FrameLimit=`) | Frames a second at most in play (0: none) | none under `fixes`; the original's own pacing under `vanilla` |
+| `NV_MENU_FRAME_LIMIT=n` (`iMenuFrameLimit`; `MenuFrameLimit=`) | Frames a second at most in menus (0: none) | 120 |
+| `NV_THREADS=stepped` (`bSteppedThreads=1`; a line in `settings.ini`; Settings.cmd's threads option) | The game's threads one at a time (the fallback, and the reference mode) instead of side by side on their own cores | side by side in play; a scripted or measured run is stepped whatever the default |
+| `NV_RENDER_THREAD=0` (`bRenderThread=0`; a line in `settings.ini`; Settings.cmd's drawing thread option) | The real Direct3D 9 calls on the game's own threads, as the original makes them, instead of a render thread of their own | render thread in play; a scripted or measured run draws on the game's threads |
+| `NV_BORDERLESS=1` (`bBorderless=1`; `Borderless=`) | The game's window without a frame, filling the screen | off |
 
 `Resolution=`, `AntiAliasing=`, `Anisotropy=` and `VSync=` are the other lines Settings.cmd writes; the launcher turns them into the game's own settings, not into switches.
 
 ### 2. Game fixes (the 18 rows of FIXES.md)
 
 Each takes `1` (on) or `0` (off) whatever the preset says; with no `NV_PRESET` the rest of that run is vanilla.
+Each also has a `[nv-rs Fixes]` key in `Fallout.ini` (`bUncap` ... `bNVSEListGuard`, in the same order:
+`distribution/nv-rs-sections.ini`), which a player can set without making the run a test.
 
 | Variable | The fix | Read in |
 | --- | --- | --- |

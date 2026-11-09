@@ -65,7 +65,7 @@ shows what's left.
 | | System | Status |
 | :---: | --- | --- |
 | ✅ | **The whole game:** movement, physics, animation, graphics, sound, combat, AI, quests, dialogue, menus, saves, the open world and the DLCs | Translated, checked against the original and playable |
-| ✅ | **Fixes:** bug fixes on by default, the original's behaviour one setting away | First fixes in: frame rate, physics, scripts, no shader-compile stutter on first use, and shorter waits for loading at cell borders |
+| ✅ | **Fixes:** bug fixes on by default, the original's behaviour one setting away | First fixes in: frame rate, physics, scripts, no shader-compile stutter on first use, and shorter waits for loading at cell borders; each one can be set in the game's own `Fallout.ini` |
 | ✅ | **Windows preview** | [Released](https://github.com/slaterain/nv-rs/releases) |
 | 🔨 | **Native 64-bit code:** speed, no memory limit, every core in use | Started; the game's threads run on their own cores and signal each other without one shared lock, its drawing on a thread of its own, its compressed archives unpack in native code, and the first native families are on |
 | 🔨 | **Built-in script extender:** xNVSE's and JIP LN's script commands, with nothing to install | Started: xNVSE's variables, loops, functions, events, co-save, inventory references, string and array commands, keyboard and mouse input and most of its inventory commands are in (355 of 654), format strings made exactly as the C runtime makes them; JIP LN's to come |

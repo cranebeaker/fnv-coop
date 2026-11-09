@@ -36,6 +36,110 @@ pub fn decode(bytes: &[u8]) -> String {
     }
 }
 
+/// The value of `key` in `section` of an INI text, found as the game finds it (host
+/// `game_ini::value`): names compared without case, spaces trimmed, one pair of quotes taken off,
+/// the first match wins; a `;` line never matches.
+pub fn ini_value<'a>(text: &'a str, section: &str, key: &str) -> Option<&'a str> {
+    let mut inside = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix('[') {
+            let name = rest.split(']').next().unwrap_or(rest);
+            inside = name.trim().eq_ignore_ascii_case(section);
+            continue;
+        }
+        let Some((name, value)) = line.split_once('=').filter(|_| inside) else {
+            continue;
+        };
+        if name.trim().eq_ignore_ascii_case(key) {
+            let value = value.trim();
+            return Some(
+                value
+                    .strip_prefix('"')
+                    .and_then(|v| v.strip_suffix('"'))
+                    .unwrap_or(value),
+            );
+        }
+    }
+    None
+}
+
+/// The variables that make the game's run a test (host `fixes.rs`: `TEST_VARIABLES` and each
+/// fix's own variable; a host test keeps the two lists alike). In such a run the game never reads
+/// Fallout.ini's `[nv-rs ...]` keys, so the launcher doesn't pass them on either.
+pub const TEST_SWITCHES: &[&str] = &[
+    "NV_TRACE_LIST",
+    "NV_MOVE_KEYS",
+    "NV_MOVE_MOUSE",
+    "NV_MOVE_REAL_INPUT",
+    "NV_MOVE_TRACE",
+    "NV_MOVE_PROBE",
+    "NV_MOVE_TSV",
+    "NV_MOVE_WATCH",
+    "NV_MOVE_CALL_PROFILE",
+    "NV_MOVE_CALL_BUDGET",
+    "NV_MOVE_BUDGET_FROM",
+    "NV_SOUND_RECORD",
+    "NV_SHOT",
+    "NV_TICK_COUNT",
+    "NV_FRAME_LOG",
+    "NV_LOCK_STATS",
+    "NV_REAL_DUMP",
+    "NV_PHYS_BLEND_LOG",
+    "NV_BENCH_CALLS",
+    "NV_BENCH_CALL_COUNTS",
+    "NV_PROFILE",
+    "NV_WATCH",
+    "NV_WORD_CHECK",
+    "NV_SKIN_CHECK",
+    "NV_QUEUE_CHECK",
+    "NV_FACE_CHECK",
+    "NV_SPEECH_CHECK",
+    "NV_LIGHT_CHECK",
+    "NV_HKMEM_CHECK",
+    "NV_HEAD_CHECK",
+    "NV_BLOCK_CHECK",
+    "NV_CENSUS",
+    "NV_TOUCH",
+    "NV_PROFILE_THREAD_CALLS",
+    "NV_AUDIO_CHECK",
+    "NV_PASS_CHECK",
+    "NV_TOPIC_INDEX_CHECK",
+    "NV_NVSE_EVENT_LOG",
+    "NV_UNCAP",
+    "NV_HF_LANDING",
+    "NV_HF_SLOWMO",
+    "NV_MENU_CAP",
+    "NV_GRAB_PUSH",
+    "NV_PHYS_BLEND",
+    "NV_MOD_WORN",
+    "NV_TOPIC_INDEX",
+    "NV_SHADER_WARM",
+    "NV_IO_WAIT",
+    "NV_COSAVE_KEEP",
+    "NV_NVSE_ERROR_GUARD",
+    "NV_NVSE_IMOD_CHECK",
+    "NV_NVSE_INVREF_CHECK",
+    "NV_NVSE_SIZE_CAPS",
+    "NV_NVSE_NULL_GUARD",
+    "NV_NVSE_CYCLE_GUARD",
+    "NV_NVSE_LIST_GUARD",
+];
+
+/// Whether the game will run as a test: one of [`TEST_SWITCHES`] among the variables it gets
+/// (`passed`, names compared without case, as Windows does) or in the launcher's own environment
+/// (`inherited`), which it gets too.
+pub fn makes_a_test<'a>(
+    mut passed: impl Iterator<Item = &'a str>,
+    inherited: impl Fn(&str) -> bool,
+) -> bool {
+    passed.any(|name| {
+        TEST_SWITCHES
+            .iter()
+            .any(|test| test.eq_ignore_ascii_case(name))
+    }) || TEST_SWITCHES.iter().any(|name| inherited(name))
+}
+
 /// The file's settings.
 #[derive(Debug, Default, PartialEq)]
 pub struct Settings(pub BTreeMap<String, String>);
@@ -105,6 +209,50 @@ impl Settings {
             ("NV_FRAME_LIMIT", limit.to_string()),
             ("NV_MENU_FRAME_LIMIT", menu.to_string()),
         ])
+    }
+
+    /// The player switches the run's `Fallout.ini` sets in its `[nv-rs ...]` sections (host
+    /// `game_ini.rs`), which win over this file's: `Some(value)` to pass, `None` to leave the
+    /// variable out (the game's own default). A key that is missing, empty or not a value the
+    /// game takes leaves this file's switch as it is.
+    pub fn file_switches(fallout_ini: &str) -> Vec<(&'static str, Option<String>)> {
+        let get = |section: &str, key: &str| {
+            ini_value(fallout_ini, section, key).filter(|v| !v.is_empty())
+        };
+        let flag = |section: &str, key: &str| match get(section, key) {
+            Some("1") => Some(true),
+            Some("0") => Some(false),
+            _ => None,
+        };
+        let number = |key: &str| {
+            get("nv-rs Display", key).and_then(|v| v.parse::<u32>().ok().map(|n| n.to_string()))
+        };
+        let mut out = Vec::new();
+        match get("nv-rs General", "sPreset") {
+            Some(v) if v.eq_ignore_ascii_case("fixes") || v.eq_ignore_ascii_case("vanilla") => {
+                out.push(("NV_PRESET", Some(v.to_ascii_lowercase())));
+            }
+            _ => {}
+        }
+        if let Some(n) = number("iFrameLimit") {
+            out.push(("NV_FRAME_LIMIT", Some(n)));
+        }
+        if let Some(n) = number("iMenuFrameLimit") {
+            out.push(("NV_MENU_FRAME_LIMIT", Some(n)));
+        }
+        if let Some(on) = flag("nv-rs Display", "bBorderless") {
+            out.push(("NV_BORDERLESS", on.then(|| "1".to_string())));
+        }
+        if let Some(stepped) = flag("nv-rs Threads", "bSteppedThreads") {
+            out.push(("NV_THREADS", stepped.then(|| "stepped".to_string())));
+        }
+        if let Some(on) = flag("nv-rs Threads", "bRenderThread") {
+            out.push((
+                "NV_RENDER_THREAD",
+                Some(if on { "1" } else { "0" }.to_string()),
+            ));
+        }
+        out
     }
 
     /// The game's environment switches from the file (`NV_...=...`).
@@ -206,6 +354,54 @@ mod tests {
         s.iter()
             .map(|(a, b)| (a.to_string(), b.to_string()))
             .collect()
+    }
+
+    /// Fallout.ini's [nv-rs ...] keys become the switches that win over settings.ini's; a commented,
+    /// empty or unusable key leaves settings.ini's.
+    #[test]
+    fn fallout_inis_keys_win_over_settings_ini() {
+        let ini = "[General]\nsPreset=vanilla\n[nv-rs General]\nsPreset=Vanilla\n\
+                   [nv-rs Display]\nbBorderless=0\niFrameLimit=fast\n;iMenuFrameLimit=60\n\
+                   [nv-rs Threads]\nbSteppedThreads=1\nbRenderThread=0\n";
+        let some = |v: &str| Some(v.to_string());
+        assert_eq!(
+            Settings::file_switches(ini),
+            [
+                ("NV_PRESET", some("vanilla")),
+                ("NV_BORDERLESS", None),
+                ("NV_THREADS", some("stepped")),
+                ("NV_RENDER_THREAD", some("0")),
+            ]
+        );
+        let ini = "[nv-rs Display]\nbBorderless=1\niFrameLimit=90\niMenuFrameLimit=0\n\
+                   [nv-rs Threads]\nbSteppedThreads=0\n";
+        assert_eq!(
+            Settings::file_switches(ini),
+            [
+                ("NV_FRAME_LIMIT", some("90")),
+                ("NV_MENU_FRAME_LIMIT", some("0")),
+                ("NV_BORDERLESS", some("1")),
+                ("NV_THREADS", None),
+            ]
+        );
+        assert!(Settings::file_switches("[General]\nsLanguage=ENGLISH\n").is_empty());
+        // A settings.ini line or an inherited variable that makes the run a test: the game
+        // won't read the file, so the launcher passes none of it.
+        let none = |_: &str| false;
+        assert!(makes_a_test(["NV_THREADS", "nv_uncap"].into_iter(), none));
+        assert!(makes_a_test(std::iter::empty(), |n| n == "NV_TRACE_LIST"));
+        assert!(!makes_a_test(
+            ["NV_THREADS", "NV_RENDER_THREAD", "NV_SAVE_OUT"].into_iter(),
+            none
+        ));
+        assert_eq!(
+            ini_value(
+                " [ NV-RS display ]\n IFRAMELIMIT = \"5\" \n",
+                "nv-rs Display",
+                "iFrameLimit"
+            ),
+            Some("5")
+        );
     }
 
     #[test]

@@ -238,7 +238,7 @@ pub enum Preset {
 
 impl Preset {
     /// The preset a word names, compared without case.
-    fn parse(word: &str) -> Option<Preset> {
+    pub(crate) fn parse(word: &str) -> Option<Preset> {
         match word.trim().to_ascii_lowercase().as_str() {
             "fixes" => Some(Preset::Fixes),
             "vanilla" => Some(Preset::Vanilla),
@@ -276,6 +276,14 @@ pub struct Choice {
     /// (`engine_platform::d3d9real::want_render_thread`): `NV_RENDER_THREAD=1` or `0` when set;
     /// else off for a test (as its threads are stepped); else [`PLAY_RENDER_THREAD`].
     pub render_thread: bool,
+    /// Whether the game's window has no frame and fills the screen
+    /// (`engine_platform::d3d9real::want_borderless`): `NV_BORDERLESS` when set (`1` on, else
+    /// off); else `Fallout.ini`'s `[nv-rs Display] bBorderless` (never for a test); `None` when
+    /// neither says, and the window is framed, as the game makes it.
+    pub borderless: Option<bool>,
+    /// The one log line naming `Fallout.ini` values that could not be used
+    /// ([`crate::game_ini::Keys::bad_line`]): the default stood for each.
+    pub ini_note: Option<String>,
 }
 
 impl Choice {
@@ -289,24 +297,78 @@ impl Choice {
             overrides: Vec::new(),
             threads: "stepped".to_string(),
             render_thread: false,
+            borderless: None,
+            ini_note: None,
         }
     }
 
-    /// The choice from the settings file ([`settings_file`]) and the environment, which wins:
-    /// `NV_PRESET=vanilla|fixes`, `NV_FRAME_LIMIT=n`, `NV_MENU_FRAME_LIMIT=n`, and each
-    /// [`Fix::env`]. Anything it can't
-    /// read stops the start with a message, so a misspelt pin never runs the wrong game.
+    /// The choice from the run's `Fallout.ini` ([`crate::game_ini::path`], its `[nv-rs ...]`
+    /// sections), the settings file ([`settings_file`], the fallback until it is migrated) and the
+    /// environment, which wins: `NV_PRESET=vanilla|fixes`, `NV_FRAME_LIMIT=n`,
+    /// `NV_MENU_FRAME_LIMIT=n`, `NV_THREADS`, `NV_RENDER_THREAD`, `NV_BORDERLESS` and each
+    /// [`Fix::env`]. A settings file or variable it can't read stops the start with a message, so
+    /// a misspelt pin never runs the wrong game; a `Fallout.ini` value it can't use leaves the
+    /// default and is named in one log line ([`Choice::ini_note`]). Only a launcher's play run
+    /// reads `Fallout.ini` ([`is_play_run`]).
     pub fn read() -> Result<Choice, String> {
-        Choice::from_file(settings_file().as_deref(), |name| std::env::var(name).ok())
+        Choice::read_with(false)
     }
 
-    /// [`Choice::read`] on a given settings file (none: no file) and environment. A file that
-    /// exists and can't be read stops the start, since its `Preset=vanilla` would be lost; an
-    /// explicit `NV_PRESET` makes the file moot, so then it doesn't matter.
+    /// [`Choice::read`] for a run its command line marks as a test (`command_line_test`: the
+    /// viewer's `--movement-missing` and `--movement-probe`, which record or go on past
+    /// untranslated functions on the main thread's engine only) or not. A marked run never reads
+    /// `Fallout.ini`'s keys, and its threads run stepped unless `NV_THREADS` names them
+    /// ([`Choice::pin_test_threads`]).
+    pub fn read_with(command_line_test: bool) -> Result<Choice, String> {
+        let env = |name: &str| std::env::var(name).ok();
+        let game_ini = if command_line_test {
+            None
+        } else {
+            crate::game_ini::path()
+        };
+        let mut choice = Choice::load(
+            settings_file().as_deref(),
+            game_ini.as_deref(),
+            env,
+            command_line_test,
+        )?;
+        if command_line_test {
+            choice.pin_test_threads(env);
+        }
+        Ok(choice)
+    }
+
+    /// [`Choice::read`] on a given settings file (none: no file) and environment, with no
+    /// `Fallout.ini`.
     pub fn from_file(
         file: Option<&Path>,
         env: impl Fn(&str) -> Option<String>,
     ) -> Result<Choice, String> {
+        Choice::load(file, None, env, false)
+    }
+
+    /// [`Choice::read`] on a given settings file, `Fallout.ini` (none: no file) and environment.
+    pub fn from_files(
+        file: Option<&Path>,
+        game_ini: Option<&Path>,
+        env: impl Fn(&str) -> Option<String>,
+    ) -> Result<Choice, String> {
+        Choice::load(file, game_ini, env, false)
+    }
+
+    /// The files' texts, then [`Choice::build`]. A settings file that exists and can't be read
+    /// stops the start, since its `Preset=vanilla` would be lost; an explicit `NV_PRESET` makes
+    /// the file moot, so then it doesn't matter. A `Fallout.ini` that can't be read is passed
+    /// over, as the game passes over a missing key.
+    fn load(
+        file: Option<&Path>,
+        game_ini: Option<&Path>,
+        env: impl Fn(&str) -> Option<String>,
+        command_line_test: bool,
+    ) -> Result<Choice, String> {
+        let ini = game_ini
+            .and_then(|p| std::fs::read(p).ok())
+            .map(|bytes| decode_settings(&bytes));
         let text = match file.map(|p| (p, std::fs::read(p))) {
             None => None,
             Some((_, Ok(bytes))) => Some(decode_settings(&bytes)),
@@ -320,60 +382,43 @@ impl Choice {
                 ))
             }
         };
-        Choice::from_parts(text.as_deref(), env)
+        Choice::build(text.as_deref(), ini.as_deref(), env, command_line_test)
     }
 
-    /// [`Choice::read`] on given text and environment.
+    /// [`Choice::read`] on given settings text and environment, with no `Fallout.ini`.
     pub fn from_parts(
         settings: Option<&str>,
         env: impl Fn(&str) -> Option<String>,
     ) -> Result<Choice, String> {
-        let mut choice = Choice {
-            preset: Preset::Fixes,
-            frame_limit: 0,
-            menu_frame_limit: DEFAULT_MENU_FRAME_LIMIT,
-            overrides: Vec::new(),
-            threads: PLAY_THREADS.to_string(),
-            render_thread: PLAY_RENDER_THREAD,
-        };
-        for line in settings.unwrap_or("").lines() {
-            let Some((key, value)) = line.split_once('=') else {
-                continue;
-            };
-            let key = key.trim();
-            if key.starts_with(['#', ';']) {
-                continue;
-            }
-            // The environment wins, so a file's line it overrides isn't even read (a test's pin
-            // beats a settings file above the program, whatever that holds).
-            if key.eq_ignore_ascii_case("Preset") {
-                if env("NV_PRESET").is_none() {
-                    choice.preset = parse_preset(value, "settings.ini's Preset")?;
-                }
-            } else if key.eq_ignore_ascii_case("FrameLimit") {
-                if env("NV_FRAME_LIMIT").is_some() {
-                    continue;
-                }
-                choice.frame_limit = parse_limit(value, "settings.ini's FrameLimit")?;
-            } else if key.eq_ignore_ascii_case("MenuFrameLimit") {
-                // An empty line is the default, as the launcher reads it.
-                if env("NV_MENU_FRAME_LIMIT").is_some() || value.trim().is_empty() {
-                    continue;
-                }
-                choice.menu_frame_limit = parse_limit(value, "settings.ini's MenuFrameLimit")?;
-            }
-        }
-        if let Some(value) = env("NV_FRAME_LIMIT") {
-            choice.frame_limit = parse_limit(&value, "NV_FRAME_LIMIT")?;
-        }
-        if let Some(value) = env("NV_MENU_FRAME_LIMIT") {
-            choice.menu_frame_limit = parse_limit(&value, "NV_MENU_FRAME_LIMIT")?;
-        }
+        Choice::build(settings, None, env, false)
+    }
+
+    /// [`Choice::read`] on given settings text, `Fallout.ini` text and environment.
+    pub fn from_texts(
+        settings: Option<&str>,
+        game_ini: Option<&str>,
+        env: impl Fn(&str) -> Option<String>,
+    ) -> Result<Choice, String> {
+        Choice::build(settings, game_ini, env, false)
+    }
+
+    /// The choice. Lowest to highest: the built-in default, the preset, `Fallout.ini`'s
+    /// `[nv-rs ...]` keys, then the environment. settings.ini, the fallback until it is migrated,
+    /// sits under `Fallout.ini`: a line of it that `Fallout.ini` or the environment overrides
+    /// isn't even read. `Fallout.ini` counts only in a launcher's play run ([`is_play_run`]) that
+    /// is no test, by its variables or by its command line (`command_line_test`).
+    fn build(
+        settings: Option<&str>,
+        game_ini: Option<&str>,
+        env: impl Fn(&str) -> Option<String>,
+        command_line_test: bool,
+    ) -> Result<Choice, String> {
+        let mut overrides = Vec::new();
         for fix in FIXES {
             match env(fix.env).as_deref().map(str::trim) {
                 None => {}
-                Some("1") => choice.overrides.push((fix.env, true)),
-                Some("0") => choice.overrides.push((fix.env, false)),
+                Some("1") => overrides.push((fix.env, true)),
+                Some("0") => overrides.push((fix.env, false)),
                 Some(other) => return Err(format!("{}={other}: use 0 or 1", fix.env)),
             }
         }
@@ -383,8 +428,84 @@ impl Choice {
         // real player's) gets the fixes. A test runs the game's threads stepped the same way,
         // unless its NV_THREADS names them, and without the render thread unless its
         // NV_RENDER_THREAD names it.
-        let test =
-            TEST_VARIABLES.iter().any(|name| env(name).is_some()) || !choice.overrides.is_empty();
+        let test = TEST_VARIABLES.iter().any(|name| env(name).is_some()) || !overrides.is_empty();
+        // Only a launcher's play run reads the player's `[nv-rs ...]` keys: every scripted, gated
+        // or measured run has pinned defaults and the environment only, so a player's file can
+        // never change its result (measure/ini/DESIGN.md).
+        let ini = match game_ini {
+            Some(text) if is_play_run(&env) && !test && !command_line_test => {
+                crate::game_ini::Keys::read(text)
+            }
+            _ => crate::game_ini::Keys::default(),
+        };
+        let mut choice = Choice {
+            preset: Preset::Fixes,
+            frame_limit: 0,
+            menu_frame_limit: DEFAULT_MENU_FRAME_LIMIT,
+            overrides: Vec::new(),
+            threads: PLAY_THREADS.to_string(),
+            render_thread: PLAY_RENDER_THREAD,
+            borderless: ini.borderless,
+            ini_note: ini.bad_line(),
+        };
+        for line in settings.unwrap_or("").lines() {
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            let key = key.trim();
+            if key.starts_with(['#', ';']) {
+                continue;
+            }
+            // The environment and Fallout.ini win, so a line they override isn't even read (a
+            // test's pin beats a settings file above the program, whatever that holds).
+            if key.eq_ignore_ascii_case("Preset") {
+                if env("NV_PRESET").is_none() && ini.preset.is_none() {
+                    choice.preset = parse_preset(value, "settings.ini's Preset")?;
+                }
+            } else if key.eq_ignore_ascii_case("FrameLimit") {
+                if env("NV_FRAME_LIMIT").is_some() || ini.frame_limit.is_some() {
+                    continue;
+                }
+                choice.frame_limit = parse_limit(value, "settings.ini's FrameLimit")?;
+            } else if key.eq_ignore_ascii_case("MenuFrameLimit") {
+                // An empty line is the default, as the launcher reads it.
+                if env("NV_MENU_FRAME_LIMIT").is_some()
+                    || ini.menu_frame_limit.is_some()
+                    || value.trim().is_empty()
+                {
+                    continue;
+                }
+                choice.menu_frame_limit = parse_limit(value, "settings.ini's MenuFrameLimit")?;
+            }
+        }
+        if let Some(preset) = ini.preset {
+            choice.preset = preset;
+        }
+        if let Some(limit) = ini.frame_limit {
+            choice.frame_limit = limit;
+        }
+        if let Some(limit) = ini.menu_frame_limit {
+            choice.menu_frame_limit = limit;
+        }
+        if let Some(stepped) = ini.stepped_threads {
+            choice.threads = if stepped { "stepped" } else { PLAY_THREADS }.to_string();
+        }
+        if let Some(on) = ini.render_thread {
+            choice.render_thread = on;
+        }
+        if let Some(value) = env("NV_FRAME_LIMIT") {
+            choice.frame_limit = parse_limit(&value, "NV_FRAME_LIMIT")?;
+        }
+        if let Some(value) = env("NV_MENU_FRAME_LIMIT") {
+            choice.menu_frame_limit = parse_limit(&value, "NV_MENU_FRAME_LIMIT")?;
+        }
+        // A fix's variable first, so it wins over the file's line for the same fix (`is_on`
+        // takes the first); a fix neither names follows the preset.
+        choice.overrides = overrides;
+        choice.overrides.extend(ini.fixes);
+        if let Some(value) = env("NV_BORDERLESS").filter(|v| !v.trim().is_empty()) {
+            choice.borderless = Some(value.trim() == "1");
+        }
         if test {
             choice.preset = Preset::Vanilla;
             choice.threads = "stepped".to_string();
@@ -421,7 +542,8 @@ impl Choice {
             .then_some(self.menu_frame_limit)
     }
 
-    /// Whether this fix runs: its environment variable if set, else the preset.
+    /// Whether this fix runs: its environment variable if set, else its `Fallout.ini` line
+    /// (`[nv-rs Fixes]`, not commented out), else the preset.
     pub fn is_on(&self, fix: &Fix) -> bool {
         self.overrides
             .iter()
@@ -506,6 +628,15 @@ const TEST_VARIABLES: &[&str] = &[
     "NV_TOPIC_INDEX_CHECK",
     "NV_NVSE_EVENT_LOG",
 ];
+
+/// Whether a launcher started this run for play: `NV_SETTINGS` set (Play.exe, and the play
+/// folder's Play.cmd through apply-settings.sh). No scripted, gated or measured run sets it
+/// (`NV_SAVE_OUT` is not a sign: scripts that make saves set it too). Only such a run reads
+/// `Fallout.ini`'s `[nv-rs ...]` keys, and then only when it is no test ([`TEST_VARIABLES`], a
+/// fix's own variable, a test's command line).
+pub fn is_play_run(env: impl Fn(&str) -> Option<String>) -> bool {
+    env("NV_SETTINGS").is_some()
+}
 
 /// The settings file's text: a UTF-8 byte order mark is dropped and UTF-16 (what PowerShell 5.1's
 /// `>` writes) is decoded; anything else is read as UTF-8, bad bytes replaced.
@@ -1005,6 +1136,237 @@ mod tests {
         for address in FIXES.iter().flat_map(|f| f.addresses) {
             assert!(seen.insert(*address), "{address:08x} has two owners");
         }
+    }
+
+    const PLAYER_INI: &str = "[General]\nsLanguage=ENGLISH\n\
+        [nv-rs General]\nsPreset=vanilla\n\
+        [nv-rs Display]\nbBorderless=1\niFrameLimit=90\niMenuFrameLimit=60\n\
+        [nv-rs Threads]\nbSteppedThreads=1\nbRenderThread=0\n";
+
+    /// A launcher's play run (its `NV_SETTINGS`) with these variables too.
+    fn with_ini(
+        settings: Option<&str>,
+        ini: &str,
+        pairs: &'static [(&'static str, &'static str)],
+    ) -> Choice {
+        let env = env_of(pairs);
+        let play = move |name: &str| {
+            (name == "NV_SETTINGS")
+                .then(|| "x".to_string())
+                .or(env(name))
+        };
+        Choice::from_texts(settings, Some(ini), play).unwrap()
+    }
+
+    /// Only a launcher's play run reads the file: a run with only a run setting, a preset, the
+    /// renderer or a save folder (a script making saves) named, or one its command line marks as
+    /// a test, never does.
+    #[test]
+    fn only_a_launchers_play_run_reads_fallout_ini() {
+        let reads = |pairs: &'static [(&'static str, &'static str)], command_line_test: bool| {
+            Choice::build(None, Some(PLAYER_INI), env_of(pairs), command_line_test)
+                .unwrap()
+                .borderless
+                == Some(true)
+        };
+        assert!(!reads(&[("NV_SAVE_OUT", "x")], false));
+        assert!(reads(&[("NV_SETTINGS", "x")], false));
+        assert!(reads(&[("NV_SETTINGS", "x"), ("NV_SAVE_OUT", "x")], false));
+        assert!(reads(
+            &[("NV_SETTINGS", "x"), ("NV_PRESET", "fixes")],
+            false
+        ));
+        assert!(!reads(&[], false));
+        assert!(!reads(&[("NV_PRESET", "fixes")], false));
+        assert!(!reads(&[("NV_FRAME_LIMIT", "60")], false));
+        assert!(!reads(&[("NV_THREADS", "real")], false));
+        assert!(!reads(&[("NV_RENDER_THREAD", "1")], false));
+        assert!(!reads(&[("NV_D3D9", "real"), ("NV_SOUND", "out")], false));
+        // The viewer's --movement-missing and --movement-probe, even in a play run.
+        assert!(!reads(&[("NV_SETTINGS", "x")], true));
+        let marked = Choice::build(
+            None,
+            Some(PLAYER_INI),
+            env_of(&[("NV_SETTINGS", "x")]),
+            true,
+        )
+        .unwrap();
+        assert_eq!(marked, Choice::from_parts(None, no_env).unwrap());
+        assert!(is_play_run(env_of(&[("NV_SETTINGS", "")])));
+        assert!(!is_play_run(env_of(&[("NV_SAVE_OUT", "x")])));
+        assert!(!is_play_run(env_of(&[("NV_D3D9", "real")])));
+    }
+
+    /// Play.exe passes Fallout.ini's player switches only when the game would read the file, so
+    /// its list of what makes a test must be the host's (scripts/launcher/src/settings.rs).
+    #[test]
+    fn the_launcher_knows_what_makes_a_test() {
+        let launcher = include_str!("../../../scripts/launcher/src/settings.rs");
+        let list = launcher
+            .split("pub const TEST_SWITCHES")
+            .nth(1)
+            .and_then(|rest| rest.split("];").next())
+            .expect("TEST_SWITCHES in the launcher's settings.rs");
+        let names: Vec<&str> = list
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .filter(|w| w.starts_with("NV_"))
+            .collect();
+        let mut host: Vec<&str> = TEST_VARIABLES.to_vec();
+        host.extend(FIXES.iter().map(|f| f.env));
+        host.sort_unstable();
+        let mut names = names;
+        names.sort_unstable();
+        assert_eq!(names, host);
+    }
+
+    /// Fallout.ini's keys over the built-in defaults; nothing in the file is the defaults.
+    #[test]
+    fn fallout_ini_sets_the_player_options() {
+        let choice = with_ini(None, PLAYER_INI, &[]);
+        assert_eq!(choice.preset, Preset::Vanilla);
+        assert_eq!(choice.borderless, Some(true));
+        assert_eq!(choice.frame_limit, 90);
+        assert_eq!(choice.menu_frame_limit, 60);
+        assert_eq!(choice.threads, "stepped");
+        assert!(!choice.render_thread);
+        assert_eq!(choice.ini_note, None);
+        let plain = with_ini(None, "[General]\nbUseThreadedAI=1\n", &[]);
+        assert_eq!(plain, Choice::from_parts(None, no_env).unwrap());
+        assert_eq!(plain.borderless, None);
+        let real = with_ini(None, "[nv-rs Threads]\nbSteppedThreads=0\n", &[]);
+        assert_eq!(real.threads, PLAY_THREADS);
+    }
+
+    /// Lowest to highest: default, preset, settings.ini (the fallback), Fallout.ini, environment.
+    #[test]
+    fn the_environment_beats_fallout_ini_which_beats_settings_ini() {
+        let settings = "Preset=fixes\nFrameLimit=30\nMenuFrameLimit=45\n";
+        let choice = with_ini(Some(settings), PLAYER_INI, &[]);
+        assert_eq!(choice.preset, Preset::Vanilla);
+        assert_eq!((choice.frame_limit, choice.menu_frame_limit), (90, 60));
+        // settings.ini still decides what Fallout.ini doesn't say.
+        let choice = with_ini(Some(settings), "[nv-rs Display]\niFrameLimit=90\n", &[]);
+        assert_eq!(choice.preset, Preset::Fixes);
+        assert_eq!((choice.frame_limit, choice.menu_frame_limit), (90, 45));
+        // A settings.ini line Fallout.ini overrides isn't read, so it can't stop the start.
+        let choice = with_ini(Some("Preset=banana\nFrameLimit=fast\n"), PLAYER_INI, &[]);
+        assert_eq!(choice.preset, Preset::Vanilla);
+        // The environment over the file, key by key.
+        let choice = with_ini(
+            None,
+            PLAYER_INI,
+            &[
+                ("NV_PRESET", "fixes"),
+                ("NV_FRAME_LIMIT", "144"),
+                ("NV_MENU_FRAME_LIMIT", "0"),
+                ("NV_THREADS", "real"),
+                ("NV_RENDER_THREAD", "1"),
+                ("NV_BORDERLESS", "0"),
+            ],
+        );
+        assert_eq!(choice.preset, Preset::Fixes);
+        assert_eq!((choice.frame_limit, choice.menu_frame_limit), (144, 0));
+        assert_eq!(choice.threads, "real");
+        assert!(choice.render_thread);
+        assert_eq!(choice.borderless, Some(false));
+        // An empty variable says nothing; the file decides.
+        let choice = with_ini(None, PLAYER_INI, &[("NV_BORDERLESS", "")]);
+        assert_eq!(choice.borderless, Some(true));
+        let choice = Choice::from_parts(None, env_of(&[("NV_BORDERLESS", "1")])).unwrap();
+        assert_eq!(choice.borderless, Some(true));
+    }
+
+    /// A commented fix line leaves the preset deciding; an uncommented one overrides that fix
+    /// alone, under either preset; the fix's variable beats the line.
+    #[test]
+    fn a_fix_line_overrides_its_row_only_when_uncommented() {
+        let commented = "[nv-rs Fixes]\n;bGrabPush=0\n;bUncap=1\n";
+        let choice = with_ini(None, commented, &[]);
+        assert!(FIXES.iter().all(|f| choice.is_on(f)));
+        let vanilla = format!("[nv-rs General]\nsPreset=vanilla\n{commented}");
+        let choice = with_ini(None, &vanilla, &[]);
+        assert!(FIXES.iter().all(|f| !choice.is_on(f)));
+
+        let off = with_ini(None, "[nv-rs Fixes]\nbGrabPush=0\n", &[]);
+        assert!(!off.is_on(&crate::uncap::GRAB_FIX));
+        assert!(off.is_on(&crate::uncap::FIX));
+        assert_eq!(off.preset, Preset::Fixes, "a player's line is not a test");
+        assert_eq!(off.threads, PLAY_THREADS);
+        let on = with_ini(
+            None,
+            "[nv-rs General]\nsPreset=vanilla\n[nv-rs Fixes]\nbUncap=1\n",
+            &[],
+        );
+        assert!(on.is_on(&crate::uncap::FIX));
+        assert!(!on.is_on(&crate::uncap::PHYSICS_FIX));
+        // The variable wins over the line (it also makes the run a test, which then names its
+        // preset).
+        let pinned = with_ini(
+            None,
+            "[nv-rs Fixes]\nbGrabPush=0\n",
+            &[("NV_PRESET", "fixes"), ("NV_GRAB_PUSH", "1")],
+        );
+        assert!(pinned.is_on(&crate::uncap::GRAB_FIX));
+        // A value it can't use: the preset decides and the one log line names it.
+        let bad = with_ini(None, "[nv-rs Fixes]\nbGrabPush=off\n", &[]);
+        assert!(bad.is_on(&crate::uncap::GRAB_FIX));
+        assert_eq!(
+            bad.ini_note.as_deref(),
+            Some("Fallout.ini's nv-rs settings: not used, the default instead: bGrabPush=off")
+        );
+    }
+
+    /// A scripted or measured run never reads the player's [nv-rs ...] keys: the same choice as
+    /// with no file at all, whatever the file says (a fix line included).
+    #[test]
+    fn a_test_run_ignores_the_players_fallout_ini() {
+        let ini = format!("{PLAYER_INI}[nv-rs Fixes]\nbUncap=1\nbGrabPush=1\n");
+        for name in TEST_VARIABLES {
+            for pairs in [
+                vec![(*name, "x")],
+                vec![(*name, "x"), ("NV_PRESET", "fixes")],
+            ] {
+                let pairs: &'static [(&str, &str)] = Box::leak(pairs.into_boxed_slice());
+                let with = with_ini(None, &ini, pairs);
+                let without = Choice::from_parts(None, env_of(pairs)).unwrap();
+                assert_eq!(with, without, "{name}");
+                assert_eq!(with.borderless, None, "{name}");
+            }
+        }
+        // A single fix's variable makes a test too.
+        let with = with_ini(None, &ini, &[("NV_UNCAP", "1")]);
+        assert_eq!(with.preset, Preset::Vanilla);
+        assert!(!with.is_on(&crate::uncap::GRAB_FIX));
+        assert_eq!(with.frame_limit, 0);
+        assert_eq!(with.threads, "stepped");
+        // The launcher's own variables don't.
+        let play = with_ini(None, &ini, &[("NV_SAVE_OUT", "x"), ("NV_D3D9", "real")]);
+        assert_eq!(play.preset, Preset::Vanilla);
+        assert_eq!(play.frame_limit, 90);
+        assert!(play.is_on(&crate::uncap::FIX));
+    }
+
+    /// The file is read where the run's Documents are; a missing or unreadable one is passed
+    /// over, never a stop.
+    #[test]
+    fn fallout_ini_from_disk() {
+        let dir = std::env::temp_dir().join(format!("nv-fixes-game-ini-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("Fallout.ini");
+        let mut bytes = vec![0xef, 0xbb, 0xbf];
+        bytes.extend_from_slice(b"[nv-rs General]\r\nsPreset=vanilla\r\n");
+        std::fs::write(&file, bytes).unwrap();
+        let play = env_of(&[("NV_SETTINGS", "x")]);
+        let choice = Choice::from_files(None, Some(&file), &play).unwrap();
+        assert_eq!(choice.preset, Preset::Vanilla);
+        let missing = Choice::from_files(None, Some(&dir.join("missing.ini")), &play).unwrap();
+        assert_eq!(missing.preset, Preset::Fixes);
+        // A folder where the file should be: it can't be read, and the start goes on.
+        let folder = Choice::from_files(None, Some(&dir), &play).unwrap();
+        assert_eq!(folder.preset, Preset::Fixes);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
