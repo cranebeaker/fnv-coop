@@ -655,7 +655,7 @@ impl World {
         let mut e = template.thread_context(ctx);
         e.mem.set_view_thread(id);
         if self.dump.is_some() {
-            e.call_hook = Some(record_call);
+            e.set_call_hook(Some(record_call));
         }
         e
     }
@@ -946,7 +946,7 @@ pub fn start(e: &mut Engine) -> Result<(), String> {
     }));
     e.mem.set_view_thread(MAIN_THREAD_ID);
     if world.dump.is_some() {
-        e.call_hook = Some(record_call);
+        e.set_call_hook(Some(record_call));
     }
     let template = {
         let ctx = e.real.as_ref().map(|r| r.for_thread(0, 0));
@@ -970,16 +970,16 @@ fn diagnostic_on(e: &Engine) -> Option<&'static str> {
     if crate::profile::on() {
         return Some("the profile (NV_PROFILE)");
     }
-    if e.call_trace.is_some() {
+    if e.call_trace().is_some() {
         return Some("an nv-trace record (NV_TRACE_OUT)");
     }
-    if e.trace.is_some() {
+    if e.trace().is_some() {
         return Some("the return trace (NV_MOVE_TRACE)");
     }
     if e.call_log.is_some()
-        || e.call_budget.is_some()
-        || e.call_counts.is_some()
-        || e.call_hook.is_some()
+        || e.call_budget().is_some()
+        || e.call_counts().is_some()
+        || e.call_hook().is_some()
         || e.free_hook.is_some()
     {
         return Some("a per-call diagnostic");

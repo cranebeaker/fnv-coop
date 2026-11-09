@@ -6819,9 +6819,9 @@ fn rotated_offsets(
     size: u32,
     kinds: &[bool; 12],
 ) -> ([u32; 3], [u32; 3]) {
-    let (sin, cos) = x87_fsincos(X87Ext::load32(angle));
-    let sin = x87_load32(sin.store32());
-    let cos = x87_load32(cos.store32());
+    let (sin, cos) = x87_fsincos32(angle);
+    let sin = x87_load32(sin);
+    let cos = x87_load32(cos);
     let size = x87_load32(size);
     let a = x87_load32(x87_store32(x87_mul(x87_add(sin, cos), size)));
     let b = x87_load32(x87_store32(x87_mul(x87_sub(cos, sin), size)));

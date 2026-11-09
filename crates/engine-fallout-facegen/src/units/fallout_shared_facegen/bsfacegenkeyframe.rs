@@ -1354,8 +1354,8 @@ pub mod speech_check {
         st.installed = true;
         st.pool_head = word(e, POOL_FREE_HEAD);
         POOL_SEEN.store(st.pool_head, Ordering::Relaxed);
-        set_previous_hook(e.call_hook);
-        e.call_hook = Some(on_call);
+        set_previous_hook(e.call_hook());
+        e.set_call_hook(Some(on_call));
         e.free_hook = Some(on_free);
     }
 
@@ -2129,7 +2129,7 @@ pub mod speech_check {
     /// Prints what was found and stops the run.
     fn stop(e: &mut Engine, v: Violation) -> ! {
         // The check must not run again while the run unwinds.
-        e.call_hook = previous_hook();
+        e.set_call_hook(previous_hook());
         e.free_hook = None;
         let mut out = String::new();
         let _ = writeln!(out, "speech: {}", v.summary);
@@ -2502,7 +2502,7 @@ pub mod speech_check {
         fn a_second_install_never_calls_the_check_on_from_itself() {
             let _serial = serial();
             let (mut e, face) = engine(EVENTS);
-            assert!(e.call_hook.is_some());
+            assert!(e.call_hook().is_some());
             // As a fresh state (another thread's, before the fix) would install again.
             *lock_state() = None;
             track_face(&mut e, face);
@@ -2536,9 +2536,9 @@ pub mod speech_check {
             force(EVENTS);
             let (mut e, face) = {
                 let mut e = Engine::new();
-                e.call_hook = Some(earlier_hook);
+                e.set_call_hook(Some(earlier_hook));
                 let (mut checked, face) = engine(EVENTS);
-                checked.call_hook = e.call_hook.take();
+                checked.set_call_hook(e.take_call_hook());
                 checked.free_hook = None;
                 // Installed afresh over the earlier hook.
                 *lock_state() = None;

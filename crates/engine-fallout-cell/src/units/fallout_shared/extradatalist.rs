@@ -2248,8 +2248,7 @@ pub fn fn_004169a0(e: &mut Engine, angle: f32, sine: Ptr, cosine: Ptr) {
     let (sine_slot, cosine_slot) = if loaded.is_finite() && loaded.abs() >= TWO_POW_63 {
         (0xffc0_0000, x87_store32(loaded))
     } else {
-        let (sin, cos) = x87_fsincos(X87Ext::load32(bits));
-        (sin.store32(), cos.store32())
+        x87_fsincos32(bits)
     };
     e.mem.set_u32(sine.addr(), x87_quiet_bits(sine_slot));
     e.mem.set_u32(cosine.addr(), x87_quiet_bits(cosine_slot));

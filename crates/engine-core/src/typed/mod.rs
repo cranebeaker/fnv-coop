@@ -343,7 +343,7 @@ impl Engine {
         if let Some(log) = &mut self.call_log {
             log.push((addr, words.to_vec()));
         }
-        if let Some(hook) = self.call_hook {
+        if let Some(hook) = self.call_hook() {
             self.typed.noting = true;
             hook(self, addr, false);
             self.typed.noting = false;
@@ -679,7 +679,7 @@ mod tests {
         assert_eq!(e.typed.direct, FAMILY.bit());
         assert!(e.typed_direct(FAMILY, LEAF));
 
-        e.call_hook = Some(hook);
+        e.set_call_hook(Some(hook));
         // A test build sees it at once; the flag itself moves at the next call by address. A build
         // without debug assertions (`cargo test --release`) still reads the flag alone here.
         assert_eq!(e.typed_direct(FAMILY, LEAF), !cfg!(debug_assertions));
@@ -687,7 +687,7 @@ mod tests {
         e.call(OTHER, &[1]);
         assert_eq!(e.typed.direct, 0);
 
-        e.call_hook = None;
+        e.set_call_hook(None);
         // Stays by address (always right) until the full path runs again: a cache miss.
         e.register(0x0040_1030, |_, _| Ret::default());
         assert_eq!(e.typed.direct, 0);
@@ -703,9 +703,9 @@ mod tests {
             assert_eq!(e.typed.direct, 0);
         };
         count_each(|e| e.call_log = Some(vec![]));
-        count_each(|e| e.call_budget = Some(u64::MAX));
-        count_each(|e| e.call_counts = Some(Default::default()));
-        count_each(|e| e.trace = Some(Default::default()));
+        count_each(|e| e.set_call_budget(Some(u64::MAX)));
+        count_each(|e| e.set_call_counts(Some(Default::default())));
+        count_each(|e| e.set_trace(Some(Default::default())));
         count_each(|e| e.mem.enable_block_check(false, false));
     }
 
@@ -714,7 +714,7 @@ mod tests {
     #[test]
     fn a_diagnostic_on_at_start_keeps_the_flag_clear() {
         let mut e = engine(typed());
-        e.trace = Some(Default::default());
+        e.set_trace(Some(Default::default()));
         apply_families(&mut e, &[&STAND_IN], Some("stand_in"));
         assert_eq!(e.typed.direct, 0);
     }

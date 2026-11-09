@@ -144,25 +144,31 @@ thread_local! {
 /// of the slot's place in the thread's environment block, one load through `GS`. The slot holds
 /// the word XOR [`DEFAULT_CONTROL_WORD`], so a thread that never set it (its slot reads 0) reads
 /// the default, as the `thread_local!` did.
+#[cfg(all(windows, target_arch = "x86_64"))]
 #[inline(always)]
 pub fn control_word() -> u16 {
-    #[cfg(all(windows, target_arch = "x86_64"))]
-    {
-        let at = tls::SLOT_AT.load(std::sync::atomic::Ordering::Relaxed);
-        if at != 0 {
-            // SAFETY: `at` is the offset of this thread's slot of the TLS index [`tls::slot`]
-            // allocated (below 64: `TEB.TlsSlots`); the read only loads it.
-            return unsafe { tls::read(at) } ^ DEFAULT_CONTROL_WORD;
-        }
+    let at = tls::SLOT_AT.load(std::sync::atomic::Ordering::Relaxed);
+    if at != 0 {
+        // SAFETY: `at` is the offset of this thread's slot of the TLS index [`tls::slot`]
+        // allocated (below 64: `TEB.TlsSlots`); the read only loads it.
+        return unsafe { tls::read(at) } ^ DEFAULT_CONTROL_WORD;
     }
     control_word_slow()
 }
 
+/// The x87 control word the arithmetic helpers round with: the running game thread's (`FSTCW`).
+/// Other targets keep the `thread_local!`, read here directly.
+#[cfg(not(all(windows, target_arch = "x86_64")))]
+#[inline]
+pub fn control_word() -> u16 {
+    CONTROL_WORD.with(|c| c.get())
+}
+
 /// [`control_word`] before the slot is made (it is made here), and without one.
+#[cfg(all(windows, target_arch = "x86_64"))]
 #[cold]
 #[inline(never)]
 fn control_word_slow() -> u16 {
-    #[cfg(all(windows, target_arch = "x86_64"))]
     if let Some(at) = tls::slot() {
         // SAFETY: as in `control_word`.
         return unsafe { tls::read(at) } ^ DEFAULT_CONTROL_WORD;
@@ -403,6 +409,11 @@ fn single_sum(a: f64, b: f64, s: f64, rounding: u16) -> f64 {
     if let Some(r) = single_fast(s, rounding) {
         return r;
     }
+    // An exact zero to nearest (`x - x`, common): the `f64` sum is the answer, as
+    // [`single_sum_exact`] gives it, without the call.
+    if s == 0.0 && rounding == ROUND_NEAREST {
+        return s;
+    }
     single_sum_exact(a, b, s, rounding)
 }
 
@@ -459,7 +470,10 @@ pub fn x87_sub(a: f64, b: f64) -> f64 {
 
 /// x87 `FMUL`: `a * b` with the x87 choice of NaN, rounded to the precision of
 /// the control word.
-#[inline]
+///
+/// Always inlined (it is in most float code of the engine crates; a call to it cost about
+/// 0.15 ms of a town frame), with the exact rounding out of line ([`mul_exact`]).
+#[inline(always)]
 pub fn x87_mul(a: f64, b: f64) -> f64 {
     if let Some(nan) = nan_result(a, b) {
         return nan;
@@ -472,19 +486,26 @@ pub fn x87_mul(a: f64, b: f64) -> f64 {
             if let Some(r) = single_fast(s, rounding) {
                 return r;
             }
-            // `a * b - s`, exactly. Near the bottom of the f64 range the
-            // residual would underflow and lose its sign: then the smaller
-            // operand and `s` are scaled up by 2^200 first (exactly).
-            let (small, big) = if a.abs() < b.abs() { (a, b) } else { (b, a) };
-            let error = if s.abs() < TINY {
-                (small * scale_up()).mul_add(big, -(s * scale_up()))
-            } else {
-                small.mul_add(big, -s)
-            };
-            round_to_single(s, sign_of(error), rounding)
+            mul_exact(a, b, s, rounding)
         }
         _ => s,
     }
+}
+
+/// [`x87_mul`]'s 24-bit rounding of `s = a * b` (finite, not zero) from the exact product.
+#[cold]
+#[inline(never)]
+fn mul_exact(a: f64, b: f64, s: f64, rounding: u16) -> f64 {
+    // `a * b - s`, exactly. Near the bottom of the f64 range the
+    // residual would underflow and lose its sign: then the smaller
+    // operand and `s` are scaled up by 2^200 first (exactly).
+    let (small, big) = if a.abs() < b.abs() { (a, b) } else { (b, a) };
+    let error = if s.abs() < TINY {
+        (small * scale_up()).mul_add(big, -(s * scale_up()))
+    } else {
+        small.mul_add(big, -s)
+    };
+    round_to_single(s, sign_of(error), rounding)
 }
 
 /// x87 `FDIV`: `a / b` with the x87 choice of NaN, rounded to the precision of
@@ -851,6 +872,15 @@ pub fn x87_fsincos(x: X87Ext) -> (X87Ext, X87Ext) {
     imp::fsincos(x)
 }
 
+/// `FLD dword`, `FSINCOS`, `FSTP dword` twice: the sine and cosine of the float with the bit
+/// pattern `bits`, each stored as a float, as `(sine, cosine)` bits. The same as
+/// `x87_fsincos(X87Ext::load32(bits))` with both stored by [`X87Ext::store32`], in one run on
+/// the FPU instead of four.
+#[inline]
+pub fn x87_fsincos32(bits: u32) -> (u32, u32) {
+    imp::fsincos32(bits)
+}
+
 /// `FPTAN`: the tangent of ST0 (the 1.0 the instruction then pushes is not
 /// returned: the exe pops it). An operand out of range stops as
 /// [`x87_fsincos`] does.
@@ -1096,18 +1126,47 @@ mod hw {
     }
 
     /// Runs the instructions on `$frame` under its control word: saves the
-    /// host's control word, loads the frame's, runs them, then `FNINIT` (an
-    /// empty register stack and cleared flags, whatever the instructions left)
-    /// and the host's control word again.
+    /// host's control word, loads the frame's, runs them, then loads the host's
+    /// control word again. The instructions pop everything they push, so the
+    /// register stack is empty after them as before (an `FNINIT` here, which
+    /// cost more than the rest of a load or store, did that until 2026-11-08).
+    /// The exception flags they raise stay set in the status word: every
+    /// exception is masked, so they trap nowhere, and the helpers that read the
+    /// status word take only the condition codes their instruction sets (C2 of
+    /// `FSINCOS` and `FPTAN`, C0 C2 C3 of `FCOM`) or start from a clean one
+    /// ([`run_clean`]).
     macro_rules! run {
         ($frame:expr, $($code:literal),+ $(,)?) => {
             // SAFETY: the instructions read and write only the frame (through
-            // the pointer in `f`), leave the x87 stack empty (FNINIT) and the
-            // host's control word as it was; every x87 register is declared
-            // clobbered.
+            // the pointer in `f`), leave the x87 stack empty (each push is
+            // popped) and the host's control word as it was; every x87 register
+            // is declared clobbered.
             unsafe {
                 core::arch::asm!(
                     "fnstcw word ptr [{f} + 42]",
+                    "fldcw word ptr [{f} + 40]",
+                    $($code,)+
+                    "fldcw word ptr [{f} + 42]",
+                    f = in(reg) core::ptr::addr_of_mut!($frame),
+                    out("st(0)") _, out("st(1)") _, out("st(2)") _, out("st(3)") _,
+                    out("st(4)") _, out("st(5)") _, out("st(6)") _, out("st(7)") _,
+                    options(nostack),
+                )
+            }
+        };
+    }
+
+    /// [`run`] from a clean FPU, for an instruction whose whole status word is returned
+    /// (`FPREM`, `FPREM1`): `FNINIT` before (no flag an earlier helper raised, the stack's top
+    /// at 0) and after.
+    macro_rules! run_clean {
+        ($frame:expr, $($code:literal),+ $(,)?) => {
+            // SAFETY: as `run`; FNINIT empties the register stack whatever the
+            // instructions leave on it.
+            unsafe {
+                core::arch::asm!(
+                    "fnstcw word ptr [{f} + 42]",
+                    "fninit",
                     "fldcw word ptr [{f} + 40]",
                     $($code,)+
                     "fninit",
@@ -1119,6 +1178,25 @@ mod hw {
                 )
             }
         };
+    }
+
+    /// The FPU as `FNINIT` leaves it, with the host's control word kept: after an instruction
+    /// that pushed nothing ([`check_pushed`]), whose block popped a register it did not have.
+    #[cold]
+    fn reset() {
+        let mut word = 0u16;
+        // SAFETY: stores and loads the control word through `word`; FNINIT empties the stack.
+        unsafe {
+            core::arch::asm!(
+                "fnstcw word ptr [{w}]",
+                "fninit",
+                "fldcw word ptr [{w}]",
+                w = in(reg) core::ptr::addr_of_mut!(word),
+                out("st(0)") _, out("st(1)") _, out("st(2)") _, out("st(3)") _,
+                out("st(4)") _, out("st(5)") _, out("st(6)") _, out("st(7)") _,
+                options(nostack),
+            )
+        }
     }
 
     fn word8(bytes: &[u8]) -> [u8; 8] {
@@ -1179,11 +1257,20 @@ mod hw {
 
     /// Stops when C2 says the operand was out of range: the instruction
     /// pushed nothing.
-    fn check_pushed(name: &str, x: X87Ext, status: u16) {
-        assert!(
-            status & super::X87_STATUS_C2 == 0,
-            "{name} of {x:?}: operand out of range (|x| >= 2^63), nothing pushed"
-        );
+    #[inline]
+    fn check_pushed(name: &str, x: impl FnOnce() -> X87Ext, status: u16) {
+        if status & super::X87_STATUS_C2 != 0 {
+            out_of_range(name, x())
+        }
+    }
+
+    /// [`check_pushed`]'s stop. The block popped one register more than there was: the FPU is
+    /// reset first, for a run that catches the stop and goes on.
+    #[cold]
+    #[inline(never)]
+    fn out_of_range(name: &str, x: X87Ext) -> ! {
+        reset();
+        panic!("{name} of {x:?}: operand out of range (|x| >= 2^63), nothing pushed")
     }
 
     pub fn fsincos(x: X87Ext) -> (X87Ext, X87Ext) {
@@ -1196,8 +1283,28 @@ mod hw {
             "fstp tbyte ptr [{f} + 30]",
             "fstp tbyte ptr [{f} + 20]",
         );
-        check_pushed("FSINCOS", x, f.status);
+        check_pushed("FSINCOS", || x, f.status);
         (X87Ext(f.r0), X87Ext(f.r1))
+    }
+
+    /// `FLD dword`, `FSINCOS`, then `FSTP dword` of the cosine and of the sine, in one block:
+    /// the same bits as [`load32`], [`fsincos`] and two [`store32`]s (an `FSTP tbyte` and `FLD
+    /// tbyte` in between is exact), one control-word switch instead of four.
+    pub fn fsincos32(bits: u32) -> (u32, u32) {
+        let mut a = [0u8; 10];
+        a[..4].copy_from_slice(&bits.to_le_bytes());
+        let mut f = frame(a, [0; 10]);
+        run!(
+            f,
+            "fld dword ptr [{f}]",
+            "fsincos",
+            "fnstsw word ptr [{f} + 44]",
+            "fstp dword ptr [{f} + 30]",
+            "fstp dword ptr [{f} + 20]",
+        );
+        check_pushed("FSINCOS", || load32(bits), f.status);
+        let word = |r: [u8; 10]| u32::from_le_bytes([r[0], r[1], r[2], r[3]]);
+        (word(f.r0), word(f.r1))
     }
 
     pub fn fptan(x: X87Ext) -> X87Ext {
@@ -1210,7 +1317,7 @@ mod hw {
             "fstp tbyte ptr [{f} + 30]",
             "fstp tbyte ptr [{f} + 20]",
         );
-        check_pushed("FPTAN", x, f.status);
+        check_pushed("FPTAN", || x, f.status);
         X87Ext(f.r0)
     }
 
@@ -1269,6 +1376,7 @@ mod hw {
             "fld tbyte ptr [{f}]",
             "fscale",
             "fstp tbyte ptr [{f} + 20]",
+            "fstp st(0)",
         );
         X87Ext(f.r0)
     }
@@ -1286,7 +1394,7 @@ mod hw {
 
     pub fn fprem(x: X87Ext, y: X87Ext) -> (X87Ext, u16) {
         let mut f = frame(x.0, y.0);
-        run!(
+        run_clean!(
             f,
             "fld tbyte ptr [{f} + 10]",
             "fld tbyte ptr [{f}]",
@@ -1299,7 +1407,7 @@ mod hw {
 
     pub fn fprem1(x: X87Ext, y: X87Ext) -> (X87Ext, u16) {
         let mut f = frame(x.0, y.0);
-        run!(
+        run_clean!(
             f,
             "fld tbyte ptr [{f} + 10]",
             "fld tbyte ptr [{f}]",
@@ -1331,6 +1439,7 @@ mod hw {
             "fld tbyte ptr [{f}]",
             ".byte 0xd8, 0xc1",
             "fstp tbyte ptr [{f} + 20]",
+            "fstp st(0)",
         );
         X87Ext(f.r0)
     }
@@ -1343,6 +1452,7 @@ mod hw {
             "fld tbyte ptr [{f}]",
             ".byte 0xd8, 0xe1",
             "fstp tbyte ptr [{f} + 20]",
+            "fstp st(0)",
         );
         X87Ext(f.r0)
     }
@@ -1355,6 +1465,7 @@ mod hw {
             "fld tbyte ptr [{f}]",
             ".byte 0xd8, 0xc9",
             "fstp tbyte ptr [{f} + 20]",
+            "fstp st(0)",
         );
         X87Ext(f.r0)
     }
@@ -1367,6 +1478,7 @@ mod hw {
             "fld tbyte ptr [{f}]",
             ".byte 0xd8, 0xf1",
             "fstp tbyte ptr [{f} + 20]",
+            "fstp st(0)",
         );
         X87Ext(f.r0)
     }
@@ -1390,6 +1502,8 @@ mod hw {
             "fld tbyte ptr [{f}]",
             ".byte 0xd8, 0xd1",
             "fnstsw word ptr [{f} + 44]",
+            "fstp st(0)",
+            "fstp st(0)",
         );
         f.status
     }
@@ -1497,6 +1611,11 @@ mod soft {
 
     pub fn fsincos(x: X87Ext) -> (X87Ext, X87Ext) {
         (fsin(x), fcos(x))
+    }
+
+    pub fn fsincos32(bits: u32) -> (u32, u32) {
+        let (sine, cosine) = fsincos(load32(bits));
+        (store32(sine), store32(cosine))
     }
 
     pub fn fptan(x: X87Ext) -> X87Ext {
@@ -2620,5 +2739,244 @@ mod tests {
             parts(0x027f, X87Constant::LnTwo),
             (0x3ffe, 0xb172_17f7_d1cf_79ac)
         );
+    }
+
+    // ---- The fast paths of 2026-11-08 (core speed) ----
+
+    /// Random `f64` bit patterns with the special classes mixed in: zeros, denormals, infinities,
+    /// quiet and signalling NaNs, floats, and values near the ends of `f32`'s range.
+    fn operands(n: usize, seed: u64) -> Vec<f64> {
+        let mut state = seed;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let specials = [
+            0.0,
+            -0.0,
+            f64::from_bits(1),
+            -f64::from_bits(0x000f_ffff_ffff_ffff),
+            f64::MIN_POSITIVE,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::from_bits(0x7ff8_0000_0000_1234),
+            f64::from_bits(0xfff0_0000_0000_0001),
+            1.0,
+            -1.5,
+            f64::from(f32::MAX),
+            f64::from(f32::MIN_POSITIVE),
+            f64::from(f32::from_bits(1)),
+        ];
+        (0..n)
+            .map(|i| match i % 4 {
+                0 => specials[(next() % specials.len() as u64) as usize],
+                1 => f64::from(f32::from_bits(next() as u32)),
+                2 => f64::from_bits(next()),
+                _ => {
+                    f64::from_bits(next() & 0x3fff_ffff_ffff_ffff | 0x3800_0000_0000_0000)
+                        * if next() & 1 == 0 { 1.0 } else { -1.0 }
+                }
+            })
+            .collect()
+    }
+
+    /// The control words the arithmetic tests run under: 24-bit precision in the four rounding
+    /// modes, 53-bit to nearest (the modelled ones).
+    const WORDS: [u16; 5] = [0x007f, 0x047f, 0x087f, 0x0c7f, 0x027f];
+
+    /// The FPU's own `FADD`/`FSUB`/`FMUL` of two doubles under the running control word, stored
+    /// as a double: what the helpers model, for a result inside the double range.
+    fn fpu(op: fn(X87Ext, X87Ext) -> X87Ext, a: f64, b: f64) -> f64 {
+        op(X87Ext::load64(a), X87Ext::load64(b)).store64()
+    }
+
+    /// Whether `r` is inside the model: a NaN, a zero, or a normal double (the module comment).
+    fn modelled(r: f64) -> bool {
+        r.is_nan() || r == 0.0 || (r.is_finite() && r.abs() >= f64::MIN_POSITIVE)
+    }
+
+    /// An exact zero sum to nearest takes the inline path with the exact path's answer, and
+    /// every zero, denormal, infinite and NaN sum is the FPU's, in each rounding mode at 24 bits
+    /// and to nearest at 53.
+    #[test]
+    fn zero_and_special_sums_are_the_exact_paths_and_the_fpus() {
+        for rounding in [ROUND_NEAREST, ROUND_DOWN, ROUND_UP, ROUNDING_CONTROL] {
+            for (a, b) in [
+                (1.5, -1.5),
+                (-1.5, 1.5),
+                (0.0, 0.0),
+                (-0.0, -0.0),
+                (0.0, -0.0),
+                (-0.0, 0.0),
+                (f64::from_bits(1), -f64::from_bits(1)),
+                (f64::MAX, -f64::MAX),
+            ] {
+                let s = a + b;
+                assert_eq!(
+                    single_sum(a, b, s, rounding).to_bits(),
+                    single_sum_exact(a, b, s, rounding).to_bits(),
+                    "{a:e} + {b:e} rounding {rounding:#x}"
+                );
+            }
+        }
+        let values = operands(400, 0x5851_f42d_4c95_7f2d);
+        for word in WORDS {
+            with_word(word, || {
+                for &a in &values {
+                    for b in [a, -a, 0.0, -0.0, values[(a.to_bits() % 400) as usize]] {
+                        let (qa, qb) = (x87_load64(a.to_bits()), x87_load64(b.to_bits()));
+                        for (name, ours, op) in [
+                            ("add", x87_add(qa, qb), x87_fadd as fn(_, _) -> _),
+                            ("sub", x87_sub(qa, qb), x87_fsub),
+                        ] {
+                            let theirs = fpu(op, a, b);
+                            if modelled(ours) && modelled(theirs) {
+                                assert_eq!(
+                                    ours.to_bits(),
+                                    theirs.to_bits(),
+                                    "{word:#06x} {name} {a:e} {b:e}"
+                                );
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    /// `x87_mul` (its fast path inlined, the exact rounding out of line) is the FPU's `FMUL` for
+    /// random, special, denormal and NaN operands, in each rounding mode at 24 bits and to
+    /// nearest at 53; and its exact path is reached and agrees.
+    #[test]
+    fn products_are_the_fpus() {
+        let values = operands(3000, 0x2545_f491_4f6c_dd1d);
+        let mut compared = 0;
+        for word in WORDS {
+            with_word(word, || {
+                for (i, &a) in values.iter().enumerate() {
+                    for &b in &values[i % 7..][..40] {
+                        let ours = x87_mul(x87_load64(a.to_bits()), x87_load64(b.to_bits()));
+                        let theirs = fpu(x87_fmul, a, b);
+                        if modelled(ours) && modelled(theirs) {
+                            assert_eq!(
+                                ours.to_bits(),
+                                theirs.to_bits(),
+                                "{word:#06x} {a:e} * {b:e}"
+                            );
+                            compared += 1;
+                        }
+                    }
+                }
+            });
+        }
+        assert!(compared > 100_000, "{compared} products compared");
+        // A product whose `f64` lies exactly halfway between two 24-bit values (the fast path's
+        // exception) goes out of line and rounds by the sign of the exact error: 3 times the
+        // double nearest (1 + 2^-24) / 3 is 1 + 2^-24 in `f64`, a little off it exactly.
+        for word in WORDS {
+            with_word(word, || {
+                for k in [3.0, 5.0, 7.0, -3.0] {
+                    let a = k;
+                    let b = (1.0 + 2f64.powi(-24)) / k;
+                    assert_eq!((a * b).abs(), 1.0 + 2f64.powi(-24));
+                    assert!(single_fast(a * b, ROUND_NEAREST).is_none());
+                    assert_eq!(
+                        x87_mul(a, b).to_bits(),
+                        fpu(x87_fmul, a, b).to_bits(),
+                        "{word:#06x} {a} * {b:e}"
+                    );
+                }
+            });
+        }
+    }
+
+    /// `x87_fsincos32` stores what `FLD dword`, `FSINCOS` and two `FSTP dword` give one by one,
+    /// for every class of float, in each rounding mode.
+    #[test]
+    fn the_fused_sine_and_cosine_are_the_four_steps() {
+        let mut bits: Vec<u32> = operands(4000, 0x9e37_79b9_7f4a_7c15)
+            .into_iter()
+            .map(|v| v.to_bits() as u32 ^ (v.to_bits() >> 32) as u32)
+            .collect();
+        bits.extend([
+            0,
+            0x8000_0000,
+            1,
+            0x7f80_0000,
+            0xff80_0000,
+            0x7fc0_0001,
+            0x7f80_0001,
+            0x3fc9_0fdb,
+            0x4049_0fdb,
+            0x5effffff,
+            0xdeffffff,
+        ]);
+        for word in WORDS {
+            with_word(word, || {
+                for &b in &bits {
+                    let x = X87Ext::load32(b);
+                    let exponent = x.sign_exponent() & 0x7fff;
+                    // |x| >= 2^63 stops (both ways): below.
+                    if (0x3fff + 63..0x7fff).contains(&exponent) {
+                        continue;
+                    }
+                    let four = std::panic::catch_unwind(|| {
+                        let (sine, cosine) = x87_fsincos(x);
+                        (sine.store32(), cosine.store32())
+                    });
+                    let fused = std::panic::catch_unwind(|| x87_fsincos32(b));
+                    assert_eq!(fused.ok(), four.ok(), "{word:#06x} {b:#010x}");
+                }
+            });
+        }
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "FSINCOS of X87Ext([0, 0, 0, 0, 0, 0, 0, 128, 63, 64]): operand out of range"
+    )]
+    fn the_fused_sine_and_cosine_stop_out_of_range() {
+        x87_fsincos32(0x5f80_0000);
+    }
+
+    /// The register stack is empty after every helper (each pops what it pushes; nine helpers
+    /// in a row would overflow it otherwise), flags raised by earlier helpers don't reach the
+    /// status word `FPREM` reports, and after a stop out of range the next helpers work as before.
+    #[test]
+    fn the_helpers_leave_the_fpu_as_they_found_it() {
+        let fresh = x87_fprem(ext(7.0), ext(3.0));
+        for _ in 0..12 {
+            assert_eq!(x87_fadd(ext(1.0), ext(2.0)).store64(), 3.0);
+            assert_eq!(x87_fsub(ext(1.0), ext(2.0)).store64(), -1.0);
+            assert_eq!(x87_fmul(ext(1.5), ext(2.0)).store64(), 3.0);
+            // A zero divisor: the zero-divide flag stays set in the status word (masked).
+            assert_eq!(x87_fdiv(ext(1.0), ext(0.0)).store64(), f64::INFINITY);
+            assert_eq!(x87_fcom(ext(1.0), ext(2.0)), X87_STATUS_C0);
+            assert_eq!(x87_fscale(ext(1.5), ext(3.0)).store64(), 12.0);
+            assert_eq!(
+                x87_fsqrt(ext(-1.0)).store64().to_bits(),
+                0xfff8_0000_0000_0000
+            );
+            assert_eq!(X87Ext::load32(0x3fc0_0000).store32(), 0x3fc0_0000);
+            assert_eq!(x87_fsincos32(0), (0, 0x3f80_0000));
+            assert_eq!(
+                x87_fpatan(ext(1.0), ext(1.0)).store64(),
+                std::f64::consts::FRAC_PI_4
+            );
+            assert_eq!(x87_fistp64(ext(2.5)), 2);
+        }
+        assert_eq!(x87_fprem(ext(7.0), ext(3.0)), fresh);
+        for _ in 0..3 {
+            let stopped = std::panic::catch_unwind(|| x87_fsincos32(0x5f80_0000));
+            assert!(stopped.is_err());
+            let stopped = std::panic::catch_unwind(|| x87_fptan(ext(2f64.powi(64))));
+            assert!(stopped.is_err());
+        }
+        assert_eq!(x87_fprem(ext(7.0), ext(3.0)), fresh);
+        for _ in 0..9 {
+            assert_eq!(x87_fadd(ext(1.0), ext(2.0)).store64(), 3.0);
+        }
     }
 }

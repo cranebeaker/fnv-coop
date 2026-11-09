@@ -1051,17 +1051,17 @@ pub(crate) mod pass_check {
 
     /// Takes the call hook (calling on to one that was there first) the first time.
     fn install(e: &mut Engine) {
-        if e.call_hook
+        if e.call_hook()
             .is_some_and(|h| h as usize == on_call as CallHook as usize)
         {
             return;
         }
         let previous = e
-            .call_hook
+            .call_hook()
             .filter(|h| *h as usize != on_call as CallHook as usize);
         *PREVIOUS.lock().unwrap_or_else(PoisonError::into_inner) = previous;
         HAS_PREVIOUS.store(previous.is_some(), Ordering::Relaxed);
-        e.call_hook = Some(on_call);
+        e.set_call_hook(Some(on_call));
     }
 
     /// Watches the array's header, its current element buffer and the freeing of its passes

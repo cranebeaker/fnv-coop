@@ -160,9 +160,7 @@ pub fn ni_roll_controller_update(e: &mut Engine, this: Ptr, update: Ptr) {
             let w = e.mem.u32(target + 0x34 + 4 * word);
             e.mem.set_u32(rotation + 4 * word, w);
         }
-        let (sin, cos) = x87_fsincos(X87Ext::load32(angle));
-        let cos = cos.store32();
-        let sin = sin.store32();
+        let (sin, cos) = x87_fsincos32(angle);
         let zero = x87_store32(0.0);
         let rows = [
             cos,

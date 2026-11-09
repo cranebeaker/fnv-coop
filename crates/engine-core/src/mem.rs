@@ -647,6 +647,9 @@ pub struct Mem {
     /// and free ([`Mem::with_shared`]); `view_frame` and `view_path` are what the check would keep
     /// for this thread.
     view_check: bool,
+    /// The block check is on, in this `Mem` or (a view) in the shared one: `check.is_some() ||
+    /// view_check`, kept as one flag for the call path's test ([`Mem::block_check_on`]).
+    checking: bool,
     view_frame: (u32, u32),
     view_path: Vec<u32>,
     view_thread: u32,
@@ -814,6 +817,7 @@ impl Mem {
     /// look at every store and name the function that writes into a guard; else the guard is
     /// checked when its block is freed. `stop`: panic at the first finding.
     pub fn enable_block_check(&mut self, store: bool, stop: bool) {
+        self.checking = true;
         self.check = Some(Box::new(BlockCheck {
             store,
             stop,
@@ -920,10 +924,11 @@ impl Mem {
         Some(released)
     }
 
-    /// Whether the block check is on.
+    /// Whether the block check is on (here, or for a view in the shared `Mem`).
     #[inline(always)]
     pub fn block_check_on(&self) -> bool {
-        self.check.is_some() || self.view_check
+        debug_assert_eq!(self.checking, self.check.is_some() || self.view_check);
+        self.checking
     }
 
     /// Sets the function the block check names as running; returns the one before.
@@ -1151,6 +1156,7 @@ impl Mem {
             defer_hand_back: false,
             race: None,
             view_check: false,
+            checking: false,
             view_frame: (0, 0),
             view_path: Vec::new(),
             view_thread: 0,
@@ -1179,6 +1185,7 @@ impl Mem {
             defer_hand_back: false,
             race: None,
             view_check: false,
+            checking: false,
             view_frame: (0, 0),
             view_path: Vec::new(),
             view_thread: 0,
@@ -1206,6 +1213,7 @@ impl Mem {
         };
         let mut view = Mem::view_at(self.space.base, shared);
         view.view_check = checked;
+        view.checking = checked;
         let mut owner = std::mem::replace(self, view);
         owner.defer_hand_back = true;
         let owner = std::ptr::NonNull::from(Box::leak(Box::new(owner)));
@@ -1219,6 +1227,7 @@ impl Mem {
         let shared = self.shared.expect("a view of memory that isn't shared");
         let mut view = Mem::view_at(self.space.base, shared);
         view.view_check = self.view_check;
+        view.checking = self.view_check;
         view
     }
 

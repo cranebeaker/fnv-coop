@@ -3200,15 +3200,15 @@ pub mod audio_check {
 
     /// Puts [`on_call`] in front of the engine's call hook (once).
     fn install(e: &mut Engine) {
-        if e.call_hook
+        if e.call_hook()
             .is_some_and(|h| h as usize == on_call as CallHook as usize)
         {
             return;
         }
         *PREVIOUS
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = e.call_hook;
-        e.call_hook = Some(on_call);
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = e.call_hook();
+        e.set_call_hook(Some(on_call));
     }
 
     /// `Engine::call_hook`: a watched word changed (`reader_opened`): stops the run naming it,

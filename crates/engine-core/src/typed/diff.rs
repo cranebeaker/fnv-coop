@@ -798,7 +798,7 @@ impl Diff {
         }
         e.typed.keep_frames = true;
         e.call_log = Some(Vec::new());
-        e.call_hook = Some(record_call);
+        e.set_call_hook(Some(record_call));
         if branch == Branch::Direct {
             e.typed_force_direct();
         }
@@ -817,7 +817,7 @@ impl Diff {
         let result = catch_unwind(AssertUnwindSafe(|| e.call(self.addr, &words)));
         let control_word = x87::control_word();
         x87::set_control_word(x87::DEFAULT_CONTROL_WORD);
-        e.call_hook = None;
+        e.set_call_hook(None);
         let calls = RECORDING
             .with(|r| r.borrow_mut().take())
             .map(|r| r.calls)

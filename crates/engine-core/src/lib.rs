@@ -85,7 +85,7 @@ pub mod watch_check;
 pub mod x87;
 
 pub use abi::{AbiFn, Ret};
-pub use engine::{AddrMap, AddrSet, Engine, OpenHandler};
+pub use engine::{AddrMap, AddrSet, CallHook, Engine, OpenHandler, Trace};
 pub use mem::Mem;
 pub use ptr::{Field, Inline, Layout, Ptr, Scalar};
 
@@ -101,8 +101,8 @@ pub mod prelude {
     };
     pub use crate::x87::{
         x87_f2xm1, x87_fcos, x87_fistp64, x87_fistp64_chop, x87_fpatan, x87_fprem, x87_fprem1,
-        x87_fptan, x87_frndint, x87_fscale, x87_fsin, x87_fsincos, x87_fyl2x, x87_fyl2xp1, X87Ext,
-        X87_STATUS_C2,
+        x87_fptan, x87_frndint, x87_fscale, x87_fsin, x87_fsincos, x87_fsincos32, x87_fyl2x,
+        x87_fyl2xp1, X87Ext, X87_STATUS_C2,
     };
     pub use crate::Engine;
     pub use crate::{args, entry, layout, typed_call};

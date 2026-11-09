@@ -806,8 +806,7 @@ pub fn ni_matrix3_to_euler_angles_zxy(
 
 /// `FSINCOS` of a float angle: the sine and cosine stored as floats.
 fn float_sin_cos(angle: f32) -> (u32, u32) {
-    let (sine, cosine) = x87_fsincos(X87Ext::load32(angle.to_bits()));
-    (sine.store32(), cosine.store32())
+    x87_fsincos32(angle.to_bits())
 }
 
 // Translated from 00a59660 (decompiled, FalloutNV.exe 1.4.0.525)

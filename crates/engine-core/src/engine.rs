@@ -200,6 +200,17 @@ fn empty_call_cache() -> Box<[CacheSet; CALL_CACHE_SETS]> {
         .unwrap_or_else(|_| unreachable!("the call cache has CALL_CACHE_SETS sets"))
 }
 
+/// A call hook ([`Engine::set_call_hook`]): the called address, and whether the call is returning.
+pub type CallHook = fn(&mut Engine, u32, bool);
+
+/// The bits of [`Engine::diag`]: which of the per-call diagnostics kept on the engine are on.
+const DIAG_BUDGET: u8 = 1;
+const DIAG_COUNTS: u8 = 2;
+const DIAG_HOOK: u8 = 4;
+const DIAG_CALL_TRACE: u8 = 8;
+const DIAG_TRACE: u8 = 16;
+const DIAG_PROFILE: u8 = 32;
+
 /// The game's memory plus every translated function, by exe address.
 pub struct Engine {
     pub mem: Mem,
@@ -210,6 +221,11 @@ pub struct Engine {
     /// address they change, so it always answers as `funcs` does. A fixed-size array: the set
     /// needs no bounds check.
     call_cache: Box<[CacheSet; CALL_CACHE_SETS]>,
+    /// Which of the per-call diagnostics kept on the engine are on, a bit each (`DIAG_*`): the
+    /// budget, the call profile, the call hook, the nv-trace record, the return trace and
+    /// `NV_PROFILE`. Their setters keep it ([`Engine::set_call_hook`] and the others), so
+    /// [`Engine::call`]'s fast path tests this one byte for all six ([`Engine::diagnosing`]).
+    diag: u8,
     /// When `Some`, every call made through [`Engine::call`] is recorded
     /// as (address, argument words). Tests use it to check what a
     /// translation called.
@@ -240,19 +256,19 @@ pub struct Engine {
     /// When `Some`, every call that returns through [`Engine::call`] is
     /// recorded as (address, argument words, `EAX`), in the order they
     /// return, keeping the last [`TRACE_KEEP`]: a diagnostic of where a run
-    /// went wrong before it stopped (the host's `NV_MOVE_TRACE`).
-    pub trace: Option<std::collections::VecDeque<(u32, Vec<u32>, u32)>>,
+    /// went wrong before it stopped (the host's `NV_MOVE_TRACE`). Set with [`Engine::set_trace`].
+    trace: Option<Trace>,
     /// How many returned calls the trace keeps ([`TRACE_KEEP`] unless the host says otherwise).
     pub trace_keep: usize,
     /// When set, how many more calls through [`Engine::call`] may run before the run stops with
     /// "call budget spent" (a diagnostic for a run that loops for ever; the host's
-    /// `NV_MOVE_CALL_BUDGET`).
-    pub call_budget: Option<u64>,
+    /// `NV_MOVE_CALL_BUDGET`). Set with [`Engine::set_call_budget`].
+    call_budget: Option<u64>,
     /// When `Some`, how many times each (caller, address) pair was called through
     /// [`Engine::call`], keyed `caller << 32 | address` (the caller is the innermost function on
     /// the call stack, 0 at a stage's top): where a long run spends its calls (the host's
-    /// `NV_MOVE_CALL_PROFILE`).
-    pub call_counts: Option<AddrMap<u64, u64>>,
+    /// `NV_MOVE_CALL_PROFILE`). Set with [`Engine::set_call_counts`].
+    call_counts: Option<AddrMap<u64, u64>>,
     /// The thread host's time slice: calls left in the running thread's turn, the length a
     /// turn starts with, and what runs at each call once a turn is used up, given the called
     /// address (`thread_host::preempt`: game threads run beside each other on Windows, so a
@@ -266,8 +282,8 @@ pub struct Engine {
     /// reaches a translated function, given the called address, once as it is entered (`false`,
     /// before it goes on the call stack) and once as it returns (`true`, after it came off).
     /// Lets a check look at memory between any two calls (`NV_HKMEM_CHECK=calls`, engine-havok's
-    /// `hkthreadmemory.rs`). `None` in normal runs.
-    pub call_hook: Option<fn(&mut Engine, u32, bool)>,
+    /// `hkthreadmemory.rs`). `None` in normal runs. Set with [`Engine::set_call_hook`].
+    call_hook: Option<CallHook>,
     /// Diagnostic only (not exe behaviour): runs as a heap block is freed through the game's
     /// `MemoryManager::Deallocate` (`00aa4060`) or the CRT's `free`, given the block (not 0),
     /// before it is freed. Lets a check see who frees what (`NV_SPEECH_CHECK`, engine-fallout-facegen's
@@ -278,8 +294,8 @@ pub struct Engine {
     /// (`thread_host::SwitchAt::Platform`, `thread_host::request_wake`).
     pub platform_calls: AddrSet<u32>,
     /// The nv-trace record of the listed functions' calls (`NV_TRACE_OUT`, `NV_TRACE_LIST`;
-    /// [`crate::call_trace`]); `None` in normal runs.
-    pub call_trace: Option<Box<crate::call_trace::CallTrace>>,
+    /// [`crate::call_trace`]); `None` in normal runs. Set with [`Engine::set_call_trace`].
+    call_trace: Option<Box<crate::call_trace::CallTrace>>,
     /// The live `with_stack` blocks, innermost last, kept while [`Engine::call_trace`] is on (its
     /// stack records say which words point into them).
     pub stack_frames: Vec<(u32, u32)>,
@@ -313,6 +329,10 @@ pub const FRAME_GAP: u32 = 0x40;
 
 /// How many returned calls [`Engine::trace`] keeps.
 pub const TRACE_KEEP: usize = 4000;
+
+/// The return trace ([`Engine::set_trace`]): (address, argument words, `EAX`) of each returned
+/// call, oldest first.
+pub type Trace = std::collections::VecDeque<(u32, Vec<u32>, u32)>;
 
 impl Default for Engine {
     fn default() -> Self {
@@ -401,6 +421,7 @@ impl Engine {
             mem,
             funcs,
             call_cache: empty_call_cache(),
+            diag: 0,
             call_log: None,
             tls: 0,
             clock_ms: 0,
@@ -426,6 +447,7 @@ impl Engine {
             real: None,
             extend: Default::default(),
         };
+        engine.sync_diag();
         // The platform layer's state, when the program links the layer (`units::platform::Layer`:
         // its `units::funcs`, run above with the other crates' functions, installs it).
         engine.kernel.platform = crate::units::platform::new_layer_state();
@@ -683,7 +705,7 @@ impl Engine {
     /// objects; its own call cache, call stack, TLS block (none yet), guest stack and time slice
     /// (none). No diagnostic. `real` is the new thread's context.
     pub(crate) fn thread_context(&self, real: crate::real_threads::Ctx) -> Engine {
-        Engine {
+        let mut e = Engine {
             mem: self.mem.view(),
             funcs: self
                 .funcs
@@ -692,6 +714,7 @@ impl Engine {
                 .map(|(&a, f)| (a, f.clone()))
                 .collect(),
             call_cache: empty_call_cache(),
+            diag: 0,
             call_log: None,
             tls: 0,
             clock_ms: self.clock_ms,
@@ -716,7 +739,9 @@ impl Engine {
             typed: self.typed.for_thread(),
             extend: self.extend.for_thread(),
             real: Some(Box::new(real)),
-        }
+        };
+        e.sync_diag();
+        e
     }
 
     /// What is registered at `addr`: a plain function, `Err` for a test double, `None` for
@@ -764,6 +789,12 @@ impl Engine {
     /// every register a function uses anywhere is saved on entry).
     #[inline(always)]
     fn dispatch(&mut self, addr: u32, args: &[u32]) -> Ret {
+        debug_assert_eq!(
+            self.diagnosing(),
+            self.diagnosing_each(),
+            "the engine's diagnostic bits ({:#x}) don't say which diagnostics are on",
+            self.diag
+        );
         if let Some(f) = self.cached(addr) {
             if !self.diagnosing() {
                 // With the thread host's hook the slice counts down by one (`None`: used up, 0);
@@ -803,28 +834,124 @@ impl Engine {
 
     /// Whether any per-call diagnostic is on (the call log, budget, profile, hook, nv-trace
     /// record, return trace, block check, `NV_PROFILE`): [`Engine::call`] then takes its full
-    /// path.
+    /// path. Three tests: the engine's bits ([`Engine::diag`]), the block check (switched on
+    /// through [`Mem`], which keeps it as one flag) and the call log (which the tests set
+    /// directly).
     #[inline(always)]
     pub(crate) fn diagnosing(&self) -> bool {
-        // The hook and the nv-trace record are read as their pointer words, volatile: the
-        // compiler otherwise tests four of these fields with a dozen vector instructions where
-        // four compares do.
-        // SAFETY: `Option<fn>` and `Option<Box<_>>` are one pointer word, 0 for `None` (the
-        // guaranteed null-pointer optimisation); each is read in place as that word.
-        let (hook, traced) = unsafe {
-            (
-                std::ptr::read_volatile(std::ptr::addr_of!(self.call_hook).cast::<usize>()),
-                std::ptr::read_volatile(std::ptr::addr_of!(self.call_trace).cast::<usize>()),
-            )
-        };
+        self.diag != 0 || self.mem.block_check_on() || self.call_log.is_some()
+    }
+
+    /// [`Engine::diagnosing`] from each diagnostic itself: the debug builds check the bits
+    /// against it at every call.
+    fn diagnosing_each(&self) -> bool {
         self.call_log.is_some()
             || self.call_budget.is_some()
             || self.call_counts.is_some()
-            || hook != 0
-            || traced != 0
+            || self.call_hook.is_some()
+            || self.call_trace.is_some()
             || self.trace.is_some()
             || self.mem.block_check_on()
             || crate::profile::on()
+    }
+
+    /// Sets [`Engine::diag`] from the diagnostics it stands for: their setters' last step.
+    fn sync_diag(&mut self) {
+        let bit = |on: bool, bit: u8| if on { bit } else { 0 };
+        self.diag = bit(self.call_budget.is_some(), DIAG_BUDGET)
+            | bit(self.call_counts.is_some(), DIAG_COUNTS)
+            | bit(self.call_hook.is_some(), DIAG_HOOK)
+            | bit(self.call_trace.is_some(), DIAG_CALL_TRACE)
+            | bit(self.trace.is_some(), DIAG_TRACE)
+            // Set once, before the first engine is made, and never changed after.
+            | bit(crate::profile::on(), DIAG_PROFILE);
+    }
+
+    /// The call budget ([`Engine::set_call_budget`]): how many more calls may run.
+    pub fn call_budget(&self) -> Option<u64> {
+        self.call_budget
+    }
+
+    /// Sets the call budget: with `Some(n)`, the run stops with "call budget spent" when an
+    /// `(n + 1)`th call through [`Engine::call`] starts (a diagnostic for a run that loops for
+    /// ever).
+    pub fn set_call_budget(&mut self, budget: Option<u64>) {
+        self.call_budget = budget;
+        self.sync_diag();
+    }
+
+    /// The call profile ([`Engine::set_call_counts`]).
+    pub fn call_counts(&self) -> Option<&AddrMap<u64, u64>> {
+        self.call_counts.as_ref()
+    }
+
+    /// Sets the call profile: with `Some`, each call through [`Engine::call`] counts one for its
+    /// (caller, address) pair, keyed `caller << 32 | address`.
+    pub fn set_call_counts(&mut self, counts: Option<AddrMap<u64, u64>>) {
+        self.call_counts = counts;
+        self.sync_diag();
+    }
+
+    /// Takes the call profile, which is then off.
+    pub fn take_call_counts(&mut self) -> Option<AddrMap<u64, u64>> {
+        let counts = self.call_counts.take();
+        self.sync_diag();
+        counts
+    }
+
+    /// The call hook ([`Engine::set_call_hook`]).
+    pub fn call_hook(&self) -> Option<CallHook> {
+        self.call_hook
+    }
+
+    /// Sets the call hook: with `Some`, it runs at every call through [`Engine::call`] that
+    /// reaches a translated function, once as it is entered and once as it returns (a diagnostic,
+    /// not exe behaviour).
+    pub fn set_call_hook(&mut self, hook: Option<CallHook>) {
+        self.call_hook = hook;
+        self.sync_diag();
+    }
+
+    /// Takes the call hook, which is then off.
+    pub fn take_call_hook(&mut self) -> Option<CallHook> {
+        let hook = self.call_hook.take();
+        self.sync_diag();
+        hook
+    }
+
+    /// The nv-trace record ([`Engine::set_call_trace`]).
+    pub fn call_trace(&self) -> Option<&crate::call_trace::CallTrace> {
+        self.call_trace.as_deref()
+    }
+
+    /// Sets the nv-trace record of the listed functions' calls ([`crate::call_trace`]).
+    pub fn set_call_trace(&mut self, trace: Option<Box<crate::call_trace::CallTrace>>) {
+        self.call_trace = trace;
+        self.sync_diag();
+    }
+
+    /// The return trace ([`Engine::set_trace`]).
+    pub fn trace(&self) -> Option<&Trace> {
+        self.trace.as_ref()
+    }
+
+    /// The return trace, to change in place (it stays on).
+    pub fn trace_mut(&mut self) -> Option<&mut Trace> {
+        self.trace.as_mut()
+    }
+
+    /// Sets the return trace: with `Some`, each call that returns through [`Engine::call`] is
+    /// added, the last [`Engine::trace_keep`] kept.
+    pub fn set_trace(&mut self, trace: Option<Trace>) {
+        self.trace = trace;
+        self.sync_diag();
+    }
+
+    /// Takes the return trace, which is then off.
+    pub fn take_trace(&mut self) -> Option<Trace> {
+        let trace = self.trace.take();
+        self.sync_diag();
+        trace
     }
 
     /// [`Engine::call`] with every diagnostic, the slice's hook, the call stack's growth and
@@ -1738,6 +1865,53 @@ mod tests {
         assert_eq!(e.call(a, &[1]).eax, 99);
     }
 
+    /// The diagnostic bits follow their setters, and the fast path sees each diagnostic go on and
+    /// off (the call log, set directly, included).
+    #[test]
+    fn each_diagnostic_turns_the_full_path_on_and_off() {
+        fn hook(_: &mut Engine, _: u32, _: bool) {}
+        let mut e = Engine::new();
+        e.register(0x0040_7000, |e, a| Ret {
+            eax: a[0] + e.call_stack.len() as u32,
+            ..Ret::default()
+        });
+        assert_eq!(e.call(0x0040_7000, &[1]).eax, 2);
+        let base = e.diag;
+        let switches: [(&str, fn(&mut Engine, bool)); 6] = [
+            ("budget", |e, on| e.set_call_budget(on.then_some(u64::MAX))),
+            ("counts", |e, on| {
+                e.set_call_counts(on.then(Default::default));
+            }),
+            ("hook", |e, on| {
+                e.set_call_hook(on.then_some(hook as CallHook))
+            }),
+            ("trace", |e, on| e.set_trace(on.then(Default::default))),
+            ("call log", |e, on| e.call_log = on.then(Vec::new)),
+            ("taken", |e, on| {
+                if on {
+                    e.set_call_hook(Some(hook));
+                } else {
+                    assert!(e.take_call_hook().is_some());
+                }
+            }),
+        ];
+        for (name, switch) in switches {
+            switch(&mut e, true);
+            assert!(e.diagnosing(), "{name}");
+            assert_eq!(e.diagnosing(), e.diagnosing_each(), "{name}");
+            assert_eq!(e.call(0x0040_7000, &[1]).eax, 2, "{name}");
+            switch(&mut e, false);
+            assert_eq!(e.diag, base, "{name}");
+            assert_eq!(e.diagnosing(), e.diagnosing_each(), "{name}");
+            assert_eq!(e.call(0x0040_7000, &[1]).eax, 2, "{name}");
+        }
+        assert!(e.take_call_counts().is_none());
+        assert!(e.take_trace().is_none());
+        e.mem.enable_block_check(false, false);
+        assert!(e.diagnosing());
+        assert_eq!(e.call(0x0040_7000, &[1]).eax, 2);
+    }
+
     /// The fast path hands slow cases to the full path: a used-up slice (the hook runs, then the
     /// call), a full call stack (it grows), a cache miss (the table answers and fills the
     /// cache). Each call returns the same and leaves the stack as it found it.
@@ -1914,14 +2088,14 @@ mod tests {
             }),
         );
         // The diagnostics cost what they cost; listed for reference.
-        e.trace = Some(Default::default());
+        e.set_trace(Some(Default::default()));
         row(
             "Engine::call with the return trace on (NV_MOVE_TRACE)",
             per_run(1000, || {
                 e.call(0x0040_1000, &[block, 1]);
             }),
         );
-        e.trace = None;
+        e.set_trace(None);
         std::hint::black_box(f);
     }
 
@@ -1991,7 +2165,7 @@ mod tests {
             });
             e.register(0x0040_5010, |e, a| e.call(0x0040_5000, &[a[0] + 1]));
             if full {
-                e.call_budget = Some(u64::MAX);
+                e.set_call_budget(Some(u64::MAX));
             }
             e.slice_len = 3;
             e.slice_left = 3;
@@ -2016,13 +2190,13 @@ mod tests {
             eax: a.iter().sum(),
             ..Ret::default()
         });
-        e.trace = Some(Default::default());
+        e.set_trace(Some(Default::default()));
         e.trace_keep = 3;
         e.call(0x0040_3000, &[1, 2, 3]);
         e.call(0x0040_3000, &[4]);
         e.call(0x0040_3000, &[]);
         e.call(0x0040_3000, &[5, 6]);
-        let trace: Vec<_> = e.trace.take().unwrap().into_iter().collect();
+        let trace: Vec<_> = e.take_trace().unwrap().into_iter().collect();
         assert_eq!(
             trace,
             vec![
@@ -2048,8 +2222,8 @@ mod tests {
         e.register(addr, f);
         let this = e.mem.alloc(8);
         e.mem.set_u32(this + 4, 1);
-        e.trace = Some(Default::default());
-        e.call_budget = Some(u64::MAX);
+        e.set_trace(Some(Default::default()));
+        e.set_call_budget(Some(u64::MAX));
         for (name, with_args) in [("&[this]", false), ("&args![this]", true)] {
             let start = std::time::Instant::now();
             let mut sum = 0u32;

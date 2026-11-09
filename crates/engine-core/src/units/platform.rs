@@ -3590,12 +3590,11 @@ mod tests {
         use crate::thread_host::TRACE_SWITCH;
         let mut e = thread_engine();
         e.register(0x00ab_0b00, yielding_thread);
-        e.trace = Some(Default::default());
+        e.set_trace(Some(Default::default()));
         call(&mut e, CREATE_THREAD, &[0, 0, 0x00ab_0b00, 60, 0, 0]);
         call(&mut e, SLEEP, &[0]);
         let switches: Vec<(Vec<u32>, u32)> = e
-            .trace
-            .as_ref()
+            .trace()
             .unwrap()
             .iter()
             .filter(|(addr, _, _)| *addr == TRACE_SWITCH)

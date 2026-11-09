@@ -904,7 +904,7 @@ pub const TRACE_SWITCH: u32 = 0xffff_fff0;
 /// Records a switch from thread `from` to thread `to` in the trace, when one is kept.
 fn trace_switch(e: &mut Engine, from: u32, to: u32) {
     let keep = e.trace_keep;
-    if let Some(trace) = &mut e.trace {
+    if let Some(trace) = e.trace_mut() {
         if keep == 0 {
             return;
         }

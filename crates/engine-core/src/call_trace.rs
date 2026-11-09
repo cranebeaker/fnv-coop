@@ -737,9 +737,9 @@ mod tests {
         e.mem.set_u32(obj + 4, 0x1122_3344);
         let holder = e.mem.alloc(8);
         e.mem.set_u32(holder, obj);
-        e.call_trace = Some(Box::new(CallTrace::with_rules(&entries, sink)));
+        e.set_call_trace(Some(Box::new(CallTrace::with_rules(&entries, sink))));
         e.call(0x0040_3000, &[obj, holder]);
-        e.call_trace = None;
+        e.set_call_trace(None);
         let bytes = std::fs::read(&path).unwrap();
         let word = |i: usize| u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
         // Header (12), thread block (20), enter block (8 + 12 + 8), then the dump block.
@@ -884,13 +884,13 @@ mod tests {
         let sink = Arc::new(Mutex::new(Sink::create(&path, "", true).unwrap()));
         let mut e = Engine::new();
         e.register(0x0040_3000, |_, _| Ret::default());
-        e.call_trace = Some(Box::new(CallTrace::new([0x0040_3000], sink)));
+        e.set_call_trace(Some(Box::new(CallTrace::new([0x0040_3000], sink))));
         e.with_stack(0x40, |e, outer| {
             e.with_stack(0x20, |e, inner| {
                 e.call(0x0040_3000, &[7, inner.addr() + 4, outer.addr() + 0x30]);
             });
         });
-        e.call_trace = None;
+        e.set_call_trace(None);
         let bytes = std::fs::read(&path).unwrap();
         let word = |i: usize| u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
         // Header (12), thread block (8 + 12), enter block (8 + 12 + 12), then the stack block.
@@ -921,10 +921,10 @@ mod tests {
             ..Ret::default()
         });
         e.register(0x0040_3010, |_, _| Ret::default());
-        e.call_trace = Some(Box::new(CallTrace::new([0x0040_3000], sink)));
+        e.set_call_trace(Some(Box::new(CallTrace::new([0x0040_3000], sink))));
         e.call(0x0040_3000, &[1, 2]);
         e.call(0x0040_3010, &[7]);
-        e.call_trace = None;
+        e.set_call_trace(None);
         let bytes = std::fs::read(&path).unwrap();
         assert_eq!(&bytes[..8], MAGIC);
         let hlen = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;

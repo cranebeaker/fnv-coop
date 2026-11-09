@@ -531,7 +531,7 @@ impl PlayerMovement {
         // first-to-last, appended to FILE (a diagnostic).
         let trace_file = std::env::var_os("NV_MOVE_TRACE");
         if trace_file.is_some() {
-            e.trace = Some(Default::default());
+            e.set_trace(Some(Default::default()));
             // `NV_MOVE_CALL_BUDGET=N`: stop after N more calls (finds where a run loops); with
             // `NV_MOVE_BUDGET_FROM=F`, only in main's frames from F on (start-up is frame 0).
             let from: u64 = std::env::var("NV_MOVE_BUDGET_FROM")
@@ -544,7 +544,7 @@ impl PlayerMovement {
                 .and_then(|v| v.parse().ok())
                 .filter(|_| budgeted)
             {
-                e.call_budget = Some(n);
+                e.set_call_budget(Some(n));
             }
             // `NV_MOVE_TRACE_KEEP=N`: keep the last N calls instead of `TRACE_KEEP`.
             if let Some(keep) = std::env::var("NV_MOVE_TRACE_KEEP")
@@ -558,12 +558,12 @@ impl PlayerMovement {
         // first, appended to FILE (where a long run spends its calls).
         let profile_file = std::env::var_os("NV_MOVE_CALL_PROFILE");
         if profile_file.is_some() {
-            e.call_counts = Some(Default::default());
+            e.set_call_counts(Some(Default::default()));
             if let Some(n) = std::env::var("NV_MOVE_CALL_BUDGET")
                 .ok()
                 .and_then(|v| v.parse().ok())
             {
-                e.call_budget = Some(n);
+                e.set_call_budget(Some(n));
             }
         }
         Guard {
@@ -626,7 +626,7 @@ impl PlayerMovement {
                 *self.stops.entry((stage, why.clone())).or_default() += 1;
             }
         }
-        let trace = e.trace.take();
+        let trace = e.take_trace();
         // `NV_MOVE_TRACE_FRAMES=A-B`: main's frames A to B (counted from 0) have their traces
         // written too, not only a stop's (what the game did on those frames).
         let traced_frame = stage == "main"
@@ -655,7 +655,7 @@ impl PlayerMovement {
                 let _ = file.write_all(text.as_bytes());
             }
         }
-        if let (Some(path), Some(counts)) = (profile_file, e.call_counts.take()) {
+        if let (Some(path), Some(counts)) = (profile_file, e.take_call_counts()) {
             let mut by_addr: HashMap<u32, u64> = HashMap::new();
             for (&key, &n) in &counts {
                 *by_addr.entry(key as u32).or_default() += n;

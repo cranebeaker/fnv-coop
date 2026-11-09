@@ -98,10 +98,10 @@ pub fn install(e: &mut Engine) {
         return;
     }
     let previous = e
-        .call_hook
+        .call_hook()
         .filter(|h| *h as usize != on_call as CallHook as usize);
     *PREVIOUS.lock().unwrap_or_else(PoisonError::into_inner) = previous;
-    e.call_hook = Some(on_call);
+    e.set_call_hook(Some(on_call));
 }
 
 /// Watches the range once its address is known; answers whether it is watched.

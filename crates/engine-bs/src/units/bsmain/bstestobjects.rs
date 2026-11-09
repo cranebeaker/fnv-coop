@@ -572,9 +572,9 @@ pub fn fn_00c58d30(
     let lower =
         bs_test_objects_create_cylinder(e, quiet(bottom_radius), 0.0, 0.0, segments, 1, color);
     let angle = x87_quiet_bits(x87_store32(x87_load32(e.mem.u32(PI))));
-    let (sine, cosine) = x87_fsincos(X87Ext::load32(angle));
-    let cosine = x87_quiet_bits(cosine.store32());
-    let sine = x87_quiet_bits(sine.store32());
+    let (sine, cosine) = x87_fsincos32(angle);
+    let cosine = x87_quiet_bits(cosine);
+    let sine = x87_quiet_bits(sine);
     let one = x87_store32(1.0);
     let rotation = [
         one,

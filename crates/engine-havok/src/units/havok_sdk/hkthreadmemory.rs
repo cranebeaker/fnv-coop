@@ -680,7 +680,7 @@ pub mod hkmem_check {
             }
             Some(_) => return,
         };
-        e.call_hook = None;
+        e.set_call_hook(None);
         let target = (slot.unwrap_or(0xff) << 5)
             .wrapping_add(atom)
             .wrapping_add(0x30);
@@ -738,8 +738,8 @@ pub mod hkmem_check {
                     .memories
                     .push((this, vec![Row::default(); CLASSES as usize]))
             });
-            if mode == Mode::Calls && e.call_hook.is_none() {
-                e.call_hook = Some(on_call);
+            if mode == Mode::Calls && e.call_hook().is_none() {
+                e.set_call_hook(Some(on_call));
             }
         }
         check(e, Event::Op(name, end, this, a, b));
@@ -882,7 +882,7 @@ pub mod hkmem_check {
         why: &str,
     ) -> ! {
         // The check must not run again while the run unwinds.
-        e.call_hook = None;
+        e.set_call_hook(None);
         let size = e.mem.u32(super::class_size_field(this, class));
         let (checks, last, freed_by) = STATE.with(|state| {
             let state = state.borrow();

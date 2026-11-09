@@ -1426,11 +1426,11 @@ mod tests {
         let plain_depth = e.mem.u32(LOG + 0x804);
         e.wrap(NVSE_AT, nvse_wrap);
         e.call_log = Some(Vec::new());
-        e.call_counts = Some(Default::default());
+        e.set_call_counts(Some(Default::default()));
         e.call(0x0000_1100, &[0]);
         let log = e.call_log.take().unwrap_or_default();
         assert_eq!(log, [(0x0000_1100, vec![0]), (0x0000_1300, vec![])]);
-        let counts = e.call_counts.take().unwrap_or_default();
+        let counts = e.take_call_counts().unwrap_or_default();
         assert_eq!(counts.get(&0x0000_1100), Some(&1));
         assert_eq!(counts.get(&(0x0000_1100u64 << 32 | 0x0000_1300)), Some(&1));
         assert_eq!(e.mem.u32(LOG + 0x800), 0x0000_1100);
