@@ -660,6 +660,27 @@ pub fn extract_args_ex(e: &mut Engine, a: &CommandArgs) -> Extracted {
     )
 }
 
+/// `v_ExtractArgsEx` from a given position: `count` arguments of the parameters at `params`
+/// (`ParamInfo`s), read from `*at` on (`ExtractFormatStringArgs` reads those after a format
+/// string so); `*at` moves past what was read.
+pub fn read_args_at(
+    e: &mut Engine,
+    count: u32,
+    params: u32,
+    at: &mut u32,
+    data: u32,
+    script: u32,
+    event_list: u32,
+) -> Extracted {
+    read_args(e, count, params, at, data, script, event_list)
+}
+
+/// `ExtractFloat` (xNVSE) at `*at` for an immediate, a global or a local (an inline expression
+/// is the caller's, through [`crate::expr::inline_argument`]).
+pub fn extract_float_at(e: &mut Engine, at: &mut u32, script: u32, event_list: u32) -> Option<f64> {
+    extract_float(e, at, script, event_list)
+}
+
 /// Stores the arguments through the output pointers as xNVSE writes them (a string's bytes
 /// with its NUL, then the text over them when it differs; an integer, a float, a double, a
 /// form or a local's address in its own width).

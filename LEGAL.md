@@ -103,6 +103,13 @@ terms, whose notice must be kept:
   exactly as the library the game ships with. Their copyright and licence
   notice is in [crates/vorbis/LICENSE-libvorbis](crates/vorbis/LICENSE-libvorbis),
   and each file that follows them says so in its first lines.
+- `ValidateRegex`'s pattern check in `crates/nvse/src/commands/string.rs` (module
+  `regex_check`) is derived from the Microsoft C++ Standard Library's `<regex>` (MSVC
+  14.50, the version compiled into xNVSE 6.4.9), translated to Rust and modified to keep
+  only the parse that decides its errors (Microsoft Corporation, Apache-2.0 WITH
+  LLVM-exception). The copyright line and licence are in
+  [crates/nvse/LICENSE-msvc-stl](crates/nvse/LICENSE-msvc-stl), and the module says so
+  in its first lines.
 
 ## Requests from rights holders
 

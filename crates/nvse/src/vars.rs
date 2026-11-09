@@ -810,6 +810,12 @@ pub fn reset(e: &mut Engine) {
     st.array_order.clear();
 }
 
+/// `ArrayElement::Unset` of an element taken out of its array by a caller (a range erased, an
+/// array shrunk): what [`erase_element`] does to the element it removes.
+pub fn release_element(e: &mut Engine, element: &Element) {
+    unset(e, element);
+}
+
 /// `g_nvseVarGarbageCollectionMap.Clear()`: no event list's locals are recorded any more.
 pub fn forget_collected(e: &mut Engine) {
     state(e).collected.clear();
