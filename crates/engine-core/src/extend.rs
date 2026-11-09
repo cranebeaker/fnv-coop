@@ -308,6 +308,17 @@ pub const SITES: &[Entry] = &[
         owners: NVSE,
         step: "I-9",
     },
+    // RepairMenu::DoClick 007b5b40 and RepairServicesMenu::RepairItem 007b7f70: OnRepair.
+    Entry {
+        addr: 0x007b_5cac,
+        owners: NVSE,
+        step: "I-12",
+    },
+    Entry {
+        addr: 0x007b_800e,
+        owners: NVSE,
+        step: "I-12",
+    },
     // Exits of the game in ChooseMainMenu 007d0a70 and 007d0bf0 (xNVSE's exit messages).
     Entry {
         addr: 0x007d_0b17,
@@ -1666,7 +1677,7 @@ mod tests {
         ] {
             assert!(find(SITES, Owner::Nvse, a).is_some(), "{a:08x}");
         }
-        assert_eq!(SITES.len(), 44);
+        assert_eq!(SITES.len(), 46);
     }
 
     /// The tables' order rules, checked at build time, also reject a bad table here.

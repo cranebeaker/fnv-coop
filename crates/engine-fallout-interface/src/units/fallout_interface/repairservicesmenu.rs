@@ -721,6 +721,9 @@ fn vendor_fraction(e: &mut Engine, this: Ptr) -> u32 {
 /// item; a single item's old list is removed from the entry when a stack took it.
 pub fn repair_services_menu_repair_item(e: &mut Engine, this: Ptr, item: u32) {
     let mut fraction = vendor_fraction(e, this);
+    // The seam at this read (`0x007B800E`, ADR-0016): the script extender's OnRepair, the item
+    // a vendor repairs.
+    e.site(0x007b_800e, &[item]);
     let form = typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, item));
     let weapon = e
         .call(

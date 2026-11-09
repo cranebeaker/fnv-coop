@@ -568,6 +568,10 @@ fn core_pre_load(e: &mut Engine, r: &mut Reader) -> Result<(), OutOfRange> {
     vars::forget_collected(e);
     tick::clear_delayed_calls(e);
     events::clear_flush_on_load(e);
+    // Any temporary inventory references go (I-12).
+    if crate::invref::any(e) {
+        crate::invref::clear(e);
+    }
     vars::reset(e);
     while let Some((kind, _, _)) = r.next_record()? {
         match kind {

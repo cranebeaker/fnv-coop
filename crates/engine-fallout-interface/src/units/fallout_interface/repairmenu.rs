@@ -714,6 +714,9 @@ pub fn repair_menu_do_click(e: &mut Engine, this: Ptr, id: i32, tile: u32) {
         0x17c,
         &args![form, extra, 1u32, 0u32, 0u32, 0u32, 0u32, 0u32, 1u32, 0u32],
     );
+    // The seam at the sound's play (`0x007B5CAC`, ADR-0016): the script extender's OnRepair,
+    // the player's repaired item (`0x011DA760`).
+    e.site(0x007b_5cac, &[]);
     play_sound(e, REPAIR_SOUND_TEXT);
     let selected = e.vcall(base + REPAIR_LIST, 4, &args![]).u32();
     e.call(LIST_BOX_REMOVE_ITEM, &args![base + REPAIR_LIST, selected]);

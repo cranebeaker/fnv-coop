@@ -17,7 +17,7 @@
 //! Not here yet: the first frame's `bWarnScriptErrors` choice (read from `nvse_config.ini` or
 //! `MyGECKMods.txt`; off, as without either file), the plugins' load errors and their
 //! `DeferredInit` and `MainGameLoop` messages (JIP, I-13), the user function files and the
-//! locale fix (with the run-time compiler, I-14), the inventory references' clean-up (I-12).
+//! locale fix (with the run-time compiler, I-14).
 
 use crate::expr::{Eval, Tok};
 use crate::functions::{self, Caller};
@@ -127,6 +127,10 @@ fn state(e: &mut Engine) -> &mut State {
 fn tick(e: &mut Engine, _: &[u32]) -> Option<u32> {
     if !e.ext::<Nvse>().main_thread_recorded {
         first_frame(e);
+    }
+    // Any temporary inventory references go (their deferred actions run).
+    if crate::invref::any(e) {
+        crate::invref::clear(e);
     }
     // `EventManager::Tick`: the deferred events and the removed handlers, before the clean-up
     // (an array argument of a user-defined event lives until then).

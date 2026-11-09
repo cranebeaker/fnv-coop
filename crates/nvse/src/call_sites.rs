@@ -10,7 +10,9 @@
 //! threads), so with no extender script none of them takes the extender's lock. That check
 //! changes nothing else: with no handler xNVSE's dispatch does nothing either.
 //!
-//! Not here: OnRepair (its first argument is an inventory reference, I-12), OnUnlock (xNVSE
+//! OnRepair came with the inventory references (I-12): its first argument is one.
+//!
+//! Not here: OnUnlock (xNVSE
 //! registers it, but its three hooks are commented out, so it is never raised), the native
 //! plugins' messages of these moments (no native plugins yet), and xNVSE's null check in
 //! `MagicTarget::CheckAddEffect` (`008232B5`), a fix of the game's that belongs to a fixes row.
@@ -57,6 +59,15 @@ pub const REF_ATTACH: SiteSlot = SiteSlot::new(Owner::Nvse, 0x0054_9787);
 /// setter is the store xNVSE does itself) and the per-frame update's first call.
 pub const CELL_SET_STATE: WrapSlot = WrapSlot::new(Owner::Nvse, 0x0045_12a0);
 pub const CELL_REFS_LOADED: SiteSlot = SiteSlot::new(Owner::Nvse, 0x0055_18a5);
+/// `Repair::WriteHooks`: the player's repair (`RepairMenu::DoClick`) and a vendor's
+/// (`RepairServicesMenu::RepairItem`).
+pub const REPAIR_BY_PLAYER: SiteSlot = SiteSlot::new(Owner::Nvse, 0x007b_5cac);
+pub const REPAIR_BY_VENDOR: SiteSlot = SiteSlot::new(Owner::Nvse, 0x007b_800e);
+/// The repair menu's item (`0x011DA760`, an `EntryData*`) and the repair services menu's vendor
+/// (`0x011DA7F4`); the player (`0x011DEA3C`).
+const REPAIR_ITEM: u32 = 0x011d_a760;
+const REPAIR_VENDOR: u32 = 0x011d_a7f4;
+const PLAYER: u32 = 0x011d_ea3c;
 /// `FormExtraData`'s removal hooks (`Hooks::InitHooks`): a form destroyed, a reference trashed.
 pub const FORM_DESTROYED: SiteSlot = SiteSlot::new(Owner::Nvse, 0x0048_3669);
 pub const REFERENCE_TRASHED: SiteSlot = SiteSlot::new(Owner::Nvse, 0x0086_80a4);
@@ -188,9 +199,15 @@ fn add_worn_item(e: &mut Engine, a: &[u32]) -> Option<u32> {
 }
 
 // Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), EventManager.cpp: OnSell::OnSellHook.
-/// OnSell: the entry's item (a base form) and the seller, when the seller is a reference. The
-/// count read goes on as the game's. (xNVSE also keeps the entry for `GetSoldItemInvRef`, an
-/// inventory reference: I-12.)
+/// OnSell: the entry's item (a base form) and the seller, when the seller is a reference; the
+/// entry and the seller are kept while the handlers run, for `GetSoldItemInvRef`. The count read
+/// goes on as the game's.
+///
+/// xNVSE lets them go after a handler runs (`PostDispatchCleanup`), so when none runs (every
+/// handler filtered out) they stay, and a later `GetSoldItemInvRef` outside the event reads the
+/// entry, which the sale may have freed. Vanilla does the same. The row
+/// `crate::invref::set_checks` lets them go when the event ends too. (A sale is made in the
+/// barter menu, on the main thread, where the handlers run at once.)
 fn sell(e: &mut Engine, a: &[u32]) -> Option<u32> {
     if !events::has_handlers_lock_free(e, id::ON_SELL) || events::in_use(e) & MASK_ON_SELL == 0 {
         return None;
@@ -198,8 +215,47 @@ fn sell(e: &mut Engine, a: &[u32]) -> Option<u32> {
     let (entry, seller) = (a[0], a[1]);
     let item = e.mem.u32(entry + ENTRY_TYPE);
     if seller != 0 && e.vcall(seller, GET_IS_REFERENCE, &[]).bool() && item != 0 {
-        events::handle_event(e, id::ON_SELL, item, seller, None);
+        crate::invref::set_sold(e, entry, seller);
+        events::handle_event(
+            e,
+            id::ON_SELL,
+            item,
+            seller,
+            Some(crate::invref::clear_sold),
+        );
+        if crate::invref::checks(e) {
+            crate::invref::clear_sold(e);
+        }
     }
+    None
+}
+
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Hooks_Other.cpp: Repair::OnItemRepair_1,
+// OnItemRepair_2.
+/// OnRepair: the repaired item as an inventory reference of the player (a stack of its own: the
+/// entry's item, count and first list), the repairer, and 0 for the player's own repair or 1
+/// for a vendor's. As in xNVSE the reference is made on every repair, with a handler or not (it
+/// takes the next temporary form id); repairs are rare and on the main thread.
+fn repair(e: &mut Engine, entry: u32, repairer: u32, kind: u32) {
+    let player = e.global::<u32>(PLAYER);
+    let item = e.mem.u32(entry + crate::invref::ENTRY_TYPE);
+    let count = e.mem.u32(entry + crate::invref::ENTRY_COUNT_DELTA) as i32;
+    let extend = e.mem.u32(entry + crate::invref::ENTRY_EXTEND_DATA);
+    let first = if extend != 0 { e.mem.u32(extend) } else { 0 };
+    let refr = crate::invref::create_entry(e, player, item, count, first);
+    events::dispatch(e, b"onrepair", 0, &[refr, repairer, kind]);
+}
+
+fn repair_by_player(e: &mut Engine, _: &[u32]) -> Option<u32> {
+    let entry = e.global::<u32>(REPAIR_ITEM);
+    let player = e.global::<u32>(PLAYER);
+    repair(e, entry, player, 0);
+    None
+}
+
+fn repair_by_vendor(e: &mut Engine, a: &[u32]) -> Option<u32> {
+    let vendor = e.global::<u32>(REPAIR_VENDOR);
+    repair(e, a[0], vendor, 1);
     None
 }
 
@@ -429,6 +485,8 @@ pub fn install(e: &mut Engine) {
     e.on_site(TERMINAL_HACK_FAILED, terminal_hack_failed);
     e.on_site(LOCK_PICK_SUCCESS, lock_pick_success);
     e.on_site(LOCK_PICK_BROKEN, lock_pick_broken);
+    e.on_site(REPAIR_BY_PLAYER, repair_by_player);
+    e.on_site(REPAIR_BY_VENDOR, repair_by_vendor);
     e.on_site(LOCK_BROKEN, lock_broken);
     e.on_site(REFERENCE_TRASHED, form_gone);
     e.on_site(IMOD_RAN_OUT, imod_ran_out);

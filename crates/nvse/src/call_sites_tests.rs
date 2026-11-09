@@ -221,6 +221,33 @@ fn a_sale_raises_on_sell_with_the_item_and_the_seller() {
     );
 }
 
+/// The review of #349: the sale is kept for `GetSoldItemInvRef` while OnSell's handlers run.
+/// When none runs (the one handler is for another seller), xNVSE (vanilla) keeps it after the
+/// event; the fixes preset's row lets it go when the event ends. A handler that runs lets it go
+/// both ways.
+#[test]
+fn a_sale_ends_with_its_event_under_the_row() {
+    for checks in [false, true] {
+        let mut e = sites();
+        scripts(&mut e, &[(1, 4), (2, 4)]);
+        crate::invref::set_checks(&mut e, checks);
+        let mut other_seller = Callback::new(FN_A);
+        other_seller.object = REF_2;
+        set_handler(&mut e, b"OnSell", other_seller, 1, None);
+        e.site(0x0072_ff20, &[ENTRY, REF_1]);
+        assert!(log().is_empty());
+        let kept = crate::invref::sale(&mut e);
+        if checks {
+            assert_eq!(kept, None);
+        } else {
+            assert_eq!(kept, Some((ENTRY, REF_1)), "kept after the event");
+        }
+        e.site(0x0072_ff20, &[ENTRY, REF_2]);
+        assert_eq!(log().len(), 1, "checks {checks}");
+        assert_eq!(crate::invref::sale(&mut e), None);
+    }
+}
+
 /// A dropped item: OnDrop with the reference made, OnDropItem with the item.
 #[test]
 fn a_drop_raises_on_drop_and_on_drop_item() {
@@ -383,4 +410,88 @@ fn a_panicking_error_dispatch_clears_the_guard() {
     }));
     assert!(shown.is_err(), "the panic goes on");
     assert!(state(&mut e).in_error_event.is_empty());
+}
+
+/// An event list with locals 1 to 3 (OnRepair's handler takes three).
+fn event_list_of_three(e: &mut Engine, a: &[u32]) -> Ret {
+    let list = alloc(e, 0x14);
+    e.mem.set_u32(list, a[0]);
+    let mut prev = 0;
+    for id in [3u32, 2, 1] {
+        let local = alloc(e, 0x10);
+        e.mem.set_u32(local, id);
+        let node = alloc(e, 8);
+        e.mem.set_u32(node, local);
+        e.mem.set_u32(node + 4, prev);
+        prev = node;
+    }
+    e.mem.set_u32(list + 0xc, prev);
+    Ret {
+        eax: list,
+        ..Ret::default()
+    }
+}
+
+fn heap_allocate(e: &mut Engine, a: &[u32]) -> Ret {
+    Ret {
+        eax: alloc(e, a[0]),
+        ..Ret::default()
+    }
+}
+
+/// `TESObjectREFR`'s constructor: the references' vtable and the next temporary id.
+fn temp_refr_init(e: &mut Engine, a: &[u32]) -> Ret {
+    let next = AREA + 0x7fe0;
+    let id = e.mem.u32(next).max(0xff00_0800);
+    e.mem.set_u32(next, id + 1);
+    e.mem.set_u32(a[0], REFR_VTABLE);
+    e.mem.set_u32(a[0] + 0xc, id);
+    Ret {
+        eax: a[0],
+        ..Ret::default()
+    }
+}
+
+/// OnRepair (`Hooks_Other.cpp`, `Repair`): every repair makes an inventory reference of the
+/// player for the entry's stack (its item, count and first list), with a handler or not; the
+/// handler gets it with the player for the player's own repair (`0x007B5CAC`, the repair menu's
+/// entry) and the menu's vendor for a vendor's (`0x007B800E`, the entry it repairs).
+#[test]
+fn a_repair_raises_on_repair_with_an_inventory_reference() {
+    let mut e = sites();
+    e.register(CREATE_EVENT_LIST, event_list_of_three);
+    e.register(0x0040_1000, heap_allocate);
+    e.register(0x0040_1030, nothing);
+    e.register(0x0055_a2f0, temp_refr_init);
+    e.mem.set_u32(REFR_VTABLE + 0x10, NO);
+    for page in [0x011d_a760u32, 0x011d_ea3c] {
+        e.map(page & !0xfff, 0x1000);
+    }
+    let (lists, xdata) = (AREA + 0x7900, AREA + 0x7a00);
+    e.mem.set_u32(ENTRY, lists);
+    e.mem.set_u32(ENTRY + 4, 3);
+    e.mem.set_u32(lists, xdata);
+    e.set_global(0x011d_a760, ENTRY);
+    e.set_global(0x011d_a7f4, REF_2);
+    e.set_global(0x011d_ea3c, REF_1);
+    scripts(&mut e, &[(1, 4), (2, 4), (3, 1)]);
+    e.site(0x007b_5cac, &[]);
+    assert!(log().is_empty());
+    assert!(crate::invref::any(&mut e), "made without a handler too");
+    crate::invref::clear(&mut e);
+    set_handler(&mut e, b"OnRepair", Callback::new(FN_A), 1, None);
+    e.site(0x007b_5cac, &[]);
+    e.site(0x007b_800e, &[ENTRY]);
+    let runs: Vec<_> = log().into_iter().map(|r| (r.a_word, r.b_word)).collect();
+    assert_eq!(
+        runs,
+        [(0xff00_0801, 0x0001_0001), (0xff00_0802, 0x0001_0002)]
+    );
+    let r = crate::invref::get(&mut e, 0xff00_0802).unwrap();
+    assert_eq!(
+        (r.container, r.data.item, r.data.xdata),
+        (REF_1, BASE_1, xdata)
+    );
+    let entry = r.data.entry;
+    assert_eq!(e.mem.u32(entry + 4), 3, "the entry's count");
 }

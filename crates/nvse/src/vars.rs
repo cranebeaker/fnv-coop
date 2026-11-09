@@ -177,6 +177,15 @@ impl Default for HashOrder {
 }
 
 impl HashOrder {
+    /// A map made with `count` buckets (a power of two: `AlignBucketCount` keeps 0x40 and 0x80).
+    pub fn with_buckets(count: u32) -> HashOrder {
+        HashOrder {
+            buckets: Vec::new(),
+            num_buckets: count,
+            entries: 0,
+        }
+    }
+
     /// `HashKey<UInt32>`.
     fn hash(key: u32) -> u32 {
         key.wrapping_mul(0xd) ^ (key >> 0xf)
@@ -235,6 +244,16 @@ impl HashOrder {
     /// head).
     pub fn keys(&self) -> Vec<u32> {
         self.buckets.iter().flatten().copied().collect()
+    }
+
+    /// The head of the first chain from bucket `from` on that has one, with its bucket
+    /// (`Bucket::Clear`'s walk).
+    pub fn head_from(&self, from: usize) -> Option<(usize, u32)> {
+        self.buckets
+            .iter()
+            .enumerate()
+            .skip(from)
+            .find_map(|(b, chain)| chain.first().map(|&k| (b, k)))
     }
 }
 /// A string variable (`StringVar`).

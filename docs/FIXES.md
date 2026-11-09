@@ -71,6 +71,7 @@ The game's own `iFPSClamp` ignores `FrameLimit`: a clamp is a fixed step with no
 | Co-save keeps other plugins | none (a flag the extender reads) | `NV_COSAVE_KEEP` | A co-save's sections of plugins that are not built in (JIP LN NVSE's, until it is) are kept as they were read and written back on each save while the files loaded are the ones that co-save lists, so a save brought from a real modded installation keeps them. xNVSE writes only the plugins it has loaded, so off (vanilla) they go at the next save, as with xNVSE. Below |
 | Script error loop guard | none (a flag the extender reads) | `NV_NVSE_ERROR_GUARD` | An error raised while a script's `RuntimeScriptError` handler runs (in the handler itself, or at the call depth limit when handlers call functions that fail) is not sent to the handlers again. xNVSE sends it again, which recurses until the stack runs out and the game stops; off (vanilla), the port does the same. Below |
 | Image-space event form check | none (a flag the extender reads) | `NV_NVSE_IMOD_CHECK` | When an image-space modifier instance runs out, OnRemoveIMOD is raised only for an instance of a modifier form (the game's own `AsForm` test, as its `Stop` makes it), with that form. xNVSE reads a form at the same place in every instance, and a depth-of-field or radial blur instance (iron sights, V.A.T.S., `SetGlobalRadialBlur`) has a number there: a handler then reads garbage as a form. Off (vanilla), the word is read as xNVSE reads it, and a word that is not a readable form drops the event instead of stopping the game. Below |
+| Inventory reference checks | none (a flag the extender reads) | `NV_NVSE_INVREF_CHECK` | Three places where xNVSE's inventory references free, read or keep memory they should not. `RemoveMeIR` on an unworn stack with data of its own (a weapon with its condition) frees that data through the entry the reference holds, which for a reference from `GetInvRefsForItem`, `ForEach`, OnSell or OnRepair is the reference's own copy: the container's entry keeps the freed data and its count, so the item stays with freed memory as its data. With the row the data leaves the container's own entry too (its count with it) before it is freed, and nothing is freed when no entry of the container holds it. OnSell's item stays kept after the event when no handler ran (every handler filtered out), so a later `GetSoldItemInvRef` reads a sale that is over; with the row it goes when the event ends. A container whose base list has an entry without a form stops the game in `ForEach`, as it does with xNVSE; with the row the entry is passed over. Off (vanilla), all three are xNVSE's, the stop included. Below |
 
 ### What high frame rates do to the original's code
 
@@ -245,6 +246,10 @@ save) should get.
 - **Image-space event form check** (the row above): from the review of #340, 2026-11-08. Vanilla
   keeps xNVSE's read and only refuses a word that is no readable form, since ordinary play must
   not stop.
+- **Inventory reference checks** (the row above): from the review of #349, 2026-11-08. All three
+  are xNVSE 6.4.9's own (`InventoryReference.cpp`'s `RemoveFromContainer`, `EventManager.cpp`'s
+  `OnSell`, `GameObjects.cpp`'s `GetInventoryItems`). Vanilla is 1:1 with them, the stop on a
+  base entry without a form included (the review's decision: xNVSE stops the game there too).
 
 ## Credits
 

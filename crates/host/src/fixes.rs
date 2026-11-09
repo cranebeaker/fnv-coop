@@ -41,6 +41,7 @@ pub static FIXES: &[Fix] = &[
     KEEP_COSAVE_PLUGINS,
     SCRIPT_ERROR_GUARD,
     IMOD_EVENT_FORM_CHECK,
+    INVENTORY_REFERENCE_CHECKS,
 ];
 
 /// The built-in script extender's rows (docs/FIXES.md, "The script extender"): each sets a flag
@@ -83,6 +84,19 @@ fn install_imod_event_form_check(e: &mut Engine) {
     nvse::call_sites::set_imod_form_check(e, true);
 }
 
+pub const INVENTORY_REFERENCE_CHECKS: Fix = Fix {
+    name: "inventory reference checks",
+    env: "NV_NVSE_INVREF_CHECK",
+    addresses: &[],
+    summary: "a removed stack leaves the container's own entry before its data is freed; a sale \
+              ends with its event; a container entry without a form is passed over",
+    install: install_inventory_reference_checks,
+};
+
+fn install_inventory_reference_checks(e: &mut Engine) {
+    nvse::invref::set_checks(e, true);
+}
+
 /// The rows that register nothing at an exe address: the menu limit paces the uncapped step;
 /// the extender's rows set flags `crates/nvse` reads.
 #[cfg(test)]
@@ -91,6 +105,7 @@ const NO_ADDRESS: &[&str] = &[
     KEEP_COSAVE_PLUGINS.name,
     SCRIPT_ERROR_GUARD.name,
     IMOD_EVENT_FORM_CHECK.name,
+    INVENTORY_REFERENCE_CHECKS.name,
 ];
 
 /// Menus' frames a second at most when nothing says otherwise (the maintainer, 2026-11-07).

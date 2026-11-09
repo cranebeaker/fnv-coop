@@ -33,6 +33,12 @@
 //!   events the game marks (`005ac750`, wrapped), the save, load and exit messages, and the
 //!   commands (`SetEventHandler`, `SetEventHandlerAlt`, `RemoveEventHandler`, `DispatchEvent`,
 //!   `DispatchEventAlt`, `GetCurrentEventName`, `GetEventHandlers`, the priority queries).
+//! - I-12 [`invref`], [`commands::inventory_ref`]: inventory references (a container's stacks
+//!   as temporary references, gone each frame and before a load, with their deferred equips and
+//!   removals), `ForEach` over a container, `GetSoldItemInvRef` and OnRepair's reference. Of
+//!   xNVSE's form extra data only OnCellRefsLoaded's mark is used so far (a set of cells,
+//!   [`call_sites`]); its script token cache comes with I-14, its plugin interface with native
+//!   plugins.
 //! - [`commands`]: the commands built so far, by xNVSE's `Commands_*.cpp` file.
 //!
 //! [`install`] runs once per engine, after the fix rows (`host::Host::start_with`); the engine
@@ -49,6 +55,7 @@ pub mod event_commands;
 pub mod events;
 pub mod expr;
 pub mod functions;
+pub mod invref;
 pub mod lambda;
 pub mod mt19937;
 pub mod names;
@@ -183,6 +190,9 @@ pub struct Nvse {
     pub saveload: saveload::State,
     /// The event manager (I-9).
     pub events: events::State,
+    /// The inventory references (I-12), and the stacks `GetFirstRefForItem` listed per script.
+    pub invrefs: invref::State,
+    pub inv_ref_arrays: commands::inventory_ref::State,
     /// The first frame recorded the main thread (`s_recordedMainThreadID`): xNVSE prints to the
     /// console from then on.
     pub main_thread_recorded: bool,
@@ -276,6 +286,8 @@ mod tests {
             0x0078_f8e5,
             0x0078_fe24,
             0x0079_0461,
+            0x007b_5cac,
+            0x007b_800e,
             0x0086_80a4,
             0x0086_fe75,
             0x0088_caeb,

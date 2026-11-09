@@ -8,7 +8,7 @@
 //! `LoopManager::RestoreStack`). The loop stack is per game thread, as xNVSE's thread-local
 //! `LoopManager`.
 //!
-//! Not here yet: `ForEach` over a container's inventory (inventory references, I-12). The
+//! `ForEach` over a container goes through its stacks as inventory references (I-12). The
 //! user functions and lambdas are [`crate::functions`] and [`crate::lambda`].
 
 use crate::expr::{self, Eval, Tok};
@@ -255,6 +255,14 @@ pub enum Loop {
     },
     /// `FormListIterLoop`: the list node (0 at the end) and the reference variable's local.
     FormList { node: u32, local: u32 },
+    /// `ContainerIterLoop`: its inventory reference (by the temporary reference's id), the
+    /// reference variable's local, the stacks (changes entries of its own) and the index.
+    Container {
+        invref: u32,
+        local: u32,
+        elements: Vec<u32>,
+        index: usize,
+    },
 }
 
 /// `LoopInfo`.
@@ -306,9 +314,104 @@ pub fn unwind(e: &mut Engine, depth: usize) {
     }
 }
 
-/// Ends a loop: `ArrayIterLoop`'s destructor gives up the iterator variable's reference.
-fn drop_loop(e: &mut Engine, info: &LoopInfo) {
+/// `PlayerCharacter::GetSingleton` (`0x011DEA3C`).
+const PLAYER_SINGLETON: u32 = 0x011d_ea3c;
+
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Loops.cpp:
+// ContainerIterLoop::ContainerIterLoop.
+/// A container's loop: its inventory reference, and a stack (an entry of its own) for each
+/// part of each item: the parts with their own extra data first (their counts, at most what is
+/// left), then the rest; items in the order of xNVSE's map of the container's items.
+fn container_loop(e: &mut Engine, container: u32, local: u32) -> (Loop, bool) {
+    let refr = crate::invref::create(e, container, crate::invref::Data::default(), false);
+    let invref = e.mem.u32(refr + 0xc);
+    let mut elements = Vec::new();
+    for (item, count, entry) in crate::invref::inventory_items(e, container) {
+        let mut count = count;
+        let extend = if entry != 0 {
+            e.mem.u32(entry + crate::invref::ENTRY_EXTEND_DATA)
+        } else {
+            0
+        };
+        if extend != 0 {
+            for xdata in crate::invref::list_items(e, extend) {
+                let mut n = crate::invref::count_for_extra_list(e, xdata);
+                if n < 1 {
+                    continue;
+                }
+                if n > count {
+                    n = count;
+                }
+                count -= n;
+                elements.push(crate::invref::create_temp_entry(e, item, n, xdata));
+                if count == 0 {
+                    break;
+                }
+            }
+        }
+        if count > 0 {
+            elements.push(crate::invref::create_temp_entry(e, item, count, 0));
+        }
+    }
+    let empty = !set_container_iterator(e, invref, local, &elements, 0);
+    (
+        Loop::Container {
+            invref,
+            local,
+            elements,
+            index: 0,
+        },
+        empty,
+    )
+}
+
+// Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), Loops.cpp: ContainerIterLoop::SetIterator.
+/// The inventory reference stands for stack `index` and the variable holds it; past the end
+/// both are cleared.
+fn set_container_iterator(
+    e: &mut Engine,
+    invref: u32,
+    local: u32,
+    elements: &[u32],
+    index: usize,
+) -> bool {
+    let refr = crate::invref::get_ref(e, invref);
+    if index < elements.len() && refr != 0 {
+        let entry = elements[index];
+        let extend = e.mem.u32(entry + crate::invref::ENTRY_EXTEND_DATA);
+        let xdata = if extend != 0 { e.mem.u32(extend) } else { 0 };
+        let item = e.mem.u32(entry + crate::invref::ENTRY_TYPE);
+        crate::invref::set_data(e, invref, crate::invref::Data { item, entry, xdata });
+        e.mem.set_u32(local + 8, e.mem.u32(refr + 0xc));
+        e.mem.set_u32(local + 12, 0);
+        true
+    } else {
+        e.mem.set_f64(local + 8, 0.0);
+        crate::invref::set_data(e, invref, crate::invref::Data::default());
+        false
+    }
+}
+
+/// Ends a loop: `ArrayIterLoop`'s destructor gives up the iterator variable's reference;
+/// `ContainerIterLoop`'s releases its inventory reference and frees its stacks.
+///
+/// xNVSE frees the stacks first, and the release's deferred actions then read the count of the
+/// stack the reference stands for from its freed entry. Here the release comes first: the same
+/// actions with the same counts, read before the entry is freed.
+pub(crate) fn drop_loop(e: &mut Engine, info: &LoopInfo) {
     match info.kind {
+        Loop::Container {
+            invref,
+            local,
+            ref elements,
+            ..
+        } => {
+            crate::invref::release(e, invref);
+            for &entry in elements {
+                crate::invref::free_temp_entry(e, entry);
+            }
+            e.mem.set_f64(local + 8, 0.0);
+        }
         Loop::Array {
             iter,
             local,
@@ -432,6 +535,17 @@ fn update(e: &mut Engine, a: &CommandArgs, kind: &mut Loop) -> bool {
             } else {
                 false
             }
+        }
+        Loop::Container {
+            invref,
+            local,
+            elements,
+            index,
+        } => {
+            // `UnsetIterator`, then the next stack.
+            crate::invref::write_ref_data_to_container(e, *invref);
+            *index += 1;
+            set_container_iterator(e, *invref, *local, elements, *index)
         }
         Loop::FormList { node, local } => {
             if *node == 0 {
@@ -593,11 +707,12 @@ fn foreach_execute(e: &mut Engine, w: &[u32]) -> Ret {
                 empty,
             )
         }
+        _ if e.mem.u8(source + 4) != 0x55 => {
+            let (kind, empty) = container_loop(e, source, local);
+            (kind, empty)
+        }
         _ => {
-            // A form list (a container needs inventory references: I-12).
-            if e.mem.u8(source + 4) != 0x55 {
-                return handled(false);
-            }
+            // A form list.
             let mut node = source + 0x18;
             while node != 0 && e.mem.u32(node) == 0 {
                 node = e.mem.u32(node + 4);
@@ -942,13 +1057,23 @@ pub fn foreach_context(e: &mut Engine, ev: &Eval, lh: &Tok, rh: &Tok) -> Result<
             })
         }
         4 => {
-            let form = ev.get_form(e, rh);
+            // A form list stays one; the player's id is the player; another form must be a
+            // reference (`DYNAMIC_CAST` to `TESObjectREFR`).
+            let mut form = ev.get_form(e, rh);
+            if form != 0 && e.mem.u8(form + 4) != 0x55 {
+                form = if e.mem.u32(form + 0xc) == 0x14 {
+                    e.global::<u32>(PLAYER_SINGLETON)
+                } else {
+                    super::dynamic_cast(
+                        e,
+                        form,
+                        super::rtti::TES_FORM,
+                        super::rtti::TES_OBJECT_REFR,
+                    )
+                };
+            }
             if form == 0 || local == 0 {
                 return Err("Source is a base form (must be a reference)");
-            }
-            if e.mem.u8(form + 4) != 0x55 {
-                // A container reference: inventory references come with I-12.
-                return Err("ForEach over a container is not supported yet");
             }
             Ok(Tok::ForEach {
                 source: form,

@@ -167,6 +167,7 @@ pub mod id {
     pub const ON_LOCK_PICK_BROKEN: usize = 47;
     pub const ON_TERMINAL_HACKED: usize = 49;
     pub const ON_TERMINAL_HACK_FAILED: usize = 50;
+    pub const ON_REPAIR: usize = 51;
     pub const ON_DISABLE: usize = 52;
     pub const ON_ENABLE: usize = 53;
     pub const ON_REF_SET_3D: usize = 54;
