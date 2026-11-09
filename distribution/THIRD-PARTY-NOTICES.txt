@@ -855,3 +855,14 @@ DirectXTex (Microsoft)
     FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
     OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
     DEALINGS IN THE SOFTWARE.
+
+Microsoft C++ Standard Library, <regex> (Microsoft)
+  License: Apache-2.0 WITH LLVM-exception
+  Repository: https://github.com/microsoft/STL
+  Used for: crates/nvse (src/commands/string.rs, regex_check), the check behind xNVSE's ValidateRegex. The STL's regex parser (the _Parser of <regex>, as MSVC 14.50 compiles it into xNVSE 6.4.9) was translated to Rust and reduced to the parse, so a pattern is refused with the same error as in xNVSE; nothing is matched.
+  Bundled license file:
+    LICENSE-msvc-stl
+  Notice:
+    Copyright (c) Microsoft Corporation.
+    SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+    Modified: translated to Rust, reduced to the parse, made to answer as MSVC 14.50.

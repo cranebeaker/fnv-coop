@@ -11,11 +11,15 @@
 //! - **Format strings:** xNVSE's own specifiers (`%z`, `%n`, `%i`, `%c`, `%k`, `%v`, `%p`, `%q`,
 //!   `%r`, `%e`, `%a`, `%{ %}`, `%x`) are expanded first; the number specifiers left go to the
 //!   UCRT's `snprintf` with the 20 numbers as its argument list ([`ucrt_format`]), whose output
-//!   is kept to what `snprintf`'s buffer holds (0x3FFD bytes).
+//!   is kept to what `snprintf`'s buffer holds (0x3FFD bytes); xNVSE keeps the result as a C
+//!   string, so a NUL a conversion writes (`%c` of 0) ends it. The cases where the UCRT's text is
+//!   known to differ are in `printf_cases.txt`, marked `known` (a follow-up makes them pass).
 //! - **The fixes preset** (docs/FIXES.md, "The script extender"): `sv_Replace` of an empty text a
 //!   given number of times stops at 64 MiB with the size caps row (without a count it never ends
 //!   in xNVSE: capped in every preset); a `%s` outside the game's memory ends the text with the
-//!   missing array guard row ([`crate::commands::array`] keeps the rows).
+//!   missing array guard row ([`crate::commands::array`] keeps the rows). Where no cap comes
+//!   first, a string these commands make past 1 GiB stops the game as out of memory
+//!   ([`crate::commands::array::check_bytes`]), about where xNVSE's 32-bit process runs out.
 //! - **Bytes:** strings are bytes; case changes and case-blind compares go through the exe's own
 //!   `toupper`/`tolower`, as xNVSE calls them; the character classes are the C locale's.
 //!
@@ -1055,6 +1059,9 @@ fn formatted_string(e: &mut Engine, args: &mut FmtArgs, format: &[u8]) -> Option
         }
         let mut out = ucrt_format(e, &res, &list);
         out.truncate(MAX_MESSAGE_LENGTH - 3);
+        // The buffer is a C string: a NUL a conversion wrote (`%c` of 0) ends it.
+        let end = c_str(&out).len();
+        out.truncate(end);
         Some(out)
     } else {
         Some(res)
@@ -1372,7 +1379,7 @@ fn float_body(v: f64, conv: u8, spec: &Spec) -> (Vec<u8>, bool) {
                 exp_text(a, (p - 1).min(EXACT_DIGITS), false, false).1
             };
             let mut s = if (x as i64) < p as i64 && x >= -4 {
-                let d = (p as i64 - 1 - x as i64) as usize;
+                let d = (p as i64).saturating_sub(1).saturating_sub(i64::from(x)) as usize;
                 let mut s = fixed_text(a, d);
                 if spec.alt && d == 0 {
                     s.push(b'.');
@@ -1679,11 +1686,11 @@ pub(crate) fn ucrt_format(e: &Engine, format: &[u8], list: &[u8]) -> Vec<u8> {
                     Some(b"(null)".to_vec())
                 } else {
                     let guarded = super::array::fix_on(e, super::array::NULL_GUARD);
-                    if guarded && !(e.mem.is_mapped(ptr) && e.mem.is_mapped(ptr + 7)) {
+                    if guarded && !(e.mem.is_mapped(ptr) && e.mem.is_mapped(ptr.wrapping_add(7))) {
                         None
                     } else {
                         let len = usize::from(e.mem.u16(ptr));
-                        let buffer = e.mem.u32(ptr + 4);
+                        let buffer = e.mem.u32(ptr.wrapping_add(4));
                         let n = if wide { len / 2 } else { len };
                         guest_string(e, buffer, wide, Some(n))
                     }
@@ -1722,6 +1729,9 @@ pub(crate) fn ucrt_format(e: &Engine, format: &[u8], list: &[u8]) -> Vec<u8> {
 // Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), StringVar.cpp: StringVar::Insert.
 fn sv_insert_at(data: &mut Vec<u8>, sub: &[u8], pos: u32) {
     let len = data.len() as u32;
+    if pos <= len {
+        super::array::check_bytes(data.len() + sub.len());
+    }
     if pos < len {
         let tail = data.split_off(pos as usize);
         data.extend_from_slice(sub);
@@ -1901,6 +1911,9 @@ fn sv_replace_in(
             } else {
                 left.min((MAX_REPLACED.saturating_sub(src.len()) / with.len()) as u64)
             };
+            super::array::check_bytes(
+                (data.len() + src.len()).saturating_add((room as usize).saturating_mul(with.len())),
+            );
             let insert = with.repeat(room as usize);
             let tail = src.split_off(idx);
             src.extend(insert);
@@ -1914,6 +1927,7 @@ fn sv_replace_in(
         replaced += 1;
         let cut = (idx + find.len()).min(src.len());
         src.drain(idx..cut);
+        super::array::check_bytes(data.len() + src.len() + with.len());
         if idx == src.len() {
             src.extend_from_slice(with);
             break;
@@ -3007,7 +3021,11 @@ fn sv_percentify(e: &mut Engine, w: &[u32]) -> Ret {
     with_eval(e, &a, |e, ev, toks| {
         let mut converted = Vec::new();
         if let Some([t]) = toks.as_deref() {
-            converted = literal_percents(c_str(&ev.get_string(e, t)));
+            let s = ev.get_string(e, t);
+            let text = c_str(&s);
+            // Each `%` doubles: past 1 GiB the game stops as out of memory.
+            super::array::check_bytes(text.len() + text.iter().filter(|&&b| b == b'%').count());
+            converted = literal_percents(text);
         }
         assign_to_string_var(e, &a, &converted);
     });
@@ -3423,13 +3441,16 @@ pub(crate) mod regex_check {
             if self.disj_count >= 1000 {
                 return Err(RegexError::Stack);
             }
-            // 14.50: `(?` followed by anything but `:`, `=` or `!` opens a capture group whose
-            // first character is the `?` (which then quantifies nothing).
+            // 14.50: `(?` followed by anything but `:`, `=` or `!` is error_badrepeat at once,
+            // before a capture group is counted (so even past 999 groups it is not error_stack).
             let kind = if self.is(b'?') {
                 self.pat.get(self.pos + 1).copied()
             } else {
                 None
             };
+            if self.is(b'?') && !matches!(kind, Some(b':' | b'=' | b'!')) {
+                return Err(RegexError::Badrepeat);
+            }
             if kind == Some(b':') {
                 self.next();
                 self.next();

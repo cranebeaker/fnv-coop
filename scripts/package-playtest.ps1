@@ -99,6 +99,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $root 'distribution/licenses') -Destination $stage -Recurse
     foreach ($file in @('LICENSE', 'LEGAL.md')) { Copy-Item -LiteralPath (Join-Path $root $file) -Destination $stage }
     Copy-Item -LiteralPath (Join-Path $root 'crates/vorbis/LICENSE-libvorbis') -Destination (Join-Path $stage 'licenses/LICENSE-libvorbis')
+    Copy-Item -LiteralPath (Join-Path $root 'crates/nvse/LICENSE-msvc-stl') -Destination (Join-Path $stage 'licenses/LICENSE-msvc-stl')
     # Text files for Notepad.
     foreach ($file in @('READ ME.txt', 'mods/READ ME.txt')) {
         $path = Join-Path $stage $file

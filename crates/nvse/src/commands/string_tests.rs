@@ -891,6 +891,15 @@ fn regexes_match_the_shipping_dll() {
         regex_check::check("(a)".repeat(1000).as_bytes()).map_err(|e| e.code()),
         Err(13)
     );
+    // `(?x` is a bad repeat before any group is counted, past 999 groups too.
+    let past = |tail: &str| {
+        let p = "(a)".repeat(999) + tail;
+        regex_check::check(p.as_bytes()).map_err(|e| e.code())
+    };
+    assert_eq!(past("(?x)"), Err(11));
+    assert_eq!(past("(?"), Err(11));
+    assert_eq!(past("(x)"), Err(13));
+    assert_eq!(past("(?:x)"), Ok(()));
 }
 
 /// The printf's limits: what `snprintf` keeps (0x3FFD bytes) bounds every width and precision,
@@ -945,4 +954,39 @@ fn printf_keeps_to_the_buffer_and_the_ucrts_rules() {
     let mut guarded = Engine::new();
     super::super::array::set_fix(&mut guarded, super::super::array::NULL_GUARD, true);
     assert_eq!(ucrt_format(&guarded, b"a%sb", &list(&[0x10])), b"a");
+}
+
+/// The real UCRT's text where the port's differs (the review of #346 ran `vsnprintf` on a 32-bit
+/// harness): format, arguments and text in hex, a case a line. A case marked `known` must still
+/// differ, so its mark comes off when the formatter is fixed (issue #357); the others must match.
+#[test]
+fn printf_follows_the_ucrts_state_machine() {
+    use super::super::array::{set_fix, NULL_GUARD};
+    let unhex = |s: &str| {
+        (0..s.len() / 2)
+            .map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap())
+            .collect::<Vec<u8>>()
+    };
+    let mut e = Engine::new();
+    set_fix(&mut e, NULL_GUARD, true);
+    let (mut matched, mut known) = (0, 0);
+    for line in include_str!("printf_cases.txt").lines() {
+        if line.starts_with('#') {
+            continue;
+        }
+        let mut parts = line.split('|');
+        let format = unhex(parts.next().unwrap());
+        let args = unhex(parts.next().unwrap());
+        let want = unhex(parts.next().unwrap());
+        let got = ucrt_format(&e, &format, &args);
+        let name = String::from_utf8_lossy(&format);
+        if parts.next() == Some("known") {
+            assert_ne!(got, want, "{name} now matches: take its known mark off");
+            known += 1;
+        } else {
+            assert_eq!(got, want, "{name}");
+            matched += 1;
+        }
+    }
+    assert!(matched + known > 1000);
 }

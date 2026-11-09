@@ -1335,7 +1335,10 @@ impl Eval {
                     Some(Tok::number(v))
                 } else {
                     let mut s = self.get_string(e, &lh);
-                    s.extend(self.get_string(e, &rh));
+                    let r = self.get_string(e, &rh);
+                    // Past 1 GiB the game stops as out of memory, where xNVSE's process would.
+                    crate::commands::array::check_bytes(s.len() + r.len());
+                    s.extend(r);
                     Some(Tok::Str(s))
                 }
             }
@@ -1698,6 +1701,7 @@ impl Eval {
                         Vec::new()
                     }
                 };
+                crate::commands::array::check_bytes(s.len() + add.len());
                 s.extend(add);
                 vars::set_string(e, id, &s);
                 return Some(Tok::Str(s));
@@ -1706,6 +1710,7 @@ impl Eval {
                 return None;
             };
             let mut s = self.get_string(e, &lh);
+            crate::commands::array::check_bytes(s.len() + add.len());
             s.extend(add);
             vars::set_element(e, *array, key, Value::Str(s.clone()));
             return Some(Tok::Str(s));

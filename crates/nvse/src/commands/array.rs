@@ -20,6 +20,11 @@
 //!   through a missing array (`ar_Count`, `ar_GetNth`) or a format string reads a string outside
 //!   the game's memory; [`CYCLE_GUARD`] ends the walk of an array that holds itself (a deep copy,
 //!   a deep compare, a dump), which overflows xNVSE's stack.
+//! - **Out of memory:** where no cap comes first (vanilla's uncapped growth, or growth no row
+//!   caps), an array these commands make or grow past [`OUT_OF_MEMORY_ELEMENTS`] (33,554,432
+//!   elements) or a string past [`OUT_OF_MEMORY_BYTES`] (1 GiB) stops the game as out of memory
+//!   ([`out_of_memory`]), about where xNVSE's 32-bit process runs out, so the host is never
+//!   asked for more.
 //!
 //! Not here: lambdas' saved variables when an element takes or loses a lambda (as
 //! [`crate::vars`]).
@@ -65,6 +70,36 @@ pub fn set_fix(e: &mut Engine, row: usize, on: bool) {
 pub fn fix_on(e: &Engine, row: usize) -> bool {
     e.ext_get::<CommandFixes>()
         .is_some_and(|f| f.rows[row].load(Atomic::Relaxed))
+}
+
+/// The most elements an array these commands make or grow holds before the game stops as out
+/// of memory (where no cap comes first: every preset, the size caps row's caps being lower).
+/// xNVSE's array is a vector of 24-byte elements that doubles: past 2^25 elements it would
+/// next take a 1.6 GB block, which a 32-bit process does not have, and the game stops there.
+/// Ours is 1.3 GB at that point.
+pub const OUT_OF_MEMORY_ELEMENTS: usize = 1 << 25;
+
+/// The longest string these commands make before the game stops as out of memory: xNVSE's
+/// `std::string` grows by half again, so past 1 GiB it would next take about 1.6 GB.
+pub const OUT_OF_MEMORY_BYTES: usize = 1 << 30;
+
+/// The out-of-memory stop: the game stops, as xNVSE's process does when an allocation fails.
+pub(crate) fn out_of_memory(what: &str) -> ! {
+    panic!("out of memory: {what}, more than xNVSE's 32-bit process can hold")
+}
+
+/// Stops the game when an array would hold more than [`OUT_OF_MEMORY_ELEMENTS`].
+pub(crate) fn check_elements(count: usize) {
+    if count > OUT_OF_MEMORY_ELEMENTS {
+        out_of_memory(&format!("an array of {count} elements"));
+    }
+}
+
+/// Stops the game when a string would be longer than [`OUT_OF_MEMORY_BYTES`].
+pub(crate) fn check_bytes(count: usize) {
+    if count > OUT_OF_MEMORY_BYTES {
+        out_of_memory(&format!("a string of {count} bytes"));
+    }
 }
 
 /// `s_arrayErrorCodeNum`, the bad numeric key.
@@ -366,6 +401,10 @@ fn element_mut<'a>(
 /// The element at `key` (made when missing: a packed array appends) takes `data`; an invalid
 /// value leaves the element there, invalid. False when the key does not fit the array.
 fn set_data(e: &mut Engine, id: u32, key: &Key, data: &Data) -> bool {
+    let len = size(e, id);
+    if len >= OUT_OF_MEMORY_ELEMENTS && !has_key(e, id, key) {
+        check_elements(len + 1);
+    }
     match value_of(data) {
         Some(v) => vars::set_element(e, id, key, v),
         None => {
@@ -408,6 +447,7 @@ fn insert_at(e: &mut Engine, id: u32, at: u32, data: &Data) -> bool {
     if at as usize > len {
         return false;
     }
+    check_elements(len + 1);
     let data = held(e, id, data);
     if let Some(Container::Array(v)) = arrays(e).get_mut(&id).map(|a| &mut a.elements) {
         v.insert(
@@ -430,6 +470,7 @@ fn insert_range(e: &mut Engine, id: u32, at: u32, from: u32) -> bool {
         return false;
     }
     let source: Vec<Data> = entries(e, from).into_iter().map(|(_, x)| x.data).collect();
+    check_elements(size(e, id) + source.len());
     let made: Vec<Element> = source
         .iter()
         .map(|d| Element {
@@ -1598,6 +1639,8 @@ fn set_size(e: &mut Engine, id: u32, new_size: u32, pad: &Data) -> bool {
         if fix_on(e, SIZE_CAPS) {
             grow = grow.min(MAX_MADE.saturating_sub(len as usize));
         }
+        // xNVSE resizes its vector at once.
+        check_elements(len as usize + grow);
         for i in 0..grow {
             set_data(e, id, &Key::Number(f64::from(len) + i as f64), pad);
         }
@@ -1769,6 +1812,7 @@ fn ar_range(e: &mut Engine, w: &[u32]) -> Ret {
             if (endless || caps) && made.len() >= MAX_MADE {
                 break;
             }
+            check_elements(made.len() + 1);
             made.push(Element {
                 data: Data::Number(f64::from(start)),
                 owning_array: arr,
