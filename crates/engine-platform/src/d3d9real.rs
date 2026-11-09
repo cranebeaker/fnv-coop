@@ -2916,6 +2916,52 @@ pub(super) fn face_check_draw(
     ));
 }
 
+/// Test only (a test fix, not the layer's): a test's turn at the real Direct3D 9 runtime and the
+/// real D3DX DLL. Real devices made, used and released from several test threads at once abort
+/// the test binary: the NVIDIA overlay's capture hook (`nvspcap64.dll`, loaded into every
+/// Direct3D process where the NVIDIA app runs) fails fast with `0xC0000409` when they overlap
+/// (measured 2026-11-09: 5 of 10 parallel runs of the real-device tests alone, the hook named as
+/// the faulting module; none with one test thread). The game makes one device. Every test that
+/// makes a real device or calls the real DLL takes its turn first and keeps it to its end (its
+/// device released before the turn), so those tests run one at a time while the rest stay
+/// parallel; [`test_real_device_on`] and the backend's own test device check the turn is held.
+#[cfg(test)]
+pub(crate) struct RealTurn(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
+
+#[cfg(test)]
+thread_local! {
+    /// Whether this test thread holds its [`RealTurn`].
+    static HOLDS_REAL_TURN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Test only: waits for and takes the test's [`RealTurn`] (a test that failed on its turn does
+/// not stop the others').
+#[cfg(test)]
+pub(crate) fn real_turn() -> RealTurn {
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let turn = TURN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    HOLDS_REAL_TURN.with(|h| h.set(true));
+    RealTurn(turn)
+}
+
+#[cfg(test)]
+impl Drop for RealTurn {
+    fn drop(&mut self) {
+        HOLDS_REAL_TURN.with(|h| h.set(false));
+    }
+}
+
+/// Test only: stops a test that makes a real device without its [`RealTurn`].
+#[cfg(test)]
+pub(crate) fn assert_real_turn() {
+    assert!(
+        HOLDS_REAL_TURN.with(|h| h.get()),
+        "a test makes a real device only on its turn: take `d3d9real::real_turn()` first"
+    );
+}
+
 /// Test only: a hidden window of the window thread (64 by 64), for a real device; `None` when it
 /// could not be made.
 #[cfg(test)]
@@ -2969,6 +3015,7 @@ pub(crate) fn test_real_device_on(
     behavior: u32,
     threaded: bool,
 ) -> Option<IDirect3DDevice9> {
+    assert_real_turn();
     let window = test_window()?;
     if real(e).stream.is_none() {
         // With the render thread, the queries' board too, as `direct3d_created` makes it.
@@ -3315,6 +3362,7 @@ mod tests {
     /// answer after waiting. Skipped where Direct3D 9 has no device.
     #[test]
     fn a_real_query_answers_without_waiting_for_the_render_thread() {
+        let _turn = real_turn();
         let mut e = Engine::new();
         let device = 0x1000;
         if test_real_device_on(&mut e, device, 0x54, true).is_none() {
@@ -3376,6 +3424,7 @@ mod tests {
     #[ignore]
     fn allocations_per_operation_of_the_real_device() {
         use crate::alloc_count::{per_run, row};
+        let _turn = real_turn();
         let mut e = Engine::new();
         let device = 0x1000;
         if test_real_device(&mut e, device, 0x54).is_none() {

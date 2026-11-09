@@ -1238,6 +1238,7 @@ mod tests {
     /// missing (as on CI).
     #[test]
     fn textures_through_the_64_bit_dll_match_its_capture() {
+        let _turn = super::super::d3d9real::real_turn();
         if !textures_available() {
             return;
         }
@@ -1321,6 +1322,7 @@ mod tests {
     #[test]
     fn the_games_texture_calls_reach_the_layer_and_its_real_texture_through_the_dll() {
         use super::super::d3dx::{self, CachedSurface, TextureSource};
+        let _turn = super::super::d3d9real::real_turn();
         if !textures_available() {
             return;
         }
@@ -1439,6 +1441,7 @@ mod tests {
     fn compiles_through_the_players_dll() {
         use windows::core::PCSTR;
         use windows::Win32::System::LibraryLoader::{LoadLibraryExA, LOAD_LIBRARY_SEARCH_SYSTEM32};
+        let _turn = super::super::d3d9real::real_turn();
         if unsafe {
             LoadLibraryExA(
                 PCSTR(b"d3dx9_38.dll\0".as_ptr()),

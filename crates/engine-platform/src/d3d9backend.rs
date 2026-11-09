@@ -1490,6 +1490,7 @@ mod tests {
     /// window thread (`behavior`: the creation flags, the game's 0x54); `None` where Direct3D 9
     /// has no device (no display adapter, as on CI).
     fn with_device(behavior: u32) -> Option<RealBackend> {
+        super::super::d3d9real::assert_real_turn();
         let window = super::super::d3d9real::test_window()?;
         let mut b = RealBackend::new();
         let present = super::super::d3d9real::test_present();
@@ -1516,6 +1517,7 @@ mod tests {
     /// `SetStreamSource` reads freed memory. Skipped where there is no Direct3D 9 device.
     #[test]
     fn a_buffer_the_model_lets_go_of_stays_alive_until_present() {
+        let _turn = super::super::d3d9real::real_turn();
         let Some(mut b) = with_device(0x54) else {
             return;
         };
@@ -1563,6 +1565,7 @@ mod tests {
     #[test]
     fn the_kept_device_answers_as_the_object_table() {
         use windows::core::Interface;
+        let _turn = super::super::d3d9real::real_turn();
         let Some(mut b) = with_device(0x54) else {
             return;
         };
@@ -1597,6 +1600,7 @@ mod tests {
     /// previous level as the model does; a managed level uploaded reads back as given.
     #[test]
     fn set_lod_and_level_bytes_reach_the_real_texture() {
+        let _turn = super::super::d3d9real::real_turn();
         let Some(mut b) = with_device(0x54) else {
             return;
         };

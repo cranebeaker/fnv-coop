@@ -5874,6 +5874,7 @@ pub(crate) mod tests {
 
     #[cfg(windows)]
     fn real_levels_keep_the_bytes(threaded: bool) {
+        let _turn = super::super::d3d9real::real_turn();
         let extra = "\nDomain\td2\t15,31545844\nCheckDeviceFormat\t0 1 16 0 3\t0\t\td2\
                      \nCheckDeviceFormat\t0 1 16 0 5\t0\t\td2";
         let (mut e, device) = device_with(extra, 0x54);
@@ -6225,6 +6226,7 @@ pub(crate) mod tests {
 
     #[cfg(windows)]
     fn static_buffers_keep_their_bytes(threaded: bool) {
+        let _turn = super::super::d3d9real::real_turn();
         let (mut e, device) = device_with("", 0x54);
         set_buffer_store(&mut e, Store::Host);
         if super::super::d3d9real::test_real_device_on(&mut e, device, 0x54, threaded).is_none() {
