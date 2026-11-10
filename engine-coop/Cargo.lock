@@ -794,6 +794,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nv-coop"
+version = "0.1.0"
+dependencies = [
+ "coop-core",
+ "coop-engine",
+ "coop-engine-glue",
+ "coop-engine-session",
+ "coop-net",
+ "coop-policy",
+]
+
+[[package]]
 name = "nvse"
 version = "0.1.0"
 source = "git+https://github.com/slaterain/nv-rs?rev=815b1876fbe936e5fd0d649a6a666376bce49934#815b1876fbe936e5fd0d649a6a666376bce49934"

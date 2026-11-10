@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 
 use coop_core::avatar::{quant_heading, quant_pos, AvatarState, Sample};
 use coop_core::ids::{CellId, PlayerId};
-use coop_engine::avatar::{Body, Drive, Look, Remote, Step};
+use coop_engine::avatar::{Avatar, Body, Drive, Left, Look, Remote, Step};
 use coop_engine::travel::{self, Local, Refusal};
 use coop_engine::{addr, Program};
 
@@ -390,6 +390,26 @@ impl Ladder {
         }
     }
 
+    /// The avatars in this game now, each with its player's slot: for the avatars' damage
+    /// and save rules (the glue's avatar guard).
+    pub fn bodies(&self) -> Vec<(Avatar, u8)> {
+        self.peers
+            .iter()
+            .filter_map(|(who, peer)| peer.body.avatar.map(|a| (a, who.0)))
+            .collect()
+    }
+
+    /// The avatar of player `slot` left the game for a save or a load. After a save it is
+    /// placed again; after a load its base copy is gone too, and both are made again.
+    pub fn avatar_left(&mut self, slot: u8, why: Left) {
+        if let Some(peer) = self.peers.get_mut(&PlayerId(slot)) {
+            peer.body.avatar = None;
+            if why == Left::Load {
+                peer.body.base = None;
+            }
+        }
+    }
+
     /// The avatar ids in this game now, each with its player.
     pub fn avatars_now(&self) -> Vec<(PlayerId, u32)> {
         self.peers
@@ -564,6 +584,32 @@ mod tests {
         capped.frame(&mut twin, 0, &[(guest, sample(HOUSE, 0.0))]);
         assert!(capped.avatars_now().is_empty());
         assert!(!capped.reported(4));
+    }
+
+    /// An avatar that left for a save is placed again from the same base copy; after a load
+    /// the base copy is made again too. Mutation twin: with nothing left, the avatar is driven.
+    #[test]
+    fn an_avatar_that_left_for_a_save_or_a_load_comes_back() {
+        let mut p = machine();
+        let mut ladder = Ladder::new(false, Cap::Avatar).quiet();
+        let guest = [(PlayerId(1), sample(HOUSE, 0.0))];
+        ladder.frame(&mut p, 0, &guest);
+        let (first, slot) = ladder.bodies()[0];
+        assert_eq!(slot, 1);
+        ladder.frame(&mut p, 16, &guest);
+        assert_eq!(ladder.bodies()[0].0, first, "the twin: driven, not placed");
+        ladder.avatar_left(1, Left::Save);
+        first.remove(&mut p);
+        ladder.frame(&mut p, 32, &guest);
+        let second = ladder.bodies()[0].0;
+        assert_ne!(first, second);
+        let copies = |p: &FakeProgram| p.calls.iter().filter(|(a, _)| *a == addr::NPC_COPY).count();
+        assert_eq!(copies(&p), 1, "the same base copy");
+        ladder.avatar_left(1, Left::Load);
+        second.remove(&mut p);
+        ladder.frame(&mut p, 48, &guest);
+        assert_eq!(copies(&p), 2, "a new base copy after a load");
+        assert_eq!(ladder.bodies().len(), 1);
     }
 
     #[test]
