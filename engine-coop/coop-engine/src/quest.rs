@@ -44,6 +44,19 @@ pub fn objective_items(p: &dyn Program, quest: u32) -> Vec<(u32, u32)> {
         .collect()
 }
 
+/// The quest's script variables: (variable address, id), in the list's order. Empty when the
+/// quest has no event list.
+pub fn variable_items(p: &dyn Program, quest: u32) -> Vec<(u32, u32)> {
+    let events = p.u32(quest + addr::QUEST_EVENT_LIST);
+    if events == 0 {
+        return Vec::new();
+    }
+    list_items(p, p.u32(events + addr::EVENT_LIST_VARS))
+        .into_iter()
+        .map(|item| (item, p.u32(item + addr::VAR_ID)))
+        .collect()
+}
+
 /// A quest's state, read from the program.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct QuestState {
@@ -55,6 +68,8 @@ pub struct QuestState {
     pub done: Vec<u8>,
     /// The objectives with a status above 0: (id, status bits), sorted by id.
     pub objectives: Vec<(u32, u8)>,
+    /// The script variables that are not 0: (id, the bits of the value), sorted by id.
+    pub variables: Vec<(u32, u64)>,
 }
 
 /// Reads the state of the quest at `quest`.
@@ -72,12 +87,25 @@ pub fn read(p: &dyn Program, quest: u32) -> QuestState {
         .filter(|(_, status)| *status != 0)
         .collect();
     objectives.sort_unstable();
+    let mut variables: Vec<(u32, u64)> = variable_items(p, quest)
+        .into_iter()
+        .map(|(item, id)| (id, u64_at(p, item + addr::VAR_VALUE)))
+        .filter(|(_, bits)| *bits != 0)
+        .collect();
+    variables.sort_unstable();
     QuestState {
         stage: p.u8(quest + addr::QUEST_STAGE),
         flags: p.u8(quest + addr::QUEST_FLAGS),
         done,
         objectives,
+        variables,
     }
+}
+
+fn u64_at(p: &dyn Program, at: u32) -> u64 {
+    let mut b = [0; 8];
+    p.read(at, &mut b);
+    u64::from_le_bytes(b)
 }
 
 /// The shared flag bits of a quest's flags byte.
@@ -145,6 +173,11 @@ pub fn fields(s: &QuestState) -> Vec<Field> {
             });
         }
     }
+    for (id, bits) in &s.variables {
+        if let Ok(index) = u16::try_from(*id) {
+            out.push(Field::ScriptVar { index, bits: *bits });
+        }
+    }
     out.retain(|f| !f.is_tombstone());
     out
 }
@@ -190,6 +223,19 @@ pub fn apply(p: &mut dyn Program, quest: u32, field: &Field) -> bool {
                 p.set_u32(item + addr::OBJECTIVE_STATUS, new);
             }
             new != old
+        }
+        Field::ScriptVar { index, bits } => {
+            let Some((item, _)) = variable_items(p, quest)
+                .into_iter()
+                .find(|(_, id)| *id == u32::from(*index))
+            else {
+                return false;
+            };
+            let changed = u64_at(p, item + addr::VAR_VALUE) != *bits;
+            if changed {
+                p.write(item + addr::VAR_VALUE, &bits.to_le_bytes());
+            }
+            changed
         }
         Field::Custom { tag: t, data } => {
             let Some(chunk) = stages_chunk(*t) else {
@@ -317,6 +363,38 @@ mod tests {
         p.set_u8(quest + addr::QUEST_FLAGS, 0x10 | 1);
         assert!(apply(&mut p, quest, &Field::QuestFlags { flags: 0 }));
         assert_eq!(p.u8(quest + addr::QUEST_FLAGS), 0x10);
+    }
+
+    /// A quest's script variables cross as fields. A variable at 0 is not a field, and its
+    /// tombstone writes 0. A quest with no event list has no variables and takes none.
+    #[test]
+    fn script_variables_cross_as_fields() {
+        let (mut host, hq) = program();
+        let vars = host.add_variables(hq, &[1, 2, 7]);
+        host.write(vars[1] + addr::VAR_VALUE, &2.5f64.to_le_bytes());
+        let want = Field::script_var(2, 2.5);
+        let f = fields(&read(&host, hq));
+        assert_eq!(
+            f.iter()
+                .filter(|x| matches!(x, Field::ScriptVar { .. }))
+                .count(),
+            1,
+            "{f:?}"
+        );
+        assert!(f.contains(&want));
+
+        let (mut guest, gq) = program();
+        assert!(!apply(&mut guest, gq, &want), "no event list, no variable");
+        guest.add_variables(gq, &[1, 2, 7]);
+        assert!(apply(&mut guest, gq, &want));
+        assert!(!apply(&mut guest, gq, &want), "idempotent");
+        assert_eq!(read(&guest, gq).variables, [(2, 2.5f64.to_bits())]);
+        assert!(apply(&mut guest, gq, &want.tombstone()));
+        assert!(read(&guest, gq).variables.is_empty());
+        assert!(
+            !apply(&mut guest, gq, &Field::script_var(9, 1.0)),
+            "unknown id"
+        );
     }
 
     /// A failed quest has the program's two bits, and exports as failed and completed. The

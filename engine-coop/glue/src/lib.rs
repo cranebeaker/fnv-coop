@@ -9,6 +9,8 @@
 use std::path::Path;
 
 use coop_engine::{Program, Ret};
+
+pub mod gate;
 use engine::Engine;
 
 /// The upstream engine as the adapter's [`Program`]. Use it between the game's frames.
@@ -90,40 +92,64 @@ pub fn frame(game: &mut host::Host) -> bool {
     game.main_frame()
 }
 
-/// Runs the game from its main menu into `cell` (a console line `coc`), and `settle` frames
-/// more. `Err` when play is not reached in `limit` frames.
-pub fn reach_play(
+/// How many frames the main menu takes to build, from its first frame.
+const MENU_FRAMES: u32 = 120;
+
+/// Runs the game to its main menu, built. The count of frames. `Err` when the menu is not
+/// reached in `limit` frames.
+pub fn reach_menu(game: &mut host::Host, limit: u32) -> Result<u32, String> {
+    let mut menu_at = None;
+    for frames in 1..=limit {
+        if !frame(game) {
+            return Err("the game's main does not run".into());
+        }
+        if menu_at.is_none() && screen(game) == Screen::Menu {
+            menu_at = Some(frames);
+        }
+        if menu_at.is_some_and(|at| frames >= at + MENU_FRAMES) {
+            return Ok(frames);
+        }
+    }
+    Err(format!("the main menu was not reached in {limit} frames"))
+}
+
+/// Goes from the built main menu into `cell` (a console line `coc`, the adapter's own), and
+/// runs `settle` frames of play more. The count of frames. `Err` when play is not reached
+/// in `limit` frames.
+pub fn enter_cell(
     game: &mut host::Host,
     cell: &str,
     settle: u32,
     limit: u32,
 ) -> Result<u32, String> {
-    // The main menu takes its first frames to build. The console line then loads the cell.
-    const MENU_FRAMES: u32 = 120;
-    let mut frames = 0;
-    let mut menu_at = None;
-    let mut asked = false;
+    let line = format!("coc {cell}");
+    let mut run = || coop_engine::console::run_line(&mut EngineProgram(&mut game.engine), &line, 0);
+    if !gate::own(&mut run) {
+        return Err("the game has no console manager".into());
+    }
     let mut play_at = None;
-    while frames < limit {
+    for frames in 1..=limit {
         if !frame(game) {
             return Err("the game's main does not run".into());
         }
-        frames += 1;
-        match screen(game) {
-            Screen::Menu if menu_at.is_none() => menu_at = Some(frames),
-            Screen::Play if asked && play_at.is_none() => play_at = Some(frames),
-            _ => {}
-        }
-        if !asked && menu_at.is_some_and(|at| frames >= at + MENU_FRAMES) {
-            let line = format!("coc {cell}");
-            if !coop_engine::console::run_line(&mut EngineProgram(&mut game.engine), &line, 0) {
-                return Err("the game has no console manager".into());
-            }
-            asked = true;
+        if play_at.is_none() && screen(game) == Screen::Play {
+            play_at = Some(frames);
         }
         if play_at.is_some_and(|at| frames >= at + settle) {
             return Ok(frames);
         }
     }
     Err(format!("play in {cell} was not reached in {limit} frames"))
+}
+
+/// Runs the game from its start into `cell`, and `settle` frames more. `Err` when play is
+/// not reached in `limit` frames.
+pub fn reach_play(
+    game: &mut host::Host,
+    cell: &str,
+    settle: u32,
+    limit: u32,
+) -> Result<u32, String> {
+    let menu = reach_menu(game, limit)?;
+    Ok(menu + enter_cell(game, cell, settle, limit.saturating_sub(menu))?)
 }

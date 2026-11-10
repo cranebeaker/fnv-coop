@@ -15,6 +15,7 @@ pub mod cli;
 pub mod data;
 pub mod engine_peer;
 pub mod expect;
+pub mod gate_rows;
 pub mod json;
 pub mod multi;
 pub mod net;

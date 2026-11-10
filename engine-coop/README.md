@@ -49,6 +49,14 @@ Set `NV_D3D9_ADAPTER` to the instance's `machine.tsv`, then:
 coop-probe <GAME>/Data --frames 3000 --script probe/scripts/m0b_console2.txt
 ```
 
+Set `NV_REPEATABLE=1` for a test run: the engine then reads a test clock, two runs are equal,
+and a loaded machine does not change the order of the game's threads. With the real clock a
+run on a loaded machine can stop in its first frames (`would block forever`).
+
+A probe script has one step a line: `WHEN VERB ARGUMENTS`. `probe/src/main.rs` lists the
+verbs: console lines, quest and global reads, `call`, `peek` and `poke` by address, `pos` of a
+reference, and overrides that count or block a function.
+
 With no `NV_D3D9` the game runs with no window. `NV_D3D9=real` with `NV_D3D9_BACKGROUND=1`
 gives a real window that does not take the focus. Some places need the real window (an
 occlusion query has no answer without it).
@@ -57,11 +65,14 @@ occlusion query has no answer without it).
 
 - `coop-engine`: the adapter. It sees the game program by address only (read, write, call),
   and names no engine type. Its tests run on a fake program: no engine, no game files.
-  `addr.rs` holds each program fact with its source.
+  `addr.rs` holds each program fact with its source. `gate.rs` decides where story code runs
+  on a guest, and `audit.rs` compares a guest's shared state with the host's.
 - `glue`: the one crate that names upstream types. It gives the adapter its view of the
-  program and starts a game for a test.
+  program and starts a game for a test. `glue/src/gate.rs` puts the guest gate on the game:
+  six overrides by address, each refused when the address has a wrap.
 - `peer` (`coop-engine-peer`): one game behind a line protocol, for a test harness in another
-  process.
+  process. `coop-engine/src/peer.rs` lists the requests. With `--menu` the server waits at
+  the main menu, so that a guest gets its gate before its first frame of play.
 - `probe` (`coop-probe`): starts the engine, runs the game's frames, and runs a probe script
   between frames. `probe/scripts` holds the scripts.
 - `tools`: the machine table and the scratch instance for a test run.
@@ -84,7 +95,29 @@ cargo test -p coop-headless --test engine_backend
 ```
 
 Set `COOP_ENGINE_PEER` for this test only. Without it the engine backend is
-`PENDING (engine backend)`, and other tests of that crate check exactly that.
+`PENDING (engine backend)`, and other tests of that crate check exactly that. Each test starts
+real games: use `-- --test-threads=1` on a machine that cannot run four games at one time.
+
+## The guest gate
+
+The host's game runs the story once. On a guest:
+
+- A script of a shared quest does not run (its timed script, a stage result).
+- A script of a quest that the policy gives to each player runs, and each script that a
+  `guest_local` list of the policy names. An object's script and an effect's script run too:
+  their menus, sounds and messages are the guest's own.
+- A change of a shared quest's state from any code (stage, running, completed, failed,
+  objective) does nothing and answers success. It waits as one intent for the host.
+- The adapter's own call into the program (a console line, an apply) is not gated.
+- A write that the gate cannot stop (a script's `set` line) is found by the audit: it names
+  the slot, and the host's value comes back.
+- The script variables of a quest whose own script is a local script are each machine's own.
+  They are not exported, not applied and not compared.
+
+The gate fails loudly. It refuses an address with a wrap or with no translation. At its start
+it checks that the adapter's console line reaches it and passes, and that a stage change of a
+shared quest is held with no byte changed. It counts each script run: no run in five seconds
+of play is a "gate blind" alarm.
 
 ## What the probes showed (2026-11-10, upstream 815b187)
 
@@ -106,5 +139,10 @@ Set `COOP_ENGINE_PEER` for this test only. Without it the engine backend is
   nothing. A guest refuses to set a stage. The conformance tests `snapshot_carries_stage`,
   `delta_carries_change`, `snapshot_is_idempotent`, `guest_runs_no_quest_script` and
   `global_replicates` pass, and their mutation twins fail.
-- Not yet: per-player rows, the gate that stops a guest's own story scripts, actors, combat,
-  dialogue, items, saves. The plan is in the project's notes.
+- The guest gate: the conformance tests `guest_runs_no_shared_quest_script`,
+  `guest_runs_local_quest`, `local_script_cannot_move_shared_quest`,
+  `inline_global_is_repaired`, `guest_stage_ask_moves_host_once`,
+  `audit_names_leak_when_gate_is_blind` and `adapter_line_passes_gate` pass on real games, and
+  their mutation twins fail.
+- Not yet: per-player rows, a dialogue result's owner, actors, combat, items, saves. The plan
+  is in the project's notes.

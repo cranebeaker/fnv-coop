@@ -76,6 +76,40 @@ impl FakeProgram {
         quest
     }
 
+    /// Gives the quest at `quest` an event list with these variable ids, each at 0. Returns
+    /// the variables' addresses.
+    pub fn add_variables(&mut self, quest: u32, ids: &[u32]) -> Vec<u32> {
+        let events = self.take(0x10);
+        let head = self.take(8);
+        let items: Vec<u32> = ids
+            .iter()
+            .map(|id| {
+                let item = self.take(16);
+                self.set_u32(item + addr::VAR_ID, *id);
+                item
+            })
+            .collect();
+        self.link(head, &items);
+        self.set_u32(events + addr::EVENT_LIST_VARS, head);
+        self.set_u32(quest + addr::QUEST_EVENT_LIST, events);
+        items
+    }
+
+    /// Gives the quest at `quest` its own script with this form id. Returns the script's
+    /// address.
+    pub fn add_script(&mut self, quest: u32, id: u32) -> u32 {
+        let script = self.take(addr::SCRIPT_BYTES);
+        self.set_u32(script + addr::FORM_ID, id);
+        self.set_u32(
+            script + addr::SCRIPT_TYPE,
+            u32::from(addr::script_type::QUEST),
+        );
+        self.set_u32(script + addr::SCRIPT_QUEST, quest);
+        self.set_u32(quest + addr::QUEST_SCRIPT, script);
+        self.forms.insert(id, script);
+        script
+    }
+
     /// Adds a global with this value. Returns its address.
     pub fn add_global(&mut self, id: u32, value: f32) -> u32 {
         let global = self.take(0x28);

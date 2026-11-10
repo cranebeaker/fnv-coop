@@ -11,11 +11,14 @@
 //! Each address and offset is in [`addr`], with its source.
 
 pub mod addr;
+pub mod audit;
 pub mod console;
 pub mod fake;
+pub mod gate;
 pub mod peer;
 pub mod program;
 pub mod quest;
+pub mod script;
 pub mod shared;
 
 pub use program::{Program, Ret};

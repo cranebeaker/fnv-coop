@@ -18,15 +18,30 @@ pub struct Quest {
     pub flags: u8,
 }
 
-/// The form with this id, or `None`. The game's own lookup finds it.
-fn form(e: &mut Engine, id: u32) -> Option<u32> {
-    let at = EngineProgram(e).call(addr::FORM_BY_ID, &[id]).eax;
-    (at != 0).then_some(at)
+/// Where the program keeps the address of the player's reference.
+pub const PLAYER: u32 = addr::PLAYER;
+/// A form's id.
+pub const FORM_ID: u32 = addr::FORM_ID;
+/// A reference's place: three floats.
+pub const REF_PLACE: u32 = addr::REF_POSITION;
+/// A reference's three angles, in radians. Probe only: the adapter does not use it yet.
+/// Source: the three floats before the place change with `SetAngle` (measured with `peekf`).
+pub const REF_ANGLE: u32 = 0x24;
+/// A reference's cell. Source: the legacy plugin's layout table (`parentCell` +0x40).
+pub const REF_CELL: u32 = 0x40;
+
+/// The address of the form with this id, or 0. The game's own lookup finds it.
+pub fn form(e: &mut Engine, id: u32) -> u32 {
+    EngineProgram(e).call(addr::FORM_BY_ID, &[id]).eax
+}
+
+fn form_at(e: &mut Engine, id: u32) -> Option<u32> {
+    Some(form(e, id)).filter(|at| *at != 0)
 }
 
 /// The quest with form id `id`, or `None` when the game has no such form.
 pub fn quest(e: &mut Engine, id: u32) -> Option<Quest> {
-    let at = form(e, id)?;
+    let at = form_at(e, id)?;
     let p = EngineProgram(e);
     Some(Quest {
         at,
@@ -37,14 +52,14 @@ pub fn quest(e: &mut Engine, id: u32) -> Option<Quest> {
 
 /// The value of the global with form id `id`, or `None` when the game has no such form.
 pub fn global(e: &mut Engine, id: u32) -> Option<f32> {
-    let at = form(e, id)?;
+    let at = form_at(e, id)?;
     Some(EngineProgram(e).f32(at + addr::GLOBAL_VALUE))
 }
 
 /// Sets a stage with the game's own function, which runs the stage's result scripts. `None`
 /// when the game has no such quest.
 pub fn set_stage(e: &mut Engine, id: u32, stage: u8) -> Option<bool> {
-    let at = form(e, id)?;
+    let at = form_at(e, id)?;
     Some(
         EngineProgram(e)
             .call(addr::QUEST_SET_STAGE, &[at, u32::from(stage)])

@@ -65,6 +65,86 @@ pub trait BackendPeer {
     fn has_player_rows(&self) -> bool {
         true
     }
+    /// The shared state before this game's first frame of play. `None` on a backend that
+    /// does not keep it.
+    fn start_state(&self) -> Option<Vec<(CForm, Field)>> {
+        None
+    }
+    /// Runs this many frames of the game. False on a backend that has no frames.
+    fn frames(&mut self, _n: u32) -> bool {
+        false
+    }
+    /// Runs a console line as a script of the game would run it: the guest's gate sees it.
+    /// A test's stand-in for a script that the game runs.
+    fn script_line(&mut self, _line: &str) -> bool {
+        false
+    }
+    /// Runs a console line as the adapter's own: the gate lets it pass.
+    fn adapter_line(&mut self, _line: &str) -> bool {
+        false
+    }
+    /// What the guest's gate counted. `None` when this game has no gate.
+    fn gate_stats(&self) -> Option<GateStats> {
+        None
+    }
+    /// The changes of shared quests that the gate turned to the host, each one time. The
+    /// queue is empty after.
+    fn intents(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+    /// The globals that the game moves itself (its clock), each with the difference from
+    /// the host that is no leak.
+    fn set_moving(&mut self, _limits: &[(&str, f32)]) -> bool {
+        false
+    }
+    /// Compares each shared slot with the host's last value. With `restore`, the host's
+    /// values come back. `None` when this backend has no audit, or before a snapshot.
+    fn audit(&mut self, _restore: bool) -> Option<AuditReport> {
+        None
+    }
+    /// The stage of a quest that each player runs alone, in this game.
+    fn local_stage(&self, _quest: &str) -> Option<u16> {
+        None
+    }
+}
+
+/// What a guest's gate counted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GateStats {
+    /// Script runs that reached the gate.
+    pub runs: u64,
+    /// Script runs that the gate left to the host.
+    pub stopped: u64,
+    /// Changes of a shared quest that became an intent.
+    pub guarded: u64,
+    /// The gate saw no script for five seconds of play.
+    pub blind: bool,
+}
+
+/// One audit of a guest's shared state.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AuditReport {
+    /// How many slots were not the host's value.
+    pub leaks: u32,
+    /// How many slots got the host's value back.
+    pub restored: u32,
+    /// The script that reached the gate last (a form id).
+    pub last_script: u32,
+    /// The leaks by name: form id and field kind (the first 64).
+    pub named: Vec<(u32, u8)>,
+}
+
+/// Which story code a guest's game runs itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GuestRules<'r> {
+    /// The campaign policy's rules: each per-player quest and each `guest_local` script.
+    Policy,
+    /// The policy's rules, and these quests local too (editor ids).
+    PolicyAnd(&'r [&'r str]),
+    /// A gate with no local quest and no local script.
+    Closed,
+    /// No gate: the guest's game runs each script.
+    Open,
 }
 
 /// A game world that can host a co-op session.
@@ -73,15 +153,56 @@ pub trait CoopBackend: Sync {
     fn name(&self) -> &'static str;
     /// A new machine: the host (authority) or a guest (runs no quest script).
     fn peer<'a>(&self, d: &'a Data, host: bool) -> Result<Box<dyn BackendPeer + 'a>, String>;
+    /// A new guest with these rules for its script gate. PENDING on a backend whose guest
+    /// has no script gate.
+    fn guest<'a>(
+        &self,
+        _d: &'a Data,
+        _rules: GuestRules,
+    ) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        Err("PENDING (this backend has no script gate)".into())
+    }
 }
 
 /// The game's own program on the upstream engine, one child process for each peer
 /// ([`crate::engine_peer`]). PENDING when no peer server is named.
 pub struct EngineBackend;
 
-/// The shared quests and globals of a load order, for a peer's catalog: each quest that the
-/// policy does not give to each player separately, and each global.
-fn shared_catalog(d: &Data) -> Result<(Vec<u32>, Vec<u32>), String> {
+/// The scripts that each machine runs itself: the policy's `guest_local` lists, each script
+/// by its form id in this load order.
+fn local_scripts(table: &PolicyTable, d: &Data) -> Result<Vec<u32>, String> {
+    let mut scripts = Vec::new();
+    for row in table.rows() {
+        for name in &row.guest_local {
+            // `Plugin.esm:LOCALID`: the script's id in its own plugin.
+            let Some((plugin, local)) = name.rsplit_once(':') else {
+                return Err(format!("{}: bad guest_local entry {name}", row.edid));
+            };
+            let local = u32::from_str_radix(local, 16)
+                .map_err(|_| format!("{}: bad guest_local id {name}", row.edid))?;
+            let index = d
+                .order
+                .plugins()
+                .iter()
+                .find(|p| p.name.eq_ignore_ascii_case(plugin))
+                .map(|p| u32::from(p.load_index));
+            // A plugin that is not loaded has no script to run.
+            if let Some(index) = index {
+                scripts.push((index << 24) | (local & 0x00FF_FFFF));
+            }
+        }
+    }
+    scripts.sort_unstable();
+    scripts.dedup();
+    Ok(scripts)
+}
+
+/// What two games of a load order share, and a guest's gate for it. Shared: each quest that
+/// the policy does not give to each player separately, and each global. The gate: the
+/// policy's per-player quests and its `guest_local` scripts.
+fn policy_setup(
+    d: &Data,
+) -> Result<(crate::engine_peer::Catalog, crate::engine_peer::Gate), String> {
     let bundled = PolicyTable::bundled().map_err(|e| format!("{e:?}"))?;
     let table = coop_session::policy_ids::resolve_policy(&bundled, &d.order)?.0;
     let own = ShadowPlan::from_policy(&table).quests;
@@ -93,7 +214,34 @@ fn shared_catalog(d: &Data) -> Result<(Vec<u32>, Vec<u32>), String> {
             .map(|f| f.0)
             .collect()
     };
-    Ok((ids(b"QUST"), ids(b"GLOB")))
+    let scripts = local_scripts(&table, d)?;
+    let catalog = crate::engine_peer::Catalog {
+        quests: ids(b"QUST"),
+        globals: ids(b"GLOB"),
+        local_scripts: scripts.clone(),
+    };
+    let gate = crate::engine_peer::Gate {
+        quests: own.iter().map(|f| f.0).collect(),
+        scripts,
+    };
+    Ok((catalog, gate))
+}
+
+impl EngineBackend {
+    fn start<'a>(
+        &self,
+        d: &'a Data,
+        host: bool,
+        gate: Option<crate::engine_peer::Gate>,
+    ) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        let Some(program) = crate::engine_peer::program() else {
+            return Err("PENDING (engine backend)".into());
+        };
+        let catalog = policy_setup(d)?.0;
+        let peer =
+            crate::engine_peer::EnginePeer::start(d, &program, host, &catalog, gate.as_ref())?;
+        Ok(Box::new(peer))
+    }
 }
 
 impl CoopBackend for EngineBackend {
@@ -101,12 +249,38 @@ impl CoopBackend for EngineBackend {
         "engine"
     }
     fn peer<'a>(&self, d: &'a Data, host: bool) -> Result<Box<dyn BackendPeer + 'a>, String> {
-        let Some(program) = crate::engine_peer::program() else {
+        if host {
+            self.start(d, true, None)
+        } else {
+            // A guest of a session always has its gate.
+            self.guest(d, GuestRules::Policy)
+        }
+    }
+    fn guest<'a>(
+        &self,
+        d: &'a Data,
+        rules: GuestRules,
+    ) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        if crate::engine_peer::program().is_none() {
             return Err("PENDING (engine backend)".into());
+        }
+        let gate = match rules {
+            GuestRules::Open => None,
+            GuestRules::Closed => Some(crate::engine_peer::Gate::default()),
+            GuestRules::Policy => Some(policy_setup(d)?.1),
+            GuestRules::PolicyAnd(more) => {
+                let mut gate = policy_setup(d)?.1;
+                for quest in more {
+                    let form = d
+                        .order
+                        .form_by_editor_id(quest)
+                        .ok_or(format!("no quest {quest} in this data"))?;
+                    gate.quests.push(form.0);
+                }
+                Some(gate)
+            }
         };
-        let (quests, globals) = shared_catalog(d)?;
-        let peer = crate::engine_peer::EnginePeer::start(d, &program, host, &quests, &globals)?;
-        Ok(Box::new(peer))
+        self.start(d, false, gate)
     }
 }
 
@@ -258,7 +432,7 @@ pub fn delta_of(fields: Vec<(CForm, Field)>, base: u64) -> Delta {
     }
 }
 
-fn need<T>(r: Result<T, String>) -> Result<T, Verdict> {
+pub(crate) fn need<T>(r: Result<T, String>) -> Result<T, Verdict> {
     r.map_err(|e| {
         if e.starts_with("PENDING") {
             Verdict::Pending(e)
@@ -274,9 +448,10 @@ const SHARED_QUEST: &str = "VCG03";
 const PLAYER_QUEST: &str = "VCG01";
 const STAGE: u16 = 10;
 
-type Test = fn(&dyn CoopBackend, &Data, bool) -> Result<(), Verdict>;
+/// One conformance test: the backend, the game's data, and the twin flag.
+pub type Test = fn(&dyn CoopBackend, &Data, bool) -> Result<(), Verdict>;
 
-fn bad(s: impl Into<String>) -> Verdict {
+pub(crate) fn bad(s: impl Into<String>) -> Verdict {
     Verdict::Fail(s.into())
 }
 
@@ -442,6 +617,10 @@ pub const TESTS: &[(&str, Test)] = &[
     ("global_replicates", global_replicates),
 ];
 
+/// The tests of a guest's script gate (`crate::gate_rows`): id and function. They need a
+/// backend that runs the game's own scripts.
+pub const GATE_TESTS: &[(&str, Test)] = crate::gate_rows::TESTS;
+
 /// The backend by name.
 pub fn by_name(name: &str) -> Result<Box<dyn CoopBackend>, String> {
     match name {
@@ -453,7 +632,7 @@ pub fn by_name(name: &str) -> Result<Box<dyn CoopBackend>, String> {
 
 /// Runs one conformance test; `mutate` runs its twin (which must fail).
 pub fn run_test(b: &dyn CoopBackend, d: &Data, id: &str, mutate: bool) -> Verdict {
-    let Some((_, f)) = TESTS.iter().find(|(n, _)| *n == id) else {
+    let Some((_, f)) = TESTS.iter().chain(GATE_TESTS).find(|(n, _)| *n == id) else {
         return Verdict::Pending(format!("no conformance test {id}"));
     };
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(b, d, mutate))) {

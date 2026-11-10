@@ -10,8 +10,9 @@
 //! WHEN VERB ARGUMENTS
 //! ```
 //!
-//! `WHEN` is a frame number, `menu+N` (N frames after the first menu frame) or `play+N` (N
-//! frames after the first frame of play). The verbs are in [`run_step`].
+//! `WHEN` is a frame number, `menu+N` (N frames after the first menu frame), `play+N` (N
+//! frames after the first frame of play) or `each+N` (each N frames of play). The verbs are
+//! in [`run_step`]. A verb's address or word argument is a [`word`].
 
 mod program;
 
@@ -93,6 +94,8 @@ enum When {
     Menu(u64),
     /// Frames after the first frame of play.
     Play(u64),
+    /// Each this many frames, from the first frame of play.
+    Each(u64),
 }
 
 /// One line of the probe script.
@@ -120,6 +123,8 @@ fn parse_script(text: &str) -> Result<Vec<Step>, String> {
             When::Menu(n)
         } else if let Some(n) = after("play+") {
             When::Play(n)
+        } else if let Some(n) = after("each+").filter(|n| *n > 0) {
+            When::Each(n)
         } else {
             When::Frame(
                 when.parse()
@@ -153,6 +158,9 @@ impl Clock {
             When::Frame(n) => self.frame == n,
             When::Menu(n) => self.first_menu.is_some_and(|f| self.frame == f + n),
             When::Play(n) => self.first_play.is_some_and(|f| self.frame == f + n),
+            When::Each(n) => self
+                .first_play
+                .is_some_and(|f| self.frame > f && (self.frame - f) % n == 0),
         }
     }
 }
@@ -230,6 +238,41 @@ fn translation(addr: u32) -> Option<AbiFn> {
 struct Watch {
     quests: Vec<(u32, Option<u8>)>,
     changes: u32,
+    /// What the last `call`, `form` or `alloc` gave: the word `last`.
+    last: u32,
+    /// The words that `keep NAME` stored: the word `$NAME`.
+    kept: Vec<(String, u32)>,
+}
+
+/// One 32-bit argument of a verb:
+/// - hex digits: that word;
+/// - `player`: the address of the player's reference;
+/// - `form:ID`: the address of the form with hex id ID (0 when the game has none);
+/// - `f:VALUE`: the bits of a 32-bit float;
+/// - `last`: what the last `call`, `form` or `alloc` gave;
+/// - `$NAME`: a word that `keep NAME` stored;
+/// - `A+B`: the sum of two of the above (for a field of an object).
+fn word(e: &mut Engine, watch: &Watch, text: &str) -> Option<u32> {
+    if let Some((a, b)) = text.split_once('+') {
+        return Some(word(e, watch, a)?.wrapping_add(word(e, watch, b)?));
+    }
+    if text == "player" {
+        return Some(e.mem.u32(program::PLAYER));
+    }
+    if text == "last" {
+        return Some(watch.last);
+    }
+    if let Some(name) = text.strip_prefix('$') {
+        return watch.kept.iter().find(|(n, _)| n == name).map(|(_, w)| *w);
+    }
+    if let Some(id) = text.strip_prefix("form:") {
+        let id = u32::from_str_radix(id, 16).ok()?;
+        return Some(program::form(e, id));
+    }
+    if let Some(value) = text.strip_prefix("f:") {
+        return value.parse::<f32>().ok().map(f32::to_bits);
+    }
+    u32::from_str_radix(text.trim_start_matches("0x"), 16).ok()
 }
 
 /// Runs one step. False ends the run.
@@ -334,6 +377,137 @@ fn run_step(e: &mut Engine, step: &Step, watch: &mut Watch, frame: u64) -> bool 
                 );
             }
         }
+        // form ID: the address of the form with hex id ID. It becomes `last`.
+        "form" => match hex(arg(0)) {
+            Some(id) => {
+                watch.last = program::form(e, id);
+                println!("PROBE frame {frame} form {id:08x} at {:08x}", watch.last);
+            }
+            None => println!("PROBE frame {frame} form: needs a form id"),
+        },
+        // keep NAME [WORD]: store WORD (or `last`) as `$NAME`.
+        "keep" => {
+            let value = match arg(1) {
+                Some(text) => word(e, watch, text),
+                None => Some(watch.last),
+            };
+            match (arg(0), value) {
+                (Some(name), Some(value)) => {
+                    watch.kept.retain(|(n, _)| n != name);
+                    watch.kept.push((name.clone(), value));
+                    println!("PROBE frame {frame} keep {name} = {value:08x}");
+                }
+                _ => println!("PROBE frame {frame} keep: needs a name and a word"),
+            }
+        }
+        // call ADDR [WORD ..]: call the function at ADDR between two frames. A method takes
+        // its object as the first word. The answer's eax becomes `last`.
+        "call" => {
+            let words: Option<Vec<u32>> = step.args.iter().map(|t| word(e, watch, t)).collect();
+            match words.as_deref() {
+                Some([addr, args @ ..]) => {
+                    let ret = e.call(*addr, args);
+                    watch.last = ret.eax;
+                    println!(
+                        "PROBE frame {frame} call {addr:08x} args {args:08x?} -> eax {:08x} st0 {}",
+                        ret.eax, ret.st0
+                    );
+                }
+                _ => println!("PROBE frame {frame} call: needs an address and words"),
+            }
+        }
+        // poke ADDR WORD ..: write 32-bit words from ADDR.
+        "poke" => {
+            let words: Option<Vec<u32>> = step.args.iter().map(|t| word(e, watch, t)).collect();
+            match words.as_deref() {
+                Some([addr, values @ ..]) if !values.is_empty() => {
+                    for (i, value) in values.iter().enumerate() {
+                        e.mem.write(addr + 4 * i as u32, &value.to_le_bytes());
+                    }
+                    println!("PROBE frame {frame} poke {addr:08x}: {values:08x?}");
+                }
+                _ => println!("PROBE frame {frame} poke: needs an address and words"),
+            }
+        }
+        // pokeb ADDR BYTE ..: write bytes (hex) from ADDR.
+        "pokeb" => {
+            let addr = arg(0).and_then(|t| word(e, watch, t));
+            let bytes: Option<Vec<u8>> = step.args[1.min(step.args.len())..]
+                .iter()
+                .map(|t| u8::from_str_radix(t, 16).ok())
+                .collect();
+            match (addr, bytes) {
+                (Some(addr), Some(bytes)) if !bytes.is_empty() => {
+                    e.mem.write(addr, &bytes);
+                    println!("PROBE frame {frame} pokeb {addr:08x}: {bytes:02x?}");
+                }
+                _ => println!("PROBE frame {frame} pokeb: needs an address and bytes"),
+            }
+        }
+        // peekf ADDR [COUNT]: the 32-bit floats at ADDR, 3 when no count is given.
+        "peekf" => match arg(0).and_then(|t| word(e, watch, t)) {
+            Some(addr) => {
+                let count = arg(1).and_then(|w| w.parse::<u32>().ok()).unwrap_or(3);
+                let values: Vec<String> = (0..count.min(64))
+                    .map(|i| format!("{:.3}", e.mem.f32(addr + 4 * i)))
+                    .collect();
+                println!("PROBE frame {frame} peekf {addr:08x}: {}", values.join(" "));
+            }
+            None => println!("PROBE frame {frame} peekf: needs an address"),
+        },
+        // peekw WORD [WORDS]: as `peek`, with a word for the address (`player+30`).
+        "peekw" => match arg(0).and_then(|t| word(e, watch, t)) {
+            Some(addr) => {
+                let words = arg(1).and_then(|w| w.parse::<u32>().ok()).unwrap_or(4);
+                let values: Vec<String> = (0..words.min(64))
+                    .map(|i| format!("{:08x}", e.mem.u32(addr + 4 * i)))
+                    .collect();
+                println!("PROBE frame {frame} peekw {addr:08x}: {}", values.join(" "));
+            }
+            None => println!("PROBE frame {frame} peekw: needs an address"),
+        },
+        // text ADDR: the zero-ended text at ADDR (at most 200 bytes).
+        "text" => match arg(0).and_then(|t| word(e, watch, t)) {
+            Some(addr) => {
+                let mut bytes = [0u8; 200];
+                e.mem.read(addr, &mut bytes);
+                let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+                println!(
+                    "PROBE frame {frame} text {addr:08x}: {:?}",
+                    String::from_utf8_lossy(&bytes[..end])
+                );
+            }
+            None => println!("PROBE frame {frame} text: needs an address"),
+        },
+        // alloc BYTES: zeroed memory of the game's address space. Its address becomes `last`.
+        "alloc" => match arg(0).and_then(|w| w.parse::<u32>().ok()) {
+            Some(len) if len > 0 && len <= 0x10000 => {
+                let at = e.mem.alloc(len);
+                e.mem.write(at, &vec![0; len as usize]);
+                watch.last = at;
+                println!("PROBE frame {frame} alloc {len} at {at:08x}");
+            }
+            _ => println!("PROBE frame {frame} alloc: needs a byte count to 65536"),
+        },
+        // pos WORD: the place and the angles of the reference at WORD (`player`, `form:ID`),
+        // with its form id and its cell.
+        "pos" => match arg(0).and_then(|t| word(e, watch, t)) {
+            Some(0) | None => println!("PROBE frame {frame} pos: no reference"),
+            Some(at) => {
+                let f = |e: &Engine, off: u32| e.mem.f32(at + off);
+                println!(
+                    "PROBE frame {frame} pos {at:08x} id {:08x} at {:.2} {:.2} {:.2} angle {:.3} {:.3} {:.3} cell {:08x}",
+                    e.mem.u32(at + program::FORM_ID),
+                    f(e, program::REF_PLACE),
+                    f(e, program::REF_PLACE + 4),
+                    f(e, program::REF_PLACE + 8),
+                    f(e, program::REF_ANGLE),
+                    f(e, program::REF_ANGLE + 4),
+                    f(e, program::REF_ANGLE + 8),
+                    e.mem.u32(at + program::REF_CELL),
+                );
+            }
+        },
         "quit" => return false,
         other => println!("PROBE frame {frame} unknown verb {other}"),
     }

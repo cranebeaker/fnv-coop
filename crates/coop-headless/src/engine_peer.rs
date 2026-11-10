@@ -22,7 +22,7 @@ use coop_core::hash::ShardHashes;
 use coop_core::ids::FormId as CForm;
 use coop_core::schema::{fields_from_hex, fields_to_hex, Field};
 
-use crate::backend::BackendPeer;
+use crate::backend::{AuditReport, BackendPeer, GateStats};
 use crate::data::Data;
 
 /// The environment variable that names the peer server's program.
@@ -32,7 +32,33 @@ const MARK: &str = "@ ";
 /// The longest wait for the game to start and reach play.
 const READY_WAIT: Duration = Duration::from_secs(300);
 /// The longest wait for one answer.
-const ANSWER_WAIT: Duration = Duration::from_secs(120);
+const ANSWER_WAIT: Duration = Duration::from_secs(300);
+/// How many times a server is started. The engine's stepped threads can stop a run in its
+/// first frames ("would block forever"): a new start works.
+const STARTS: u32 = 4;
+/// The cell that a peer's game goes into from its main menu.
+const CELL: &str = "GSDocMitchellHouse";
+
+/// What two games share, for a peer's catalog (form ids).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Catalog {
+    /// The shared quests.
+    pub quests: Vec<u32>,
+    /// The shared globals.
+    pub globals: Vec<u32>,
+    /// The scripts that each machine runs itself. The variables of a quest whose own script
+    /// is one of them are each machine's own.
+    pub local_scripts: Vec<u32>,
+}
+
+/// A guest's gate: the quests and the scripts that its game runs itself (form ids).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Gate {
+    /// The local quests.
+    pub quests: Vec<u32>,
+    /// The local scripts.
+    pub scripts: Vec<u32>,
+}
 
 /// The server's program, when the environment names one.
 pub fn program() -> Option<PathBuf> {
@@ -74,6 +100,8 @@ impl Io {
 pub struct EnginePeer<'a> {
     d: &'a Data,
     io: RefCell<Io>,
+    /// The shared state at the main menu, before the game's first frame of play.
+    at_menu: Vec<(CForm, Field)>,
 }
 
 fn hex_list(ids: &[u32]) -> String {
@@ -85,18 +113,15 @@ fn hex_list(ids: &[u32]) -> String {
 }
 
 impl<'a> EnginePeer<'a> {
-    /// Starts a server on the game whose Data folder `d` has, and gives it the catalog of
-    /// shared quests and globals.
-    pub fn start(
-        d: &'a Data,
-        program: &PathBuf,
-        host: bool,
-        quests: &[u32],
-        globals: &[u32],
-    ) -> Result<EnginePeer<'a>, String> {
+    /// Starts one server at its main menu. `Err` when it does not get there.
+    fn start_at_menu(d: &Data, program: &PathBuf, host: bool) -> Result<Io, String> {
         let mut child = Command::new(program)
             .arg(&d.dir)
-            .args(["--role", if host { "host" } else { "guest" }])
+            .args(["--role", if host { "host" } else { "guest" }, "--menu"])
+            // The engine's test clock: each run reads the same times, whatever the load of
+            // the machine. With the real clock a loaded machine changes the order of the
+            // game's threads, and a run can stop in its first frames.
+            .env("NV_REPEATABLE", "1")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             // The game's own log is long. A test that needs it runs the server by hand.
@@ -123,16 +148,73 @@ impl<'a> EnginePeer<'a> {
             input,
             lines,
         };
-        let ready = io.line(READY_WAIT)?;
-        if !ready.starts_with("ready") {
-            return Err(format!("the peer server did not reach play: {ready}"));
+        match io.line(READY_WAIT) {
+            Ok(ready) if ready.starts_with("ready") => Ok(io),
+            other => {
+                let _ = io.child.kill();
+                let _ = io.child.wait();
+                Err(format!("the peer server did not reach its menu: {other:?}"))
+            }
         }
-        let catalog = format!("catalog {} {}", hex_list(quests), hex_list(globals));
-        io.ask(&catalog)?;
-        Ok(EnginePeer {
-            d,
-            io: RefCell::new(io),
-        })
+    }
+
+    /// Starts a server on the game whose Data folder `d` has, gives it the catalog of shared
+    /// quests and globals, and goes into the game. A guest with `gate` gets its gate at the
+    /// main menu, before its first frame of play.
+    pub fn start(
+        d: &'a Data,
+        program: &PathBuf,
+        host: bool,
+        catalog: &Catalog,
+        gate: Option<&Gate>,
+    ) -> Result<EnginePeer<'a>, String> {
+        let mut last = String::new();
+        for _ in 0..STARTS {
+            let mut io = match Self::start_at_menu(d, program, host) {
+                Ok(io) => io,
+                Err(why) => {
+                    last = why;
+                    continue;
+                }
+            };
+            let request = format!(
+                "catalog {} {} {}",
+                hex_list(&catalog.quests),
+                hex_list(&catalog.globals),
+                hex_list(&catalog.local_scripts)
+            );
+            let entered = io.ask(&request).and_then(|_| match gate {
+                Some(gate) => {
+                    let request = format!(
+                        "gate {} {}",
+                        hex_list(&gate.quests),
+                        hex_list(&gate.scripts)
+                    );
+                    io.ask(&request)
+                }
+                None => Ok(String::new()),
+            });
+            // A gate that the game refuses is a fault, not a start to try again.
+            entered?;
+            let at_menu = fields_from_hex(&io.ask("export")?)?;
+            match io.ask(&format!("enter {CELL}")) {
+                Ok(_) => {
+                    return Ok(EnginePeer {
+                        d,
+                        io: RefCell::new(io),
+                        at_menu,
+                    })
+                }
+                Err(why) => {
+                    last = why;
+                    let _ = io.child.kill();
+                    let _ = io.child.wait();
+                }
+            }
+        }
+        Err(format!(
+            "the peer server did not start in {STARTS} tries: {last}"
+        ))
     }
 
     fn form(&self, editor_id: &str) -> Option<u32> {
@@ -221,5 +303,72 @@ impl BackendPeer for EnginePeer<'_> {
     fn register_player(&mut self, _slot: u8) {}
     fn has_player_rows(&self) -> bool {
         false
+    }
+    fn start_state(&self) -> Option<Vec<(CForm, Field)>> {
+        Some(self.at_menu.clone())
+    }
+    fn frames(&mut self, n: u32) -> bool {
+        self.ask(&format!("frames {n}")).is_some()
+    }
+    fn script_line(&mut self, line: &str) -> bool {
+        self.ask(&format!("script {line}")).is_some()
+    }
+    fn adapter_line(&mut self, line: &str) -> bool {
+        self.ask(&format!("console {line}")).is_some()
+    }
+    fn gate_stats(&self) -> Option<GateStats> {
+        let answer = self.ask("gate_stats")?;
+        let value = |name: &str| {
+            answer
+                .split_whitespace()
+                .find_map(|w| w.strip_prefix(name)?.strip_prefix('='))
+        };
+        Some(GateStats {
+            runs: value("runs")?.parse().ok()?,
+            stopped: value("stopped")?.parse().ok()?,
+            guarded: value("guarded")?.parse().ok()?,
+            blind: value("blind")? == "1",
+        })
+    }
+    fn intents(&mut self) -> Vec<String> {
+        self.ask("intents")
+            .map(|a| a.split_whitespace().map(str::to_owned).collect())
+            .unwrap_or_default()
+    }
+    fn set_moving(&mut self, limits: &[(&str, f32)]) -> bool {
+        let words: Option<Vec<String>> = limits
+            .iter()
+            .map(|(global, limit)| Some(format!("{:08X}:{limit}", self.form(global)?)))
+            .collect();
+        words.is_some_and(|w| {
+            let list = if w.is_empty() {
+                "-".into()
+            } else {
+                w.join(",")
+            };
+            self.ask(&format!("moving {list}")).is_some()
+        })
+    }
+    fn audit(&mut self, restore: bool) -> Option<AuditReport> {
+        let answer = self.ask(if restore { "audit" } else { "audit report" })?;
+        let mut report = AuditReport::default();
+        for word in answer.split_whitespace() {
+            if let Some(n) = word.strip_prefix("leaks=") {
+                report.leaks = n.parse().ok()?;
+            } else if let Some(n) = word.strip_prefix("restored=") {
+                report.restored = n.parse().ok()?;
+            } else if let Some(form) = word.strip_prefix("last=") {
+                report.last_script = u32::from_str_radix(form, 16).ok()?;
+            } else if let Some((form, kind)) = word.split_once(':') {
+                report
+                    .named
+                    .push((u32::from_str_radix(form, 16).ok()?, kind.parse().ok()?));
+            }
+        }
+        Some(report)
+    }
+    fn local_stage(&self, quest: &str) -> Option<u16> {
+        let q = self.form(quest)?;
+        self.ask(&format!("local_stage {q:08X}"))?.parse().ok()
     }
 }

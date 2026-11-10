@@ -39,6 +39,12 @@ pub mod quest_flag {
 // 0060d510 (`SetStage` walks it).
 pub const QUEST_STAGES: u32 = 0x44;
 
+/// `TESQuest`: the pointer to the quest's own script (0: the quest has none).
+/// Source: measured with the probe on 5 quests (2026-11-10): the word at +0x1C is a `Script`
+/// whose owner word ([`SCRIPT_QUEST`]) is the quest again. The legacy plugin's layout table
+/// has the same member (`TESScriptableForm` at +0x18, its script at +4).
+pub const QUEST_SCRIPT: u32 = 0x1c;
+
 /// A stage item: the stage number, one byte.
 // ghidra: 009373f0 (the byte at +0), 0060d510 (compared with the stage asked for).
 pub const STAGE_NUMBER: u32 = 0;
@@ -56,6 +62,19 @@ pub const OBJECTIVE_ID: u32 = 4;
 /// An objective's status, a 32-bit word: bit 0 displayed, bit 1 completed.
 // legacy: section 3 (`BGSQuestObjective`, with its setter 0x5EC5D0).
 pub const OBJECTIVE_STATUS: u32 = 0x20;
+
+/// A quest's script event list (a pointer, 0 when the quest has no script variables yet).
+// ghidra: 0059e300 (the quest's list is read at +0x5c for `GetScriptVariable`).
+pub const QUEST_EVENT_LIST: u32 = 0x5c;
+/// An event list's variables: a pointer to a list's head node ([`NODE_ITEM`], [`NODE_NEXT`]).
+// ghidra: 0084e3a0 (the pointer at +0xc), 005a9140 (the walk that finds a variable by id).
+pub const EVENT_LIST_VARS: u32 = 0xc;
+/// A script variable's id, a 32-bit word (the variable's index in its script).
+// ghidra: 005a9140 (compared with the id asked for, read at +0).
+pub const VAR_ID: u32 = 0;
+/// A script variable's value, a 64-bit float.
+// ghidra: 005a9140 (the value is the double at +8).
+pub const VAR_VALUE: u32 = 8;
 
 /// A quest's current stage, one byte. `SetStage` only raises it.
 // legacy: section 2 (the note of `TESQuest::SetStage`). ghidra: 0060d510 (byte at +0x60).
@@ -103,3 +122,51 @@ pub const SCRIPT_RUN: u32 = 0x005a_c400;
 /// (script).
 // ghidra: 005aa1a0 (the console's key handler calls it on its stack object).
 pub const SCRIPT_DROP: u32 = 0x005a_a1a0;
+
+/// A form's id, a 32-bit word (each form: a quest, a script, a global).
+// legacy: plugin/avatar/engine/engine_pins.h (`kFormRefId`).
+pub const FORM_ID: u32 = 0x0c;
+
+/// The script runner that each script run passes: method (manager, script, calling reference,
+/// event list, containing object, flag, three effect words). `Script::Execute` and the three
+/// effect entries call it. The higher entries do not see each run.
+// ghidra: 005ac1e0 (`Script::Execute` calls it with the script, its three arguments, the flag
+// and three zeros), 005e2590. Runs on the real program: the nine argument words, and 26,450 of
+// 26,450 runs in play, while an override of a higher entry missed effect and console runs.
+pub const SCRIPT_RUNNER: u32 = 0x005e_2590;
+/// The runner's argument words: the script and the calling reference.
+pub const RUNNER_ARG_SCRIPT: usize = 1;
+/// See [`RUNNER_ARG_SCRIPT`].
+pub const RUNNER_ARG_REFERENCE: usize = 2;
+/// A script's type, a 16-bit word: [`script_type`].
+// legacy: section 6 (`Script::info.type`).
+pub const SCRIPT_TYPE: u32 = 0x28;
+/// The values of a script's type.
+pub mod script_type {
+    /// An object's script (a reference, an item, an actor).
+    pub const OBJECT: u16 = 0;
+    /// A quest's script.
+    pub const QUEST: u16 = 1;
+    /// A magic effect's script.
+    pub const EFFECT: u16 = 0x100;
+}
+/// A script's owner quest (a pointer, 0 for a script that no quest owns).
+// ghidra: 005ac1e0 (the pointer at +0x40 is tested and read for the quest's script delay).
+pub const SCRIPT_QUEST: u32 = 0x40;
+
+/// `TESQuest::SetRunning`: method (quest, bool). It sets or clears [`quest_flag::RUNNING`].
+// legacy: section 2. ghidra: 0060c9c0.
+pub const QUEST_SET_RUNNING: u32 = 0x0060_c9c0;
+/// `TESQuest::SetCompleted`: method (quest, bool).
+// legacy: section 2. ghidra: 0060ca30.
+pub const QUEST_SET_COMPLETED: u32 = 0x0060_ca30;
+/// `TESQuest::SetFailed`: method (quest, bool).
+// legacy: section 6. ghidra: 0060caf0.
+pub const QUEST_SET_FAILED: u32 = 0x0060_caf0;
+/// `BGSQuestObjective::SetState`: method (objective, flags 0..3: bit 0 displayed, bit 1
+/// completed). It shows the HUD's notices.
+// legacy: section 2 (prologue verified).
+pub const OBJECTIVE_SET_STATE: u32 = 0x005e_c5d0;
+/// An objective's quest (a pointer).
+// legacy: section 3 (`BGSQuestObjective`: `quest` +0x10).
+pub const OBJECTIVE_QUEST: u32 = 0x10;
