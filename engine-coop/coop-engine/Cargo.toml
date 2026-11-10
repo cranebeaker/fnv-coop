@@ -1,0 +1,12 @@
+[package]
+name = "coop-engine"
+version = "0.1.0"
+description = "The co-op adapter for the game program by address: reads and writes quest state in the program's memory. It names no engine type, so its tests need no engine and no game files"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coop-core = { path = "../../crates/coop-core" }
+coop-game = { path = "../../crates/coop-game" }
+coop-policy = { path = "../../crates/coop-policy" }

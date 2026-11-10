@@ -26,27 +26,31 @@
 //! overrides the host's shared state: only the [`Sheet`] (name, sex, SPECIAL, tags, traits) and its
 //! own `VCG00`/`VCG01` rows are taken from it.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use coop_core::ids::PlayerId;
 use coop_core::scene::SceneKind;
+use coop_core::schema::flag;
+use coop_game::{opening, Intent, Shared};
 use esm::FormId;
+// The tests of this file write the player's rows of a `GameState`.
+#[cfg(test)]
 use world::dialogue::PLAYER_REF;
 use world::scripting::GameState;
 
 use crate::ext::Ext;
 use crate::json::V;
-use crate::session::{send_ext, Session};
+use crate::session::{send_ext, Game, Session};
 use crate::Role;
 
 /// `VCG00`, the prologue quest ("Welcome To Fabulous New Vegas").
-pub const VCG00: FormId = FormId(0x0010_2037);
+pub const VCG00: FormId = FormId(opening::VCG00.0);
 /// `VCG01`, Doc Mitchell's intro quest.
-pub const VCG01: FormId = FormId(0x0010_4C1C);
+pub const VCG01: FormId = FormId(opening::VCG01.0);
 /// `VCG00` stage that ends the prologue.
-pub const VCG00_DONE: u16 = 100;
+pub const VCG00_DONE: u16 = opening::VCG00_DONE;
 /// `VCG01` stage from which the character is made (Doc's farewell transition, after the traits).
-pub const OPENING_OVER_STAGE: u16 = 105;
+pub const OPENING_OVER_STAGE: u16 = opening::OPENING_OVER_STAGE;
 /// `VCG01` stage at which the host's own name box opens (`GetPlayerName`, docs/OPENING.md): a
 /// guest watching the host's opening starts its own menus from here.
 pub const NAME_STAGE: u16 = 10;
@@ -59,9 +63,7 @@ pub const TAG_COUNT: u32 = 3;
 /// Traits to pick at most (`ShowTraitMenu`).
 pub const TRAIT_MAX: u32 = 2;
 /// The SPECIAL attributes' actor values (Strength .. Luck).
-pub const SPECIAL: [u16; 7] = [5, 6, 7, 8, 9, 10, 11];
-/// A SPECIAL value nobody changed.
-const SPECIAL_DEFAULT: u8 = 5;
+pub const SPECIAL: [u16; 7] = coop_game::SPECIAL;
 /// Milliseconds between sends of an unacknowledged sheet.
 const SHEET_RESEND_MS: u64 = 1000;
 
@@ -415,49 +417,50 @@ pub struct Sheet {
 
 impl Sheet {
     /// The character as `gs` holds it for its own player (the live `PLAYER_REF` rows).
+    ///
+    /// For a caller that holds a `GameState`. The session itself reads the character
+    /// through the engine interface (`coop_game::Players::local_player`). The two give the
+    /// same sheet: the `world` adapter has one function for it.
     pub fn read(gs: &GameState) -> Sheet {
-        let mut special = [SPECIAL_DEFAULT; 7];
-        for (i, av) in SPECIAL.iter().enumerate() {
-            if let Some(v) = gs.actor_values.get(&(PLAYER_REF, *av)) {
-                special[i] = v.round().clamp(1.0, 10.0) as u8;
-            }
-        }
-        let mut perks: Vec<u32> = gs.perks.iter().map(|f| f.0).collect();
-        perks.sort_unstable();
-        Sheet {
-            name: gs.player_name.clone().unwrap_or_default(),
-            female: gs.player_female,
-            special,
-            tags: gs.tag_skills.iter().copied().collect(),
-            perks,
-        }
+        world::coop::game::local_player_of(gs).sheet.into()
     }
 
     /// Puts the character into `gs`'s player rows and marks the opening done for that player
     /// (`VCG00` and `VCG01` rows, without running any stage script).
+    ///
+    /// For a caller that holds a `GameState`. The session itself gives a character through
+    /// the engine interface (`coop_game::Intent::Character`), which is this function for
+    /// the rows of one player.
     pub fn apply(&self, gs: &mut GameState) {
-        if !self.name.is_empty() {
-            gs.player_name = Some(self.name.clone());
+        world::coop::game::apply_sheet(gs, &self.clone().into());
+    }
+}
+
+impl From<coop_game::Sheet> for Sheet {
+    fn from(s: coop_game::Sheet) -> Sheet {
+        Sheet {
+            name: s.name,
+            female: s.female,
+            special: s.special,
+            tags: s.tags,
+            perks: s.perks.iter().map(|perk| perk.0).collect(),
         }
-        if self.female.is_some() {
-            gs.player_female = self.female;
+    }
+}
+
+impl From<Sheet> for coop_game::Sheet {
+    fn from(s: Sheet) -> coop_game::Sheet {
+        coop_game::Sheet {
+            name: s.name,
+            female: s.female,
+            special: s.special,
+            tags: s.tags,
+            perks: s
+                .perks
+                .iter()
+                .map(|perk| coop_game::FormId(*perk))
+                .collect(),
         }
-        for (i, av) in SPECIAL.iter().enumerate() {
-            gs.actor_values
-                .insert((PLAYER_REF, *av), f64::from(self.special[i]));
-        }
-        gs.tag_skills = self.tags.iter().copied().collect::<BTreeSet<u16>>();
-        for p in &self.perks {
-            gs.perks.insert(FormId(*p));
-        }
-        let at_least = |gs: &mut GameState, q: FormId, st: u16| {
-            let cur = gs.stages.get(&q).copied().unwrap_or(0);
-            if cur < st {
-                gs.stages.insert(q, st);
-            }
-        };
-        at_least(gs, VCG00, VCG00_DONE);
-        at_least(gs, VCG01, OPENING_OVER_STAGE);
     }
 }
 
@@ -536,20 +539,53 @@ impl StartSide {
     }
 }
 
-/// The host's opening from its own quest rows.
-pub fn opening_of(gs: &GameState, new_game: bool) -> Opening {
-    let st = |q: FormId| gs.stages.get(&q).copied();
-    let finished =
-        st(VCG01).is_some_and(|s| s >= OPENING_OVER_STAGE) || gs.completed.contains(&VCG01);
+/// The rule of the host's opening. `vcg00` and `vcg01` are the stages of the two opening
+/// quests in the host player's rows (`None`: the quest has no stage).
+fn opening_from(
+    vcg00: Option<u16>,
+    vcg01: Option<u16>,
+    vcg01_completed: bool,
+    new_game: bool,
+) -> Opening {
+    let finished = vcg01.is_some_and(|s| s >= OPENING_OVER_STAGE) || vcg01_completed;
     if finished {
         return Opening::Over;
     }
-    let started = st(VCG00).is_some() || st(VCG01).is_some();
+    let started = vcg00.is_some() || vcg01.is_some();
     if started || new_game {
         Opening::InProgress
     } else {
         Opening::Over
     }
+}
+
+/// The host's opening from its own quest rows.
+///
+/// For a caller that holds a `GameState`. The session itself reads the rows through the
+/// engine interface ([`opening_in`]).
+pub fn opening_of(gs: &GameState, new_game: bool) -> Opening {
+    let st = |q: FormId| gs.stages.get(&q).copied();
+    opening_from(
+        st(VCG00),
+        st(VCG01),
+        gs.completed.contains(&VCG01),
+        new_game,
+    )
+}
+
+/// The host's opening from the rows of the game's live player, through the engine
+/// interface. It needs `Shared::stage`: `Shared::quest` does not tell a quest with no stage
+/// from a quest at stage 0, and a quest that starts with the game has flags and no stage.
+pub(crate) fn opening_in<G: Shared + ?Sized>(game: &G, new_game: bool) -> Opening {
+    let completed = game
+        .quest(opening::VCG01)
+        .is_some_and(|(_, flags)| flags & flag::COMPLETED != 0);
+    opening_from(
+        game.stage(opening::VCG00),
+        game.stage(opening::VCG01),
+        completed,
+        new_game,
+    )
 }
 
 impl Session {
@@ -599,14 +635,16 @@ impl Session {
         self.start.flow.follow_ok()
     }
 
-    fn at_host_place(&self, gs: &GameState) -> bool {
+    /// True when the local player is in the host's place. Outdoors the worldspace decides:
+    /// the game can know the worldspace and not the cell.
+    fn at_host_place(&self, at: &coop_game::Place) -> bool {
         let Some(p) = self.host_place_for_start() else {
             return false;
         };
         if p.world != 0 {
-            gs.player_world.map(|w| w.0) == Some(p.world)
+            at.world.map(|w| w.0) == Some(p.world)
         } else {
-            gs.player_world.is_none() && gs.player_cell.map(|c| c.0) == Some(p.cell)
+            at.world.is_none() && at.cell.map(|c| c.0) == Some(p.cell)
         }
     }
 
@@ -675,7 +713,11 @@ impl Session {
                 }
             }
         }
-        let at = self.at_host_place(gs);
+        // This call gets a `&GameState`, and the adapter of the engine interface needs
+        // `&mut`: the local player comes from the adapter's read function. It is the answer
+        // of `coop_game::Players::local_player`.
+        let local = world::coop::game::local_player_of(gs);
+        let at = self.at_host_place(&local.place);
         let ready = self.host_opening_ready(gs);
         let act = self.start.flow.poll_gated(menu_busy, at, ready);
         let phase = self.start.flow.phase();
@@ -691,7 +733,7 @@ impl Session {
             Some(Action::OpenMenu(s)) => Some(s),
             Some(Action::Finished) => {
                 if self.start.sheet_out.is_none() {
-                    self.start.sheet_out = Some((Sheet::read(gs), None));
+                    self.start.sheet_out = Some((local.sheet.into(), None));
                 }
                 None
             }
@@ -747,11 +789,12 @@ impl Session {
     }
 
     /// Host, once per frame: tells guests the opening and applies the sheets that came.
-    pub(crate) fn host_start_frame(&mut self, gs: &mut GameState) {
+    /// `own_name` is the name of the host's own character (empty: no name yet).
+    pub(crate) fn host_start_frame(&mut self, game: &mut dyn Game, own_name: &str) {
         if self.host.is_none() {
             return;
         }
-        let o = opening_of(gs, self.start.cfg.new_game);
+        let o = opening_in(&*game, self.start.cfg.new_game);
         self.start.flow.host_opening(o);
         let peers: Vec<PlayerId> = self
             .host
@@ -770,7 +813,7 @@ impl Session {
         for p in std::mem::take(&mut self.start.ack_after) {
             send_ext(&mut self.net, p, &Ext::SheetAck);
         }
-        match gs.player_name.as_deref().filter(|n| !n.is_empty()) {
+        match Some(own_name).filter(|n| !n.is_empty()) {
             Some(n) => {
                 self.start.char_names.insert(PlayerId::HOST, n.to_string());
             }
@@ -790,12 +833,16 @@ impl Session {
             if !name.is_empty() {
                 self.start.char_names.insert(from, name.clone());
             }
-            if gs.coop.bank.enabled() {
-                gs.register_player(slot);
-                gs.with_player(slot, |g| sheet.apply(g));
-            } else {
+            if !game.add_player(slot) {
                 // one shared player: there is no row of its own to keep a character in
                 send_ext(&mut self.net, from, &Ext::SheetAck);
+                continue;
+            }
+            let character = Intent::Character(sheet.clone().into());
+            if game.run_intent(slot, &character) != Ok(true) {
+                // The game did not take the character. The sheet waits for the next frame:
+                // the guest gets no acknowledgement for a character that is not stored.
+                self.start.pending.push((from, sheet));
                 continue;
             }
             self.log_ev(
@@ -1079,5 +1126,164 @@ mod tests {
             i.json(),
             "{\"phase\":\"character_creation\",\"venue\":\"local_room\",\"opening\":\"over\",\"sheet_acked\":false,\"step\":\"special\"}"
         );
+    }
+}
+
+#[cfg(test)]
+mod game_tests {
+    use coop_core::schema::Field;
+    use coop_core::transport::LoopbackNet;
+    use coop_game::fake::{Call, FakeGame};
+    use coop_game::{Players, Role as GameRole, Setup};
+
+    use super::*;
+    use crate::session::SessionConfig;
+
+    fn host_session() -> Session {
+        let net = LoopbackNet::new();
+        let cfg = SessionConfig {
+            transport: Some(Box::new(net.endpoint(PlayerId::HOST))),
+            session_id: 7,
+            ..SessionConfig::default()
+        };
+        Session::host(cfg).expect("a session")
+    }
+
+    fn host_game() -> FakeGame {
+        let mut game = FakeGame::new();
+        let setup = Setup {
+            role: GameRole::Host,
+            me: 0,
+            policy: None,
+            keep_own_rows: false,
+        };
+        game.configure(&setup).unwrap();
+        game
+    }
+
+    fn sheet(name: &str) -> Sheet {
+        Sheet {
+            name: name.into(),
+            female: Some(true),
+            special: [3, 4, 5, 6, 7, 8, 9],
+            tags: vec![32, 40, 41],
+            perks: vec![0x1234],
+        }
+    }
+
+    fn stage_of(quest: coop_game::FormId, stage: u16) -> (coop_game::FormId, Field) {
+        (quest, Field::QuestStage { stage })
+    }
+
+    #[test]
+    fn the_opening_comes_from_the_stages_of_the_live_player() {
+        let mut game = host_game();
+        assert_eq!(opening_in(&game, false), Opening::Over, "no opening ran");
+        assert_eq!(opening_in(&game, true), Opening::InProgress);
+        // flags and no stage: the quest did not start a stage (`quest` gives stage 0 here)
+        let running = Field::QuestFlags {
+            flags: flag::RUNNING,
+        };
+        game.set(opening::VCG00, running);
+        assert_eq!(opening_in(&game, false), Opening::Over);
+        // the twin: stage 0 is set, so the opening runs
+        let (quest, field) = stage_of(opening::VCG00, 0);
+        game.set(quest, field);
+        assert_eq!(opening_in(&game, false), Opening::InProgress);
+        let (quest, field) = stage_of(opening::VCG01, OPENING_OVER_STAGE - 1);
+        game.set(quest, field);
+        assert_eq!(opening_in(&game, true), Opening::InProgress);
+        let (quest, field) = stage_of(opening::VCG01, OPENING_OVER_STAGE);
+        game.set(quest, field);
+        assert_eq!(opening_in(&game, true), Opening::Over);
+        // a completed quest ends the opening at each stage
+        let mut game = host_game();
+        let (quest, field) = stage_of(opening::VCG01, 10);
+        game.set(quest, field);
+        assert_eq!(opening_in(&game, false), Opening::InProgress);
+        let completed = Field::QuestFlags {
+            flags: flag::COMPLETED,
+        };
+        game.set(opening::VCG01, completed);
+        assert_eq!(opening_in(&game, false), Opening::Over);
+    }
+
+    #[test]
+    fn the_host_gives_a_guests_sheet_to_that_players_rows() {
+        let mut host = host_session();
+        let mut game = host_game();
+        host.start.pending.push((PlayerId(1), sheet("Bo")));
+        host.host_start_frame(&mut game, "Host");
+        // the character is in the rows of player 1, and the local player did not change
+        let stored: Sheet = game.sheet_of(1).expect("rows of player 1").clone().into();
+        assert_eq!(stored, sheet("Bo"));
+        assert_eq!(game.local_player().sheet, coop_game::Sheet::default());
+        assert_eq!(host.start.applied.get(&PlayerId(1)), Some(&sheet("Bo")));
+        assert_eq!(host.start.ack_after, [PlayerId(1)]);
+        assert!(host.start.pending.is_empty());
+        assert_eq!(host.character_name(PlayerId(1)), Some("Bo"));
+        assert_eq!(host.character_name(PlayerId::HOST), Some("Host"));
+        // the player is added before its character comes
+        let order: Vec<&Call> = game
+            .calls()
+            .iter()
+            .filter(|c| matches!(c, Call::AddPlayer { .. } | Call::Intent { .. }))
+            .collect();
+        assert!(matches!(
+            order[0],
+            Call::AddPlayer {
+                slot: 1,
+                kept: true
+            }
+        ));
+        assert!(matches!(
+            order[1],
+            Call::Intent {
+                slot: 1,
+                answer: Ok(true),
+                ..
+            }
+        ));
+        assert_eq!(order.len(), 2);
+    }
+
+    #[test]
+    fn a_game_with_one_shared_player_gets_no_character_of_a_guest() {
+        let mut host = host_session();
+        let mut game = host_game();
+        game.one_shared_player();
+        host.start.pending.push((PlayerId(1), sheet("Bo")));
+        host.host_start_frame(&mut game, "");
+        // no intent went to the game: the shared character is the host's
+        assert_eq!(game.intents_run(), 0);
+        assert_eq!(game.local_player().sheet, coop_game::Sheet::default());
+        assert!(host.start.applied.is_empty() && host.start.ack_after.is_empty());
+        assert!(host.start.pending.is_empty(), "the sheet got its answer");
+        // an empty name of the host's own character is no name
+        assert_eq!(host.character_name(PlayerId::HOST), None);
+    }
+
+    #[test]
+    fn a_sheet_that_the_game_refuses_waits_for_the_next_frame() {
+        let mut host = host_session();
+        // a game with no role refuses each intent
+        let mut game = FakeGame::new();
+        host.start.pending.push((PlayerId(1), sheet("Bo")));
+        host.host_start_frame(&mut game, "Host");
+        assert!(host.start.applied.is_empty() && host.start.ack_after.is_empty());
+        assert_eq!(host.start.pending, [(PlayerId(1), sheet("Bo"))]);
+        // the twin: the game takes its role, and the same sheet is stored
+        let mut game = host_game();
+        host.host_start_frame(&mut game, "Host");
+        assert_eq!(host.start.applied.get(&PlayerId(1)), Some(&sheet("Bo")));
+        assert!(host.start.pending.is_empty());
+    }
+
+    #[test]
+    fn a_sheet_goes_to_the_interface_and_comes_back_equal() {
+        let mine = sheet("Bo");
+        let theirs: coop_game::Sheet = mine.clone().into();
+        assert_eq!(theirs.perks, [coop_game::FormId(0x1234)]);
+        assert_eq!(Sheet::from(theirs), mine);
     }
 }

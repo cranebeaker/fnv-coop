@@ -12,6 +12,7 @@ fos = { path = "../fos" }
 nif = { path = "../nif" }
 script = { path = "../script" }
 coop-core = { path = "../coop-core" }
+coop-game = { path = "../coop-game" }
 coop-policy = { path = "../coop-policy" }
 
 [dev-dependencies]
