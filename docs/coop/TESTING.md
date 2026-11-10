@@ -69,3 +69,17 @@ it does not walk yet).
 If the game stops, the last `COOP-RUNG n entering` line names the step. To retry below it, set
 `$env:NV_COOP_LIVE = "warp"` (no avatars) or `"log"` (nothing in the game is touched) in both windows.
 If rung 4 fails, another base form can be tried with `$env:NV_COOP_AVATAR = "<hex form id>"`.
+
+## M4 and M6: the rest of the world (records, doors, locks)
+
+Same two windows as M5. Nothing here has run on a PC yet (docs/coop/SPECS.md S12).
+
+1. Both in Goodsprings. Host: open and shut a door, pick a lock, take everything from a container,
+   read a note. Guest: look at the same door, lock and container.
+2. Guest: open a door and pick another lock. Host: look at them.
+3. Every 5 seconds each window prints a `co-op host world:` or `co-op guest world:` line. Expected
+   on the guest: `records loaded` rising, `own record differs after 0`, `refused 0`.
+
+If a game stops while a record loads, set `$env:NV_COOP_WORLD = "doors"` in both windows (doors and
+locks only) and run again; `"off"` takes this layer out. Report both logs, especially the
+`co-op guest world: form ...` lines: they name each form whose record did not read back the same.
