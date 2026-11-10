@@ -67,6 +67,12 @@ pub fn state_of(l: &Local) -> AvatarState {
 #[derive(Debug, Default)]
 struct Peer {
     avatar: Option<Avatar>,
+    /// The space (interior cell or worldspace) the avatar was placed in. Moving an avatar changes
+    /// its place, not its cell: one placed elsewhere stays there, unseen (PC run, 2026-11-10: a
+    /// guest moved outdoors to the host kept the avatar it had placed indoors).
+    space: u32,
+    /// Avatars placed for this player so far.
+    placed: u32,
     /// Placing failed: not tried again in this run.
     failed: bool,
     moved: u64,
@@ -298,6 +304,14 @@ impl Ladder {
                 self.remove(e, *p, "is in another cell");
                 continue;
             }
+            let space = s.cell.0;
+            if self
+                .peers
+                .get(p)
+                .is_some_and(|peer| peer.avatar.is_some() && peer.space != space)
+            {
+                self.remove(e, *p, "was placed in another cell");
+            }
             let peer = self.peers.entry(*p).or_default();
             if peer.avatar.is_none() && !peer.failed {
                 let base = self.base;
@@ -307,7 +321,17 @@ impl Ladder {
                 );
                 match live::avatar_create(e, base) {
                     Ok(a) => {
-                        self.peers.entry(*p).or_default().avatar = Some(a);
+                        let peer = self.peers.entry(*p).or_default();
+                        peer.avatar = Some(a);
+                        peer.space = space;
+                        peer.placed += 1;
+                        if peer.placed > 1 {
+                            let n = peer.placed;
+                            self.say(format!(
+                                "co-op live: player {} has avatar {:08x} in {space:08x} (placed {n} times)",
+                                p.0, a.id
+                            ));
+                        }
                         self.result(
                             4,
                             true,

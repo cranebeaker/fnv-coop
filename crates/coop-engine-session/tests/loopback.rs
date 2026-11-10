@@ -23,6 +23,8 @@ const MQ: u32 = 0x0010_4c0c;
 const SIDE: u32 = 0x0010_4c0d;
 const LONG: u32 = 0x0010_4c0e;
 const GLOBALS: [u32; 3] = [0x39, 0x3a, 0x3b];
+/// The game clock's hour: shared as the clock, not as a story global.
+const HOUR: u32 = 0x38;
 
 fn spec() -> StorySpec {
     StorySpec {
@@ -31,7 +33,7 @@ fn spec() -> StorySpec {
             (SIDE, vec![0, 10, 50, 200]),
             (LONG, (0..60).map(|i| i * 4).collect()),
         ],
-        globals: vec![(0x39, 0.0), (0x3a, 1.0), (0x3b, 0.0)],
+        globals: vec![(0x39, 0.0), (0x3a, 1.0), (0x3b, 0.0), (HOUR, 8.0)],
         objectives: vec![(MQ, vec![10, 20, 30]), (SIDE, vec![1])],
         vars: vec![(MQ, vec![1, 2, 3]), (SIDE, vec![4])],
         ..StorySpec::default()
@@ -596,4 +598,141 @@ fn a_quest_of_the_player_s_own_is_not_shared_and_its_script_runs_on_the_guest() 
     assert_eq!(coop_engine::gate::ran_own(&mut guest.e), 40);
     assert!(echo(&mut guest.e, &gd.sync.store).is_empty());
     assert_eq!((gd.healed, gd.refused), (0, 0));
+}
+
+/// One host and one guest on a loopback network, the host's session started.
+fn pair() -> (
+    Story,
+    HostDriver,
+    Box<dyn Transport>,
+    Story,
+    GuestDriver,
+    Box<dyn Transport>,
+) {
+    let net = LoopbackNet::new();
+    let hostnet = Box::new(net.endpoint(PlayerId::HOST));
+    let gnet = Box::new(net.endpoint(PlayerId(1)));
+    let mut host = Story::new(&spec());
+    let mut hd = HostDriver::new(HostConfig::new(hello(), 1), quest_ids(), GLOBALS);
+    hd.set_clock([HOUR]);
+    hd.start(&mut host.e);
+    (
+        host,
+        hd,
+        hostnet,
+        guest_story(),
+        GuestDriver::new(PlayerId(1), hello()),
+        gnet,
+    )
+}
+
+/// PC run 2026-11-10: the guest's Pip-Boy listed almost none of the host's quests. An objective
+/// whose state is only written is not in the player's objective list, which is what the Pip-Boy
+/// shows; the game's own function puts it there.
+#[test]
+fn the_hosts_objectives_are_in_the_guests_pip_boy() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    // Before the guest joins: shown; shown then completed; completed without ever being shown.
+    host.set_objective(MQ, 10, 1);
+    host.set_objective(MQ, 20, 1);
+    host.set_objective(MQ, 20, 3);
+    host.set_objective(SIDE, 1, 2);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_same_game(&mut host, &mut guest);
+    assert_eq!(guest.pipboy(), host.pipboy());
+    assert_eq!(guest.pipboy(), [(MQ, 10), (MQ, 20), (SIDE, 1)]);
+    // During play: one more shown, one completed.
+    host.set_objective(MQ, 30, 1);
+    host.set_objective(MQ, 10, 3);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_same_game(&mut host, &mut guest);
+    assert_eq!(guest.pipboy(), [(MQ, 10), (MQ, 20), (SIDE, 1), (MQ, 30)]);
+    assert_eq!((gd.refused, gd.healed, guest.scripts_run()), (0, 0, 0));
+    assert_eq!(gd.relisted, 0);
+    // The guest's game empties the player's list and keeps the objectives' states: put back.
+    guest.empty_pipboy();
+    frames(
+        25,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    let mut listed = guest.pipboy();
+    listed.sort_unstable();
+    assert_eq!(listed, [(MQ, 10), (MQ, 20), (MQ, 30), (SIDE, 1)]);
+    assert_eq!(gd.relisted, 4);
+}
+
+/// PC run 2026-11-10: night on the guest, day on the host. The clock is not story state (it moves
+/// by itself on each machine), so it is shared on its own: the host's about once a second.
+#[test]
+fn the_guests_clock_is_kept_on_the_hosts() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    let hour = |s: &mut Story| forms::global_value(&mut s.e, HOUR).unwrap();
+    host.set_global(HOUR, 13.5);
+    guest.set_global(HOUR, 2.0);
+    frames(
+        40,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(hour(&mut guest), 13.5);
+    // The host's clock stands still (a menu); the guest's runs on, and is set back.
+    guest.set_global(HOUR, 14.25);
+    frames(
+        25,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(hour(&mut guest), 13.5);
+    // The clock moving is not a story difference: nothing is healed or reported for it.
+    host.set_global(HOUR, 13.75);
+    guest.set_global(HOUR, 13.6);
+    assert!(echo(&mut guest.e, &gd.sync.store).is_empty());
+    frames(
+        40,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(hour(&mut guest), 13.75);
+    assert_eq!((gd.healed, gd.refused, gd.sync.desyncs_detected), (0, 0, 0));
 }

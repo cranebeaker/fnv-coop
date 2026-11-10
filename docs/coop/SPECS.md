@@ -249,3 +249,21 @@ opening's among them (`00104c00` of VCG01 `00104c1c`).
 test (the host's own quest does not reach the guest, the guest's own quest script runs every frame, the
 shared quest arrives; removing the host's filter fails it); the rules' rows resolve for a load order with
 DLCs. **Not verified here:** that the guest's opening then plays through in the real game.
+
+## S10: what the first outdoor run taught (implemented; PC run 3, 2026-11-10)
+
+- **Objectives go through the game.** `quest::apply` sets an objective whose state differs with
+  `BGSQuestObjective::SetState` (`005ec5d0`), the body behind `SetObjectiveDisplayed` and
+  `SetObjectiveCompleted`. That function adds the objective to the player's objective list
+  (`00952a20`; the list at player +0x6bc), and the Pip-Boy's quest page lists what is in that list. A
+  state that is only written leaves the quest out of the Pip-Boy. The guest's heal also puts back any
+  shown objective of a shared quest that is missing from the list (`quest::relist`).
+- **The clock is shared apart from the story.** GameHour, GameDaysPassed, GameDay, GameMonth and
+  GameYear move by themselves on every machine, so they are not story globals. The host writes them about
+  once a second as `Field::Custom` with `CLOCK_TAG`; a guest sets its own to the last value it holds, again
+  every second (a host whose clock stands still sends nothing new). `echo` and the heal ignore the tag.
+  Weather is not shared yet.
+- **An avatar belongs to the space it was placed in.** Moving a reference changes its position, not its
+  cell. The ladder records each avatar's space and places it anew when the player it stands for is in
+  another one, including when this game's player followed in the same frame.
+

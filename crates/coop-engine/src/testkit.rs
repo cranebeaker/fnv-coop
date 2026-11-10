@@ -63,6 +63,9 @@ use addr::FORM_TYPE_CELL;
 /// nodes at +0x180, objectives at +0x400 (0x28 each), objective nodes at +0x700, its script's
 /// `ScriptLocals` at +0x800, variable nodes at +0x840, variables at +0x900 (0x18 each).
 const SLOT: u32 = 0x1000;
+/// The nodes of the player's objective list after the first (which is in the player): a count of
+/// nodes used, then the nodes, 8 bytes each.
+const PIPBOY: u32 = 0x0120_0000;
 
 /// What a story holds: quests with their stage numbers, globals with their values.
 #[derive(Debug, Clone, Default)]
@@ -157,6 +160,42 @@ fn set_stage_done(e: &mut Engine, a: &[u32]) -> Ret {
     eax(1)
 }
 
+/// The game's `00952a20`: the objective joins the player's list unless it is in it.
+fn player_update_objective(e: &mut Engine, a: &[u32]) -> Ret {
+    let (player, o) = (a[0], a[1]);
+    let head = player + addr::PLAYER_OBJECTIVE_LIST_OFFSET;
+    if crate::quest::list_items(e, head).contains(&o) {
+        return Ret::default();
+    }
+    if e.mem.u32(head) == 0 && e.mem.u32(head + 4) == 0 {
+        e.mem.set_u32(head, o);
+        return Ret::default();
+    }
+    let mut last = head;
+    while e.mem.u32(last + 4) != 0 {
+        last = e.mem.u32(last + 4);
+    }
+    let n = e.mem.u32(PIPBOY);
+    let node = PIPBOY + 8 + 8 * n;
+    e.mem.set_u32(PIPBOY, n + 1);
+    e.mem.set_u32(node, o);
+    e.mem.set_u32(node + 4, 0);
+    e.mem.set_u32(last + 4, node);
+    Ret::default()
+}
+
+/// The game's `BGSQuestObjective::SetState` as far as co-op needs it: an objective shown (state
+/// 1), or leaving the dormant state, joins the player's list; the state is stored.
+fn objective_set_state(e: &mut Engine, a: &[u32]) -> Ret {
+    let (o, state) = (a[0], a[1]);
+    let at = o + addr::OBJECTIVE_STATE_OFFSET;
+    if state == 1 || e.mem.u32(at) == 0 {
+        e.call(addr::PLAYER_UPDATE_OBJECTIVE, &args![PLAYER, o]);
+    }
+    e.mem.set_u32(at, state);
+    Ret::default()
+}
+
 fn run(e: &mut Engine, script: u32) {
     e.call(
         addr::SCRIPT_RUNNER_RUN,
@@ -209,6 +248,7 @@ impl Story {
         e.map(HEAP, HEAP_LEN);
         e.map(TABLE, TABLE_LEN);
         e.map(RAN, 0x100);
+        e.map(PIPBOY, 0x1000);
         e.map(SAVE_LOAD, 0x100);
         e.map(QUEST_SCRIPT, 0x1000);
         e.mem.set_u8(QUEST_SCRIPT + addr::SCRIPT_IS_QUEST_OFFSET, 1);
@@ -296,7 +336,7 @@ impl Story {
             entries.push((*world, w));
             slot += 2 * SLOT;
         }
-        if !spec.cells.is_empty() || !spec.exteriors.is_empty() {
+        {
             // The avatar's base form and the player, as the game has them from its start.
             e.mem.set_u32(slot + addr::FORM_ID_OFFSET, 7);
             entries.push((7, slot));
@@ -321,6 +361,8 @@ impl Story {
         }
         e.register(addr::LOOKUP_FORM, lookup);
         e.register(addr::QUEST_SET_STAGE_DONE, set_stage_done);
+        e.register(addr::OBJECTIVE_SET_STATE, objective_set_state);
+        e.register(addr::PLAYER_UPDATE_OBJECTIVE, player_update_objective);
         e.register(addr::QUEST_GET_CURRENT_STAGE, |e, a| {
             eax(u32::from(e.mem.u8(a[0] + addr::QUEST_CURRENT_STAGE_OFFSET)))
         });
@@ -415,11 +457,33 @@ impl Story {
             .into_iter()
             .find(|o| self.e.mem.u32(o + addr::OBJECTIVE_INDEX_OFFSET) == objective)
             .expect("an objective of the quest");
-        self.e.mem.set_u32(o + addr::OBJECTIVE_STATE_OFFSET, state);
+        self.e.call(addr::OBJECTIVE_SET_STATE, &args![o, state]);
         self.e.call(
             addr::SAVE_LOAD_ADD_CHANGE,
             &args![SAVE_LOAD, q, addr::CHANGE_QUEST_OBJECTIVES, 0u32],
         );
+    }
+
+    /// The player's objective list, the Pip-Boy's quest page: (quest id, objective number) in the
+    /// order the game added them.
+    pub fn pipboy(&mut self) -> Vec<(u32, u32)> {
+        crate::quest::list_items(&mut self.e, PLAYER + addr::PLAYER_OBJECTIVE_LIST_OFFSET)
+            .into_iter()
+            .map(|o| {
+                let q = HEAP + (o - HEAP) / SLOT * SLOT;
+                (
+                    self.e.mem.u32(q + addr::FORM_ID_OFFSET),
+                    self.e.mem.u32(o + addr::OBJECTIVE_INDEX_OFFSET),
+                )
+            })
+            .collect()
+    }
+
+    /// Empties the player's objective list and leaves the objectives' states as they are.
+    pub fn empty_pipboy(&mut self) {
+        let head = PLAYER + addr::PLAYER_OBJECTIVE_LIST_OFFSET;
+        self.e.mem.set_u32(head, 0);
+        self.e.mem.set_u32(head + 4, 0);
     }
 
     /// Sets a quest script variable as the quest script's `set` does, and flags the quest's

@@ -88,6 +88,8 @@ struct GameData {
     /// order): the opening and character creation among them.
     own_quests: Vec<u32>,
     globals: Vec<u32>,
+    /// The game clock's globals: shared as the clock (the host's, about once a second).
+    clock: Vec<u32>,
 }
 
 /// The form ids, in the load order `plugins`, of the quests the rules class as per-player. A
@@ -123,21 +125,25 @@ fn game_data(data: &Path) -> Result<GameData, String> {
         .map(|r| r.form_id.0)
         .filter(|id| !own_quests.contains(id))
         .collect();
-    let globals = order
+    let (clock, globals): (Vec<_>, Vec<_>) = order
         .records_of_type(esm::FourCC::new(b"GLOB"))
-        .filter(|r| {
-            !r.editor_id()
+        .map(|r| {
+            let clock = r
+                .editor_id()
                 .ok()
                 .flatten()
-                .is_some_and(|id| is_clock_global(&id))
+                .is_some_and(|id| is_clock_global(&id));
+            (clock, r.form_id.0)
         })
-        .map(|r| r.form_id.0)
-        .collect();
+        .partition(|(clock, _)| *clock);
+    let clock = clock.into_iter().map(|(_, id)| id).collect();
+    let globals = globals.into_iter().map(|(_, id)| id).collect();
     Ok(GameData {
         plugins,
         quests,
         own_quests,
         globals,
+        clock,
     })
 }
 
@@ -200,6 +206,7 @@ impl Coop {
             quests,
             own_quests,
             globals,
+            clock,
         } = game_data(data)?;
         let cfg = EndpointConfig {
             name: name.to_string(),
@@ -223,6 +230,11 @@ impl Coop {
                     quests,
                     globals,
                 );
+                lines.push(format!(
+                    "co-op: sharing the game clock ({} globals)",
+                    clock.len()
+                ));
+                host.set_clock(clock);
                 let (ladder, line) = Self::ladder(false);
                 host.ladder = ladder;
                 lines.push(line);
@@ -376,7 +388,11 @@ impl Coop {
                     g.healed,
                     g.refused,
                     g.heal_refused,
-                ) + &format!(", own quest scripts run {}", coop_engine::gate::ran_own(e))
+                ) + &format!(
+                    ", own quest scripts run {}, objectives put back in the Pip-Boy {}",
+                    coop_engine::gate::ran_own(e),
+                    g.relisted
+                )
                     + "; "
                     + &g.ladder.as_ref().map_or("live: off".into(), Ladder::status)
             }

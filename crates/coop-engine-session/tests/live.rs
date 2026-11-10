@@ -327,6 +327,35 @@ fn the_guest_follows_the_host_to_another_cell_and_avatars_are_placed_anew() {
     assert!(close(g[1].2, [50.0, 60.0, 0.0]));
 }
 
+/// PC run 2026-11-10: the guest had been with the host indoors for minutes when the host went
+/// outdoors, so the guest was moved in the very frame it learned of it, and no frame saw the two
+/// in different cells. The avatar placed indoors was kept and moved, still in the house: the guest
+/// did not see the host outdoors.
+#[test]
+fn an_avatar_placed_in_one_cell_is_placed_anew_when_its_player_is_followed_at_once() {
+    let mut p = Pair::new(Cap::Avatar, &spec());
+    p.host.move_player(HOUSE, [1.0, 2.0, 3.0], 0.0);
+    p.guest.move_player(TOWN, [0.0; 3], 0.0);
+    // Long enough that the next move of the guest is not held back.
+    p.frames(160);
+    assert_eq!(p.guest.placed().len(), 1);
+    p.host.move_player(TOWN, [50.0, 60.0, 0.0], 0.0);
+    p.frames(40);
+    assert_eq!(p.guest.warps(), 2);
+    let g = p.guest.placed();
+    assert_eq!(g.len(), 2, "{g:?}");
+    assert!(g[0].4, "the avatar left indoors is removed: {:?}", g[0]);
+    assert_eq!((g[1].1, g[1].4), (TOWN, false));
+    assert!(close(g[1].2, [50.0, 60.0, 0.0]));
+    assert!(
+        p.guest_lines()
+            .iter()
+            .any(|l| l.contains("placed 2 times") && l.contains(&format!("{TOWN:08x}"))),
+        "{:?}",
+        p.guest_lines()
+    );
+}
+
 #[test]
 fn a_guest_that_leaves_has_its_avatar_removed_on_the_host() {
     let mut p = Pair::new(Cap::Avatar, &spec());

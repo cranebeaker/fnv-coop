@@ -86,6 +86,21 @@ pub const OBJECTIVE_INDEX_OFFSET: u32 = 0x04;
 /// `BGSQuestObjective::eState`: `QUEST_OBJECTIVE_STATE` at +0x20, bit 0 displayed, bit 1
 /// completed (`bgsquestobjective.rs`; the save's quest record keeps the same word, `crates/fos`).
 pub const OBJECTIVE_STATE_OFFSET: u32 = 0x20;
+/// `BGSQuestObjective::SetState` (`thiscall`, objective, new state; `RET 4`;
+/// `run_005ec4d0.rs`, `fn_005ec5d0`; the decomp's `bgsquestobjective.cpp`): what the
+/// `SetObjectiveDisplayed` (`005d7d30`) and `SetObjectiveCompleted` (`005d7c20`) script commands
+/// call. Besides storing the state it flags the quest's change, enables the quest and makes it the
+/// active one when the player has none (state 1), queues the HUD's lines, and adds the objective
+/// to the player's list (`00952a20`), which is the list the Pip-Boy's quest page walks
+/// (`0079bc30`): an objective whose state is only written is not in the Pip-Boy.
+pub const OBJECTIVE_SET_STATE: u32 = 0x005e_c5d0;
+/// The player's objective list: a `BSSimpleList` of `BGSQuestObjective *` whose first node is in
+/// the player at this offset (`0079bc30` answers `this + 0x6bc`; `mapmenu.rs` walks it for the
+/// Pip-Boy's quest page).
+pub const PLAYER_OBJECTIVE_LIST_OFFSET: u32 = 0x6bc;
+/// Adds an objective to the player's objective list when it is not in it (`thiscall`, player,
+/// objective; `playercharacter_p2.rs`, `fn_00952a20`): what `BGSQuestObjective::SetState` calls.
+pub const PLAYER_UPDATE_OBJECTIVE: u32 = 0x0095_2a20;
 
 /// `TESQuest::pScriptLocals`: the quest script's `ScriptLocals` at +0x5c (`run_0060bef0.rs`),
 /// made when the quest is initialised at load (`0060cba0`), on every machine.

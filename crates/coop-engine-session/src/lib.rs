@@ -36,6 +36,30 @@ use coop_engine::forms::{self, GlobalWatch};
 use coop_engine::{addr, gate, quest, vars};
 use engine_core::Engine;
 
+/// The tag of a clock global's `Field::Custom` (its value's bits, little-endian). The game's clock
+/// moves by itself on every machine, so it is not story state: the host writes it about once a
+/// second, a guest sets its own clock to it, and [`echo`] and the heal leave it alone (a guest's
+/// clock is always a little off between two writes).
+pub const CLOCK_TAG: u16 = 0x434b;
+/// The host writes its clock, and a guest sets its own to the last one it has, this often.
+pub const CLOCK_EVERY_MS: u64 = 1000;
+
+fn clock_field(v: f32) -> Field {
+    Field::Custom {
+        tag: CLOCK_TAG,
+        data: v.to_bits().to_le_bytes().to_vec(),
+    }
+}
+
+fn clock_value(field: &Field) -> Option<f32> {
+    match field {
+        Field::Custom { tag, data } if *tag == CLOCK_TAG => Some(f32::from_bits(
+            u32::from_le_bytes(data[..].try_into().ok()?),
+        )),
+        _ => None,
+    }
+}
+
 /// What this build quotes at the handshake for a game whose plugins load in `plugins` order: the
 /// protocol, this crate's version as the build, the story channel's encoding as the rules, the
 /// plugin list, the game version the engine runs, and the clock keys. Two games join only when
@@ -44,10 +68,11 @@ use engine_core::Engine;
 pub fn hello(plugins: Vec<String>) -> Hello {
     let build = format!("coop-engine-session {}", env!("CARGO_PKG_VERSION"));
     let rules = format!(
-        "quest-record {:04x} v{} {}",
+        "quest-record {:04x} v{} {} clock {:04x}",
         record::QUEST_RECORD_TAG,
         record::VERSION,
-        record::LEN
+        record::LEN,
+        CLOCK_TAG
     );
     Hello {
         proto: proto::PROTOCOL_VERSION,
@@ -92,6 +117,10 @@ pub struct HostDriver {
     pub sync: HostSync,
     quests: BTreeSet<u32>,
     globals: GlobalWatch,
+    /// The game clock's globals (hour, day, month, year, days passed): sent as the clock, not as
+    /// story globals.
+    clock: Vec<u32>,
+    clock_sent_ms: Option<u64>,
     /// Quest records or variables that could not be carried exactly (see [`record::encode`]; a
     /// variable id above 65535): not sent.
     pub unencodable: u32,
@@ -128,6 +157,8 @@ impl HostDriver {
             sync: HostSync::new(cfg),
             quests: quest_ids.into_iter().collect(),
             globals: GlobalWatch::new(global_ids),
+            clock: Vec::new(),
+            clock_sent_ms: None,
             unencodable: 0,
             ladder: None,
             sender: AvatarSender::new(PlayerId::HOST),
@@ -138,6 +169,28 @@ impl HostDriver {
             hash_every: 10,
             bad_packets: 0,
             send_failures: 0,
+        }
+    }
+
+    /// Shares the game's time: the host's values of the clock globals `ids` go to the guests about
+    /// once a second, so day and night are the same for everyone.
+    pub fn set_clock(&mut self, ids: impl IntoIterator<Item = u32>) {
+        self.clock = ids.into_iter().collect();
+    }
+
+    /// Writes the clock into the replica when it is due.
+    fn write_clock(&mut self, e: &mut Engine, now_ms: u64) {
+        if self
+            .clock_sent_ms
+            .is_some_and(|t| now_ms.saturating_sub(t) < CLOCK_EVERY_MS)
+        {
+            return;
+        }
+        self.clock_sent_ms = Some(now_ms);
+        for id in self.clock.clone() {
+            if let Some(v) = forms::global_value(e, id) {
+                self.sync.write(FormId(id), clock_field(v));
+            }
         }
     }
 
@@ -220,6 +273,7 @@ impl HostDriver {
             }
         }
         self.collect(e);
+        self.write_clock(e, now_ms);
         let mut out = self.sync.tick();
         self.steps += 1;
         if self.steps % self.hash_every.max(1) == 0 {
@@ -287,6 +341,7 @@ pub struct GuestDriver {
     snapshots_applied: u32,
     repairs_applied: u32,
     steps: u64,
+    clock_set_ms: Option<u64>,
     /// Every this many steps the guest's game is read back ([`echo`]) and whatever drifted from the
     /// replica is applied again (a guest's own script writing a story global, a rejoin's snapshot
     /// whose revisions do not pass the applied mark). Replica hashes compare replicas only; this
@@ -294,6 +349,8 @@ pub struct GuestDriver {
     pub heal_every: u64,
     /// Entries applied again because the game had drifted from the replica.
     pub healed: u32,
+    /// Objectives put back into the player's objective list (the Pip-Boy's quest page).
+    pub relisted: u32,
     /// The distinct entries healed (the first 40), for the log: what on this guest keeps changing
     /// shared state.
     pub healed_notes: Vec<String>,
@@ -322,8 +379,10 @@ impl GuestDriver {
             snapshots_applied: 0,
             repairs_applied: 0,
             steps: 0,
+            clock_set_ms: None,
             heal_every: 20,
             healed: 0,
+            relisted: 0,
             healed_notes: Vec::new(),
             healed_seen: BTreeSet::new(),
             ladder: None,
@@ -366,9 +425,32 @@ impl GuestDriver {
             send(net, PlayerId::HOST, &msg, &mut self.send_failures);
         }
         self.apply(e);
+        self.keep_clock(e, now_ms);
         self.steps += 1;
         if self.steps % self.heal_every.max(1) == 0 {
             self.heal(e);
+        }
+    }
+
+    /// Sets this game's clock to the host's last one again, about once a second: a clock the host
+    /// has stopped (a menu, a wait) does not arrive again, and this game's own would run on.
+    fn keep_clock(&mut self, e: &mut Engine, now_ms: u64) {
+        if self
+            .clock_set_ms
+            .is_some_and(|t| now_ms.saturating_sub(t) < CLOCK_EVERY_MS)
+        {
+            return;
+        }
+        self.clock_set_ms = Some(now_ms);
+        let clock: Vec<(u32, Field)> = self
+            .sync
+            .store
+            .iter()
+            .filter(|(_, en)| clock_value(&en.field).is_some())
+            .map(|(k, en)| (k.form.0, en.field.clone()))
+            .collect();
+        for (form, field) in clock {
+            apply_field(e, form, &field);
         }
     }
 
@@ -383,8 +465,21 @@ impl GuestDriver {
         }
     }
 
-    /// Applies again every replica entry the guest's game does not hold ([`echo`]).
+    /// Applies again every replica entry the guest's game does not hold ([`echo`]), and puts back
+    /// into the player's objective list any shown objective of a shared quest that is not in it.
     pub fn heal(&mut self, e: &mut Engine) {
+        let quests: Vec<u32> = self
+            .sync
+            .store
+            .iter()
+            .filter(|(_, en)| {
+                matches!(&en.field, Field::Custom { tag, .. } if *tag == record::QUEST_RECORD_TAG)
+            })
+            .map(|(k, _)| k.form.0)
+            .collect();
+        for id in quests {
+            self.relisted += quest::relist(e, id);
+        }
         for m in echo(e, &self.sync.store) {
             if apply_field(e, m.form, &m.want) {
                 self.healed += 1;
@@ -435,6 +530,10 @@ fn apply_field(e: &mut Engine, form: u32, field: &Field) -> bool {
                 None => false,
             }
         }
+        Field::Custom { tag, .. } if *tag == CLOCK_TAG => match clock_value(field) {
+            Some(v) => gate::applying(e, |e| forms::set_global_value(e, form, v)),
+            None => false,
+        },
         Field::Global { bits } => gate::applying(e, |e| {
             forms::set_global_value(e, form, f32::from_bits(*bits))
         }),

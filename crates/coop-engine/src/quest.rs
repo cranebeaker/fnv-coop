@@ -93,8 +93,11 @@ pub fn record(e: &mut Engine, id: u32) -> Option<QuestRecord> {
 
 /// Makes the guest's quest the host's record. False when the form is not a quest, or a done stage
 /// or an objective of the record is not one of the quest's (the two machines' data differ: nothing
-/// is changed). Objective states are written as the game keeps them; the HUD's "objective added"
-/// line the script command shows on the host is presentation, not state.
+/// is changed). An objective whose state differs is set through the game's own
+/// `BGSQuestObjective::SetState`, as the script commands do, so it lands in the player's objective
+/// list (the Pip-Boy's quest page) and the HUD says so. An objective the host completed before
+/// this game ever showed it goes straight to its state: the game adds any objective leaving the
+/// dormant state to the list, and says nothing on the HUD about one that is already done.
 pub fn apply(e: &mut Engine, rec: &QuestRecord) -> bool {
     let Some(q) = forms::quest(e, rec.form) else {
         return false;
@@ -120,18 +123,57 @@ pub fn apply(e: &mut Engine, rec: &QuestRecord) -> bool {
                 e.mem.set_u8(stage.wrapping_add(addr::STAGE_DONE_OFFSET), 0);
             }
         }
+        // Before the flags: showing an objective enables its quest and marks its name as shown,
+        // and the host's flags are the last word.
+        for &(o, n) in &local_objectives {
+            let Some(&(_, state)) = rec.objectives.iter().find(|r| r.0 == n) else {
+                continue;
+            };
+            let at = o.wrapping_add(addr::OBJECTIVE_STATE_OFFSET);
+            let had = e.mem.u32(at);
+            if had == state {
+                continue;
+            }
+            e.call(addr::OBJECTIVE_SET_STATE, &args![o, state]);
+            // A state the game's function would not store as given is still the host's.
+            e.mem.set_u32(at, state);
+        }
         e.mem
             .set_u8(q.wrapping_add(addr::QUEST_CURRENT_STAGE_OFFSET), rec.stage);
         e.mem
             .set_u8(q.wrapping_add(addr::QUEST_FLAGS_OFFSET), rec.flags);
-        for &(o, n) in &local_objectives {
-            if let Some(&(_, state)) = rec.objectives.iter().find(|r| r.0 == n) {
-                e.mem
-                    .set_u32(o.wrapping_add(addr::OBJECTIVE_STATE_OFFSET), state);
-            }
-        }
     });
     true
+}
+
+/// Puts into the player's objective list (the Pip-Boy's quest page) every objective of quest
+/// `id` that is not dormant and is missing from it, through the game's own function; returns how
+/// many. The list is the player's, not the quest's: a game that empties it and keeps the
+/// objectives' states (or states written by a build that did not go through the game's function)
+/// would otherwise never show them.
+pub fn relist(e: &mut Engine, id: u32) -> u32 {
+    let Some(q) = forms::quest(e, id) else {
+        return 0;
+    };
+    let player = e.mem.u32(addr::PLAYER_SINGLETON);
+    if player == 0 {
+        return 0;
+    }
+    let missing: Vec<u32> = {
+        let listed = list_items(e, player.wrapping_add(addr::PLAYER_OBJECTIVE_LIST_OFFSET));
+        objectives(e, q)
+            .into_iter()
+            .map(|(o, _)| o)
+            .filter(|o| e.mem.u32(o.wrapping_add(addr::OBJECTIVE_STATE_OFFSET)) != 0)
+            .filter(|o| !listed.contains(o))
+            .collect()
+    };
+    gate::applying(e, |e| {
+        for o in &missing {
+            e.call(addr::PLAYER_UPDATE_OBJECTIVE, &args![player, *o]);
+        }
+    });
+    missing.len() as u32
 }
 
 #[cfg(test)]
