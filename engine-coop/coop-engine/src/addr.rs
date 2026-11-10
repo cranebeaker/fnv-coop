@@ -413,6 +413,20 @@ pub const ACTOR_HIT: u32 = 0x0089_a760;
 // legacy: `engine_pins.h`. ghidra: 0089d900. run: m3/B e10 (not run: the life state stays 5
 // under lethal damage).
 pub const ACTOR_KILL: u32 = 0x0089_d900;
+/// The form type of a placed NPC's reference, as [`FORM_TYPE`] answers it.
+// Alexanger-dev/fnv-coop branch coop-next, crates/coop-engine/src/addr.rs (`FORM_TYPE_ACHR`).
+// Not re-measured here.
+pub const FORM_TYPE_NPC_REF: u8 = 0x3b;
+/// The form type of a placed creature's reference.
+// Alexanger-dev/fnv-coop branch coop-next, crates/coop-engine/src/addr.rs (`FORM_TYPE_ACRE`).
+// Not re-measured here.
+pub const FORM_TYPE_CREATURE_REF: u8 = 0x3c;
+/// The change flag of an actor's life state: the game's life state setter marks it whenever the
+/// state changes, so a death is in the map of changed forms.
+// Alexanger-dev/fnv-coop branch coop-next, crates/coop-engine/src/addr.rs
+// (`CHANGE_ACTOR_LIFESTATE`, set by `Actor::SetLifeState` 008a1800). Not re-measured here.
+pub const CHANGE_LIFE: u32 = 0x400;
+
 /// The hit data: the reference that made the hit (0: none).
 // legacy: `plugin/combat/combat_addrs.h` (each offset checked in the funnel's disassembly).
 pub const HIT_SOURCE: u32 = 0;

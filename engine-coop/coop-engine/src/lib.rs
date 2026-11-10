@@ -18,6 +18,7 @@ pub mod console;
 pub mod fake;
 pub mod game;
 pub mod gate;
+pub mod life;
 pub mod peer;
 pub mod program;
 pub mod quest;

@@ -467,6 +467,15 @@ impl FakeProgram {
         }
     }
 
+    /// Adds a placed actor with this id and form type, alive. Returns its address.
+    pub fn add_actor(&mut self, id: u32, kind: u8) -> u32 {
+        let at = self.take(0x200);
+        self.set_u32(at + addr::FORM_ID, id);
+        self.forms.insert(id, at);
+        self.types.insert(at, kind);
+        at
+    }
+
     /// Adds a global with this value. Returns its address.
     pub fn add_global(&mut self, id: u32, value: f32) -> u32 {
         let global = self.take(0x28);
@@ -546,6 +555,15 @@ impl Program for FakeProgram {
                 if args[1] & 3 != 0 {
                     let player = self.u32(addr::PLAYER);
                     self.update_objective(player, args[0]);
+                }
+                0
+            }
+            // The game's kill: the actor dies, and its life change is marked.
+            addr::ACTOR_KILL => {
+                self.set_u32(args[0] + addr::ACTOR_LIFE_STATE, addr::life_state::DEAD);
+                let id = self.u32(args[0] + addr::FORM_ID);
+                if self.u32(addr::SAVE_MANAGER) != 0 {
+                    self.mark_changed(id, addr::CHANGE_LIFE);
                 }
                 0
             }
