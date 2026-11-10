@@ -1174,3 +1174,118 @@ pub fn apply_changes(gs: &mut GameState, changes: &[(Key, Option<Field>)]) -> BT
     }
     touched
 }
+
+// ------------------------------------------------- the rows of coop-core
+
+/// The same rows in the model of `coop_core::rows`, which each game adapter shares. The
+/// parts that are not replicated ([`LocalExtras`]) are not in that model.
+///
+/// `coop_core::rows::encode` of the answer gives the bytes of [`encode`]: the test
+/// `crates/world/tests/coop_rows.rs` holds the two codecs together.
+impl From<&PlayerShadow> for coop_core::rows::PlayerRows {
+    fn from(s: &PlayerShadow) -> Self {
+        let forms = |set: &BTreeSet<FormId>| set.iter().map(|f| cf(*f)).collect();
+        coop_core::rows::PlayerRows {
+            actor_values: s.actor_values.clone(),
+            value_damage: s.value_damage.clone(),
+            damage: s.damage,
+            dead: s.dead,
+            items: s.items.iter().map(|(k, v)| (cf(*k), *v)).collect(),
+            stocked: s.stocked,
+            equipped: s
+                .equipped
+                .as_ref()
+                .map(|list| list.iter().map(|f| cf(*f)).collect()),
+            weapon_health: s.weapon_health.iter().map(|(k, v)| (cf(*k), *v)).collect(),
+            weapon_mods: s.weapon_mods.iter().map(|(k, v)| (cf(*k), *v)).collect(),
+            dropped: forms(&s.dropped),
+            equip_locked: forms(&s.equip_locked),
+            ammo_loaded: s.ammo_loaded.map(cf),
+            hotkeys: s.hotkeys.map(|h| h.map(cf)),
+            misc_stats: s.misc_stats.clone(),
+            skill_points: s.skill_points.clone(),
+            tag_skills: s.tag_skills.clone(),
+            tag_slots: s.tag_slots.clone(),
+            level: s.level,
+            level_up_pending: s.level_up_pending,
+            perks: forms(&s.perks),
+            perk_ranks: s.perk_ranks.iter().map(|(k, v)| (cf(*k), *v)).collect(),
+            teammates: forms(&s.teammates),
+            cell: s.cell.map(cf),
+            world: s.world.map(cf),
+            position: s.position,
+            heading: s.heading,
+            name: s.name.clone(),
+            female: s.female,
+            quest_stage: s.quest_stage.iter().map(|(k, v)| (cf(*k), *v)).collect(),
+            stages_done: s.stages_done.iter().map(|(q, st)| (cf(*q), *st)).collect(),
+            quest_flags: s.quest_flags.iter().map(|(k, v)| (cf(*k), *v)).collect(),
+            objectives: s
+                .objectives
+                .iter()
+                .map(|((q, i), v)| ((cf(*q), *i), *v))
+                .collect(),
+            quest_vars: s
+                .quest_vars
+                .iter()
+                .map(|((q, n), v)| ((cf(*q), n.clone()), *v))
+                .collect(),
+        }
+    }
+}
+
+impl PlayerShadow {
+    /// The shadow of rows in the model of `coop_core::rows`. The parts that are not
+    /// replicated ([`LocalExtras`]) are empty.
+    pub fn from_rows(r: &coop_core::rows::PlayerRows) -> PlayerShadow {
+        let wf = |f: coop_core::ids::FormId| FormId(f.0);
+        let forms = |set: &BTreeSet<coop_core::ids::FormId>| set.iter().map(|f| wf(*f)).collect();
+        PlayerShadow {
+            actor_values: r.actor_values.clone(),
+            value_damage: r.value_damage.clone(),
+            damage: r.damage,
+            dead: r.dead,
+            items: r.items.iter().map(|(k, v)| (wf(*k), *v)).collect(),
+            stocked: r.stocked,
+            equipped: r
+                .equipped
+                .as_ref()
+                .map(|list| list.iter().map(|f| wf(*f)).collect()),
+            weapon_health: r.weapon_health.iter().map(|(k, v)| (wf(*k), *v)).collect(),
+            weapon_mods: r.weapon_mods.iter().map(|(k, v)| (wf(*k), *v)).collect(),
+            dropped: forms(&r.dropped),
+            equip_locked: forms(&r.equip_locked),
+            ammo_loaded: r.ammo_loaded.map(wf),
+            hotkeys: r.hotkeys.map(|h| h.map(wf)),
+            misc_stats: r.misc_stats.clone(),
+            skill_points: r.skill_points.clone(),
+            tag_skills: r.tag_skills.clone(),
+            tag_slots: r.tag_slots.clone(),
+            level: r.level,
+            level_up_pending: r.level_up_pending,
+            perks: forms(&r.perks),
+            perk_ranks: r.perk_ranks.iter().map(|(k, v)| (wf(*k), *v)).collect(),
+            teammates: forms(&r.teammates),
+            cell: r.cell.map(wf),
+            world: r.world.map(wf),
+            position: r.position,
+            heading: r.heading,
+            name: r.name.clone(),
+            female: r.female,
+            quest_stage: r.quest_stage.iter().map(|(k, v)| (wf(*k), *v)).collect(),
+            stages_done: r.stages_done.iter().map(|(q, st)| (wf(*q), *st)).collect(),
+            quest_flags: r.quest_flags.iter().map(|(k, v)| (wf(*k), *v)).collect(),
+            objectives: r
+                .objectives
+                .iter()
+                .map(|((q, i), v)| ((wf(*q), *i), *v))
+                .collect(),
+            quest_vars: r
+                .quest_vars
+                .iter()
+                .map(|((q, n), v)| ((wf(*q), n.clone()), *v))
+                .collect(),
+            local: LocalExtras::default(),
+        }
+    }
+}
