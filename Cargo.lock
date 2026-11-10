@@ -277,6 +277,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "coop-game"
+version = "0.1.0"
+dependencies = [
+ "coop-core",
+ "coop-policy",
+]
+
+[[package]]
 name = "coop-headless"
 version = "0.1.0"
 dependencies = [
@@ -1916,6 +1924,7 @@ name = "world"
 version = "0.1.0"
 dependencies = [
  "coop-core",
+ "coop-game",
  "coop-policy",
  "esm",
  "fos",
