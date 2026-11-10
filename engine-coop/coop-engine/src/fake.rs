@@ -43,6 +43,10 @@ pub struct FakeProgram {
     pub freed: Vec<u32>,
     /// The guest gates that the program took, in order.
     pub gates: Vec<crate::gate::Rules>,
+    /// How deep the adapter is in an apply bracket ([`Program::applying`]).
+    pub applying: i32,
+    /// Each call made while the adapter applied another machine's state: the address.
+    pub applied_calls: Vec<u32>,
 }
 
 /// The fake's table of form functions, and its two save slots.
@@ -371,6 +375,33 @@ impl FakeProgram {
         }
     }
 
+    /// Appends `item` to the list whose head node is inline at `head`, as the program's
+    /// lists grow.
+    fn push_item(&mut self, head: u32, item: u32) {
+        if self.u32(head + addr::NODE_ITEM) == 0 && self.u32(head + addr::NODE_NEXT) == 0 {
+            self.set_u32(head + addr::NODE_ITEM, item);
+            return;
+        }
+        let mut node = head;
+        while self.u32(node + addr::NODE_NEXT) != 0 {
+            node = self.u32(node + addr::NODE_NEXT);
+        }
+        let new = self.take(8);
+        self.set_u32(new + addr::NODE_ITEM, item);
+        self.set_u32(node + addr::NODE_NEXT, new);
+    }
+
+    /// The program's own update of the player's objective list: the objective goes in once.
+    fn update_objective(&mut self, player: u32, objective: u32) {
+        if player == 0 {
+            return;
+        }
+        let head = player + addr::PLAYER_OBJECTIVES;
+        if !crate::quest::list_items(self, head).contains(&objective) {
+            self.push_item(head, objective);
+        }
+    }
+
     /// Adds a global with this value. Returns its address.
     pub fn add_global(&mut self, id: u32, value: f32) -> u32 {
         let global = self.take(0x28);
@@ -429,12 +460,34 @@ impl Program for FakeProgram {
         Ok(())
     }
 
+    fn applying(&mut self, on: bool) {
+        self.applying += if on { 1 } else { -1 };
+    }
+
     fn call(&mut self, at: u32, args: &[u32]) -> Ret {
         self.calls.push((at, args.to_vec()));
+        if self.applying > 0 {
+            self.applied_calls.push(at);
+        }
         let eax = match at {
             addr::FORM_BY_ID => self.forms.get(&args[0]).copied().unwrap_or(0),
             addr::QUEST_SET_STAGE => u32::from(self.set_stage(args[0], args[1] as u8)),
             addr::CONSOLE_MANAGER => self.console_manager,
+            // `BGSQuestObjective::SetState`: the state, and the objective in the player's list
+            // when it is shown.
+            addr::OBJECTIVE_SET_STATE => {
+                let old = self.u32(args[0] + addr::OBJECTIVE_STATUS);
+                self.set_u32(args[0] + addr::OBJECTIVE_STATUS, (old & !3) | (args[1] & 3));
+                if args[1] & 3 != 0 {
+                    let player = self.u32(addr::PLAYER);
+                    self.update_objective(player, args[0]);
+                }
+                0
+            }
+            addr::PLAYER_UPDATE_OBJECTIVE => {
+                self.update_objective(args[0], args[1]);
+                0
+            }
             addr::NPC_COPY => self.make_form(0x200),
             addr::NPC_SET_SEX => {
                 self.set_u32(args[0], args[2] & 1);

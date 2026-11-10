@@ -42,6 +42,12 @@ pub trait Program {
         Err("this program takes no guest gate".into())
     }
 
+    /// The adapter starts (`true`) or ends (`false`) applying another machine's state. On a
+    /// guest's game no script runs inside the bracket (the host ran them, and their effects
+    /// come as state), and the adapter's own change of a quest passes the gate. Brackets nest.
+    /// A program with no gate has nothing to do.
+    fn applying(&mut self, _on: bool) {}
+
     /// One byte at `addr`.
     fn u8(&self, addr: u32) -> u8 {
         let mut b = [0; 1];

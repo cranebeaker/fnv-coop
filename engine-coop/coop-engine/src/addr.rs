@@ -170,6 +170,18 @@ pub const OBJECTIVE_SET_STATE: u32 = 0x005e_c5d0;
 /// An objective's quest (a pointer).
 // legacy: section 3 (`BGSQuestObjective`: `quest` +0x10).
 pub const OBJECTIVE_QUEST: u32 = 0x10;
+/// The player's objective list: a list ([`NODE_ITEM`], [`NODE_NEXT`]) of objectives whose
+/// head node is inline in the player at this offset. The Pip-Boy's quest page walks it:
+/// an objective whose status is only written is not in it. [`OBJECTIVE_SET_STATE`] adds the
+/// objective to it.
+// Alexanger-dev/fnv-coop branch coop-next, crates/coop-engine/src/addr.rs
+// (`PLAYER_OBJECTIVE_LIST_OFFSET`: 0079bc30 answers this + 0x6bc). Not re-measured here.
+pub const PLAYER_OBJECTIVES: u32 = 0x6bc;
+/// Adds an objective to the player's objective list when it is not in it: method (player,
+/// objective). [`OBJECTIVE_SET_STATE`] calls it.
+// Alexanger-dev/fnv-coop branch coop-next, crates/coop-engine/src/addr.rs
+// (`PLAYER_UPDATE_OBJECTIVE`, fn_00952a20). Not re-measured here.
+pub const PLAYER_UPDATE_OBJECTIVE: u32 = 0x0095_2a20;
 
 // ---- The avatar (SPEC-06). Each fact was called or read on the game program by a planner:
 // ---- the run names are folders and scripts under the project's notes (m3/A, m3/B, m3/C).

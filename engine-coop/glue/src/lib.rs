@@ -53,6 +53,10 @@ impl Program for EngineProgram<'_> {
         gate::install(self.0, rules.clone())?;
         gate::self_check(self.0, shared_quest)
     }
+
+    fn applying(&mut self, on: bool) {
+        gate::set_applying(on);
+    }
 }
 
 /// What the game shows.

@@ -170,6 +170,26 @@ pub fn own<R>(f: impl FnOnce() -> R) -> R {
     result
 }
 
+/// Runs the adapter's apply of another machine's state: no script runs inside, and the
+/// adapter's own change of a quest passes.
+pub fn applying<R>(f: impl FnOnce() -> R) -> R {
+    set_applying(true);
+    let result = f();
+    set_applying(false);
+    result
+}
+
+/// Starts (`true`) or ends an apply bracket. Brackets nest.
+pub fn set_applying(on: bool) {
+    with(|g| {
+        if on {
+            g.gate.enter_apply();
+        } else {
+            g.gate.leave_apply();
+        }
+    });
+}
+
 /// The intents that wait for the host. The queue is empty after.
 pub fn take_intents() -> Vec<Intent> {
     with(|g| g.gate.intents.take()).unwrap_or_default()

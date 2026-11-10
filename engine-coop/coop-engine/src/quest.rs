@@ -14,7 +14,7 @@ use crate::program::Program;
 const MAX_NODES: usize = 1024;
 
 /// The items of the list whose head node is at `head`.
-fn list_items(p: &dyn Program, head: u32) -> Vec<u32> {
+pub(crate) fn list_items(p: &dyn Program, head: u32) -> Vec<u32> {
     let mut items = Vec::new();
     let mut node = head;
     while node != 0 && items.len() < MAX_NODES {
@@ -220,6 +220,10 @@ pub fn apply(p: &mut dyn Program, quest: u32, field: &Field) -> bool {
             let old = p.u32(item + addr::OBJECTIVE_STATUS);
             let new = (old & !3) | u32::from(*state & 3);
             if new != old {
+                // The game's own setter puts the objective in the player's objective list,
+                // which the Pip-Boy's quest page walks, and shows the HUD's notice. A status
+                // that is only written is not in the Pip-Boy. The host's value is the last word.
+                p.call(addr::OBJECTIVE_SET_STATE, &[item, u32::from(*state & 3)]);
                 p.set_u32(item + addr::OBJECTIVE_STATUS, new);
             }
             new != old
@@ -261,6 +265,37 @@ pub fn apply(p: &mut dyn Program, quest: u32, field: &Field) -> bool {
         }
         _ => false,
     }
+}
+
+/// The objectives in the player's objective list (the Pip-Boy's quest page), in its order.
+/// Empty when the program has no player.
+pub fn player_objectives(p: &dyn Program) -> Vec<u32> {
+    match p.u32(addr::PLAYER) {
+        0 => Vec::new(),
+        player => list_items(p, player + addr::PLAYER_OBJECTIVES),
+    }
+}
+
+/// Puts into the player's objective list each objective of the quest at `quest` that is shown
+/// (a status above 0) and not in the list, with the game's own function. The count of the
+/// objectives put back. The list is the player's, not the quest's: a game that empties it
+/// keeps the objectives' states, and the Pip-Boy would never show them again.
+pub fn relist(p: &mut dyn Program, quest: u32) -> u32 {
+    let player = p.u32(addr::PLAYER);
+    if player == 0 {
+        return 0;
+    }
+    let listed = player_objectives(p);
+    let missing: Vec<u32> = objective_items(p, quest)
+        .into_iter()
+        .map(|(item, _)| item)
+        .filter(|item| p.u32(item + addr::OBJECTIVE_STATUS) & 3 != 0)
+        .filter(|item| !listed.contains(item))
+        .collect();
+    for item in &missing {
+        p.call(addr::PLAYER_UPDATE_OBJECTIVE, &[player, *item]);
+    }
+    missing.len() as u32
 }
 
 /// The key's form as the program's form id.
@@ -354,6 +389,42 @@ mod tests {
         }
         assert!(apply(&mut p, quest, &Field::QuestStage { stage: 0 }));
         assert_eq!(read(&p, quest), QuestState::default());
+    }
+
+    /// An objective that a guest takes from the host goes through the game's own setter, so
+    /// it is in the player's objective list (the Pip-Boy's quest page). A second apply calls
+    /// nothing. Mutation twin: a status that is only written is not in the list, and the
+    /// relist puts it there once.
+    #[test]
+    fn an_applied_objective_is_in_the_players_list() {
+        let (mut p, quest) = program();
+        p.add_player([0.0; 3]);
+        let shown = Field::Objective {
+            index: 20,
+            state: 1,
+        };
+        assert!(apply(&mut p, quest, &shown));
+        let item = objective_items(&p, quest)[1].0;
+        assert_eq!(player_objectives(&p), [item]);
+        let calls = p.calls.len();
+        assert!(!apply(&mut p, quest, &shown));
+        assert_eq!(p.calls.len(), calls, "nothing to set");
+        assert_eq!(relist(&mut p, quest), 0);
+
+        let (mut twin, tq) = program();
+        twin.add_player([0.0; 3]);
+        let first = objective_items(&twin, tq)[0].0;
+        twin.set_u32(first + addr::OBJECTIVE_STATUS, 3);
+        assert!(
+            player_objectives(&twin).is_empty(),
+            "the twin: only written"
+        );
+        assert_eq!(relist(&mut twin, tq), 1);
+        assert_eq!(player_objectives(&twin), [first]);
+        assert_eq!(relist(&mut twin, tq), 0);
+        let mut no_player = FakeProgram::new();
+        let q = no_player.add_quest(QUEST, &[10], &[10]);
+        assert_eq!(relist(&mut no_player, q), 0);
     }
 
     /// Bits of the flags byte that are not shared stay as the program has them.

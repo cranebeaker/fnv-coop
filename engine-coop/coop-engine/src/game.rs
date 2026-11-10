@@ -203,6 +203,59 @@ impl<'a> EngineCoop<'a> {
         EngineCoop { state, p }
     }
 
+    /// Writes changes as plain state, and on a guest notes the host's values for the audit.
+    fn apply_changes(&mut self, changes: &[Change], guest: bool) -> Applied {
+        let mut done = Applied::default();
+        for (key, value) in changes {
+            match value {
+                Some(field) if !field.is_tombstone() => {
+                    if self.state.shared.set(self.p, key.form, field) {
+                        done.set += 1;
+                    }
+                    if guest {
+                        self.state.audit.delta(&[(key.form, field.clone())]);
+                    }
+                }
+                // A default value and `None` each return the slot to "not set".
+                other => {
+                    let like = match other {
+                        Some(field) => Some(field.clone()),
+                        None => slot_field(key),
+                    };
+                    if let Some(like) = like {
+                        if self.state.shared.clear(self.p, key.form, &like) {
+                            done.cleared += 1;
+                        }
+                    }
+                    if guest {
+                        self.state.audit.forget(*key);
+                    }
+                }
+            }
+        }
+        done
+    }
+
+    /// The shared fields of one catalog quest as they are now. `None`: the catalog has no such
+    /// quest.
+    pub fn fields_of(&self, quest: FormId) -> Option<Vec<Field>> {
+        self.state.shared.fields_of(self.p, quest.0)
+    }
+
+    /// The quests of the shared catalog (form ids).
+    pub fn quests(&self) -> Vec<u32> {
+        self.state.shared.quests().map(|(id, _)| id).collect()
+    }
+
+    /// Puts each shown objective of a catalog quest that is missing from the player's
+    /// objective list (the Pip-Boy's quest page) back into it. The count put back.
+    pub fn relist(&mut self, quest: FormId) -> u32 {
+        match self.state.shared.address(quest.0) {
+            Some(at) => crate::quest::relist(self.p, at),
+            None => 0,
+        }
+    }
+
     /// The address of a quest: from the catalog, or by the game's own lookup.
     fn quest_at(&mut self, quest: FormId) -> Option<u32> {
         self.state.shared.address(quest.0).or_else(|| {
@@ -284,34 +337,10 @@ impl Shared for EngineCoop<'_> {
 
     fn apply_shared(&mut self, changes: &[Change], _present: bool) -> Applied {
         let guest = self.state.role == Some(Role::Guest);
-        let mut done = Applied::default();
-        for (key, value) in changes {
-            match value {
-                Some(field) if !field.is_tombstone() => {
-                    if self.state.shared.set(self.p, key.form, field) {
-                        done.set += 1;
-                    }
-                    if guest {
-                        self.state.audit.delta(&[(key.form, field.clone())]);
-                    }
-                }
-                // A default value and `None` each return the slot to "not set".
-                other => {
-                    let like = match other {
-                        Some(field) => Some(field.clone()),
-                        None => slot_field(key),
-                    };
-                    if let Some(like) = like {
-                        if self.state.shared.clear(self.p, key.form, &like) {
-                            done.cleared += 1;
-                        }
-                    }
-                    if guest {
-                        self.state.audit.forget(*key);
-                    }
-                }
-            }
-        }
+        // No script runs while the host's state goes in: the host ran them.
+        self.p.applying(true);
+        let done = self.apply_changes(changes, guest);
+        self.p.applying(false);
         self.state.writes += 1;
         // The game's own journal lines for an applied change are not shown yet:
         // `announced` stays 0.
@@ -503,6 +532,39 @@ mod tests {
         );
         assert_eq!(gp.gates.len(), 1, "the guest's game got its gate");
         assert!(hp.gates.is_empty(), "a host's game has no gate");
+    }
+
+    /// A guest takes the host's objectives inside the apply bracket, through the game's own
+    /// setter: the objective is in the player's objective list (the Pip-Boy's quest page), and
+    /// the relist finds nothing missing. Mutation twin: a status that the game itself wrote
+    /// without its setter is put back into the list by the relist.
+    #[test]
+    fn a_guests_objectives_reach_its_pip_boy() {
+        let (mut p, mut state) = game();
+        p.add_player([0.0; 3]);
+        let mut guest = EngineCoop::over(&mut p, &mut state);
+        guest.configure(&setup(Role::Guest)).unwrap();
+        let shown = Field::Objective {
+            index: 10,
+            state: 1,
+        };
+        let applied = guest.apply_shared(&[(shown.key(FormId(QUEST)), Some(shown.clone()))], false);
+        assert_eq!(applied.set, 1);
+        assert_eq!(guest.relist(FormId(QUEST)), 0);
+        assert_eq!(guest.relist(FormId(0xbad)), 0);
+        assert_eq!(p.applying, 0, "the bracket closed");
+        assert_eq!(p.applied_calls, [addr::OBJECTIVE_SET_STATE]);
+        assert_eq!(crate::quest::player_objectives(&p).len(), 1);
+
+        let (mut twin, mut ts) = game();
+        twin.add_player([0.0; 3]);
+        let quest = twin.call(addr::FORM_BY_ID, &[QUEST]).eax;
+        let item = crate::quest::objective_items(&twin, quest)[0].0;
+        twin.set_u32(item + addr::OBJECTIVE_STATUS, 1);
+        let mut guest = EngineCoop::over(&mut twin, &mut ts);
+        guest.configure(&setup(Role::Guest)).unwrap();
+        assert_eq!(guest.relist(FormId(QUEST)), 1, "the twin: only written");
+        assert_eq!(crate::quest::player_objectives(&twin), [item]);
     }
 
     /// The gate's rules come from the policy: a per-player quest is local and not shared, and

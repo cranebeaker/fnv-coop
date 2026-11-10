@@ -169,6 +169,8 @@ pub struct Gate {
     pub counters: Counters,
     /// How deep the adapter is in its own calls into the program.
     own: u32,
+    /// How deep the adapter is in applying another machine's state.
+    apply: u32,
     /// The run count at the last frame.
     runs_seen: u64,
 }
@@ -191,6 +193,18 @@ impl Gate {
     /// The adapter's own call ended.
     pub fn leave_own(&mut self) {
         self.own = self.own.saturating_sub(1);
+    }
+
+    /// The adapter starts to apply another machine's state (a quest's objectives, an actor's
+    /// death). Inside, no script runs: the host ran them, and their effects come as state.
+    /// The adapter's own change of a quest passes. It holds inside the adapter's own call too.
+    pub fn enter_apply(&mut self) {
+        self.apply += 1;
+    }
+
+    /// The apply ended.
+    pub fn leave_apply(&mut self) {
+        self.apply = self.apply.saturating_sub(1);
     }
 
     /// One frame of play passed, this many milliseconds long.
@@ -220,7 +234,11 @@ impl Gate {
     pub fn script(&mut self, script: &Script) -> Verdict {
         self.counters.runs += 1;
         self.counters.last_script = script.form;
-        let verdict = self.rules.script(script, self.own > 0);
+        let verdict = if self.apply > 0 {
+            Verdict::Host
+        } else {
+            self.rules.script(script, self.own > 0)
+        };
         if verdict == Verdict::Host {
             self.counters.stopped += 1;
         }
@@ -230,7 +248,9 @@ impl Gate {
     /// The program wants to change a quest's state. A change that goes to the host waits as
     /// `intent`.
     pub fn quest_change(&mut self, quest: u32, intent: Intent) -> Verdict {
-        let verdict = self.rules.quest_change(quest, self.own > 0);
+        let verdict = self
+            .rules
+            .quest_change(quest, self.own > 0 || self.apply > 0);
         if verdict == Verdict::Host {
             self.counters.guarded += 1;
             self.intents.push(intent);
@@ -371,6 +391,44 @@ mod tests {
             }
         );
         assert_eq!(gate.intents.take(), [stage]);
+    }
+
+    /// While the adapter applies another machine's state, no script runs, not even inside its
+    /// own call, and its own quest change passes. After the apply the own call runs scripts
+    /// again. Mutation twin: outside the apply, the same change of a shared quest is held.
+    #[test]
+    fn an_apply_runs_no_script_and_its_change_passes() {
+        let mut gate = Gate::new(rules());
+        let object = script(0x200, Kind::Object, None);
+        let objective = Intent::Objective {
+            quest: SHARED,
+            objective: 10,
+            state: 1,
+        };
+        assert_eq!(
+            gate.quest_change(SHARED, objective),
+            Verdict::Host,
+            "the twin: no apply"
+        );
+        gate.enter_own();
+        gate.enter_apply();
+        assert_eq!(gate.script(&object), Verdict::Host);
+        assert_eq!(
+            gate.script(&script(0x100, Kind::Quest, Some(LOCAL))),
+            Verdict::Host
+        );
+        assert_eq!(gate.quest_change(SHARED, objective), Verdict::Here);
+        gate.leave_apply();
+        assert_eq!(gate.script(&object), Verdict::Here, "the own call again");
+        gate.leave_own();
+        gate.leave_apply();
+        assert_eq!(
+            gate.script(&object),
+            Verdict::Here,
+            "an extra close is harmless"
+        );
+        assert_eq!(gate.intents.take(), [objective]);
+        assert_eq!(gate.counters.stopped, 2);
     }
 
     /// A gate that sees a script each frame is not blind. A gate that sees none for five
