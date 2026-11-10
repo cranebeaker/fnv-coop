@@ -5,15 +5,18 @@
 //! - the guest is applying the host's state ([`applying`]): `SetStageDone` and the like reach the
 //!   stage items' result scripts, whose effects the host already sent; or
 //! - the script is the story's: a quest script (`SCRIPT_HEADER::bIsQuestScript`) or one with an
-//!   owner quest (`Script::pOwnerQuest`).
+//!   owner quest (`Script::pOwnerQuest`), unless that quest is one of the player's own
+//!   ([`set_own_quests`]): the quests each player runs for themself, the opening and character
+//!   creation among them, are not the shared story (in the real game every quest script names its
+//!   owner quest: PC run, 2026-11-10).
 //!
 //! The guest's own object and effect scripts keep running. A skipped run answers 0 (no
 //! references changed), as a run of an empty script does. Every skip is counted, so a run on a
 //! PC can show that no story script ran on the guest (M3's exit).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Mutex, PoisonError, RwLock};
 
 use engine_core::extend::{Owner, WrapSlot};
 use engine_core::prelude::*;
@@ -34,6 +37,10 @@ pub struct Gate {
     skipped_applying: AtomicU64,
     /// Story scripts skipped.
     skipped_story: AtomicU64,
+    /// Runs of the player's own quests' scripts that went ahead.
+    ran_own: AtomicU64,
+    /// The form ids of the quests this player runs for themself.
+    own: RwLock<BTreeSet<u32>>,
     /// The distinct story scripts skipped (at most [`SEEN_MAX`]): the script's form id to whether
     /// it is a quest script, its owner quest's form id (0 for none) and how often it was skipped.
     seen: Mutex<BTreeMap<u32, SkippedScript>>,
@@ -69,6 +76,18 @@ pub fn set_guest(e: &mut Engine, on: bool) {
 /// Whether this machine is a guest.
 pub fn is_guest(e: &mut Engine) -> bool {
     e.ext_free::<Gate>().guest.load(Ordering::SeqCst)
+}
+
+/// Names the quests each player runs for themself (form ids): on a guest their scripts run. They
+/// are not part of the shared story, so the host does not send them either.
+pub fn set_own_quests(e: &mut Engine, ids: impl IntoIterator<Item = u32>) {
+    let g = e.ext_free::<Gate>();
+    *g.own.write().unwrap_or_else(PoisonError::into_inner) = ids.into_iter().collect();
+}
+
+/// How many runs of the player's own quests' scripts went ahead on this guest.
+pub fn ran_own(e: &mut Engine) -> u64 {
+    e.ext_free::<Gate>().ran_own.load(Ordering::SeqCst)
 }
 
 /// Runs `f` as the application of the host's state: no script runs on a guest until it returns.
@@ -123,6 +142,15 @@ pub(crate) fn run(e: &mut Engine, a: &[u32]) -> Ret {
                 q => e.mem.u32(q.wrapping_add(addr::FORM_ID_OFFSET)),
             };
             let g = e.ext_free::<Gate>();
+            let own = owner_quest != 0
+                && g.own
+                    .read()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .contains(&owner_quest);
+            if own {
+                g.ran_own.fetch_add(1, Ordering::SeqCst);
+                return e.call_next(addr::SCRIPT_RUNNER_RUN, a);
+            }
             g.skipped_story.fetch_add(1, Ordering::SeqCst);
             let mut seen = g.seen.lock().unwrap_or_else(PoisonError::into_inner);
             if seen.len() < SEEN_MAX || seen.contains_key(&id) {
@@ -256,6 +284,24 @@ mod tests {
         }));
         assert!(unwound.is_err());
         assert_eq!(run_script(&mut e, OBJECT), 1);
+    }
+
+    #[test]
+    fn a_guest_runs_the_scripts_of_its_own_quests_but_not_while_applying() {
+        let mut e = engine();
+        set_guest(&mut e, true);
+        set_own_quests(&mut e, [0x77]);
+        // The script whose owner quest is the player's own runs; the other quest's does not.
+        assert_eq!(run_script(&mut e, RESULT), 1);
+        assert_eq!(run_script(&mut e, QUEST), 0);
+        assert_eq!((runs(&e), ran_own(&mut e)), (1, 1));
+        assert_eq!(skipped_scripts(&mut e).len(), 1);
+        // While the host's state is applied nothing runs, own or not.
+        assert_eq!(applying(&mut e, |e| run_script(e, RESULT)), 0);
+        assert_eq!(runs(&e), 1);
+        // No longer the player's own: held back again.
+        set_own_quests(&mut e, []);
+        assert_eq!(run_script(&mut e, RESULT), 0);
     }
 
     /// The twin: without co-op installed a guest's story scripts run, so the skips come from the

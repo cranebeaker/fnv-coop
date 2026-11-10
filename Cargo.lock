@@ -1383,6 +1383,7 @@ dependencies = [
  "coop-engine",
  "coop-engine-session",
  "coop-net",
+ "coop-policy",
  "engine-core",
  "esm",
  "host",

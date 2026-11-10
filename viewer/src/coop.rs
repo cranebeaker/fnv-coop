@@ -82,8 +82,31 @@ fn is_clock_global(editor_id: &str) -> bool {
 /// story global's form id, from the game's `Data` folder.
 struct GameData {
     plugins: Vec<String>,
+    /// The shared story's quests.
     quests: Vec<u32>,
+    /// The quests each player runs for themself (the rules' per-player rows, by this load
+    /// order): the opening and character creation among them.
+    own_quests: Vec<u32>,
     globals: Vec<u32>,
+}
+
+/// The form ids, in the load order `plugins`, of the quests the rules class as per-player. A
+/// row's plugin that is not loaded is skipped.
+fn own_quest_ids(plugins: &[String]) -> Vec<u32> {
+    let Ok(table) = coop_policy::PolicyTable::bundled() else {
+        return Vec::new();
+    };
+    table
+        .rows()
+        .iter()
+        .filter(|r| r.scope == coop_policy::Scope::PerPlayer && !r.synthetic)
+        .filter_map(|r| {
+            let index = plugins
+                .iter()
+                .position(|p| p.eq_ignore_ascii_case(&r.plugin))?;
+            Some(((index as u32) << 24) | (r.local & 0x00ff_ffff))
+        })
+        .collect()
 }
 
 fn game_data(data: &Path) -> Result<GameData, String> {
@@ -93,10 +116,12 @@ fn game_data(data: &Path) -> Result<GameData, String> {
     };
     let order = esm::LoadOrder::from_data_dir(data, &active)
         .map_err(|e| format!("co-op: reading the load order: {e}"))?;
-    let plugins = order.plugins().iter().map(|p| p.name.clone()).collect();
+    let plugins: Vec<String> = order.plugins().iter().map(|p| p.name.clone()).collect();
+    let own_quests = own_quest_ids(&plugins);
     let quests = order
         .records_of_type(esm::FourCC::new(b"QUST"))
         .map(|r| r.form_id.0)
+        .filter(|id| !own_quests.contains(id))
         .collect();
     let globals = order
         .records_of_type(esm::FourCC::new(b"GLOB"))
@@ -111,6 +136,7 @@ fn game_data(data: &Path) -> Result<GameData, String> {
     Ok(GameData {
         plugins,
         quests,
+        own_quests,
         globals,
     })
 }
@@ -140,6 +166,7 @@ pub struct Coop {
     ep: Endpoint<UdpBackend>,
     role: Role,
     plugins: Vec<String>,
+    own_quests: Vec<u32>,
     started: Instant,
     last_status: Option<Instant>,
     /// The skipped story scripts already named in the log.
@@ -171,6 +198,7 @@ impl Coop {
         let GameData {
             plugins,
             quests,
+            own_quests,
             globals,
         } = game_data(data)?;
         let cfg = EndpointConfig {
@@ -218,6 +246,7 @@ impl Coop {
                 ep,
                 role,
                 plugins,
+                own_quests,
                 started: Instant::now(),
                 last_status: None,
                 gate_named: Default::default(),
@@ -277,7 +306,11 @@ impl Coop {
             }
         }
         if let Role::Guest(_) = self.role {
-            // Gated from the first frame of a join, before the host answers.
+            // Gated from the first frame of a join, before the host answers; its own quests (the
+            // opening, character creation) run.
+            if !self.own_quests.is_empty() {
+                coop_engine::gate::set_own_quests(e, std::mem::take(&mut self.own_quests));
+            }
             session::gate_guest(e);
         }
         match &mut self.role {
@@ -290,7 +323,12 @@ impl Coop {
                     lines.push(format!("co-op host: {note}"));
                 }
             }
-            Role::Guest(Some(g)) => g.step(e, &mut self.ep, now_ms),
+            Role::Guest(Some(g)) => {
+                g.step(e, &mut self.ep, now_ms);
+                for note in g.healed_notes.drain(..) {
+                    lines.push(format!("co-op guest healed: {note}"));
+                }
+            }
             Role::Guest(None) => {}
         }
         if self
@@ -338,7 +376,8 @@ impl Coop {
                     g.healed,
                     g.refused,
                     g.heal_refused,
-                ) + "; "
+                ) + &format!(", own quest scripts run {}", coop_engine::gate::ran_own(e))
+                    + "; "
                     + &g.ladder.as_ref().map_or("live: off".into(), Ladder::status)
             }
             Role::Guest(None) => "co-op guest: waiting for the host".into(),
@@ -349,6 +388,29 @@ impl Coop {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_opening_quests_are_each_player_s_own_in_any_load_order() {
+        let plain = own_quest_ids(&["FalloutNV.esm".into()]);
+        // VCG00, VCG01, CGTutorial: the opening and character creation.
+        for id in [0x0010_2037, 0x0010_4c1c, 0x0005_9c85] {
+            assert!(plain.contains(&id), "{id:08x}");
+        }
+        // A shared story quest is not among them: the first quest after the opening.
+        let table = coop_policy::PolicyTable::bundled().unwrap();
+        let shared = table.row_by_edid("VCG03").expect("VCG03 is in the rules");
+        assert_eq!(shared.scope, coop_policy::Scope::Shared);
+        assert!(!plain.contains(&shared.local));
+        // A DLC's rows take that plugin's place in the load order; an unloaded plugin's are skipped.
+        let with_dlc = own_quest_ids(&[
+            "FalloutNV.esm".into(),
+            "HonestHearts.esm".into(),
+            "deadmoney.esm".into(),
+        ]);
+        assert!(with_dlc.len() > plain.len());
+        assert!(with_dlc.iter().any(|id| id >> 24 == 2));
+        assert!(with_dlc.iter().all(|id| id >> 24 <= 2));
+    }
 
     #[test]
     fn the_clock_globals_are_left_out() {

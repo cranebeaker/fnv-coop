@@ -225,3 +225,27 @@ all of it. Three behaviours were removed once each to see the tests fail.
 screen. Rung 3 now uses the game's own request path and waits for the guest to be in the world.
 
 **Not verified here:** the game calls of rungs 3 to 5 (the PC run of docs/coop/TESTING.md).
+
+## S9: each player's own quests (implemented; first step of M7)
+
+**PC run 2026-11-10 (second ladder):** a guest that pressed New Game stayed out of the world (a black screen
+with the HUD; its player in no cell): the opening is a quest script and the gate held it back. The gate's
+log showed that in the real game every quest script names its owner quest (`Script::pOwnerQuest`), the
+opening's among them (`00104c00` of VCG01 `00104c1c`).
+
+- The rules (`crates/coop-policy/data/policy.json`) class 83 quests as per-player: the opening and character
+  creation (VCG00, VCG01, CGTutorial), controller and achievement bookkeeping, and others each player goes
+  through for themself. nv-viewer resolves them for the load order (the plugin's index and the row's local
+  id).
+- On a guest their scripts run (`gate::set_own_quests`): a story script whose owner quest is one of them is
+  not held back, except while the host's state is applied. So a guest that presses New Game goes through its
+  own opening and makes its own character.
+- The host does not replicate them (they are left out of the session's quests, at the start and from the
+  journal), so one player's opening never overwrites another's.
+- Every entry a guest heals is named once in its log (`co-op guest healed: ...`): shared state a guest's own
+  scripts keep changing shows up there.
+
+**Verified here:** the gate's unit test (own runs, others held back, nothing while applying) and a two-game
+test (the host's own quest does not reach the guest, the guest's own quest script runs every frame, the
+shared quest arrives; removing the host's filter fails it); the rules' rows resolve for a load order with
+DLCs. **Not verified here:** that the guest's opening then plays through in the real game.

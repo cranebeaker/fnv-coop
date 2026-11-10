@@ -14,6 +14,8 @@ host = { path = "../crates/host" }
 # handshake and the replicated globals come from.
 coop-core = { path = "../crates/coop-core" }
 coop-net = { path = "../crates/coop-net" }
+# The quest rules: which quests each player runs for themself.
+coop-policy = { path = "../crates/coop-policy" }
 coop-engine = { path = "../crates/coop-engine" }
 coop-engine-session = { path = "../crates/coop-engine-session" }
 engine-core = { path = "../crates/engine-core" }

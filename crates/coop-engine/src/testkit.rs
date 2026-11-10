@@ -504,6 +504,22 @@ impl Story {
         self.e.mem.u32(WARPS)
     }
 
+    /// Runs the script of quest `quest` (a quest script that names the quest as its owner, as every
+    /// quest script in the game does): it runs on a host, and on a guest only for a quest of the
+    /// player's own.
+    pub fn run_script_of(&mut self, quest: u32) {
+        let q = forms::quest(&mut self.e, quest).expect("a quest of the story");
+        let script = q + 0xa00;
+        self.e
+            .mem
+            .set_u32(script + addr::FORM_ID_OFFSET, quest ^ 0x00f0_0000);
+        self.e.mem.set_u8(script + addr::SCRIPT_IS_QUEST_OFFSET, 1);
+        self.e
+            .mem
+            .set_u32(script + addr::SCRIPT_OWNER_QUEST_OFFSET, q);
+        run(&mut self.e, script);
+    }
+
     /// How many scripts really ran on this machine.
     pub fn scripts_run(&self) -> u32 {
         self.e.mem.u32(RAN)

@@ -553,3 +553,47 @@ fn a_host_that_starts_a_new_session_gives_a_rejoining_guest_the_whole_story() {
     assert_same_game(&mut host, &mut guest);
     assert!(gd.sync.snapshots_loaded >= 2);
 }
+
+#[test]
+fn a_quest_of_the_player_s_own_is_not_shared_and_its_script_runs_on_the_guest() {
+    let net = LoopbackNet::new();
+    let mut hostnet = net.endpoint(PlayerId::HOST);
+    let mut gnet = net.endpoint(PlayerId(1));
+    let mut host = Story::new(&spec());
+    // SIDE is each player's own (as the opening and character creation are): not replicated.
+    let shared: Vec<u32> = quest_ids().into_iter().filter(|q| *q != SIDE).collect();
+    let mut hd = HostDriver::new(HostConfig::new(hello(), 1), shared, GLOBALS);
+    hd.start(&mut host.e);
+    let mut guest = guest_story();
+    coop_engine::gate::set_own_quests(&mut guest.e, [SIDE]);
+    let mut gd = GuestDriver::new(PlayerId(1), hello());
+    let mut t = 0;
+    // The host goes through its own SIDE and the shared MQ.
+    assert!(host.set_stage(SIDE, 50));
+    host.set_quest_var(SIDE, 4, 3.0);
+    assert!(host.set_stage(MQ, 10));
+    // The guest goes through its own SIDE differently, its quest script running.
+    assert!(guest.set_stage(SIDE, 10));
+    let before = guest.scripts_run();
+    for _ in 0..40 {
+        t += 50;
+        hd.step(&mut host.e, &mut hostnet, t);
+        guest.run_script_of(SIDE);
+        guest.run_script_of(MQ);
+        gd.step(&mut guest.e, &mut gnet, t);
+    }
+    // The shared quest arrived; the player's own did not, in either direction.
+    assert_eq!(quest::record(&mut guest.e, MQ).unwrap().stage, 10);
+    let own = quest::record(&mut guest.e, SIDE).unwrap();
+    assert_eq!((own.stage, own.done), (10, vec![10]));
+    assert_eq!(
+        coop_engine::vars::quest_vars(&mut guest.e, SIDE).unwrap()[0].1,
+        0
+    );
+    assert!(gd.sync.store.iter().all(|(k, _)| k.form.0 != SIDE));
+    // The guest's own quest script ran every frame; the shared quest's never.
+    assert_eq!(guest.scripts_run() - before, 40);
+    assert_eq!(coop_engine::gate::ran_own(&mut guest.e), 40);
+    assert!(echo(&mut guest.e, &gd.sync.store).is_empty());
+    assert_eq!((gd.healed, gd.refused), (0, 0));
+}

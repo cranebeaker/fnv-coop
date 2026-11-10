@@ -52,7 +52,8 @@ machine with FNV 1.4.0.525. "Headless" means `cargo test` with no game files.
 | M3 | Done: two games on a PC, the host played the opening, the guest held its story (3883 hash checks, 0 desyncs, 0 refused; 2026-11-10) |
 | M4 | Quests, objectives, quest variables and globals carried as fields; the generic changed-form stream for other types is next |
 | M5 | First version built and verified headlessly (S8: the guest comes to the host, sliding avatars); the PC ladder run is next (TESTING.md) |
-| M6 to M9 | Not started |
+| M7 | First step built (S9): a guest runs its own opening and character creation; the PC run is next |
+| M6, M8, M9 | Not started |
 
 ## Ownership and order
 

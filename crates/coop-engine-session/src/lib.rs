@@ -90,7 +90,7 @@ fn receive(net: &mut dyn Transport, bad: &mut u32) -> Vec<(PlayerId, Msg)> {
 pub struct HostDriver {
     /// coop-core's host sync: the replicated store, joins, deltas, hashes.
     pub sync: HostSync,
-    quests: Vec<u32>,
+    quests: BTreeSet<u32>,
     globals: GlobalWatch,
     /// Quest records or variables that could not be carried exactly (see [`record::encode`]; a
     /// variable id above 65535): not sent.
@@ -113,7 +113,8 @@ pub struct HostDriver {
 }
 
 impl HostDriver {
-    /// A host with coop-core's config `cfg`, replicating the quests `quest_ids` (all of them are
+    /// A host with coop-core's config `cfg`, replicating the quests `quest_ids` (the shared story's:
+    /// leave out the quests each player runs for themself; all of them are
     /// written at the start, so a guest gets every quest's state from the snapshot, whatever save
     /// either side loaded) and the globals `global_ids` (the game's globals do not pass through the
     /// change journal, so they are compared each step; leave out the ones that change by
@@ -193,9 +194,11 @@ impl HostDriver {
     /// variables of every quest whose form changed (stages, flags, objectives, variables), and
     /// every global whose value changed. The replica keeps only real changes.
     pub fn collect(&mut self, e: &mut Engine) {
+        // Only the quests this session replicates: a player's own quests (the opening, character
+        // creation, ...) change on the host too and are not the shared story.
         let quests: BTreeSet<u32> = coop_engine::drain(e)
             .into_iter()
-            .filter(|c| c.kind == addr::FORM_TYPE_QUEST)
+            .filter(|c| c.kind == addr::FORM_TYPE_QUEST && self.quests.contains(&c.form))
             .map(|c| c.form)
             .collect();
         for id in quests {
@@ -291,6 +294,10 @@ pub struct GuestDriver {
     pub heal_every: u64,
     /// Entries applied again because the game had drifted from the replica.
     pub healed: u32,
+    /// The distinct entries healed (the first 40), for the log: what on this guest keeps changing
+    /// shared state.
+    pub healed_notes: Vec<String>,
+    healed_seen: BTreeSet<(u32, u8)>,
     /// The live ladder (players in the world); `None` leaves the session story-only.
     pub ladder: Option<ladder::Ladder>,
     /// Drifted entries the game refused when applied again (counted once each time they are
@@ -317,6 +324,8 @@ impl GuestDriver {
             steps: 0,
             heal_every: 20,
             healed: 0,
+            healed_notes: Vec::new(),
+            healed_seen: BTreeSet::new(),
             ladder: None,
             heal_refused: 0,
             refused: 0,
@@ -379,6 +388,13 @@ impl GuestDriver {
         for m in echo(e, &self.sync.store) {
             if apply_field(e, m.form, &m.want) {
                 self.healed += 1;
+                let key = (m.form, m.want.kind());
+                if self.healed_seen.len() < 40 && self.healed_seen.insert(key) {
+                    self.healed_notes.push(format!(
+                        "form {:08x}: this game had {:?}, the host's story has {:?}",
+                        m.form, m.found, m.want
+                    ));
+                }
             } else {
                 self.heal_refused += 1;
             }
