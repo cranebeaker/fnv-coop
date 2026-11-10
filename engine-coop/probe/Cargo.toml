@@ -7,5 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+coop-engine = { path = "../coop-engine" }
+coop-engine-glue = { path = "../glue" }
 host = { workspace = true }
 engine = { workspace = true }

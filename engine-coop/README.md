@@ -55,9 +55,36 @@ occlusion query has no answer without it).
 
 ## Members
 
-- `probe`: the M0 probes. It starts the engine, runs the game's frames, and reads and changes
-  game state between frames by program address. `probe/scripts` holds the probe scripts.
+- `coop-engine`: the adapter. It sees the game program by address only (read, write, call),
+  and names no engine type. Its tests run on a fake program: no engine, no game files.
+  `addr.rs` holds each program fact with its source.
+- `glue`: the one crate that names upstream types. It gives the adapter its view of the
+  program and starts a game for a test.
+- `peer` (`coop-engine-peer`): one game behind a line protocol, for a test harness in another
+  process.
+- `probe` (`coop-probe`): starts the engine, runs the game's frames, and runs a probe script
+  between frames. `probe/scripts` holds the scripts.
 - `tools`: the machine table and the scratch instance for a test run.
+
+## The conformance tests on the real game
+
+The backend conformance tests of `crates/coop-headless` run on this workspace's peer server.
+Each peer of a test is one game process.
+
+```
+cargo build --profile play -p coop-engine-peer
+```
+
+Then, in the root workspace, with `COOP_ENGINE_PEER` set to the built program,
+`NV_D3D9_ADAPTER` set to a scratch instance's `machine.tsv`, and `FNV_ESM_DIR` set to the
+game's Data folder:
+
+```
+cargo test -p coop-headless --test engine_backend
+```
+
+Set `COOP_ENGINE_PEER` for this test only. Without it the engine backend is
+`PENDING (engine backend)`, and other tests of that crate check exactly that.
 
 ## What the probes showed (2026-11-10, upstream 815b187)
 
@@ -71,3 +98,13 @@ occlusion query has no answer without it).
 - Two instances run side by side. In repeatable mode two runs are equal line for line.
 - Places of the whole story and of each add-on load with no stop.
 - Open: with real threads the run hangs after its first frame on the test PC.
+
+## What works on two real games (upstream 815b187)
+
+- Quest state: stages, done stages, flags, objectives and globals cross from a host's game to
+  a guest's game as plain state, by snapshot and by delta. A second identical snapshot changes
+  nothing. A guest refuses to set a stage. The conformance tests `snapshot_carries_stage`,
+  `delta_carries_change`, `snapshot_is_idempotent`, `guest_runs_no_quest_script` and
+  `global_replicates` pass, and their mutation twins fail.
+- Not yet: per-player rows, the gate that stops a guest's own story scripts, actors, combat,
+  dialogue, items, saves. The plan is in the project's notes.

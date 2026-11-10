@@ -16,7 +16,7 @@
 mod program;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::OnceLock;
 
 use engine::{AbiFn, Engine, Ret};
@@ -169,11 +169,33 @@ static COUNTED: [(OnceLock<(u32, AbiFn)>, AtomicU32); 4] = [
     (OnceLock::new(), AtomicU32::new(0)),
 ];
 
+/// Whether an override prints each call (`quiet` turns it off: a function that runs each
+/// frame fills the log).
+static PRINT_CALLS: AtomicBool = AtomicBool::new(true);
+/// The slots whose override does not run the original (`block`): the call returns 0.
+static BLOCKED: [AtomicBool; 4] = [
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+];
+
 fn counted(slot: usize, e: &mut Engine, args: &[u32]) -> Ret {
     COUNTED[slot].1.fetch_add(1, Ordering::Relaxed);
     let (addr, original) = COUNTED[slot].0.get().expect("set before the override");
-    let ret = original(e, args);
-    println!("PROBE call {addr:08x} args {args:08x?} -> {:08x}", ret.eax);
+    let blocked = BLOCKED[slot].load(Ordering::Relaxed);
+    let ret = if blocked {
+        Ret::default()
+    } else {
+        original(e, args)
+    };
+    if PRINT_CALLS.load(Ordering::Relaxed) {
+        let what = if blocked { "blocked" } else { "call" };
+        println!(
+            "PROBE {what} {addr:08x} args {args:08x?} -> {:08x}",
+            ret.eax
+        );
+    }
     ret
 }
 fn counted0(e: &mut Engine, a: &[u32]) -> Ret {
@@ -252,8 +274,22 @@ fn run_step(e: &mut Engine, step: &Step, watch: &mut Watch, frame: u64) -> bool 
                 watch.quests.push((id, None));
             }
         }
+        // peek ADDR [WORDS]: the 32-bit words at ADDR (hex), 4 when no count is given.
+        "peek" => match hex(arg(0)) {
+            Some(addr) => {
+                let words = arg(1).and_then(|w| w.parse::<u32>().ok()).unwrap_or(4);
+                let values: Vec<String> = (0..words.min(64))
+                    .map(|i| format!("{:08x}", e.mem.u32(addr + 4 * i)))
+                    .collect();
+                println!("PROBE frame {frame} peek {addr:08x}: {}", values.join(" "));
+            }
+            None => println!("PROBE frame {frame} peek: needs an address"),
+        },
+        // quiet: the overrides count but do not print each call.
+        "quiet" => PRINT_CALLS.store(false, Ordering::Relaxed),
         // count ADDR: override the function at ADDR with one that counts and runs the original.
-        "count" => {
+        // block ADDR: the same, but the original does not run and the call returns 0.
+        "count" | "block" => {
             let Some(addr) = hex(arg(0)) else {
                 println!("PROBE frame {frame} count: needs an address");
                 return true;
@@ -266,8 +302,12 @@ fn run_step(e: &mut Engine, step: &Step, watch: &mut Watch, frame: u64) -> bool 
                 }
                 (Some(original), Some(slot)) => {
                     let _ = COUNTED[slot].0.set((addr, original));
+                    BLOCKED[slot].store(step.verb == "block", Ordering::Relaxed);
                     e.register(addr, COUNTERS[slot]);
-                    println!("PROBE frame {frame} count {addr:08x}: override in slot {slot}");
+                    println!(
+                        "PROBE frame {frame} {} {addr:08x}: override in slot {slot}",
+                        step.verb
+                    );
                 }
                 (None, _) => println!("PROBE frame {frame} count {addr:08x}: no translation"),
                 (_, None) => println!("PROBE frame {frame} count {addr:08x}: no free slot"),
@@ -387,7 +427,7 @@ fn main() {
             }
         }
         if clock.frame % args.every == 0 {
-            match program::player_place(&game.engine) {
+            match program::player_place(&mut game.engine) {
                 Some((player, at)) => println!(
                     "PROBE frame {} screen {} player {player:08x} at {:.1} {:.1} {:.1}",
                     clock.frame,

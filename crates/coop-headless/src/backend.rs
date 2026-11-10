@@ -7,7 +7,9 @@
 //! game world seen only through what co-op needs: set a quest stage, read it
 //! back, export the shared state, apply a snapshot or delta from the host,
 //! and keep per-player rows. The tests in [`TESTS`] use nothing else.
-//! [`EngineBackend`] is the stub for the engine: it reports every test as
+//! [`EngineBackend`] is the engine: one game on the upstream engine in a child
+//! process for each peer ([`crate::engine_peer`]), when `COOP_ENGINE_PEER`
+//! names the peer server's program. Without it every test is
 //! `PENDING (engine backend)`.
 
 use std::sync::Arc;
@@ -58,6 +60,11 @@ pub trait BackendPeer {
     fn apply_delta(&mut self, d: &Delta) -> (u32, u32);
     /// Adds a player to the party (their private rows).
     fn register_player(&mut self, slot: u8);
+    /// Whether this backend keeps per-player rows. A test of them is PENDING on a backend
+    /// that does not yet.
+    fn has_player_rows(&self) -> bool {
+        true
+    }
 }
 
 /// A game world that can host a co-op session.
@@ -68,15 +75,38 @@ pub trait CoopBackend: Sync {
     fn peer<'a>(&self, d: &'a Data, host: bool) -> Result<Box<dyn BackendPeer + 'a>, String>;
 }
 
-/// The stub for the translated engine: nothing runs yet.
+/// The game's own program on the upstream engine, one child process for each peer
+/// ([`crate::engine_peer`]). PENDING when no peer server is named.
 pub struct EngineBackend;
+
+/// The shared quests and globals of a load order, for a peer's catalog: each quest that the
+/// policy does not give to each player separately, and each global.
+fn shared_catalog(d: &Data) -> Result<(Vec<u32>, Vec<u32>), String> {
+    let bundled = PolicyTable::bundled().map_err(|e| format!("{e:?}"))?;
+    let table = coop_session::policy_ids::resolve_policy(&bundled, &d.order)?.0;
+    let own = ShadowPlan::from_policy(&table).quests;
+    let ids = |kind: &[u8; 4]| -> Vec<u32> {
+        d.order
+            .records_of_type(esm::FourCC::new(kind))
+            .map(|r| r.form_id)
+            .filter(|f| !own.contains(f))
+            .map(|f| f.0)
+            .collect()
+    };
+    Ok((ids(b"QUST"), ids(b"GLOB")))
+}
 
 impl CoopBackend for EngineBackend {
     fn name(&self) -> &'static str {
         "engine"
     }
-    fn peer<'a>(&self, _d: &'a Data, _host: bool) -> Result<Box<dyn BackendPeer + 'a>, String> {
-        Err("PENDING (engine backend)".into())
+    fn peer<'a>(&self, d: &'a Data, host: bool) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        let Some(program) = crate::engine_peer::program() else {
+            return Err("PENDING (engine backend)".into());
+        };
+        let (quests, globals) = shared_catalog(d)?;
+        let peer = crate::engine_peer::EnginePeer::start(d, &program, host, &quests, &globals)?;
+        Ok(Box::new(peer))
     }
 }
 
@@ -250,6 +280,17 @@ fn bad(s: impl Into<String>) -> Verdict {
     Verdict::Fail(s.into())
 }
 
+/// A test of per-player rows is PENDING on a backend that does not keep them yet.
+fn need_player_rows(p: &dyn BackendPeer) -> Result<(), Verdict> {
+    if p.has_player_rows() {
+        Ok(())
+    } else {
+        Err(Verdict::Pending(
+            "PENDING (engine backend: per-player rows)".into(),
+        ))
+    }
+}
+
 fn snapshot_carries_stage(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result<(), Verdict> {
     let mut host = need(b.peer(d, true))?;
     let mut guest = need(b.peer(d, false))?;
@@ -326,6 +367,7 @@ fn guest_runs_no_quest_script(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Re
 
 fn per_player_stays_private(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result<(), Verdict> {
     let mut host = need(b.peer(d, true))?;
+    need_player_rows(&*host)?;
     host.register_player(1);
     host.register_player(2);
     if !host.set_stage_as(if mutate { 0 } else { 1 }, PLAYER_QUEST, STAGE) {
@@ -348,6 +390,7 @@ fn per_player_stays_private(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Resu
 
 fn shadow_rows_reach_guest(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result<(), Verdict> {
     let mut host = need(b.peer(d, true))?;
+    need_player_rows(&*host)?;
     let mut guest = need(b.peer(d, false))?;
     host.register_player(1);
     host.set_stage_as(1, PLAYER_QUEST, STAGE);

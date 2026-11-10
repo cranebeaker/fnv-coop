@@ -13,6 +13,7 @@ pub mod campaign_bot;
 pub mod checklist;
 pub mod cli;
 pub mod data;
+pub mod engine_peer;
 pub mod expect;
 pub mod json;
 pub mod multi;

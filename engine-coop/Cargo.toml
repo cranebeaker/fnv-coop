@@ -5,7 +5,7 @@
 # repository holds no upstream code (see README.md here).
 [workspace]
 resolver = "2"
-members = ["probe"]
+members = ["coop-engine", "glue", "peer", "probe"]
 
 [workspace.package]
 edition = "2021"

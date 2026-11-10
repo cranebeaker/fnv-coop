@@ -1,0 +1,12 @@
+[package]
+name = "coop-engine-glue"
+version = "0.1.0"
+description = "The one crate that names the upstream engine's types: it gives the co-op adapter its view of the program, and starts a game for a test"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coop-engine = { path = "../coop-engine" }
+host = { workspace = true }
+engine = { workspace = true }
