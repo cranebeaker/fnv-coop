@@ -39,6 +39,8 @@
 //! | `node_place FORM` | `ok X Y Z`: the place of the reference's 3D object in the scene, `ok none` when it has no 3D object. `err` when the game has no such form |
 //! | `form FORM` | `ok 1` when the game has a form with this id now, else `ok 0` |
 //! | `player` | `ok CELL X Y Z HEADING`: the local player's cell (an address, hex), place and heading in degrees. `err` before the game made the player |
+//! | `remote SLOT CELL X Y Z HEADING FLAGS [FEMALE RACE]` | `ok made ID`, `ok driven`, `ok removed`, `ok absent` or `ok lost REASON`: one frame's step for the remote player SLOT, who is in the cell with form id CELL. The avatar is in this game only while that cell is attached here |
+//! | `remote SLOT gone` | `ok removed` or `ok absent`: the remote player left |
 //! | `avatar_make SLOT FEMALE RACE X Y Z HEADING` | `ok ID`: the avatar of the remote player SLOT, with a female body (1) or not (0) and the race's form id (0: the base's own), at this place. ID is its form id. `err` when the game makes none |
 //! | `avatar_drive SLOT X Y Z HEADING FLAGS [z]` | `ok`: one frame's command (the movement flags in hex, 0 to stand; `z` commands Z too). `err destroyed` or `err dead` when the avatar cannot be used |
 //! | `avatar_state SLOT` | `ok X Y Z HEADING LIFE GROUP FLAGS CELL`: what the avatar is now (group, flags and cell in hex) |
@@ -55,7 +57,7 @@ use coop_core::schema::{fields_from_hex, fields_to_hex, Field};
 
 use crate::addr;
 use crate::audit::Audit;
-use crate::avatar::{Avatar, Base, Drive, Gone, Hit, Left, Look};
+use crate::avatar::{Avatar, Base, Body, Drive, Gone, Hit, Left, Look, Remote, Step};
 use crate::changes::Changes;
 use crate::gate::{Counters, Intent, Rules, BLIND_MS};
 use crate::program::Program;
@@ -121,8 +123,8 @@ pub struct Peer {
     changes: Option<Changes>,
     /// The host's index pairs that this guest's game has. `None` before `join_pairs`.
     pairs: Option<Pairs>,
-    /// The avatars of the remote players, by slot: the base copy and the reference.
-    avatars: std::collections::BTreeMap<u8, (Base, Option<Avatar>)>,
+    /// The bodies of the remote players, by slot.
+    avatars: std::collections::BTreeMap<u8, Body>,
     /// The script that reached the gate last, for the audit's report. The server sets it.
     pub last_script: u32,
 }
@@ -238,7 +240,7 @@ impl Peer {
     pub fn bodies(&self) -> Vec<(Avatar, u8)> {
         self.avatars
             .iter()
-            .filter_map(|(slot, (_, avatar))| avatar.map(|a| (a, *slot)))
+            .filter_map(|(slot, body)| body.avatar.map(|a| (a, *slot)))
             .collect()
     }
 
@@ -247,8 +249,8 @@ impl Peer {
     pub fn avatar_left(&mut self, slot: u8, why: Left) {
         match why {
             Left::Save => {
-                if let Some((_, avatar)) = self.avatars.get_mut(&slot) {
-                    *avatar = None;
+                if let Some(body) = self.avatars.get_mut(&slot) {
+                    body.avatar = None;
                 }
             }
             Left::Load => {
@@ -569,24 +571,66 @@ impl Peer {
                     with_z: true,
                 };
                 // One base for each remote player. An avatar that is made again uses it again.
-                let base = match self.avatars.get(&slot) {
-                    Some((base, _)) => *base,
+                let body = self.avatars.entry(slot).or_default();
+                let base = match body.base {
+                    Some(base) => base,
                     None => Base::make(p, look).ok_or("the game made no base copy")?,
                 };
-                if let Some((_, Some(old))) = self.avatars.get(&slot) {
+                body.base = Some(base);
+                if let Some(old) = body.avatar.take() {
                     old.remove(p);
                 }
-                self.avatars.insert(slot, (base, None));
                 let avatar = Avatar::make(p, base, &first).map_err(gone)?;
-                self.avatars.insert(slot, (base, Some(avatar)));
+                body.avatar = Some(avatar);
                 reply(format!("ok {:08X}", avatar.id))
+            }
+            "remote" => {
+                let slot: u8 = number(words.next(), "the slot")?;
+                let remote = match words.next().ok_or("a cell or `gone` is missing")? {
+                    "gone" => None,
+                    cell => {
+                        let cell = hex(Some(cell))?;
+                        let place = [
+                            number(words.next(), "x")?,
+                            number(words.next(), "y")?,
+                            number(words.next(), "z")?,
+                        ];
+                        let heading = number(words.next(), "the heading")?;
+                        let flags = hex(words.next())?;
+                        let look = match words.next() {
+                            Some(female) => Look {
+                                female: number::<u8>(Some(female), "the sex")? != 0,
+                                race: hex(words.next())?,
+                            },
+                            None => Look::default(),
+                        };
+                        Some(Remote {
+                            cell,
+                            look,
+                            drive: Drive {
+                                place,
+                                heading,
+                                flags,
+                                with_z: false,
+                            },
+                        })
+                    }
+                };
+                let body = self.avatars.entry(slot).or_default();
+                reply(match body.frame(p, remote.as_ref()) {
+                    Step::Made(id) => format!("ok made {id:08X}"),
+                    Step::Driven => "ok driven".into(),
+                    Step::Removed => "ok removed".into(),
+                    Step::Absent => "ok absent".into(),
+                    Step::Lost(why) => format!("ok lost {}", gone(why)),
+                })
             }
             "avatar_guard" => Ok(Action::AvatarGuard),
             "avatar_hits" => Ok(Action::AvatarHits),
             "avatar_drive" | "avatar_state" | "avatar_look" | "avatar_health" | "avatar_heal"
             | "avatar_remove" => {
                 let slot: u8 = number(words.next(), "the slot")?;
-                let Some((base, Some(avatar))) = self.avatars.get(&slot).copied() else {
+                let Some(avatar) = self.avatars.get(&slot).and_then(|body| body.avatar) else {
                     return Err(format!("no avatar in slot {slot}"));
                 };
                 match verb {
@@ -635,7 +679,9 @@ impl Peer {
                     }
                     _ => {
                         avatar.remove(p);
-                        self.avatars.insert(slot, (base, None));
+                        if let Some(body) = self.avatars.get_mut(&slot) {
+                            body.avatar = None;
+                        }
                         reply("ok".into())
                     }
                 }
@@ -1026,6 +1072,50 @@ mod tests {
         );
         assert_eq!(ask(&mut peer, &mut p, "changes"), "ok 0");
         assert!(ask(&mut peer, &mut p, "changes all").starts_with("err "));
+    }
+
+    /// The remote request: the avatar is in the game only while the remote player's cell is
+    /// attached here, and a player who left has none.
+    #[test]
+    fn the_remote_request_follows_the_cell_rule() {
+        const HOME: u32 = 0x0010_3df9;
+        const AWAY: u32 = 0x0010_6185;
+        let (mut p, mut peer) = game(Role::Guest);
+        p.add_player([100.0, 200.0, 300.0]);
+        p.add_cell(HOME, addr::cell_state::ATTACHED);
+        let away = p.add_cell(AWAY, 0);
+        assert_eq!(
+            ask(&mut peer, &mut p, "remote 1 00106185 1 2 3 90 0"),
+            "ok absent"
+        );
+        let made = ask(
+            &mut peer,
+            &mut p,
+            "remote 1 00103DF9 2300 1611.5 7361 270 0 1 0",
+        );
+        assert!(made.starts_with("ok made FF"), "{made}");
+        assert_eq!(
+            ask(
+                &mut peer,
+                &mut p,
+                "remote 1 00103DF9 2298.6 1611.5 0 270 101"
+            ),
+            "ok driven"
+        );
+        assert_eq!(
+            ask(&mut peer, &mut p, "avatar_state 1"),
+            "ok 2298.6 1611.5 7361 270 5 3 101 00000000"
+        );
+        assert_eq!(
+            ask(&mut peer, &mut p, "remote 1 00106185 1 2 3 90 0"),
+            "ok removed"
+        );
+        assert!(peer.bodies().is_empty());
+        p.set_u8(away + addr::CELL_STATE, addr::cell_state::ATTACHED);
+        assert!(ask(&mut peer, &mut p, "remote 1 00106185 1 2 3 90 0").starts_with("ok made"));
+        assert_eq!(ask(&mut peer, &mut p, "remote 1 gone"), "ok removed");
+        assert_eq!(ask(&mut peer, &mut p, "remote 1 gone"), "ok absent");
+        assert!(ask(&mut peer, &mut p, "remote 1").starts_with("err "));
     }
 
     /// A record crosses the protocol: the host's save of a form, its index pairs, and the

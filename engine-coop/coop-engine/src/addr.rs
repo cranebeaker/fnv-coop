@@ -434,3 +434,16 @@ pub const GAME_SAVE: u32 = 0x0085_03b0;
 /// The game's load function: method (save manager, name, word, flag, flag).
 // ghidra: 00850760. run: m3/A s2.
 pub const GAME_LOAD: u32 = 0x0085_0760;
+
+// ---- A cell (SPEC-06 slice 3).
+
+/// A cell's load state (one byte).
+// Measured with the probe (2026-11-10) on the cell of Doc Mitchell's house: 6 while the player
+// is in the cell, 3 after the player left (the cell is in the game's buffer), 0 after the
+// buffer is purged. The legacy plugin tested the same state for "attached".
+pub const CELL_STATE: u32 = 0x26;
+/// The values of [`CELL_STATE`] that the adapter tests.
+pub mod cell_state {
+    /// The cell's references are in the scene.
+    pub const ATTACHED: u8 = 6;
+}

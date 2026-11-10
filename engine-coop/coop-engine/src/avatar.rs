@@ -598,3 +598,195 @@ mod guard_tests {
         assert_eq!(guard.take_left(), [(1, Left::Load)]);
     }
 }
+
+/// True when the cell with this form id is attached in this game: its references are in the
+/// scene. An avatar can be in such a cell only.
+pub fn cell_attached(p: &mut dyn Program, cell: u32) -> bool {
+    match p.call(addr::FORM_BY_ID, &[cell]).eax {
+        0 => false,
+        at => p.u8(at + addr::CELL_STATE) == addr::cell_state::ATTACHED,
+    }
+}
+
+/// Where a remote player is, for one frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Remote {
+    /// The form id of the remote player's cell.
+    pub cell: u32,
+    /// The remote player's look.
+    pub look: Look,
+    /// The frame's command.
+    pub drive: Drive,
+}
+
+/// One remote player's body in this game: the base copy, and the avatar while it is present.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Body {
+    /// The base copy. `None` before the first avatar, and after a load.
+    pub base: Option<Base>,
+    /// The avatar, while the remote player's cell is attached here.
+    pub avatar: Option<Avatar>,
+}
+
+/// What one frame's step did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    /// The avatar was made: its form id.
+    Made(u32),
+    /// The avatar took the frame's command.
+    Driven,
+    /// The avatar left the game: the remote player's cell is not attached here any more, or
+    /// the player left.
+    Removed,
+    /// No avatar, and none is due.
+    Absent,
+    /// The avatar could not be made or used. The next step tries again.
+    Lost(Gone),
+}
+
+impl Body {
+    /// One frame for this remote player. `remote`: where the player is (`None`: the player
+    /// left the session). The avatar is in the game only while the remote player's cell is
+    /// attached here.
+    pub fn frame(&mut self, p: &mut dyn Program, remote: Option<&Remote>) -> Step {
+        let here = remote.filter(|r| cell_attached(p, r.cell));
+        match (self.avatar, here) {
+            (None, None) => Step::Absent,
+            (Some(avatar), None) => {
+                avatar.remove(p);
+                self.avatar = None;
+                Step::Removed
+            }
+            (None, Some(r)) => {
+                let base = match self.base {
+                    Some(base) => base,
+                    None => match Base::make(p, r.look) {
+                        Some(base) => base,
+                        None => return Step::Lost(Gone::NotMade),
+                    },
+                };
+                self.base = Some(base);
+                match Avatar::make(p, base, &r.drive) {
+                    Ok(avatar) => {
+                        self.avatar = Some(avatar);
+                        Step::Made(avatar.id)
+                    }
+                    Err(why) => Step::Lost(why),
+                }
+            }
+            (Some(avatar), Some(r)) => match avatar.drive(p, &r.drive) {
+                Ok(()) => Step::Driven,
+                // A dead body leaves, and the next step makes a new one.
+                Err(Gone::Dead) => {
+                    avatar.remove(p);
+                    self.avatar = None;
+                    Step::Lost(Gone::Dead)
+                }
+                Err(why) => {
+                    self.avatar = None;
+                    Step::Lost(why)
+                }
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod body_tests {
+    use super::*;
+    use crate::fake::FakeProgram;
+
+    const HOME: u32 = 0x0010_3df9;
+    const AWAY: u32 = 0x0010_6185;
+
+    fn remote(cell: u32, x: f32) -> Remote {
+        Remote {
+            cell,
+            look: Look {
+                female: true,
+                race: 0,
+            },
+            drive: Drive {
+                place: [x, 1611.5, 7361.0],
+                heading: 270.0,
+                flags: addr::move_flag::FORWARD | addr::move_flag::WALK,
+                with_z: false,
+            },
+        }
+    }
+
+    /// The avatar is in the game only while the remote player's cell is attached here. A cell
+    /// that the game keeps in its buffer is not attached. Mutation twin: the same steps with
+    /// the cell attached keep the avatar.
+    #[test]
+    fn the_avatar_is_present_only_in_an_attached_cell() {
+        let mut p = FakeProgram::new();
+        p.add_player([0.0; 3]);
+        let home = p.add_cell(HOME, addr::cell_state::ATTACHED);
+        p.add_cell(AWAY, 3);
+        let mut body = Body::default();
+
+        assert_eq!(body.frame(&mut p, None), Step::Absent);
+        assert_eq!(body.frame(&mut p, Some(&remote(AWAY, 1.0))), Step::Absent);
+        assert_eq!(body.frame(&mut p, Some(&remote(0x999, 1.0))), Step::Absent);
+        let Step::Made(id) = body.frame(&mut p, Some(&remote(HOME, 2300.0))) else {
+            panic!("no avatar in an attached cell");
+        };
+        let avatar = body.avatar.unwrap();
+        assert_eq!(avatar.id, id);
+        assert!(p.is_female(body.base.unwrap().at));
+        assert_eq!(
+            body.frame(&mut p, Some(&remote(HOME, 2298.6))),
+            Step::Driven
+        );
+        assert_eq!(avatar.seen(&mut p).unwrap().place[0], 2298.6);
+
+        // The twin: the cell stays attached, so the avatar stays.
+        assert_eq!(
+            body.frame(&mut p, Some(&remote(HOME, 2297.2))),
+            Step::Driven
+        );
+        // The remote player goes into a cell that is not attached here.
+        assert_eq!(body.frame(&mut p, Some(&remote(AWAY, 5.0))), Step::Removed);
+        assert_eq!(avatar.seen(&mut p), Err(Gone::Destroyed));
+        assert_eq!(body.frame(&mut p, Some(&remote(AWAY, 5.0))), Step::Absent);
+        // This game leaves the cell too: its state is no longer "attached".
+        p.set_u8(home + addr::CELL_STATE, 3);
+        assert_eq!(
+            body.frame(&mut p, Some(&remote(HOME, 2300.0))),
+            Step::Absent
+        );
+        // One base copy served each avatar of this player.
+        let copies = p.calls.iter().filter(|(a, _)| *a == addr::NPC_COPY).count();
+        assert_eq!(copies, 1);
+    }
+
+    /// A dead avatar leaves and the next step makes a new one. An avatar that the game
+    /// destroyed is forgotten, and a player who left has none.
+    #[test]
+    fn a_lost_avatar_is_made_again() {
+        let mut p = FakeProgram::new();
+        p.add_player([0.0; 3]);
+        p.add_cell(HOME, addr::cell_state::ATTACHED);
+        let mut body = Body::default();
+        let here = remote(HOME, 2300.0);
+        assert!(matches!(body.frame(&mut p, Some(&here)), Step::Made(_)));
+        let first = body.avatar.unwrap();
+        p.set_u32(first.at + addr::ACTOR_LIFE_STATE, addr::life_state::DEAD);
+        assert_eq!(body.frame(&mut p, Some(&here)), Step::Lost(Gone::Dead));
+        assert_eq!(
+            first.seen(&mut p),
+            Err(Gone::Destroyed),
+            "the dead body left"
+        );
+        assert!(matches!(body.frame(&mut p, Some(&here)), Step::Made(_)));
+
+        // The game destroys the avatar (a load): the step forgets it and makes a new one.
+        let second = body.avatar.unwrap();
+        second.remove(&mut p);
+        assert_eq!(body.frame(&mut p, Some(&here)), Step::Lost(Gone::Destroyed));
+        assert!(matches!(body.frame(&mut p, Some(&here)), Step::Made(_)));
+        assert_eq!(body.frame(&mut p, None), Step::Removed);
+        assert_eq!(body.frame(&mut p, None), Step::Absent);
+    }
+}

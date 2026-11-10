@@ -438,6 +438,30 @@ impl BackendPeer for EnginePeer<'_> {
     fn avatar_remove(&mut self, slot: u8) -> bool {
         self.ask(&format!("avatar_remove {slot}")).is_some()
     }
+    fn avatar_remote(
+        &mut self,
+        slot: u8,
+        at: Option<(u32, [f32; 3], f32, u32)>,
+    ) -> Result<String, String> {
+        let request = match at {
+            Some((cell, place, heading, flags)) => format!(
+                "remote {slot} {cell:08X} {} {} {} {heading} {flags:X}",
+                place[0], place[1], place[2]
+            ),
+            None => format!("remote {slot} gone"),
+        };
+        self.io.borrow_mut().ask(&request)
+    }
+    fn player(&self) -> Option<(u32, [f32; 3], f32)> {
+        let answer = self.ask("player")?;
+        let words: Vec<&str> = answer.split_whitespace().collect();
+        let float = |i: usize| words.get(i)?.parse::<f32>().ok();
+        Some((
+            u32::from_str_radix(words.first()?, 16).ok()?,
+            [float(1)?, float(2)?, float(3)?],
+            float(4)?,
+        ))
+    }
     fn avatar_guard(&mut self) -> Result<(), String> {
         self.io.borrow_mut().ask("avatar_guard").map(|_| ())
     }

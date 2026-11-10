@@ -293,6 +293,15 @@ impl FakeProgram {
         self.set_u32(item + addr::MAP_ITEM_NEXT, item);
     }
 
+    /// Adds a cell with this form id and load state. Returns its address.
+    pub fn add_cell(&mut self, id: u32, state: u8) -> u32 {
+        let at = self.take(0x100);
+        self.set_u32(at + addr::FORM_ID, id);
+        self.set_u8(at + addr::CELL_STATE, state);
+        self.forms.insert(id, at);
+        at
+    }
+
     /// True when the form at `form` has the temporary mark.
     pub fn is_temporary(&self, form: u32) -> bool {
         self.u32(form + addr::FORM_FLAGS) & 0x4000 != 0

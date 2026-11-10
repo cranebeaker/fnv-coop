@@ -148,6 +148,21 @@ pub trait BackendPeer {
     fn avatar_remove(&mut self, _slot: u8) -> bool {
         false
     }
+    /// One frame's step for the remote player `slot`: where the player is (the cell's form
+    /// id, the place, the heading, the movement flags), or `None` when the player left. The
+    /// avatar is in this game only while that cell is attached here. The step's name:
+    /// `made ID`, `driven`, `removed`, `absent` or `lost REASON`.
+    fn avatar_remote(
+        &mut self,
+        _slot: u8,
+        _at: Option<(u32, [f32; 3], f32, u32)>,
+    ) -> Result<String, String> {
+        Err("PENDING (this backend has no engine avatar)".into())
+    }
+    /// The local player's cell (an address of this game), place and heading.
+    fn player(&self) -> Option<(u32, [f32; 3], f32)> {
+        None
+    }
     /// Puts the avatars' damage rules on this game: a local hit on an avatar is recorded and
     /// not applied, and local code does not kill an avatar.
     fn avatar_guard(&mut self) -> Result<(), String> {

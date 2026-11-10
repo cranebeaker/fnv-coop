@@ -329,6 +329,73 @@ fn avatar_not_in_save(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result<(),
     }
 }
 
+/// The avatar is in the game only while the remote player's cell is attached here. The
+/// remote player is in the guest's cell: the avatar is made. The remote player goes into
+/// another cell: the avatar leaves. The guest follows: the avatar is made there, in the
+/// guest's new cell. Twin: the remote player does not leave, so the avatar stays.
+fn avatar_follows_cells(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result<(), Verdict> {
+    const HOME: &str = "GSDocMitchellHouse";
+    const AWAY: &str = "GSProspectorSaloonInterior";
+    let cell = |name: &str| {
+        d.order
+            .form_by_editor_id(name)
+            .map(|f| f.0)
+            .ok_or_else(|| bad(format!("no cell {name} in this data")))
+    };
+    let (home, away) = (cell(HOME)?, cell(AWAY)?);
+    let mut guest = need(b.guest(d, GuestRules::Policy))?;
+    let step = need(guest.avatar_remote(SLOT, Some((home, [START_X, Y, Z], 270.0, 0))))?;
+    let id = step
+        .strip_prefix("made ")
+        .and_then(|id| u32::from_str_radix(id, 16).ok())
+        .ok_or_else(|| bad(format!("no avatar in the guest's own cell: {step}")))?;
+    frames(&mut *guest, 10)?;
+    if state(&*guest, "in the first cell")?.life != RESTRAINED {
+        return Err(bad("the avatar is not held"));
+    }
+    // The remote player goes through a door (the twin: it does not).
+    let next = if mutate { home } else { away };
+    let far = [0.0, 240.0, 3460.0];
+    let step = need(guest.avatar_remote(SLOT, Some((next, far, 0.0, 0))))?;
+    frames(&mut *guest, 5)?;
+    if guest.has_form(id) {
+        return Err(bad(format!(
+            "the avatar is still in the game after its player left the cell (step: {step})"
+        )));
+    }
+    let step = need(guest.avatar_remote(SLOT, Some((away, far, 0.0, 0))))?;
+    if step != "absent" {
+        return Err(bad(format!(
+            "want no avatar while the remote cell is not attached, got: {step}"
+        )));
+    }
+    // The guest follows its friend.
+    if !guest.enter(AWAY) {
+        return Err(bad(format!("the guest did not get into {AWAY}")));
+    }
+    let (guest_cell, at, _) = guest
+        .player()
+        .ok_or_else(|| bad("the guest has no player place"))?;
+    let near = [at[0] + 60.0, at[1], at[2]];
+    let step = need(guest.avatar_remote(SLOT, Some((away, near, 0.0, 0))))?;
+    if !step.starts_with("made ") {
+        return Err(bad(format!(
+            "no avatar in the cell that both are in: {step}"
+        )));
+    }
+    frames(&mut *guest, 10)?;
+    let seen = state(&*guest, "in the second cell")?;
+    if seen.cell != guest_cell || seen.life != RESTRAINED {
+        return Err(bad(format!(
+            "the avatar is not in the guest's cell {guest_cell:08X}: {seen:?}"
+        )));
+    }
+    if need(guest.avatar_remote(SLOT, None))? != "removed" {
+        return Err(bad("a player who left kept its avatar"));
+    }
+    Ok(())
+}
+
 /// The avatar's rows: id and function.
 pub const TESTS: &[(&str, Test)] = &[
     ("avatar_follows_walk", avatar_follows_walk),
@@ -344,4 +411,5 @@ pub const TESTS: &[(&str, Test)] = &[
         avatar_hit_recorded_not_applied,
     ),
     ("avatar_not_in_save", avatar_not_in_save),
+    ("avatar_follows_cells", avatar_follows_cells),
 ];
