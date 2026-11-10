@@ -454,6 +454,57 @@ pub const GAME_LOAD: u32 = 0x0085_0760;
 // is in the cell, 3 after the player left (the cell is in the game's buffer), 0 after the
 // buffer is purged. The legacy plugin tested the same state for "attached".
 pub const CELL_STATE: u32 = 0x26;
+/// The form type of a cell, as [`FORM_TYPE`] answers it.
+// Alexanger-dev/fnv-coop branch coop-next, crates/coop-engine/src/addr.rs (`FORM_TYPE_CELL`,
+// `TYPE_CELL` in the translations). Not re-measured here.
+pub const FORM_TYPE_CELL: u8 = 0x39;
+/// True (low byte) when a cell is an interior: method (cell).
+// Alexanger-dev/fnv-coop branch coop-next, crates/coop-engine/src/addr.rs (`CELL_IS_INTERIOR`,
+// 00425fd0). Not re-measured here.
+pub const CELL_IS_INTERIOR: u32 = 0x0042_5fd0;
+/// The worldspace of an exterior cell (0 for an interior): method (cell).
+// Alexanger-dev/fnv-coop branch coop-next, crates/coop-engine/src/addr.rs
+// (`CELL_GET_WORLD_SPACE`, 0054ddd0). Not re-measured here.
+pub const CELL_WORLD_SPACE: u32 = 0x0054_ddd0;
+
+// ---- A move of the player (the guest goes to the host). The game moves the player in its own
+// ---- frame from a request, as a door and the player's `MoveTo` do.
+
+/// Queues a move of the player: method (player, request). The game carries it out in its own
+/// frame once the cell grid can take it, and frees the request.
+// Alexanger-dev/fnv-coop branch coop-next, crates/coop-engine/src/addr.rs
+// (`REQUEST_POSITION_PLAYER`, 0093be30). Not re-measured here.
+pub const PLAYER_REQUEST_MOVE: u32 = 0x0093_be30;
+/// The game's own allocator: (bytes), the block. [`HEAP_FREE`] is its pair.
+// ghidra: 00401030 (the pair of this allocator). Alexanger-dev/fnv-coop branch coop-next,
+// crates/coop-engine/src/addr.rs (`OPERATOR_NEW`). Not re-measured here.
+pub const HEAP_ALLOC: u32 = 0x0040_1000;
+/// The move request's constructor: method (request), the request.
+// Alexanger-dev/fnv-coop branch coop-next, crates/coop-engine/src/addr.rs
+// (`POSITION_REQUEST_CONSTRUCT`, 00456540). Not re-measured here.
+pub const MOVE_REQUEST_NEW: u32 = 0x0045_6540;
+/// The move request's size. Its words: the worldspace (an exterior), the interior cell, the
+/// place (three floats), the heading in radians (the rotation's Z), and "reset the weather"
+/// (a byte).
+// Alexanger-dev/fnv-coop branch coop-next, crates/coop-engine/src/addr.rs
+// (`PositionPlayerRequest`, 0x34 bytes). Not re-measured here.
+pub const MOVE_REQUEST_BYTES: u32 = 0x34;
+/// See [`MOVE_REQUEST_BYTES`].
+pub const MOVE_REQUEST_WORLD: u32 = 0;
+/// See [`MOVE_REQUEST_BYTES`].
+pub const MOVE_REQUEST_CELL: u32 = 4;
+/// See [`MOVE_REQUEST_BYTES`].
+pub const MOVE_REQUEST_PLACE: u32 = 8;
+/// See [`MOVE_REQUEST_BYTES`].
+pub const MOVE_REQUEST_HEADING: u32 = 0x1c;
+/// See [`MOVE_REQUEST_BYTES`].
+pub const MOVE_REQUEST_WEATHER: u32 = 0x20;
+/// The player's function table slot that answers true while the player cannot be moved:
+/// method (player, 0). The player's `MoveTo` does nothing then.
+// Alexanger-dev/fnv-coop branch coop-next, crates/coop-engine/src/addr.rs
+// (`PLAYER_CANNOT_MOVE_SLOT`). Not re-measured here.
+pub const PLAYER_CANNOT_MOVE_SLOT: u32 = 0x22c;
+
 /// The values of [`CELL_STATE`] that the adapter tests.
 pub mod cell_state {
     /// The cell's references are in the scene.

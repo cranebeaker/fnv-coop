@@ -47,7 +47,21 @@ pub struct FakeProgram {
     pub applying: i32,
     /// Each call made while the adapter applied another machine's state: the address.
     pub applied_calls: Vec<u32>,
+    /// Each form's type for the program's type function (address to type). Others answer a
+    /// reference's type.
+    types: BTreeMap<u32, u8>,
+    /// Each exterior cell's worldspace (addresses).
+    exteriors: BTreeMap<u32, u32>,
+    /// What the player's "cannot be moved" function answers.
+    pub player_busy: bool,
+    /// The move requests that the game has not carried out yet (request addresses).
+    pub moves: Vec<u32>,
 }
+
+/// The fake player's function table.
+const FAKE_PLAYER_TABLE: u32 = 0x7200_0000;
+/// The fake player's "cannot be moved" function.
+const FAKE_PLAYER_BUSY: u32 = 0x7200_1000;
 
 /// The fake's table of form functions, and its two save slots.
 const FAKE_TABLE: u32 = 0x7000_0000;
@@ -156,7 +170,57 @@ impl FakeProgram {
         }
         self.forms.insert(0x14, player);
         self.set_u32(addr::PLAYER, player);
+        self.set_u32(player, FAKE_PLAYER_TABLE);
+        self.set_u32(
+            FAKE_PLAYER_TABLE + addr::PLAYER_CANNOT_MOVE_SLOT,
+            FAKE_PLAYER_BUSY,
+        );
         player
+    }
+
+    /// Adds a worldspace with this form id. Returns its address.
+    pub fn add_world(&mut self, id: u32) -> u32 {
+        let at = self.take(0x100);
+        self.set_u32(at + addr::FORM_ID, id);
+        self.forms.insert(id, at);
+        self.types.insert(at, 0x41);
+        at
+    }
+
+    /// Adds an exterior cell of the worldspace at `world`. Returns its address.
+    pub fn add_exterior(&mut self, id: u32, world: u32, state: u8) -> u32 {
+        let at = self.add_cell(id, state);
+        self.exteriors.insert(at, world);
+        at
+    }
+
+    /// The game's frame carries out the oldest move request: the player goes to the request's
+    /// cell (an exterior: the first cell of its worldspace), place and heading. False when no
+    /// request waits.
+    pub fn carry_out_move(&mut self) -> bool {
+        if self.moves.is_empty() {
+            return false;
+        }
+        let request = self.moves.remove(0);
+        let player = self.u32(addr::PLAYER);
+        let cell = match self.u32(request + addr::MOVE_REQUEST_CELL) {
+            0 => {
+                let world = self.u32(request + addr::MOVE_REQUEST_WORLD);
+                self.exteriors
+                    .iter()
+                    .find(|(_, w)| **w == world)
+                    .map_or(0, |(cell, _)| *cell)
+            }
+            cell => cell,
+        };
+        self.set_u32(player + addr::REF_CELL, cell);
+        for o in [0, 4, 8] {
+            let v = self.f32(request + addr::MOVE_REQUEST_PLACE + o);
+            self.set_f32(player + addr::REF_POSITION + o, v);
+        }
+        let heading = self.f32(request + addr::MOVE_REQUEST_HEADING);
+        self.set_f32(player + addr::REF_ANGLE + 8, heading);
+        true
     }
 
     /// Gives the program its form index table and its save version. Call it after
@@ -305,6 +369,7 @@ impl FakeProgram {
         self.set_u32(at + addr::FORM_ID, id);
         self.set_u8(at + addr::CELL_STATE, state);
         self.forms.insert(id, at);
+        self.types.insert(at, addr::FORM_TYPE_CELL);
         at
     }
 
@@ -508,8 +573,17 @@ impl Program for FakeProgram {
                 item => self.u32(item + addr::MAP_ITEM_ENTRY),
             },
             addr::SAVE_VERSION => u32::from(self.save_version),
-            // The fake has one type for each form: a reference.
-            addr::FORM_TYPE => 0x3a,
+            // A cell and a worldspace have their own types; each other form is a reference.
+            addr::FORM_TYPE => u32::from(self.types.get(&args[0]).copied().unwrap_or(0x3a)),
+            addr::CELL_IS_INTERIOR => u32::from(!self.exteriors.contains_key(&args[0])),
+            addr::CELL_WORLD_SPACE => self.exteriors.get(&args[0]).copied().unwrap_or(0),
+            FAKE_PLAYER_BUSY => u32::from(self.player_busy),
+            addr::HEAP_ALLOC => self.take(args[0]),
+            addr::MOVE_REQUEST_NEW => args[0],
+            addr::PLAYER_REQUEST_MOVE => {
+                self.moves.push(args[1]);
+                0
+            }
             addr::IDS_FORM_OF => self.form_of_index(args[1]),
             addr::IDS_INSERT => {
                 let ids = self.u32(self.u32(addr::SAVE_MANAGER) + addr::SAVE_IDS);

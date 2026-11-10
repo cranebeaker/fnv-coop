@@ -24,5 +24,6 @@ pub mod quest;
 pub mod record;
 pub mod script;
 pub mod shared;
+pub mod travel;
 
 pub use program::{Program, Ret};

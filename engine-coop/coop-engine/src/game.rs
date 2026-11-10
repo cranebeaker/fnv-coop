@@ -247,6 +247,11 @@ impl<'a> EngineCoop<'a> {
         self.state.shared.quests().map(|(id, _)| id).collect()
     }
 
+    /// Where the local player is, with its space (an interior cell, or a worldspace).
+    pub fn local(&mut self) -> Option<crate::travel::Local> {
+        crate::travel::local(self.p)
+    }
+
     /// Puts each shown objective of a catalog quest that is missing from the player's
     /// objective list (the Pip-Boy's quest page) back into it. The count put back.
     pub fn relist(&mut self, quest: FormId) -> u32 {
@@ -422,7 +427,8 @@ impl Players for EngineCoop<'_> {
         LocalPlayer {
             place: Place {
                 cell: (cell != 0).then(|| FormId(self.p.u32(cell + addr::FORM_ID))),
-                // The worldspace of an exterior cell is not read yet.
+                // The worldspace needs a call into the program, and this call only reads:
+                // `EngineCoop::local` gives the space.
                 world: None,
                 pos: Some([0, 4, 8].map(|o| self.p.f32(at + addr::REF_POSITION + o))),
                 heading: self.p.f32(at + addr::REF_ANGLE + 8),
@@ -676,5 +682,13 @@ mod tests {
         assert_eq!(me.place.pos, Some([1.0, 2.0, 3.0]));
         assert_eq!(me.place.heading, 1.5);
         assert!(!game.add_player(1));
+
+        let world = p.add_world(0x000d_a726);
+        let outside = p.add_exterior(0x000d_e0f1, world, addr::cell_state::ATTACHED);
+        p.set_u32(player + addr::REF_CELL, outside);
+        let mut game = EngineCoop::over(&mut p, &mut state);
+        assert_eq!(game.local_player().place.cell, Some(FormId(0x000d_e0f1)));
+        let here = game.local().expect("a player in a cell");
+        assert_eq!((here.space, here.cell), (0x000d_a726, 0x000d_e0f1));
     }
 }

@@ -604,14 +604,25 @@ mod guard_tests {
 pub fn cell_attached(p: &mut dyn Program, cell: u32) -> bool {
     match p.call(addr::FORM_BY_ID, &[cell]).eax {
         0 => false,
-        at => p.u8(at + addr::CELL_STATE) == addr::cell_state::ATTACHED,
+        at => {
+            p.call(addr::FORM_TYPE, &[at]).eax as u8 == addr::FORM_TYPE_CELL
+                && p.u8(at + addr::CELL_STATE) == addr::cell_state::ATTACHED
+        }
     }
+}
+
+/// True when a remote player in this space can have an avatar here: an interior cell that is
+/// attached in this game, or the worldspace that the local player is in (its cells around the
+/// local player are attached).
+pub fn present(p: &mut dyn Program, space: u32) -> bool {
+    cell_attached(p, space) || crate::travel::local(p).is_some_and(|l| l.space == space)
 }
 
 /// Where a remote player is, for one frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Remote {
-    /// The form id of the remote player's cell.
+    /// The form id of the remote player's space: an interior cell, or the worldspace of an
+    /// exterior ([`crate::travel::space_of`]).
     pub cell: u32,
     /// The remote player's look.
     pub look: Look,
@@ -624,8 +635,14 @@ pub struct Remote {
 pub struct Body {
     /// The base copy. `None` before the first avatar, and after a load.
     pub base: Option<Base>,
-    /// The avatar, while the remote player's cell is attached here.
+    /// The avatar, while the remote player's space is present here.
     pub avatar: Option<Avatar>,
+    /// The space that the avatar was placed for. The adapter moves an avatar's place, not
+    /// its cell: an avatar placed for one space stays in that cell, unseen, when the remote
+    /// player goes into another.
+    pub space: u32,
+    /// How many times an avatar was placed anew because its player's space changed.
+    pub replaced: u32,
 }
 
 /// What one frame's step did.
@@ -649,7 +666,15 @@ impl Body {
     /// left the session). The avatar is in the game only while the remote player's cell is
     /// attached here.
     pub fn frame(&mut self, p: &mut dyn Program, remote: Option<&Remote>) -> Step {
-        let here = remote.filter(|r| cell_attached(p, r.cell));
+        let here = remote.filter(|r| present(p, r.cell));
+        // A remote player in another space than its avatar's gets an avatar placed anew.
+        if let (Some(avatar), Some(r)) = (self.avatar, here) {
+            if r.cell != self.space {
+                avatar.remove(p);
+                self.avatar = None;
+                self.replaced += 1;
+            }
+        }
         match (self.avatar, here) {
             (None, None) => Step::Absent,
             (Some(avatar), None) => {
@@ -669,6 +694,7 @@ impl Body {
                 match Avatar::make(p, base, &r.drive) {
                     Ok(avatar) => {
                         self.avatar = Some(avatar);
+                        self.space = r.cell;
                         Step::Made(avatar.id)
                     }
                     Err(why) => Step::Lost(why),
@@ -759,6 +785,50 @@ mod body_tests {
         // One base copy served each avatar of this player.
         let copies = p.calls.iter().filter(|(a, _)| *a == addr::NPC_COPY).count();
         assert_eq!(copies, 1);
+    }
+
+    /// An avatar is placed anew when its player goes into another space that is present
+    /// here: the old one leaves. In a worldspace the avatar is present while the local player
+    /// is in the same worldspace. Mutation twin: a player that stays in its space keeps its
+    /// avatar.
+    #[test]
+    fn a_player_in_another_space_gets_its_avatar_placed_anew() {
+        const NEXT: u32 = 0x0010_6186;
+        const WORLD: u32 = 0x000d_a726;
+        let mut p = FakeProgram::new();
+        let player = p.add_player([0.0; 3]);
+        p.add_cell(HOME, addr::cell_state::ATTACHED);
+        p.add_cell(NEXT, addr::cell_state::ATTACHED);
+        let world = p.add_world(WORLD);
+        let outside = p.add_exterior(0x000d_e0f1, world, addr::cell_state::ATTACHED);
+        let mut body = Body::default();
+        let Step::Made(first) = body.frame(&mut p, Some(&remote(HOME, 1.0))) else {
+            panic!("no avatar");
+        };
+        assert_eq!(
+            body.frame(&mut p, Some(&remote(HOME, 2.0))),
+            Step::Driven,
+            "the twin: the same space"
+        );
+        let Step::Made(second) = body.frame(&mut p, Some(&remote(NEXT, 3.0))) else {
+            panic!("not placed anew");
+        };
+        assert_ne!(first, second);
+        assert_eq!((body.space, body.replaced), (NEXT, 1));
+        assert_eq!(
+            p.call(addr::FORM_BY_ID, &[first]).eax,
+            0,
+            "the old avatar left"
+        );
+
+        // A worldspace is present while the local player is in it.
+        assert_eq!(body.frame(&mut p, Some(&remote(WORLD, 4.0))), Step::Removed);
+        p.set_u32(player + addr::REF_CELL, outside);
+        assert!(matches!(
+            body.frame(&mut p, Some(&remote(WORLD, 5.0))),
+            Step::Made(_)
+        ));
+        assert_eq!(body.space, WORLD);
     }
 
     /// A dead avatar leaves and the next step makes a new one. An avatar that the game
