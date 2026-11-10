@@ -14,6 +14,9 @@ pub mod avatar_guard;
 pub mod gate;
 use engine::Engine;
 
+/// A running game: the upstream host.
+pub use host::Host;
+
 /// The upstream engine as the adapter's [`Program`]. Use it between the game's frames.
 pub struct EngineProgram<'a>(pub &'a mut Engine);
 
@@ -40,6 +43,15 @@ impl Program for EngineProgram<'_> {
 
     fn free(&mut self, addr: u32) {
         self.0.mem.free(addr);
+    }
+
+    fn install_gate(
+        &mut self,
+        rules: &coop_engine::gate::Rules,
+        shared_quest: Option<u32>,
+    ) -> Result<(), String> {
+        gate::install(self.0, rules.clone())?;
+        gate::self_check(self.0, shared_quest)
     }
 }
 

@@ -314,14 +314,15 @@ impl Peer {
                 reply(format!("ok {}", u8::from(done)))
             }
             "stage" => {
-                let stage = self.shared.address(hex(words.next())?).and_then(|at| {
-                    quest::fields(&quest::read(p, at))
-                        .into_iter()
-                        .find_map(|f| match f {
+                let stage = self
+                    .shared
+                    .fields_of(p, hex(words.next())?)
+                    .and_then(|fields| {
+                        fields.into_iter().find_map(|f| match f {
                             Field::QuestStage { stage } => Some(stage),
                             _ => None,
                         })
-                });
+                    });
                 reply(stage.map_or("ok none".into(), |s| format!("ok {s}")))
             }
             "set_global" => {

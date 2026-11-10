@@ -41,6 +41,8 @@ pub struct FakeProgram {
     pub loaded: Vec<u32>,
     /// The blocks that went back to the program's heap, in order.
     pub freed: Vec<u32>,
+    /// The guest gates that the program took, in order.
+    pub gates: Vec<crate::gate::Rules>,
 }
 
 /// The fake's table of form functions, and its two save slots.
@@ -416,6 +418,15 @@ impl Program for FakeProgram {
 
     fn free(&mut self, at: u32) {
         self.live.retain(|a| *a != at);
+    }
+
+    fn install_gate(
+        &mut self,
+        rules: &crate::gate::Rules,
+        _shared_quest: Option<u32>,
+    ) -> Result<(), String> {
+        self.gates.push(rules.clone());
+        Ok(())
     }
 
     fn call(&mut self, at: u32, args: &[u32]) -> Ret {

@@ -135,3 +135,128 @@ fn the_gate_tests_are_pending_on_the_world_layer() {
         );
     }
 }
+
+/// What is open for a row of the session's interface on the engine adapter.
+enum Open {
+    /// The row does not pass yet. Its answer must name this cause.
+    Row(&'static str),
+    /// The row passes. Its twin cannot fail for the row's own cause yet: it must name this
+    /// cause.
+    Twin(&'static str),
+}
+
+/// The rows of the session's interface that are open on the engine adapter. A row leaves this
+/// list when its slice is built.
+///
+/// The rows of each player are not on the engine yet: the game keeps one player, and it
+/// answers `Ok(false)` to a character. So the row that gives the local player a character
+/// does not pass. The row "a character stays with its player" passes, because the game says
+/// that it keeps one player. Its twin gives the character to the game's own player, and
+/// stops at the same answer.
+const OPEN_INTERFACE_ROWS: &[(&str, Open)] = &[
+    (
+        "character_reaches_the_local_player",
+        Open::Row("Ok(false) to a character"),
+    ),
+    (
+        "character_stays_with_its_player",
+        Open::Twin("Ok(false) to the character of player"),
+    ),
+];
+
+/// The names of the game's data for a peer: each plugin with its load index, and each quest,
+/// global and cell with its editor id.
+fn names_file(d: &Data) -> std::path::PathBuf {
+    let mut text = String::new();
+    for plugin in d.order.plugins() {
+        text.push_str(&format!("P {:02X} {}\n", plugin.load_index, plugin.name));
+    }
+    for kind in [b"QUST", b"GLOB", b"CELL"] {
+        for record in d.order.records_of_type(esm::FourCC::new(kind)) {
+            let name = record.editor_id().ok().flatten().unwrap_or_default();
+            text.push_str(&format!(
+                "F {} {:08X} {}\n",
+                std::str::from_utf8(kind).unwrap_or("????"),
+                record.form_id.0,
+                name
+            ));
+        }
+    }
+    let path = std::env::temp_dir().join(format!("coop-names-{}.tsv", std::process::id()));
+    std::fs::write(&path, text).expect("the names file");
+    path
+}
+
+/// One conformance row of `coop-game` on a new game process: `Ok` or the row's reason.
+fn interface_row(d: &Data, names: &std::path::Path, row: &str, twin: bool) -> Result<(), String> {
+    let program = engine_peer::program().ok_or("no peer server")?;
+    let mut last = String::new();
+    // The engine's stepped threads can stop a run in its first frames: a new start works.
+    for _ in 0..4 {
+        let mut command = std::process::Command::new(&program);
+        command
+            .arg(&d.dir)
+            .args(["--conformance", row, "--names"])
+            .arg(names)
+            .env("NV_REPEATABLE", "1")
+            .stderr(std::process::Stdio::null());
+        if twin {
+            command.arg("--twin");
+        }
+        let output = command.output().map_err(|e| format!("{e}"))?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let answer = text
+            .lines()
+            .filter_map(|l| l.strip_prefix("@ "))
+            .next_back()
+            .unwrap_or("")
+            .to_string();
+        if answer == "ok" {
+            return Ok(());
+        }
+        if let Some(why) = answer.strip_prefix("fail ") {
+            return Err(why.to_string());
+        }
+        last = answer;
+    }
+    Err(format!("the peer server gave no verdict: {last}"))
+}
+
+/// Each conformance row of the session's interface passes on the engine adapter, on a real
+/// game, and its mutation twin fails for the row's own cause. A row that the adapter does not
+/// pass yet is in the open list, and it must fail for its named cause.
+#[test]
+fn the_interface_rows_pass_on_the_engine_and_their_twins_fail() {
+    use coop_game::conformance::ROWS;
+    let Some(d) = engine_data() else { return };
+    let names = names_file(&d);
+    for row in ROWS {
+        let verdict = interface_row(&d, &names, row.name, false);
+        let open = OPEN_INTERFACE_ROWS
+            .iter()
+            .find(|(n, _)| *n == row.name)
+            .map(|(_, open)| open);
+        if let Some(Open::Row(cause)) = open {
+            assert!(
+                matches!(&verdict, Err(why) if why.contains(cause)),
+                "{} is an open row: {verdict:?}",
+                row.name
+            );
+            eprintln!("{}: OPEN ({verdict:?})", row.name);
+            continue;
+        }
+        assert_eq!(verdict, Ok(()), "{}", row.name);
+        let twin = interface_row(&d, &names, row.name, true);
+        let (cause, note) = match open {
+            Some(Open::Twin(cause)) => (*cause, "pass, OPEN twin"),
+            _ => (row.twin_cause, "pass, twin"),
+        };
+        assert!(
+            matches!(&twin, Err(why) if why.contains(cause)),
+            "{} twin: {twin:?}",
+            row.name
+        );
+        eprintln!("{}: {note}: {twin:?}", row.name);
+    }
+    let _ = std::fs::remove_file(names);
+}

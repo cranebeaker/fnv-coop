@@ -18,6 +18,7 @@ coop-engine-peer - one game behind the peer protocol
 
 USAGE:
     coop-engine-peer <DATA FOLDER> --role host|guest [--cell NAME] [--settle N] [--menu]
+    coop-engine-peer <DATA FOLDER> --conformance ROW [--twin] --names FILE [--cell NAME]
 
     DATA FOLDER  the game's Data folder (FalloutNV.exe 1.4.0.525 is read from the installation)
     --role       host: the game runs the story. guest: it gets the story's state
@@ -25,6 +26,10 @@ USAGE:
     --settle N   frames of play before `ready` (default 60)
     --menu       wait at the main menu: `ready` comes there, and the request `enter CELL`
                  goes into the game. A guest gets its gate before its first frame of play
+    --conformance ROW  run one conformance row of the session's interface (`coop-game`) on
+                 this game, answer `ok` or `fail REASON`, and end. `--twin` runs the row's
+                 mutation twin. `--names FILE` gives the names of the game's data: a line
+                 `P INDEX FILE` for each plugin and `F TYPE FORM EDITOR_ID` for each form
 
 Requests come on standard input, one a line. Answers go to standard output, one a line,
 each after the mark `@ `. Other lines there are the engine's own.
@@ -36,6 +41,9 @@ struct Args {
     cell: String,
     settle: u32,
     menu: bool,
+    conformance: Option<String>,
+    twin: bool,
+    names: Option<PathBuf>,
 }
 
 fn parse(raw: &[String]) -> Result<Args, String> {
@@ -44,6 +52,9 @@ fn parse(raw: &[String]) -> Result<Args, String> {
     let mut cell = "GSDocMitchellHouse".to_string();
     let mut settle = 60;
     let mut menu = false;
+    let mut conformance = None;
+    let mut twin = false;
+    let mut names = None;
     let mut i = 0;
     while i < raw.len() {
         let value = |i: usize, name: &str| raw.get(i).ok_or(format!("{name} needs a value"));
@@ -67,17 +78,38 @@ fn parse(raw: &[String]) -> Result<Args, String> {
                     .map_err(|_| "--settle needs a number")?;
             }
             "--menu" => menu = true,
+            "--twin" => twin = true,
+            "--conformance" => {
+                i += 1;
+                conformance = Some(value(i, "--conformance")?.clone());
+            }
+            "--names" => {
+                i += 1;
+                names = Some(PathBuf::from(value(i, "--names")?));
+            }
             other if data.is_none() && !other.starts_with('-') => data = Some(PathBuf::from(other)),
             other => return Err(format!("unknown argument {other}")),
         }
         i += 1;
     }
+    // A conformance row sets the role itself.
+    let role = match (role, &conformance) {
+        (Some(role), _) => role,
+        (None, Some(_)) => Role::Host,
+        (None, None) => return Err("--role is missing".into()),
+    };
+    if conformance.is_some() && names.is_none() {
+        return Err("--conformance needs --names".into());
+    }
     Ok(Args {
         data: data.ok_or("the game's Data folder is missing")?,
-        role: role.ok_or("--role is missing")?,
+        role,
         cell,
         settle,
         menu,
+        conformance,
+        twin,
+        names,
     })
 }
 
@@ -96,6 +128,49 @@ fn say(text: &str) {
     // The harness reads line by line: a closed pipe ends the server at the next request.
     let _ = writeln!(out, "{MARK}{text}");
     let _ = out.flush();
+}
+
+/// Runs one conformance row of the session's interface on this game. The sample is from the
+/// base game's data: the shared quest `VCG03`, whose stage 10 has a result script.
+fn conformance_row(
+    game: &mut coop_engine_glue::Host,
+    row: &str,
+    twin: bool,
+    names: &std::path::Path,
+) -> Result<(), String> {
+    use coop_engine::game::{resolve_policy, EngineCoop, EngineState, NameTable};
+    use coop_game::conformance::{Sample, ROWS};
+
+    const QUEST: u32 = 0x0015_d912;
+    let text = std::fs::read_to_string(names).map_err(|e| format!("{}: {e}", names.display()))?;
+    let table = NameTable::parse(&text)?;
+    let bundled = coop_policy::PolicyTable::bundled().map_err(|e| format!("{e}"))?;
+    let policy = resolve_policy(&bundled, &table)?;
+    let row = ROWS
+        .iter()
+        .find(|r| r.name == row)
+        .ok_or(format!("no conformance row {row}"))?;
+    let mut p = EngineProgram(&mut game.engine);
+    // An objective of the sample quest, from the game's own list.
+    let quest_at = coop_engine::Program::call(&mut p, coop_engine::addr::FORM_BY_ID, &[QUEST]).eax;
+    let objective = coop_engine::quest::objective_items(&p, quest_at)
+        .first()
+        .and_then(|(_, id)| u16::try_from(*id).ok())
+        .unwrap_or(10);
+    let sample = Sample {
+        editor_id: "VCG03".into(),
+        no_editor_id: "NoSuchThingInAnyPlugin".into(),
+        plugin: "FalloutNV.esm".into(),
+        quest: coop_core::ids::FormId(QUEST),
+        stage: 10,
+        objective,
+        // A line that reads a value and changes nothing.
+        line: "GetSecondsPassed".into(),
+        policy: Some(std::sync::Arc::new(policy)),
+    };
+    let mut state = EngineState::new(table);
+    let mut coop = EngineCoop::over(&mut p, &mut state);
+    (row.run)(&mut coop, &sample, twin)
 }
 
 fn main() {
@@ -130,6 +205,13 @@ fn main() {
             say(&format!("err {e}"));
             std::process::exit(1);
         }
+    }
+    if let (Some(row), Some(names)) = (&args.conformance, &args.names) {
+        match conformance_row(&mut game, row, args.twin, names) {
+            Ok(()) => say("ok"),
+            Err(why) => say(&format!("fail {why}")),
+        }
+        return;
     }
     let mut peer = Peer::new(args.role);
     for line in std::io::stdin().lock().lines() {

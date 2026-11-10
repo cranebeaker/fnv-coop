@@ -31,6 +31,16 @@ pub trait Program {
     fn alloc(&mut self, len: u32) -> u32;
     /// Gives memory from [`Program::alloc`] back.
     fn free(&mut self, addr: u32);
+    /// Puts the guest gate on this program with these rules, and runs its start checks
+    /// (`shared_quest`: the address of a quest that the rules do not make local). `Err` tells
+    /// why the program cannot take the gate: the session must not go on then.
+    fn install_gate(
+        &mut self,
+        _rules: &crate::gate::Rules,
+        _shared_quest: Option<u32>,
+    ) -> Result<(), String> {
+        Err("this program takes no guest gate".into())
+    }
 
     /// One byte at `addr`.
     fn u8(&self, addr: u32) -> u8 {

@@ -160,6 +160,8 @@ name = "coop-engine"
 version = "0.1.0"
 dependencies = [
  "coop-core",
+ "coop-game",
+ "coop-policy",
 ]
 
 [[package]]
@@ -175,8 +177,26 @@ dependencies = [
 name = "coop-engine-peer"
 version = "0.1.0"
 dependencies = [
+ "coop-core",
  "coop-engine",
  "coop-engine-glue",
+ "coop-game",
+ "coop-policy",
+]
+
+[[package]]
+name = "coop-game"
+version = "0.1.0"
+dependencies = [
+ "coop-core",
+ "coop-policy",
+]
+
+[[package]]
+name = "coop-policy"
+version = "0.1.1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

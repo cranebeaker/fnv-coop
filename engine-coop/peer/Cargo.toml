@@ -7,5 +7,8 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+coop-core = { path = "../../crates/coop-core" }
+coop-game = { path = "../../crates/coop-game" }
+coop-policy = { path = "../../crates/coop-policy" }
 coop-engine = { path = "../coop-engine" }
 coop-engine-glue = { path = "../glue" }

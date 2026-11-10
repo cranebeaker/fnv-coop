@@ -8,3 +8,5 @@ rust-version.workspace = true
 
 [dependencies]
 coop-core = { path = "../../crates/coop-core" }
+coop-game = { path = "../../crates/coop-game" }
+coop-policy = { path = "../../crates/coop-policy" }

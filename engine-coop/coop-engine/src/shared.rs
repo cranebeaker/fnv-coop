@@ -33,6 +33,8 @@ pub struct Shared {
     forms: BTreeMap<u32, (Kind, u32)>,
     /// Catalog forms that the program does not have.
     pub missing: Vec<u32>,
+    /// The quests whose stage was set to 0 as plain state ([`Shared::set`]).
+    zero_stage: BTreeSet<u32>,
 }
 
 /// How many slots an apply set and cleared.
@@ -97,19 +99,43 @@ impl Shared {
 
     /// Gives each leaked slot the host's value again. A slot that the host does not have
     /// returns to its default. The count of the slots that changed.
-    pub fn restore(&self, p: &mut dyn Program, leaks: &[Leak]) -> u32 {
+    pub fn restore(&mut self, p: &mut dyn Program, leaks: &[Leak]) -> u32 {
         let mut restored = 0;
         for leak in leaks {
-            let value = match (&leak.host, &leak.here) {
-                (Some(host), _) => host.clone(),
-                (None, Some(here)) => absent(here),
-                (None, None) => continue,
+            let changed = match (&leak.host, &leak.here) {
+                (Some(host), _) => self.set(p, leak.form, host),
+                (None, Some(here)) => self.clear(p, leak.form, here),
+                (None, None) => false,
             };
-            if self.apply_one(p, leak.form, &value) {
+            if changed {
                 restored += 1;
             }
         }
         restored
+    }
+
+    /// The shared fields of one catalog quest as they are now.
+    fn quest_fields(&self, p: &dyn Program, id: u32, own_variables: bool, at: u32) -> Vec<Field> {
+        let mut fields = quest::fields(&quest::read(p, at));
+        if own_variables {
+            fields.retain(|f| !matches!(f, Field::ScriptVar { .. }));
+        }
+        let has_stage = fields.iter().any(|f| matches!(f, Field::QuestStage { .. }));
+        if !has_stage && self.zero_stage.contains(&id) {
+            fields.insert(0, Field::QuestStage { stage: 0 });
+        }
+        fields
+    }
+
+    /// The shared fields of one catalog quest as they are now. `None`: the catalog has no
+    /// such quest.
+    pub fn fields_of(&self, p: &dyn Program, quest: u32) -> Option<Vec<Field>> {
+        match self.forms.get(&quest) {
+            Some((Kind::Quest { own_variables }, at)) => {
+                Some(self.quest_fields(p, quest, *own_variables, *at))
+            }
+            _ => None,
+        }
     }
 
     /// Every shared field as it is now, sorted by key. It reads only memory.
@@ -118,13 +144,7 @@ impl Shared {
         for (id, (kind, at)) in &self.forms {
             let form = FormId(*id);
             let fields = match kind {
-                Kind::Quest { own_variables } => {
-                    let mut fields = quest::fields(&quest::read(p, *at));
-                    if *own_variables {
-                        fields.retain(|f| !matches!(f, Field::ScriptVar { .. }));
-                    }
-                    fields
-                }
+                Kind::Quest { own_variables } => self.quest_fields(p, *id, *own_variables, *at),
                 Kind::Global => vec![Field::global(p.f32(at + addr::GLOBAL_VALUE))],
             };
             for f in fields {
@@ -134,8 +154,8 @@ impl Shared {
         out.into_values().collect()
     }
 
-    /// Writes one field as plain state. True when memory changed.
-    fn apply_one(&self, p: &mut dyn Program, form: FormId, field: &Field) -> bool {
+    /// Writes one field into the program's memory. True when memory changed.
+    fn write(&self, p: &mut dyn Program, form: FormId, field: &Field) -> bool {
         match self.forms.get(&form.0) {
             // A machine's own variables take no value from another machine.
             Some((
@@ -159,46 +179,73 @@ impl Shared {
         }
     }
 
+    /// Sets one slot as plain state. True when the slot changed.
+    ///
+    /// The program has no word for "the stage is set, and it is 0": its own `SetStage 0`
+    /// shows in the done stages. A stage 0 that comes alone as plain state is kept here, so
+    /// that the export shows it.
+    pub fn set(&mut self, p: &mut dyn Program, form: FormId, field: &Field) -> bool {
+        let changed = self.write(p, form, field);
+        let (Field::QuestStage { stage }, Some((Kind::Quest { .. }, at))) =
+            (field, self.forms.get(&form.0))
+        else {
+            return changed;
+        };
+        if *stage != 0 {
+            self.zero_stage.remove(&form.0);
+            return changed;
+        }
+        let shown = quest::fields(&quest::read(p, *at))
+            .iter()
+            .any(|f| matches!(f, Field::QuestStage { .. }));
+        if shown {
+            changed
+        } else {
+            self.zero_stage.insert(form.0) || changed
+        }
+    }
+
+    /// Returns one slot to "not set". `like`: a field of the slot (its kind and its
+    /// sub-index). True when the slot changed. A kind with no default does not change.
+    pub fn clear(&mut self, p: &mut dyn Program, form: FormId, like: &Field) -> bool {
+        match like {
+            Field::QuestStage { .. } => {
+                let kept = self.zero_stage.remove(&form.0);
+                self.write(p, form, &Field::QuestStage { stage: 0 }) || kept
+            }
+            other => {
+                let default = other.tombstone();
+                default.is_tombstone() && self.write(p, form, &default)
+            }
+        }
+    }
+
     /// Writes these fields as plain state. A field with its default value clears its slot.
-    pub fn apply(&self, p: &mut dyn Program, changes: &[(FormId, Field)]) -> Applied {
+    pub fn apply(&mut self, p: &mut dyn Program, changes: &[(FormId, Field)]) -> Applied {
         let mut applied = Applied::default();
         for (form, field) in changes {
-            if self.apply_one(p, *form, field) {
-                if field.is_tombstone() {
+            if field.is_tombstone() {
+                if self.clear(p, *form, field) {
                     applied.cleared += 1;
-                } else {
-                    applied.set += 1;
                 }
+            } else if self.set(p, *form, field) {
+                applied.set += 1;
             }
         }
         applied
     }
 
     /// Makes the shared state equal to `entries`: writes each, and clears each slot that the
-    /// program has and `entries` does not name. A stage that `entries` does not name returns
-    /// to 0.
-    pub fn apply_snapshot(&self, p: &mut dyn Program, entries: &[(FormId, Field)]) -> Applied {
+    /// program has and `entries` does not name.
+    pub fn apply_snapshot(&mut self, p: &mut dyn Program, entries: &[(FormId, Field)]) -> Applied {
         let named: BTreeSet<Key> = entries.iter().map(|(form, f)| f.key(*form)).collect();
         let mut applied = self.apply(p, entries);
         for (form, field) in self.export(p) {
-            if named.contains(&field.key(form)) {
-                continue;
-            }
-            let cleared = absent(&field);
-            if cleared != field && self.apply_one(p, form, &cleared) {
+            if !named.contains(&field.key(form)) && self.clear(p, form, &field) {
                 applied.cleared += 1;
             }
         }
         applied
-    }
-}
-
-/// The value that a slot has when the host does not name it: its default, and stage 0 for
-/// a stage.
-fn absent(field: &Field) -> Field {
-    match field {
-        Field::QuestStage { .. } => Field::QuestStage { stage: 0 },
-        other => other.tombstone(),
     }
 }
 
@@ -240,7 +287,7 @@ mod tests {
         host.set_f32(hs.address(HOUR).unwrap() + addr::GLOBAL_VALUE, 3.5);
         let snapshot = hs.export(&host);
 
-        let (mut guest, gs) = game();
+        let (mut guest, mut gs) = game();
         assert_eq!(gs.apply_snapshot(&mut guest, &[]), Applied::default());
         assert_ne!(gs.export(&guest), snapshot, "the twin: an empty snapshot");
         let applied = gs.apply_snapshot(&mut guest, &snapshot);
@@ -256,7 +303,7 @@ mod tests {
     fn a_snapshot_clears_what_it_does_not_name() {
         let (host, hs) = game();
         let snapshot = hs.export(&host);
-        let (mut guest, gs) = game();
+        let (mut guest, mut gs) = game();
         let quest = gs.address(OTHER).unwrap();
         guest.call(addr::QUEST_SET_STAGE, &[quest, 5]);
         assert_ne!(gs.export(&guest), snapshot);
@@ -273,7 +320,7 @@ mod tests {
         let (mut host, hs) = game();
         host.call(addr::QUEST_SET_STAGE, &[hs.address(QUEST).unwrap(), 10]);
         let snapshot = hs.export(&host);
-        let (mut guest, gs) = game();
+        let (mut guest, mut gs) = game();
         gs.apply_snapshot(&mut guest, &snapshot);
         let mut audit = Audit::default();
         audit.snapshot(&snapshot);
@@ -313,7 +360,7 @@ mod tests {
                 .any(|(_, f)| matches!(f, Field::ScriptVar { .. }))
         };
 
-        let (mut p, shared, at) = build(&[SCRIPT]);
+        let (mut p, mut shared, at) = build(&[SCRIPT]);
         p.write(at + addr::VAR_VALUE, &1.0f64.to_le_bytes());
         p.call(addr::QUEST_SET_STAGE, &[shared.address(QUEST).unwrap(), 10]);
         let export = shared.export(&p);
@@ -330,10 +377,46 @@ mod tests {
         );
 
         // The twin: the same quest with its script not local.
-        let (mut p, shared, at) = build(&[]);
+        let (mut p, mut shared, at) = build(&[]);
         p.write(at + addr::VAR_VALUE, &1.0f64.to_le_bytes());
         assert!(has_var(&shared.export(&p)));
         assert_eq!(shared.apply(&mut p, &[var(5.0)]).set, 1);
+    }
+
+    /// A stage 0 that comes alone as plain state is a set stage: the export shows it, a
+    /// later stage replaces it, and a clear takes it away. Mutation twin: a quest that got
+    /// no stage exports none.
+    #[test]
+    fn a_stage_zero_as_plain_state_is_a_set_stage() {
+        let stage_of = |shared: &Shared, p: &FakeProgram| {
+            shared
+                .fields_of(p, QUEST)
+                .unwrap()
+                .into_iter()
+                .find_map(|f| match f {
+                    Field::QuestStage { stage } => Some(stage),
+                    _ => None,
+                })
+        };
+        let (mut p, mut shared) = game();
+        let quest = FormId(QUEST);
+        assert_eq!(stage_of(&shared, &p), None, "the twin: no stage was set");
+        assert!(shared.set(&mut p, quest, &Field::QuestStage { stage: 0 }));
+        assert_eq!(stage_of(&shared, &p), Some(0));
+        assert!(shared
+            .export(&p)
+            .contains(&(quest, Field::QuestStage { stage: 0 })));
+        assert!(!shared.set(&mut p, quest, &Field::QuestStage { stage: 0 }));
+        assert!(shared.set(&mut p, quest, &Field::QuestStage { stage: 10 }));
+        assert_eq!(stage_of(&shared, &p), Some(10));
+        assert!(shared.clear(&mut p, quest, &Field::QuestStage { stage: 0 }));
+        assert_eq!(stage_of(&shared, &p), None);
+        // A set stage 0 leaves with a clear too, and a global has no default.
+        shared.set(&mut p, quest, &Field::QuestStage { stage: 0 });
+        assert!(shared.clear(&mut p, quest, &Field::QuestStage { stage: 0 }));
+        assert_eq!(stage_of(&shared, &p), None);
+        assert!(!shared.clear(&mut p, FormId(HOUR), &Field::global(1.0)));
+        assert_eq!(shared.fields_of(&p, HOUR), None);
     }
 
     #[test]
@@ -345,7 +428,7 @@ mod tests {
 
     #[test]
     fn a_field_of_an_unknown_form_changes_nothing() {
-        let (mut p, shared) = game();
+        let (mut p, mut shared) = game();
         let change = (FormId(0x999), Field::QuestStage { stage: 10 });
         assert_eq!(shared.apply(&mut p, &[change]), Applied::default());
     }

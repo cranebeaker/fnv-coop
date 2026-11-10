@@ -56,6 +56,11 @@ impl Audit {
         self.known = true;
     }
 
+    /// The host cleared a slot: it has no value there now.
+    pub fn forget(&mut self, key: Key) {
+        self.host.remove(&key);
+    }
+
     /// The host sent changes. A field with its default value clears its slot.
     pub fn delta(&mut self, changes: &[(FormId, Field)]) {
         for (form, field) in changes {

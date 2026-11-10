@@ -68,7 +68,8 @@ occlusion query has no answer without it).
   `addr.rs` holds each program fact with its source. `gate.rs` decides where story code runs
   on a guest, and `audit.rs` compares a guest's shared state with the host's. `avatar.rs` is
   the remote player's body. `changes.rs` reads the game's map of changed forms, and
-  `record.rs` carries one changed form as the game's own save writes it.
+  `record.rs` carries one changed form as the game's own save writes it. `game.rs`
+  implements the session's interface (the traits of `crates/coop-game`) on the program.
 - `glue`: the one crate that names upstream types. It gives the adapter its view of the
   program and starts a game for a test. `glue/src/gate.rs` puts the guest gate on the game:
   six overrides by address, each refused when the address has a wrap.
@@ -158,6 +159,10 @@ of play is a "gate blind" alarm.
   its own load: at once, or with the form's cell. The conformance tests `change_is_found`,
   `record_disables_on_guest`, `record_moves_on_guest` and `record_waits_for_its_cell` pass
   on real games, and their mutation twins fail.
-- Not yet: per-player rows, a dialogue result's owner, the avatar's cell changes, the live
-  path between two games, the host's hit ledger, records of each kind, party saves.
+- The session's interface: the engine adapter passes six conformance rows of `coop-game` on
+  real games, and their twins fail (`the_interface_rows_pass_on_the_engine_and_their_twins_fail`).
+  The two rows of a player's character are open until the per-player rows exist here.
+- Not yet: per-player rows, a dialogue result's owner, an exterior cell for an avatar, the
+  session between two games (`nv-coop`), the host's hit ledger, records of each kind, party
+  saves.
   The plan is in the project's notes.
