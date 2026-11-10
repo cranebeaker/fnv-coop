@@ -216,6 +216,26 @@ pub struct Coop {
     last_status: Option<Instant>,
     /// The skipped story scripts already named in the log.
     gate_named: std::collections::BTreeSet<u32>,
+    // social
+    /// This player's name (its party key is a hash of it) and own quests, for a guest's part of
+    /// a party save; whether the parts of co-op that found no function to wrap were named.
+    social: Social,
+}
+
+// social
+struct Social {
+    name: String,
+    own_quests: Vec<u32>,
+    missing_named: bool,
+}
+
+// social
+/// Where a host keeps the party's files: `NV_COOP_PARTY_DIR`, or `coop-party` in the folder the
+/// game was started from.
+fn party_dir() -> std::path::PathBuf {
+    std::env::var_os("NV_COOP_PARTY_DIR")
+        .filter(|v| !v.is_empty())
+        .map_or_else(|| "coop-party".into(), std::path::PathBuf::from)
 }
 
 impl Coop {
@@ -275,6 +295,8 @@ impl Coop {
                     clock.len()
                 ));
                 host.set_clock(clock);
+                // social
+                host.social.party.dir = Some(party_dir());
                 let (ladder, line) = Self::ladder(false);
                 host.ladder = ladder;
                 lines.push(line);
@@ -298,11 +320,17 @@ impl Coop {
                 ep,
                 role,
                 plugins,
-                own_quests,
+                own_quests: own_quests.clone(),
                 own_scripts,
                 started: Instant::now(),
                 last_status: None,
                 gate_named: Default::default(),
+                // social
+                social: Social {
+                    name: name.to_string(),
+                    own_quests,
+                    missing_named: false,
+                },
             },
             lines,
         ))
@@ -324,6 +352,9 @@ impl Coop {
                             let (ladder, line) = Self::ladder(true);
                             g.ladder = ladder;
                             lines.push(line);
+                            // social
+                            g.social.party.key = session::party::key_of(&self.social.name);
+                            g.social.party.own_quests = self.social.own_quests.clone();
                             *slot = Some(Box::new(g));
                         }
                         // Joined again after losing the host: resume from what this guest has.
@@ -379,14 +410,32 @@ impl Coop {
                 for note in h.claim_notes.drain(..) {
                     lines.push(format!("co-op host: {note}"));
                 }
+                // social
+                for note in (h.social.party.notes.drain(..)).chain(h.social.enactor.notes.drain(..))
+                {
+                    lines.push(format!("co-op host: {note}"));
+                }
             }
             Role::Guest(Some(g)) => {
                 g.step(e, &mut self.ep, now_ms);
                 for note in g.healed_notes.drain(..) {
                     lines.push(format!("co-op guest healed: {note}"));
                 }
+                // social
+                for note in g.social.party.notes.drain(..) {
+                    lines.push(format!("co-op guest: {note}"));
+                }
             }
             Role::Guest(None) => {}
+        }
+        // social
+        if !self.social.missing_named {
+            self.social.missing_named = true;
+            for at in coop_engine::social::missing(e) {
+                lines.push(format!(
+                    "co-op: no function at {at:08x} to take part in; that part of conversations or rests is off"
+                ));
+            }
         }
         if self
             .last_status
@@ -394,6 +443,8 @@ impl Coop {
         {
             self.last_status = Some(Instant::now());
             lines.push(self.status(e));
+            // social
+            lines.push(self.social_status(e));
             if let Role::Guest(_) = self.role {
                 // Which story scripts this guest holds back, each named once (the first 80): what
                 // a guest would have to run itself to have its own start.
@@ -409,6 +460,44 @@ impl Coop {
             }
         }
         lines
+    }
+
+    // social
+    /// A one-line status of conversations, party saves and rests.
+    fn social_status(&self, e: &mut Engine) -> String {
+        let (held, own, unknown) = coop_engine::talk::counts(e);
+        match &self.role {
+            Role::Host(h) => {
+                let s = &h.social;
+                format!(
+                    "co-op host social: conversations {} (guests' results run {}, left {}), lines watched {}, party saves {} ({} files), parts given back {}, rests passed {} ({} h)",
+                    s.talker.opened,
+                    s.enactor.enacted,
+                    s.enactor.left,
+                    s.talker.lines_shown,
+                    s.party.saved,
+                    s.party.files_written,
+                    s.party.given_back,
+                    s.rester.passed,
+                    s.rester.hours
+                )
+            }
+            Role::Guest(Some(g)) => {
+                let s = &g.social;
+                format!(
+                    "co-op guest social: conversations {} (refused {}, not started {}), results held for the host {held}, run here as own {own}, with no quest known {unknown}, lines watched {}, part sent {} time(s), put back {}, rests passed {} ({} h)",
+                    s.talker.opened,
+                    s.talker.denied,
+                    s.talker.blocked,
+                    s.talker.lines_shown,
+                    s.party.uploads,
+                    s.party.restored,
+                    s.rester.passed,
+                    s.rester.hours
+                )
+            }
+            Role::Guest(None) => "co-op guest social: waiting for the host".into(),
+        }
     }
 
     /// A one-line status: players and the story's revision on a host; on a guest what it applied,
