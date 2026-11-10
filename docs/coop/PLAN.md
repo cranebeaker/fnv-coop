@@ -51,8 +51,8 @@ machine with FNV 1.4.0.525. "Headless" means `cargo test` with no game files.
 | M2 | Superseded for M3 by D2's driver; the checklist's engine backend follows |
 | M3 | Done: two games on a PC, the host played the opening, the guest held its story (3883 hash checks, 0 desyncs, 0 refused; 2026-11-10) |
 | M4 | Quests, objectives, quest variables and globals carried as fields; the generic changed-form stream for other types is next |
-| M5 | First version built and verified headlessly (S8: the guest comes to the host, sliding avatars); the PC ladder run is next (TESTING.md) |
-| M7 | First step built (S9): a guest runs its own opening and character creation; the PC run is next |
+| M5 | First version confirmed on a PC (2026-11-10): both players made their own characters, all five rungs passed on both games, each saw the other move (20002 avatar moves, AI woke 0, 0 desyncs, 0 healed). Not yet exercised: the move of a guest to a host in another space (they started in the same cell). Next: animation, the other player's looks, leaving the house together |
+| M7 | First step confirmed on a PC (2026-11-10): a guest played its own opening and character creation while the shared story stayed in step. Next: party saves, rejoin into a running game |
 | M6, M8, M9 | Not started |
 
 ## Ownership and order

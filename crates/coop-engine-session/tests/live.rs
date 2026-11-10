@@ -155,6 +155,17 @@ fn a_guest_comes_to_the_host_and_each_sees_the_other_follow() {
             }
         }
     }
+    // Each rung's entering line is written once (PC run 2026-11-10: rung 5's was written every
+    // frame until it passed).
+    for lines in [p.guest_lines(), p.host_lines()] {
+        for n in 1..=5 {
+            let entered = lines
+                .iter()
+                .filter(|l| l.starts_with(&format!("COOP-RUNG {n} entering")))
+                .count();
+            assert!(entered <= 1, "rung {n} entered {entered} times");
+        }
+    }
     // The story channel never saw any of it.
     assert_eq!(story_rev(&p), rev);
     assert!(echo(&mut p.guest.e, &p.gd.sync.store).is_empty());

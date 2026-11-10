@@ -89,6 +89,7 @@ pub struct Ladder {
     /// Every line written, in order.
     pub lines: Vec<String>,
     started: bool,
+    entered: [bool; 6],
     reported: [bool; 6],
     warp: Warp,
     last_warp_ms: Option<u64>,
@@ -119,6 +120,7 @@ impl Ladder {
             emit: print_now,
             lines: Vec::new(),
             started: false,
+            entered: [false; 6],
             reported: [false; 6],
             warp: Warp::Idle,
             last_warp_ms: None,
@@ -142,7 +144,8 @@ impl Ladder {
 
     /// Writes rung `n`'s entering line, once.
     fn entering(&mut self, n: usize, what: String) {
-        if !self.reported[n] {
+        if !self.reported[n] && !self.entered[n] {
+            self.entered[n] = true;
             self.say(format!("COOP-RUNG {n} entering: {what}"));
         }
     }
