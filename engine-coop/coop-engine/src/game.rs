@@ -95,6 +95,17 @@ impl NameTable {
     pub fn globals(&self) -> &[u32] {
         &self.globals
     }
+
+    /// The plugin files in load order (their names in lower case).
+    pub fn plugin_files(&self) -> Vec<String> {
+        let mut files: Vec<(u8, String)> = self
+            .plugins
+            .iter()
+            .map(|(name, index)| (*index, name.clone()))
+            .collect();
+        files.sort();
+        files.into_iter().map(|(_, name)| name).collect()
+    }
 }
 
 impl Names for NameTable {
@@ -245,6 +256,21 @@ impl<'a> EngineCoop<'a> {
     /// The quests of the shared catalog (form ids).
     pub fn quests(&self) -> Vec<u32> {
         self.state.shared.quests().map(|(id, _)| id).collect()
+    }
+
+    /// The objectives and the script variables of a catalog quest whose ids do not fit the
+    /// shared fields (above 65535): they are not exported. Empty lists for a quest that has
+    /// none, or that is not in the catalog.
+    pub fn too_wide(&self, quest: FormId) -> (Vec<u32>, Vec<u32>) {
+        let Some(at) = self.state.shared.address(quest.0) else {
+            return (Vec::new(), Vec::new());
+        };
+        let s = crate::quest::read(self.p, at);
+        let wide = |id: &u32| *id > u32::from(u16::MAX);
+        (
+            s.objectives.iter().map(|o| o.0).filter(wide).collect(),
+            s.variables.iter().map(|v| v.0).filter(wide).collect(),
+        )
     }
 
     /// Where the local player is, with its space (an interior cell, or a worldspace).

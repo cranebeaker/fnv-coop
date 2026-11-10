@@ -185,11 +185,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "coop-engine-session"
+version = "0.1.0"
+dependencies = [
+ "coop-core",
+ "coop-engine",
+ "coop-game",
+ "coop-net",
+ "coop-policy",
+]
+
+[[package]]
 name = "coop-game"
 version = "0.1.0"
 dependencies = [
  "coop-core",
  "coop-policy",
+]
+
+[[package]]
+name = "coop-net"
+version = "0.1.0"
+dependencies = [
+ "coop-core",
+ "postcard",
+ "serde",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
