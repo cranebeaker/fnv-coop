@@ -1,0 +1,17 @@
+[package]
+name = "coop-app"
+version = "0.1.0"
+description = "The co-op program on a game program by address: the frame loop with the session, the flags of the viewer contract, the control port's answers and the state dump. It names no engine type"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coop-core = { path = "../../crates/coop-core" }
+coop-game = { path = "../../crates/coop-game" }
+coop-policy = { path = "../../crates/coop-policy" }
+# The session brings the `world` crate (data code, no renderer) until the session's own
+# dependency on it is gone. This crate names no type of `world`.
+coop-session = { path = "../../crates/coop-session" }
+esm = { path = "../../crates/esm" }
+coop-engine = { path = "../coop-engine" }

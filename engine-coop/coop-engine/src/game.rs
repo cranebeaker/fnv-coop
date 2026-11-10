@@ -86,6 +86,25 @@ impl NameTable {
         Ok(table)
     }
 
+    /// The quest that this word names (an editor id), or `None`.
+    pub fn quest_named(&self, word: &str) -> Option<u32> {
+        let form = *self.by_name.get(&word.to_ascii_lowercase())?;
+        self.quests.contains(&form).then_some(form)
+    }
+
+    /// The line as the program's console takes it: each word that is a quest's editor id
+    /// becomes the quest's form id. The program's console does not resolve a quest's editor
+    /// id, and it resolves a global's (see [`crate::console`]).
+    pub fn line_for_program(&self, line: &str) -> String {
+        line.split(' ')
+            .map(|word| match self.quest_named(word) {
+                Some(form) => format!("{form:08X}"),
+                None => word.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     /// The quests of the load order (form ids).
     pub fn quests(&self) -> &[u32] {
         &self.quests
@@ -129,6 +148,8 @@ pub struct EngineState {
     pub pairs: Option<Pairs>,
     /// The adapter's own count of writes, a part of [`Shared::activity`].
     writes: u64,
+    /// The campaign policy for this load order, for a setup that brings none.
+    policy: Option<std::sync::Arc<coop_policy::PolicyTable>>,
 }
 
 impl EngineState {
@@ -138,6 +159,14 @@ impl EngineState {
             names,
             ..EngineState::default()
         }
+    }
+
+    /// The same state with this campaign policy, keyed for this load order
+    /// ([`resolve_policy`]). The adapter uses it when a setup brings no policy: a session
+    /// that does not know the load order cannot key one.
+    pub fn with_policy(mut self, policy: coop_policy::PolicyTable) -> EngineState {
+        self.policy = Some(std::sync::Arc::new(policy));
+        self
     }
 
     /// The role, after [`Shared::configure`].
@@ -203,6 +232,12 @@ impl<'a> EngineCoop<'a> {
         EngineCoop { state, p }
     }
 
+    /// The shared state now, for a dump or a test. It is not the session's export: a
+    /// session's own call of [`Shared::export_shared`] can mark the state as told.
+    pub fn fields(&mut self) -> Vec<(FormId, Field)> {
+        self.state.shared.export(self.p)
+    }
+
     /// The address of a quest: from the catalog, or by the game's own lookup.
     fn quest_at(&mut self, quest: FormId) -> Option<u32> {
         self.state.shared.address(quest.0).or_else(|| {
@@ -251,6 +286,25 @@ impl Names for EngineCoop<'_> {
 
 impl Shared for EngineCoop<'_> {
     fn configure(&mut self, setup: &Setup) -> Result<(), String> {
+        // A session tells the role each frame. The catalog and the gate are made one time.
+        match self.state.role {
+            Some(role) if role == setup.role => {
+                // A guest learns its slot after the handshake.
+                self.state.me = setup.me;
+                return Ok(());
+            }
+            Some(role) => {
+                return Err(format!(
+                    "this game is a {role:?}'s game: it does not become a {:?}'s game",
+                    setup.role
+                ));
+            }
+            None => {}
+        }
+        let setup = &Setup {
+            policy: setup.policy.clone().or_else(|| self.state.policy.clone()),
+            ..setup.clone()
+        };
         let rules = rules_of(setup, &self.state.names);
         let local: BTreeSet<u32> = rules.local_quests.iter().copied().collect();
         let quests: Vec<u32> = self
@@ -371,7 +425,10 @@ impl Story for EngineCoop<'_> {
                 let stage = u32::from(u8::try_from(*stage).unwrap_or(u8::MAX));
                 Ok(self.p.call(addr::QUEST_SET_STAGE, &[at, stage]).bool())
             }
-            Intent::ScriptLine(line) => Ok(console::run_line(self.p, line, 0)),
+            Intent::ScriptLine(line) => {
+                let line = self.state.names.line_for_program(line);
+                Ok(console::run_line(self.p, &line, 0))
+            }
             // The rows of each player are not on the engine yet: the game keeps one player.
             Intent::Character(_) => Ok(false),
         }
@@ -547,6 +604,97 @@ mod tests {
         assert_eq!(guest.stage(FormId(OWN)), None);
         let export = guest.export_shared(true).unwrap();
         assert!(export.iter().all(|(form, _)| form.0 != OWN), "{export:?}");
+    }
+
+    /// A session tells the role each frame, with no policy. The game gets one gate, with
+    /// the rules of the policy that the adapter's state holds, and a guest's slot follows
+    /// the handshake.
+    #[test]
+    fn the_role_is_set_one_time_and_the_states_policy_gives_the_rules() {
+        let bundled = coop_policy::PolicyTable::bundled().unwrap();
+        let here = resolve_policy(&bundled, &names()).unwrap();
+        let mut p = FakeProgram::new();
+        p.add_quest(QUEST, &[10, 20], &[10]);
+        p.add_quest(OWN, &[5], &[]);
+        let mut state = EngineState::new(names()).with_policy(here);
+        let mut guest = EngineCoop::over(&mut p, &mut state);
+        for me in [0, 0, 2, 2] {
+            guest
+                .configure(&Setup {
+                    me,
+                    ..setup(Role::Guest)
+                })
+                .unwrap();
+        }
+        assert_eq!(state.me, 2, "the slot after the handshake");
+        assert_eq!(p.gates.len(), 1, "one gate for four calls");
+        assert!(
+            p.gates[0].local_quests.contains(&OWN),
+            "the rules of the state's policy"
+        );
+
+        // With no policy in the state, the same calls give a gate with no local quest.
+        let (mut p, mut state) = game();
+        EngineCoop::over(&mut p, &mut state)
+            .configure(&setup(Role::Guest))
+            .unwrap();
+        assert!(p.gates[0].local_quests.is_empty());
+    }
+
+    /// A running game keeps its role: a host's game has no gate, and a guest's game that
+    /// became a host's game would keep one.
+    #[test]
+    fn a_game_does_not_change_its_role() {
+        let (mut p, mut state) = game();
+        let mut coop = EngineCoop::over(&mut p, &mut state);
+        coop.configure(&setup(Role::Host)).unwrap();
+        let why = coop.configure(&setup(Role::Guest)).unwrap_err();
+        assert!(why.contains("does not become"), "{why}");
+        assert_eq!(state.role(), Some(Role::Host));
+        assert!(p.gates.is_empty());
+    }
+
+    /// A line names a quest by its form id for the program, and a global keeps its name.
+    #[test]
+    fn a_line_gets_each_quests_form_id() {
+        let table = names();
+        assert_eq!(
+            table.line_for_program("SetStage VCG03 10"),
+            "SetStage 0015D912 10"
+        );
+        assert_eq!(
+            table.line_for_program("setstage vcg03 10"),
+            "setstage 0015D912 10"
+        );
+        // The twin: a global, a cell, a number and an unknown word stay as they are.
+        for line in [
+            "set GameHour to 10",
+            "coc GSDocMitchellHouse",
+            "SetStage 0015D912 10",
+            "player.additem Caps001 5",
+        ] {
+            assert_eq!(table.line_for_program(line), line);
+        }
+        assert_eq!(table.quest_named("GameHour"), None);
+
+        // The host's game gets the line with the form id.
+        let (mut p, mut state) = game();
+        p.console_manager = 0x3000_0000;
+        let mut host = EngineCoop::over(&mut p, &mut state);
+        host.configure(&setup(Role::Host)).unwrap();
+        assert_eq!(
+            host.run_intent(0, &Intent::ScriptLine("SetStage VCG03 10".into())),
+            Ok(true)
+        );
+        let text = p
+            .calls
+            .iter()
+            .find(|(at, _)| *at == addr::SCRIPT_SET_TEXT)
+            .map(|(_, args)| args[1])
+            .expect("the line reached the program");
+        let mut got = [0u8; 20];
+        p.read(text, &mut got);
+        assert_eq!(&got, b"SetStage 0015D912 10");
     }
 
     #[test]

@@ -447,3 +447,27 @@ pub mod cell_state {
     /// The cell's references are in the scene.
     pub const ATTACHED: u8 = 6;
 }
+
+// ---- The loaded plugin files (SPEC-05 section 7).
+
+/// The pointer to the program's data handler (0 before the program made it).
+// Measured with the probe at the main menu (2026-11-10, scripts exp_mods1 to exp_mods3): the
+// word is an object whose file list has the 10 official files of the test installation.
+pub const DATA_HANDLER: u32 = 0x011c_3f2c;
+/// The data handler: the count of loaded files, a 32-bit word.
+// Measured (same run): the word at +0x218 is 0x0A with FalloutNV.esm and the 9 official add-on
+// files. The two words before it (+0x210, +0x214) are the head node of the game's list of
+// files: the first file and the next node.
+pub const FILES_COUNT: u32 = 0x218;
+/// The data handler: the loaded files, one pointer for each, in load order.
+// Measured (same run): 10 pointers from +0x21C, then zero words.
+pub const FILES: u32 = 0x21c;
+/// A file: its name, a zero-ended text.
+// Measured (same run): "FalloutNV.esm" for the first pointer, then each add-on's name.
+pub const FILE_NAME: u32 = 0x20;
+/// How many bytes of a file's name the adapter reads at most. It is the adapter's own limit,
+/// the longest path of the program's system: the program's field was not measured.
+pub const FILE_NAME_BYTES: u32 = 260;
+/// A file: its load index, a 32-bit word.
+// Measured (same run): 0 to 9 for the 10 pointers, in the order of the list.
+pub const FILE_INDEX: u32 = 0x40c;

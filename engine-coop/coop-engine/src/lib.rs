@@ -16,6 +16,7 @@ pub mod avatar;
 pub mod changes;
 pub mod console;
 pub mod fake;
+pub mod files;
 pub mod game;
 pub mod gate;
 pub mod peer;

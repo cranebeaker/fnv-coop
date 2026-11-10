@@ -73,6 +73,12 @@ occlusion query has no answer without it).
 - `glue`: the one crate that names upstream types. It gives the adapter its view of the
   program and starts a game for a test. `glue/src/gate.rs` puts the guest gate on the game:
   six overrides by address, each refused when the address has a wrap.
+- `coop-app`: the co-op program without the engine. `App` runs the frame loop on a `Machine`
+  (the game's frames, its screen, the guest gate): the session before and after each frame,
+  the flags of the harness contract (`tools/coop-run`), the control port's answers and the
+  state dump. Its tests run two whole programs in one session on fake game programs.
+- `nv-coop`: the program that a player starts, as the host or as a guest. It gives the loop of
+  `coop-app` the real game. See "Run two games in one session" below.
 - `peer` (`coop-engine-peer`): one game behind a line protocol, for a test harness in another
   process. `coop-engine/src/peer.rs` lists the requests. With `--menu` the server waits at
   the main menu, so that a guest gets its gate before its first frame of play.
@@ -100,6 +106,34 @@ cargo test -p coop-headless --test engine_backend
 Set `COOP_ENGINE_PEER` for this test only. Without it the engine backend is
 `PENDING (engine backend)`, and other tests of that crate check exactly that. Each test starts
 real games: use `-- --test-threads=1` on a machine that cannot run four games at one time.
+
+## Run two games in one session
+
+```
+cargo build --profile play -p nv-coop
+```
+
+Each player runs one `nv-coop`. Each program needs its own scratch instance
+(`NV_D3D9_ADAPTER`), as a probe does.
+
+```
+nv-coop <DATA FOLDER> GSProspectorSaloonInterior --coop-host 47611 --coop-test-token
+nv-coop <DATA FOLDER> --coop-join 127.0.0.1:47611 --coop-test-token --coop-no-chargen
+```
+
+- The host starts in the cell that its command line names. A guest gets its gate at the main
+  menu, and then it enters the host's cell.
+- `--coop-control PORT` opens the control port on 127.0.0.1 (one JSON object a line):
+  `{"cmd":"state"}`, `{"cmd":"run","line":"SetStage VCG03 10"}`, `{"cmd":"quit"}`.
+- `--coop-log FILE` and `--coop-state-dump FILE` write the event log and the state dump of the
+  harness contract. `nv-coop --help` lists each flag.
+- A script line names a quest by its editor id or its form id, and a global by its editor id.
+  The game's console sets a stage only with a quest's form id (measured), so the adapter puts
+  the form id in place of a quest's editor id.
+
+Not built in this program yet: the character making (a guest needs `--coop-no-chargen`), a new
+game, a cell with no editor id (an exterior), the control requests `keys`, `screenshot` and
+`bot`, and the other player's avatar in the loop.
 
 ## The guest gate
 
@@ -162,7 +196,22 @@ of play is a "gate blind" alarm.
 - The session's interface: the engine adapter passes six conformance rows of `coop-game` on
   real games, and their twins fail (`the_interface_rows_pass_on_the_engine_and_their_twins_fail`).
   The two rows of a player's character are open until the per-player rows exist here.
+- The session between two games (`nv-coop`, two programs on one PC over UDP): the guest joins,
+  gets its gate at the main menu and plays in the host's cell. A stage that the host sets
+  reaches the guest's game as plain state. A script line from the guest runs on the host's
+  game, and each game has the result. The two state dumps have the same hash of the shared
+  state without the game's clock (309 quests with state and 255 globals), at each check.
+  The guest's gate stopped each script run of a shared quest (about one run in six).
+- Known limits of the session on real games:
+  - One frame of the game loads a whole cell (9 seconds for the first cell with two games on
+    one PC). The program cannot poll the network inside a frame, so the host keeps a silent
+    guest for 20 seconds.
+  - A guest's game advances its own clock (`GameHour`, `GameDaysPassed`) between the host's
+    values. The guest's check against the host's state returns it each 2 seconds. The strict
+    hash of the contract (`hash.shared`) differs by these two globals. `hash.steady` leaves
+    them out. The clock rule for a guest is the next design step.
+  - The game starts its own opening dialogue in Doc Mitchell's house on a host with no
+    character yet (a menu about 100 frames after the entry).
 - Not yet: per-player rows, a dialogue result's owner, an exterior cell for an avatar, the
-  session between two games (`nv-coop`), the host's hit ledger, records of each kind, party
-  saves.
+  avatars in the session's loop, the host's hit ledger, records of each kind, party saves.
   The plan is in the project's notes.

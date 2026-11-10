@@ -170,6 +170,17 @@ pub fn own<R>(f: impl FnOnce() -> R) -> R {
     result
 }
 
+/// Starts the adapter's own bracket, for a caller that cannot give a closure: what the
+/// program runs until [`own_leave`] is not gated. No effect on a game with no gate.
+pub fn own_enter() {
+    with(|g| g.gate.enter_own());
+}
+
+/// Ends the bracket that [`own_enter`] started.
+pub fn own_leave() {
+    with(|g| g.gate.leave_own());
+}
+
 /// The intents that wait for the host. The queue is empty after.
 pub fn take_intents() -> Vec<Intent> {
     with(|g| g.gate.intents.take()).unwrap_or_default()

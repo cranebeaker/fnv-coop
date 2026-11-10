@@ -371,6 +371,22 @@ impl FakeProgram {
         }
     }
 
+    /// Adds a loaded plugin file at the end of the load order. Returns its address.
+    pub fn add_file(&mut self, name: &str) -> u32 {
+        let mut handler = self.u32(addr::DATA_HANDLER);
+        if handler == 0 {
+            handler = self.take(addr::FILES + 4 * crate::files::MOST);
+            self.set_u32(addr::DATA_HANDLER, handler);
+        }
+        let count = self.u32(handler + addr::FILES_COUNT);
+        let file = self.take(addr::FILE_INDEX + 4);
+        self.set_cstr(file + addr::FILE_NAME, name.as_bytes());
+        self.set_u32(file + addr::FILE_INDEX, count);
+        self.set_u32(handler + addr::FILES + 4 * count, file);
+        self.set_u32(handler + addr::FILES_COUNT, count + 1);
+        file
+    }
+
     /// Adds a global with this value. Returns its address.
     pub fn add_global(&mut self, id: u32, value: f32) -> u32 {
         let global = self.take(0x28);

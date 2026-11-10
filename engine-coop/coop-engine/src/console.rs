@@ -1,7 +1,12 @@
 //! Runs a line as the program runs a line typed in its console.
 //!
-//! The program compiles a line with form ids. It does not resolve each editor id (a quest's
-//! editor id fails), so a caller gives form ids.
+//! The program does not resolve each editor id in a line. Measured on the upstream engine
+//! (2026-11-10, peer requests `exp_names.txt` and `exp_names2.txt`):
+//! - a quest: `SetStage VCG03 10` changes nothing, and `SetStage 0015D912 10` sets the stage;
+//! - a global: `set GameHour to 10` sets the value, and `set 00000038 to 11` changes nothing.
+//!
+//! So a caller names a quest by its form id (8 hex digits) and a global by its editor id.
+//! [`crate::game::NameTable::line_for_program`] makes a line so.
 
 use crate::addr;
 use crate::program::Program;

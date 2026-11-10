@@ -55,6 +55,40 @@ impl Program for EngineProgram<'_> {
     }
 }
 
+/// A running game that owns its host: the adapter's [`Program`] for a program that keeps
+/// the game for its whole run. Use it between the game's frames.
+pub struct Game(pub Host);
+
+impl Program for Game {
+    fn read(&self, addr: u32, out: &mut [u8]) {
+        self.0.engine.mem.read(addr, out);
+    }
+
+    fn write(&mut self, addr: u32, bytes: &[u8]) {
+        EngineProgram(&mut self.0.engine).write(addr, bytes);
+    }
+
+    fn call(&mut self, addr: u32, args: &[u32]) -> Ret {
+        EngineProgram(&mut self.0.engine).call(addr, args)
+    }
+
+    fn alloc(&mut self, len: u32) -> u32 {
+        EngineProgram(&mut self.0.engine).alloc(len)
+    }
+
+    fn free(&mut self, addr: u32) {
+        EngineProgram(&mut self.0.engine).free(addr);
+    }
+
+    fn install_gate(
+        &mut self,
+        rules: &coop_engine::gate::Rules,
+        shared_quest: Option<u32>,
+    ) -> Result<(), String> {
+        EngineProgram(&mut self.0.engine).install_gate(rules, shared_quest)
+    }
+}
+
 /// What the game shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
