@@ -42,8 +42,9 @@ use engine_core::Engine;
 pub fn hello(plugins: Vec<String>) -> Hello {
     let build = format!("coop-engine-session {}", env!("CARGO_PKG_VERSION"));
     let rules = format!(
-        "quest-record {:04x} {}",
+        "quest-record {:04x} v{} {}",
         record::QUEST_RECORD_TAG,
+        record::VERSION,
         record::LEN
     );
     Hello {
@@ -151,10 +152,10 @@ impl HostDriver {
                     self.unencodable += 1;
                     if self.noted.insert((id, u32::MAX)) {
                         self.unencodable_notes.push(format!(
-                            "quest {id:08x}: record not sendable ({} objectives, most {}; highest objective state {})",
+                            "quest {id:08x}: record not sendable ({} objectives, highest state {}; a record holds at most 255 objectives in {} bytes)",
                             r.objectives.len(),
-                            record::MAX_OBJECTIVES,
-                            r.objectives.iter().map(|o| o.1).max().unwrap_or(0)
+                            r.objectives.iter().map(|o| o.1).max().unwrap_or(0),
+                            record::MAX_LEN
                         ));
                     }
                 }

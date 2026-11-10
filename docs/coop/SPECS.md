@@ -155,9 +155,9 @@ to the host for the party save, never into the shared world.
 `crates/coop-engine-session`, a thin driver over coop-core's `HostSync` and `GuestSync`:
 
 - **Fields.** Each quest is one `Field::Custom` (tag `0x5152`): stage, flags, a 256-bit done-stage
-  set, then its objectives (count; number as 4 bytes, state as 1 byte). A delta can never split it.
-  A record that cannot be carried exactly (more objectives than fit in 512 bytes, a state above
-  255) is not sent and is counted. Each quest script variable is a `Field::ScriptVar` (index = the
+  set, then its objectives (count; number of variable length, one byte below 128; state as 1 byte). A delta can never split it.
+  A record that cannot be carried exactly (more than 255 objectives or 512 bytes, a state above
+  255) is not sent, counted, and named once in the host's log. Each quest script variable is a `Field::ScriptVar` (index = the
   variable's id, the `f64`'s bits). Each story global is a `Field::Global`.
 - **Host.** `start` arms the journal and writes every quest of the load order (the viewer lists
   the plugins' `QUST` records) and every story global, so a join snapshot holds the whole story

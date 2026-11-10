@@ -3,7 +3,7 @@
 //! without the others. `Field::Custom { tag: QUEST_RECORD_TAG, data }`: the stage, the flags, a
 //! 256-bit set of done stages (stage numbers are bytes in the game, `TESQuestStage::ucIndex`; bit
 //! `n % 8` of byte `n / 8`), then the objectives: a count and, for each in list order, its number
-//! (4 bytes, little-endian) and its state (`QUEST_OBJECTIVE_STATE`, 0 to 3, one byte). A quest
+//! (variable length, one byte below 128) and its state (`QUEST_OBJECTIVE_STATE`, 0 to 3, one byte). A quest
 //! script's variables travel as `Field::ScriptVar` beside it.
 
 use coop_core::schema::Field;
@@ -12,34 +12,63 @@ use coop_engine::quest::QuestRecord;
 /// The tag of a quest record (also its sub-index: one per quest).
 pub const QUEST_RECORD_TAG: u16 = 0x5152;
 
+/// The encoding's version, part of what two games must agree on at the handshake (2: objective
+/// numbers of variable length).
+pub const VERSION: u32 = 2;
+
 /// The length of the fixed part (stage, flags, done set, objective count).
 pub const LEN: usize = 2 + 32 + 1;
 
-/// Bytes per objective.
-const OBJECTIVE_LEN: usize = 5;
+/// Most bytes a record may take (coop-core's custom field limit).
+pub const MAX_LEN: usize = coop_core::schema::MAX_CUSTOM_BYTES;
 
-/// Most objectives a record carries within coop-core's custom field limit.
-pub const MAX_OBJECTIVES: usize = (coop_core::schema::MAX_CUSTOM_BYTES - LEN) / OBJECTIVE_LEN;
-
-/// The record as its field, or `None` when it cannot be carried exactly (more than
-/// [`MAX_OBJECTIVES`] objectives, an objective state above 255): the host then sends nothing
-/// rather than something wrong.
-pub fn encode(r: &QuestRecord) -> Option<Field> {
-    if r.objectives.len() > MAX_OBJECTIVES {
-        return None;
+/// Appends `n` as a variable-length number: seven bits a byte, low bits first, the top bit set on
+/// every byte but the last. Objective numbers are small in the game's data (one byte each below
+/// 128), so a quest with a hundred objectives fits.
+fn put_number(out: &mut Vec<u8>, mut n: u32) {
+    while n >= 0x80 {
+        out.push(n as u8 | 0x80);
+        n >>= 7;
     }
+    out.push(n as u8);
+}
+
+/// Reads a number [`put_number`] wrote from the front of `data`; `None` when it is cut short, longer
+/// than a `u32` needs, or not in its shortest form.
+fn take_number(data: &mut &[u8]) -> Option<u32> {
+    let mut n = 0u32;
+    for i in 0..5 {
+        let (&b, rest) = data.split_first()?;
+        *data = rest;
+        let bits = u32::from(b & 0x7f);
+        if i == 4 && bits > 0x0f {
+            return None;
+        }
+        n |= bits << (7 * i);
+        if b & 0x80 == 0 {
+            // The shortest form only: no zero byte after the first.
+            return (i == 0 || bits != 0).then_some(n);
+        }
+    }
+    None
+}
+
+/// The record as its field, or `None` when it cannot be carried exactly (more than 255
+/// objectives, an objective state above 255, or more than [`MAX_LEN`] bytes): the host then sends
+/// nothing rather than something wrong, and says so.
+pub fn encode(r: &QuestRecord) -> Option<Field> {
     let mut data = vec![0u8; LEN];
     data[0] = r.stage;
     data[1] = r.flags;
     for n in &r.done {
         data[2 + usize::from(*n / 8)] |= 1 << (n % 8);
     }
-    data[LEN - 1] = r.objectives.len() as u8;
+    data[LEN - 1] = u8::try_from(r.objectives.len()).ok()?;
     for &(n, state) in &r.objectives {
-        data.extend_from_slice(&n.to_le_bytes());
+        put_number(&mut data, n);
         data.push(u8::try_from(state).ok()?);
     }
-    Some(Field::Custom {
+    (data.len() <= MAX_LEN).then_some(Field::Custom {
         tag: QUEST_RECORD_TAG,
         data,
     })
@@ -55,21 +84,20 @@ pub fn decode(form: u32, f: &Field) -> Option<QuestRecord> {
         return None;
     }
     let count = usize::from(data[LEN - 1]);
-    if data.len() != LEN + count * OBJECTIVE_LEN {
-        return None;
-    }
     let done = (0..=255u8)
         .filter(|n| data[2 + usize::from(*n / 8)] & (1 << (n % 8)) != 0)
         .collect();
-    let objectives = data[LEN..]
-        .chunks_exact(OBJECTIVE_LEN)
-        .map(|c| {
-            (
-                u32::from_le_bytes([c[0], c[1], c[2], c[3]]),
-                u32::from(c[4]),
-            )
-        })
-        .collect();
+    let mut rest = &data[LEN..];
+    let mut objectives = Vec::with_capacity(count);
+    for _ in 0..count {
+        let n = take_number(&mut rest)?;
+        let (&state, after) = rest.split_first()?;
+        rest = after;
+        objectives.push((n, u32::from(state)));
+    }
+    if !rest.is_empty() {
+        return None;
+    }
     Some(QuestRecord {
         form,
         stage: data[0],
@@ -126,17 +154,48 @@ mod tests {
     }
 
     #[test]
+    fn a_quest_with_a_hundred_objectives_fits() {
+        // Dead Money's 0100f3f7 has 108 objectives (seen on a PC, 2026-11-10).
+        let r = QuestRecord {
+            objectives: (0..108).map(|n| (n * 5, n % 4)).collect(),
+            ..rec(30, 1, &[10, 30])
+        };
+        let f = encode(&r).unwrap();
+        assert!(f.is_sane());
+        assert_eq!(decode(r.form, &f), Some(r));
+    }
+
+    #[test]
+    fn numbers_round_trip_in_their_shortest_form_only() {
+        for n in [0, 1, 127, 128, 300, 0x3fff, 0x4000, 0xffff_ffff] {
+            let mut b = Vec::new();
+            put_number(&mut b, n);
+            let mut s = &b[..];
+            assert_eq!(take_number(&mut s), Some(n));
+            assert!(s.is_empty());
+        }
+        for bad in [
+            &[0x80u8][..],
+            &[0x80, 0x00],
+            &[0xff, 0xff, 0xff, 0xff, 0x1f],
+            &[],
+        ] {
+            assert_eq!(take_number(&mut &bad[..]), None, "{bad:?}");
+        }
+    }
+
+    #[test]
     fn a_record_that_cannot_be_carried_exactly_is_not_encoded() {
         let many = QuestRecord {
-            objectives: (0..=MAX_OBJECTIVES as u32).map(|n| (n, 1)).collect(),
+            objectives: (0..256).map(|n| (n, 1)).collect(),
             ..rec(0, 0, &[])
         };
         assert_eq!(encode(&many), None);
-        let fits = QuestRecord {
-            objectives: (0..MAX_OBJECTIVES as u32).map(|n| (n, 1)).collect(),
+        let too_long = QuestRecord {
+            objectives: (0..200).map(|n| (0x1000_0000 + n, 1)).collect(),
             ..rec(0, 0, &[])
         };
-        assert!(encode(&fits).unwrap().is_sane());
+        assert_eq!(encode(&too_long), None);
         let odd_state = QuestRecord {
             objectives: vec![(1, 256)],
             ..rec(0, 0, &[])
