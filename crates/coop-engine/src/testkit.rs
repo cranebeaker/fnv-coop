@@ -30,6 +30,22 @@ const SAVE_LOAD: u32 = 0x0160_0000;
 /// The quest script every quest has and the result script every stage has.
 const QUEST_SCRIPT: u32 = 0x0150_0000;
 const RESULT_SCRIPT: u32 = 0x0150_0100;
+/// The player, and the arena placed references come from (0x100 bytes each; the count of placed
+/// references is the word at `PLACED`).
+const PLAYER: u32 = 0x0140_0000;
+const PLACED: u32 = 0x0141_0000;
+const ARENA: u32 = 0x0141_0100;
+/// Counters at `RAN + 8..`: `CenterOnCell` calls, `Disable` calls, `EndMovement` calls, `SetGhost`
+/// calls.
+const WARPS: u32 = RAN + 8;
+const DISABLES: u32 = RAN + 12;
+const END_MOVES: u32 = RAN + 16;
+const GHOSTS: u32 = RAN + 20;
+/// The first id a placed reference gets, as the game's dynamic ids (`ff......`).
+const FIRST_PLACED_ID: u32 = 0xff00_0001;
+/// The form type of a cell (`CELL`) in the test data.
+const FORM_TYPE_CELL: u8 = 0x39;
+
 /// Bytes per form in the heap. A quest's slot: the form, stages at +0x80 (4 bytes each), stage list
 /// nodes at +0x180, objectives at +0x400 (0x28 each), objective nodes at +0x700, its script's
 /// `ScriptLocals` at +0x800, variable nodes at +0x840, variables at +0x900 (0x18 each).
@@ -46,6 +62,9 @@ pub struct StorySpec {
     pub objectives: Vec<(u32, Vec<u32>)>,
     /// (quest id, its script's variable ids in list order); a quest listed here has a script.
     pub vars: Vec<(u32, Vec<u32>)>,
+    /// Cell form ids. A story with cells also has a player (in no cell until
+    /// [`Story::move_player`]) and the base form 7 an avatar is placed from.
+    pub cells: Vec<u32>,
 }
 
 /// One machine's engine holding a [`StorySpec`].
@@ -130,6 +149,37 @@ fn run(e: &mut Engine, script: u32) {
     );
 }
 
+fn bump(e: &mut Engine, at: u32) {
+    let n = e.mem.u32(at);
+    e.mem.set_u32(at, n + 1);
+}
+
+/// The `PlaceAtMe` worker for a count of 1 and no distance: a new reference at the anchor's place,
+/// in its cell, with its 3D, a dynamic id, and its AI on (as the game makes an actor).
+fn place_at_me(e: &mut Engine, a: &[u32]) -> Ret {
+    let (anchor, form) = (a[0], a[1]);
+    if anchor == 0 || form == 0 {
+        return eax(0);
+    }
+    let n = e.mem.u32(PLACED);
+    let r = ARENA + 0x100 * n;
+    e.mem.set_u32(PLACED, n + 1);
+    e.mem.set_u32(r + addr::FORM_ID_OFFSET, FIRST_PLACED_ID + n);
+    for o in (0..0x1c).step_by(4) {
+        let w = e.mem.u32(anchor + 0x24 + o);
+        e.mem.set_u32(r + 0x24 + o, w);
+    }
+    let cell = e.mem.u32(anchor + addr::REF_CELL_OFFSET);
+    e.mem.set_u32(r + addr::REF_CELL_OFFSET, cell);
+    e.mem.set_u32(r + addr::REF_LOADED_OFFSET, 1);
+    e.mem.set_u8(r + addr::ACTOR_PROCESS_ME_OFFSET, 1);
+    let count = e.mem.u32(TABLE);
+    e.mem.set_u32(TABLE + 4 + 8 * count, FIRST_PLACED_ID + n);
+    e.mem.set_u32(TABLE + 8 + 8 * count, r);
+    e.mem.set_u32(TABLE, count + 1);
+    eax(r)
+}
+
 fn runner(e: &mut Engine, a: &[u32]) -> Ret {
     let n = e.mem.u32(RAN);
     e.mem.set_u32(RAN, n + 1);
@@ -212,6 +262,24 @@ impl Story {
             entries.push((*id, g));
             slot += SLOT;
         }
+        for id in &spec.cells {
+            let c = slot;
+            e.mem.set_u8(c + addr::FORM_TYPE_OFFSET, FORM_TYPE_CELL);
+            e.mem.set_u32(c + addr::FORM_ID_OFFSET, *id);
+            entries.push((*id, c));
+            slot += SLOT;
+        }
+        if !spec.cells.is_empty() {
+            // The avatar's base form and the player, as the game has them from its start.
+            e.mem.set_u32(slot + addr::FORM_ID_OFFSET, 7);
+            entries.push((7, slot));
+            slot += SLOT;
+            e.map(PLAYER, 0x2_0000);
+            e.map(addr::PLAYER_SINGLETON & !0xfff, 0x1000);
+            e.mem.set_u32(PLAYER + addr::FORM_ID_OFFSET, 0x14);
+            e.mem.set_u32(addr::PLAYER_SINGLETON, PLAYER);
+            entries.push((0x14, PLAYER));
+        }
         assert!(slot <= HEAP + HEAP_LEN, "a test story fits its heap");
         e.mem.set_u32(TABLE, entries.len() as u32);
         for (i, (id, f)) in entries.into_iter().enumerate() {
@@ -226,6 +294,48 @@ impl Story {
         e.register(addr::SCRIPT_RUNNER_RUN, runner);
         e.register(addr::SAVE_LOAD_ADD_CHANGE, |_, _| Ret::default());
         e.register(addr::SAVE_LOAD_RECORDS_CHANGE, |_, _| eax(1));
+        e.register(addr::PLACE_AT_ME, place_at_me);
+        e.register(addr::SET_POS_BASE, |e, a| {
+            let axis = match a[1] as u8 {
+                b'X' => 0,
+                b'Y' => 4,
+                _ => 8,
+            };
+            e.mem.set_u32(a[0] + addr::REF_POS_OFFSET + axis, a[2]);
+            Ret::default()
+        });
+        e.register(addr::SET_ANGLE_BASE, |e, a| {
+            let rad = f32::from_bits(a[2]).to_radians();
+            e.mem.set_f32(a[0] + addr::REF_HEADING_OFFSET, rad);
+            Ret::default()
+        });
+        e.register(addr::CENTER_ON_CELL, |e, a| {
+            // The cell's own arrival point: here its origin.
+            e.mem.set_u32(a[0] + addr::REF_CELL_OFFSET, a[2]);
+            for o in [0, 4, 8] {
+                e.mem.set_f32(a[0] + addr::REF_POS_OFFSET + o, 0.0);
+            }
+            e.mem.set_u32(a[0] + addr::REF_LOADED_OFFSET, 1);
+            bump(e, WARPS);
+            Ret::default()
+        });
+        e.register(addr::REF_DISABLE, |e, a| {
+            let flags = e.mem.u32(a[0] + addr::FORM_FLAGS_OFFSET);
+            e.mem.set_u32(
+                a[0] + addr::FORM_FLAGS_OFFSET,
+                flags | addr::FORM_FLAG_DISABLED,
+            );
+            bump(e, DISABLES);
+            Ret::default()
+        });
+        e.register(addr::ACTOR_END_MOVEMENT, |e, _| {
+            bump(e, END_MOVES);
+            Ret::default()
+        });
+        e.register(addr::ACTOR_SET_GHOST, |e, _| {
+            bump(e, GHOSTS);
+            Ret::default()
+        });
         crate::install(&mut e);
         Story { e }
     }
@@ -284,6 +394,57 @@ impl Story {
         run(&mut self.e, QUEST_SCRIPT);
     }
 
+    /// Puts the player in `cell` at `pos`, facing `heading` (radians), with its 3D: in the world.
+    pub fn move_player(&mut self, cell: u32, pos: [f32; 3], heading: f32) {
+        let c = forms::form(&mut self.e, cell).expect("a cell of the story");
+        self.e.mem.set_u32(PLAYER + addr::REF_CELL_OFFSET, c);
+        for (i, v) in pos.into_iter().enumerate() {
+            self.e
+                .mem
+                .set_f32(PLAYER + addr::REF_POS_OFFSET + 4 * i as u32, v);
+        }
+        self.e
+            .mem
+            .set_f32(PLAYER + addr::REF_HEADING_OFFSET, heading);
+        self.e.mem.set_u32(PLAYER + addr::REF_LOADED_OFFSET, 1);
+    }
+
+    /// Makes `PlaceAtMe` fail from now on (the game refusing a base form).
+    pub fn refuse_placing(&mut self) {
+        self.e.register(addr::PLACE_AT_ME, |_, _| eax(0));
+    }
+
+    /// Switches every placed reference's AI back on, as loading a game does.
+    pub fn wake_placed(&mut self) {
+        for i in 0..self.e.mem.u32(PLACED) {
+            self.e
+                .mem
+                .set_u8(ARENA + 0x100 * i + addr::ACTOR_PROCESS_ME_OFFSET, 1);
+        }
+    }
+
+    /// The placed references: (form id, cell form id, position, AI on, disabled).
+    pub fn placed(&mut self) -> Vec<(u32, u32, [f32; 3], bool, bool)> {
+        (0..self.e.mem.u32(PLACED))
+            .map(|i| {
+                let r = ARENA + 0x100 * i;
+                let cell = self.e.mem.u32(r + addr::REF_CELL_OFFSET);
+                (
+                    self.e.mem.u32(r + addr::FORM_ID_OFFSET),
+                    self.e.mem.u32(cell + addr::FORM_ID_OFFSET),
+                    [0, 4, 8].map(|o| self.e.mem.f32(r + addr::REF_POS_OFFSET + o)),
+                    self.e.mem.u8(r + addr::ACTOR_PROCESS_ME_OFFSET) != 0,
+                    self.e.mem.u32(r + addr::FORM_FLAGS_OFFSET) & addr::FORM_FLAG_DISABLED != 0,
+                )
+            })
+            .collect()
+    }
+
+    /// How often the player was moved with `CenterOnCell`.
+    pub fn warps(&self) -> u32 {
+        self.e.mem.u32(WARPS)
+    }
+
     /// How many scripts really ran on this machine.
     pub fn scripts_run(&self) -> u32 {
         self.e.mem.u32(RAN)
@@ -300,6 +461,7 @@ mod tests {
             globals: vec![(0x0000_0039, 1.0), (0x0000_003a, 0.0)],
             objectives: vec![(0x0010_4c0c, vec![10, 20])],
             vars: vec![(0x0010_4c0c, vec![1, 2, 7])],
+            cells: vec![0x0010_5a00, 0x0010_5a01],
         }
     }
 
@@ -365,5 +527,53 @@ mod tests {
         b.run_quest_script();
         assert_eq!((a.scripts_run(), b.scripts_run()), (1, 0));
         assert!(!crate::gate::is_guest(&mut a.e));
+    }
+
+    #[test]
+    fn the_player_a_warp_and_an_avatar_are_where_co_op_reads_them() {
+        use crate::live;
+        let mut s = Story::new(&spec());
+        // At the menu: a player in no cell.
+        assert_eq!(live::local(&mut s.e), None);
+        s.move_player(0x0010_5a00, [10.0, 20.0, 30.0], 1.5);
+        let l = live::local(&mut s.e).unwrap();
+        assert_eq!(
+            (l.cell, l.pos, l.heading, l.loaded),
+            (0x0010_5a00, [10.0, 20.0, 30.0], 1.5, true)
+        );
+        // The avatar: placed at the player, AI off, then held where it is told.
+        let a = live::avatar_create(&mut s.e, 7).unwrap();
+        assert_eq!(
+            s.placed(),
+            [(a.id, 0x0010_5a00, [10.0, 20.0, 30.0], false, false)]
+        );
+        s.wake_placed();
+        let h = live::avatar_hold(&mut s.e, a, [1.0, 2.0, 3.0], 0.5).unwrap();
+        assert_eq!((h.woke, h.pos), (true, [1.0, 2.0, 3.0]));
+        assert!(
+            !live::avatar_hold(&mut s.e, a, [1.0, 2.0, 3.0], 0.5)
+                .unwrap()
+                .woke
+        );
+        assert!(live::avatar_remove(&mut s.e, a));
+        assert!(s.placed()[0].4);
+        // The warp: to a known cell; an unknown one is refused, and nothing moves.
+        assert_eq!(live::warp(&mut s.e, 0x0010_5a01), Ok(()));
+        assert_eq!(live::local(&mut s.e).unwrap().cell, 0x0010_5a01);
+        assert_eq!(
+            live::warp(&mut s.e, 0x9999),
+            Err(live::Refusal::FormNotFound(0x9999))
+        );
+        assert_eq!(s.warps(), 1);
+        // A base form the data lacks, and a game that refuses to place.
+        assert_eq!(
+            live::avatar_create(&mut s.e, 0x9999),
+            Err(live::Refusal::FormNotFound(0x9999))
+        );
+        s.refuse_placing();
+        assert_eq!(
+            live::avatar_create(&mut s.e, 7),
+            Err(live::Refusal::NotPlaced)
+        );
     }
 }

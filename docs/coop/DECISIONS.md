@@ -95,3 +95,37 @@ state the host never had. One key per quest cannot be split.
    the codec refuses malformed records.
 4. Noted from the minority: later milestones bring over coop-session's ext, start, party and live pieces as
    they are needed, rather than rebuilding them blind.
+
+## D3 (2026-11-10): the guest in the world, and players seeing each other
+
+**Question.** The story channel works between two real games (PC run, 2026-11-10: 3883 hash checks, 0
+desyncs, 0 refused), but the guest sat at its main menu. How does a guest get into the world next to the
+host, and how is a remote player shown?
+
+**Proposals.** All three: no own guest character in the first version; the guest presses New Game (its
+opening is gated) and is moved to the host; a remote player is an actor with its AI off, moved each frame
+from coop-core's avatar interpolation. A: script-command bodies (PlaceAtMe worker, CenterOnCell). B: direct
+engine calls (CreateReference, MoveTo's cell-change path, full transform apply, a vanilla NPC as the base).
+C: a "ladder": one PC run climbs five logged rungs (read own state; receive the peer's; warp the guest;
+create the avatar; move it), capped by an environment variable so a crash at a rung is retried lower
+without a rebuild.
+
+**Factors.** Works in the real game and diagnosable in one run 0.35, headless verifiability 0.20, path to
+combat, dialogue and an own character 0.20, safety of the proven story channel 0.15, effort 0.10.
+
+| Member | A | B | C | Vote |
+| --- | --- | --- | --- | --- |
+| 1 (sceptic) | 6.45 | 6.30 | 7.65 | C hybrid |
+| 2 (pragmatist) | 6.45 | 6.30 | 7.85 | C hybrid |
+| 3 (correctness) | 6.30 | 5.45 | 7.65 | C hybrid |
+
+**Decision: C, 3 votes to 0**, with A's base-form override (`NV_COOP_AVATAR=<hex>`). B's direct creation,
+MoveTo arrival and full transform apply follow once the ladder passes.
+
+**Binding conditions.**
+1. Each rung writes fixed-format lines: `COOP-RUNG n entering` (flushed before its first engine call) and
+   `COOP-RUNG n PASS|FAIL <reason>`, so a hard crash still names the rung.
+2. The status line keeps the story counters; a run capped at the log rungs must still show 0 desyncs and 0
+   refused.
+3. The avatar's reference never enters the story channel (a headless test asserts the replica is unchanged
+   by creating, moving and removing it), and it is disabled when its player leaves or the session ends.

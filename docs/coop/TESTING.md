@@ -45,3 +45,27 @@ host's public address (the launcher does this later).
 
 Report the console output of both windows, especially any `refused` above 0 or a status line whose
 differing entries never go back to 0.
+
+## M5: the live ladder (players in the world)
+
+Same two windows as M3 (host with `NV_COOP=host`, guest with `NV_COOP=join:<code>`), logs kept with
+`2>&1 | Tee-Object host-log.txt` and `guest-log.txt`.
+
+1. Host: start a new game and play until you stand in Doc Mitchell's house and can walk.
+2. Guest: press New Game and wait.
+3. Host: walk around the room for a minute, then go outside and walk a little.
+4. Close both, then in the folder run:
+
+```powershell
+Select-String "COOP-RUNG|co-op live" host-log.txt
+Select-String "COOP-RUNG|co-op live" guest-log.txt
+Select-String "co-op guest:" guest-log.txt | Select-Object -Last 2
+```
+
+Expected on the guest: `COOP-RUNG 1` to `5` with `PASS`; on the host rungs 1, 2, 4 and 5. On screen:
+the guest stands in the host's room, and each window shows a figure where the other player is (it slides;
+it does not walk yet).
+
+If the game stops, the last `COOP-RUNG n entering` line names the step. To retry below it, set
+`$env:NV_COOP_LIVE = "warp"` (no avatars) or `"log"` (nothing in the game is touched) in both windows.
+If rung 4 fails, another base form can be tried with `$env:NV_COOP_AVATAR = "<hex form id>"`.

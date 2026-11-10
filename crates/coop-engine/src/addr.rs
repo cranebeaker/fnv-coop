@@ -106,3 +106,51 @@ pub const CHANGE_SCRIPT_LOCALS: u32 = 0x4000_0000;
 
 /// The change flag of a quest's objectives (the save writes them under it, `crates/fos`).
 pub const CHANGE_QUEST_OBJECTIVES: u32 = 0x2000_0000;
+
+/// The pointer to the game's one `PlayerCharacter` (`011dea3c`, `PLAYER_SINGLETON` in the
+/// translations); 0 before the game has made it.
+pub const PLAYER_SINGLETON: u32 = 0x011d_ea3c;
+
+/// `TESForm::iFormFlags`: the word at +0x08; bit `0x800` is "disabled" (`0044_0da0` reads it).
+pub const FORM_FLAGS_OFFSET: u32 = 0x08;
+/// See [`FORM_FLAGS_OFFSET`].
+pub const FORM_FLAG_DISABLED: u32 = 0x800;
+
+/// `TESObjectREFR::data.Angle.z` (the heading, radians) at +0x2c and `data.Location` (three
+/// floats) at +0x30 (`tesobjectrefr.rs`, `OBJ_REFR` at +0x20).
+pub const REF_HEADING_OFFSET: u32 = 0x2c;
+/// See [`REF_HEADING_OFFSET`].
+pub const REF_POS_OFFSET: u32 = 0x30;
+/// `TESObjectREFR::pParentCell` at +0x40 and `pLoadedData` (its 3D; 0 without) at +0x64.
+pub const REF_CELL_OFFSET: u32 = 0x40;
+/// See [`REF_CELL_OFFSET`].
+pub const REF_LOADED_OFFSET: u32 = 0x64;
+
+/// `Actor::bProcessMe`: the byte at +0xbc the per-actor `ToggleAI` (`005bbf70`) flips; the
+/// process lists skip an actor whose byte is 0.
+pub const ACTOR_PROCESS_ME_OFFSET: u32 = 0xbc;
+
+/// The `PlaceAtMe` worker, `cdecl (reference, form, count, distance, direction, health scale)`
+/// (`005c4b30`, `tesscriptfunctions_p3.rs`): the new reference, at the reference's own position
+/// for a count of 1 and a distance of 0; 0 when it could not be made.
+pub const PLACE_AT_ME: u32 = 0x005c_4b30;
+
+/// `Script::SetPosBase(reference, axis 'X'/'Y'/'Z', value)` (`005c0740`) and
+/// `Script::SetAngleBase(reference, axis, degrees)` (`005c0b10`), the bodies of the `SetPos` and
+/// `SetAngle` commands (`tesscriptfunctions_p2.rs`): they move a loaded actor's controller and
+/// node too.
+pub const SET_POS_BASE: u32 = 0x005c_0740;
+/// See [`SET_POS_BASE`].
+pub const SET_ANGLE_BASE: u32 = 0x005c_0b10;
+
+/// `PlayerCharacter::CenterOnCell(this, editor id text or 0, cell)` (`0093db60`,
+/// `playercharacter.rs`): puts the player at the cell's `COC` placement, loading the cell.
+pub const CENTER_ON_CELL: u32 = 0x0093_db60;
+
+/// `Actor::EndMovement(this)` (`0087faa0`) and `Actor::SetGhost(this, on)` (`008acf10`).
+pub const ACTOR_END_MOVEMENT: u32 = 0x0087_faa0;
+/// See [`ACTOR_END_MOVEMENT`].
+pub const ACTOR_SET_GHOST: u32 = 0x008a_cf10;
+
+/// `TESObjectREFR::Disable(this)` (`00574400`).
+pub const REF_DISABLE: u32 = 0x0057_4400;

@@ -5,6 +5,11 @@
 //! with the story's scripts gated. `NV_COOP=journal` is the change journal's log
 //! (`coop_engine::diag`), not a session.
 //!
+//! The live ladder (docs/coop/DECISIONS.md D3) runs with a session: `NV_COOP_LIVE=log` reads and
+//! sends the players' places only, `warp` also moves a guest to the host's cell, `avatar` (the
+//! default) also shows the other players; `off` leaves the session story-only.
+//! `NV_COOP_AVATAR=<hex form id>` is the base form of an avatar (default 7, the player's own).
+//!
 //! Both players start the same game (a new game, or the same save) from installations whose
 //! plugins load in the same order; the handshake refuses a guest whose plugins differ.
 
@@ -13,6 +18,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use coop_core::sync::HostConfig;
+use coop_engine_session::ladder::{Cap, Ladder, DEFAULT_AVATAR_BASE};
 use coop_engine_session::{self as session, GuestDriver, HostDriver};
 use coop_net::{
     random_token, Endpoint, EndpointConfig, JoinCode, JoinTarget, NetEvent, UdpBackend, UdpConfig,
@@ -139,6 +145,24 @@ pub struct Coop {
 }
 
 impl Coop {
+    /// The live ladder `NV_COOP_LIVE` and `NV_COOP_AVATAR` ask for; `None` for `off`. Returns the
+    /// line that says so.
+    fn ladder(guest: bool) -> (Option<Ladder>, String) {
+        let live = std::env::var("NV_COOP_LIVE").unwrap_or_default();
+        if live.trim() == "off" {
+            return (None, "co-op live: off (NV_COOP_LIVE=off)".into());
+        }
+        let cap = Cap::parse(&live);
+        let base = std::env::var("NV_COOP_AVATAR")
+            .ok()
+            .and_then(|v| u32::from_str_radix(v.trim().trim_start_matches("0x"), 16).ok())
+            .unwrap_or(DEFAULT_AVATAR_BASE);
+        (
+            Some(Ladder::new(guest, cap, base)),
+            format!("co-op live: ladder up to {cap:?}, avatar base form {base:08x}"),
+        )
+    }
+
     /// Opens the session `ask` asks for, for the installation whose `Data` folder is `data`.
     /// Returns the session and the lines to print (the join code).
     pub fn open(ask: &Ask, data: &Path, name: &str) -> Result<(Coop, Vec<String>), String> {
@@ -164,11 +188,14 @@ impl Coop {
                     "co-op: hosting on UDP port {port}; join code for this network: {code} (over the internet: forward UDP port {port} and give your public address)"
                 ));
                 let session_id = u64::from_le_bytes(token[..8].try_into().expect("8 bytes"));
-                let host = HostDriver::new(
+                let mut host = HostDriver::new(
                     HostConfig::new(session::hello(plugins.clone()), session_id),
                     quests,
                     globals,
                 );
+                let (ladder, line) = Self::ladder(false);
+                host.ladder = ladder;
+                lines.push(line);
                 (Endpoint::host(b, token, cfg), Role::Host(Box::new(host)))
             }
             Ask::Join(code) => {
@@ -207,10 +234,12 @@ impl Coop {
                     lines.push(format!("co-op: joined as player {}", local.0));
                     match &mut self.role {
                         Role::Guest(slot @ None) => {
-                            *slot = Some(Box::new(GuestDriver::new(
-                                local,
-                                session::hello(self.plugins.clone()),
-                            )));
+                            let mut g =
+                                GuestDriver::new(local, session::hello(self.plugins.clone()));
+                            let (ladder, line) = Self::ladder(true);
+                            g.ladder = ladder;
+                            lines.push(line);
+                            *slot = Some(Box::new(g));
                         }
                         // Joined again after losing the host: resume from what this guest has.
                         Role::Guest(Some(g)) => g.rejoin(local, &mut self.ep),
@@ -276,10 +305,11 @@ impl Coop {
     fn status(&self, e: &mut Engine) -> String {
         match &self.role {
             Role::Host(h) => format!(
-                "co-op host: {} guest(s), story revision {}, not sendable {}",
+                "co-op host: {} guest(s), story revision {}, not sendable {}; {}",
                 h.sync.players().len(),
                 h.sync.store.rev().0,
-                h.unencodable
+                h.unencodable,
+                h.ladder.as_ref().map_or("live: off".into(), Ladder::status)
             ),
             Role::Guest(Some(g)) => {
                 let (applying, story) = coop_engine::gate::skipped(e);
@@ -292,7 +322,8 @@ impl Coop {
                     g.healed,
                     g.refused,
                     g.heal_refused,
-                )
+                ) + "; "
+                    + &g.ladder.as_ref().map_or("live: off".into(), Ladder::status)
             }
             Role::Guest(None) => "co-op guest: waiting for the host".into(),
         }

@@ -18,17 +18,19 @@
 //! The transport is coop-core's `Transport`: coop-net's endpoint in the game, the loopback and
 //! chaos transports in tests.
 
+pub mod ladder;
 pub mod record;
 
 use std::collections::BTreeSet;
 
+use coop_core::avatar::{AvatarMsg, AvatarSender, Sample};
 use coop_core::compat;
 use coop_core::delta::StateStore;
 use coop_core::ids::{FormId, PlayerId, Rev, Tick};
 use coop_core::proto::{self, Hello, Msg};
 use coop_core::schema::Field;
 use coop_core::sync::GuestSync;
-use coop_core::sync::{HostConfig, HostSync};
+use coop_core::sync::{GuestLive, HostConfig, HostSync};
 use coop_core::transport::Transport;
 use coop_engine::forms::{self, GlobalWatch};
 use coop_engine::{addr, gate, quest, vars};
@@ -93,6 +95,11 @@ pub struct HostDriver {
     /// Quest records or variables that could not be carried exactly (see [`record::encode`]; a
     /// variable id above 65535): not sent.
     pub unencodable: u32,
+    /// The live ladder (players in the world); `None` leaves the session story-only.
+    pub ladder: Option<ladder::Ladder>,
+    sender: AvatarSender,
+    /// The host player's own view of the other players (their interpolated states).
+    view: GuestLive,
     /// What could not be sent, once each: the quest and why (for the log).
     pub unencodable_notes: Vec<String>,
     noted: BTreeSet<(u32, u32)>,
@@ -121,6 +128,9 @@ impl HostDriver {
             quests: quest_ids.into_iter().collect(),
             globals: GlobalWatch::new(global_ids),
             unencodable: 0,
+            ladder: None,
+            sender: AvatarSender::new(PlayerId::HOST),
+            view: GuestLive::new(PlayerId::HOST),
             unencodable_notes: Vec::new(),
             noted: BTreeSet::new(),
             steps: 0,
@@ -215,6 +225,45 @@ impl HostDriver {
         for (to, msg) in out {
             send(net, to, &msg, &mut self.send_failures);
         }
+        self.live_step(e, net, now_ms);
+    }
+
+    /// The live ladder's frame: the other players' states into the host's view, the ladder's
+    /// rungs, then this player's own state to every guest. The host's state goes to all of them,
+    /// whatever cell they are in: a guest needs it to come to the host.
+    fn live_step(&mut self, e: &mut Engine, net: &mut dyn Transport, now_ms: u64) {
+        let Some(ladder) = self.ladder.as_mut() else {
+            return;
+        };
+        for msg in self.sync.live.take_local() {
+            self.view.on_msg(msg, now_ms);
+        }
+        let players = self.sync.players();
+        let peers: Vec<(PlayerId, Sample)> = players
+            .iter()
+            .filter_map(|p| Some((*p, self.view.sample(*p, now_ms)?)))
+            .filter(|(_, s)| s.cell.0 != 0)
+            .collect();
+        let Some(me) = ladder.frame(e, now_ms, &peers) else {
+            return;
+        };
+        let Some(m) = self.sender.tick(now_ms, &ladder::state_of(&me)) else {
+            return;
+        };
+        let relayed = self.sync.live.on_msg(
+            PlayerId::HOST,
+            Msg::Avatar(m.clone()),
+            now_ms,
+            &mut self.sync.auth,
+        );
+        for (to, msg) in relayed {
+            if !matches!(msg, Msg::Avatar(AvatarMsg::State { .. })) {
+                send(net, to, &msg, &mut self.send_failures);
+            }
+        }
+        for to in players {
+            send(net, to, &Msg::Avatar(m.clone()), &mut self.send_failures);
+        }
     }
 }
 
@@ -242,6 +291,8 @@ pub struct GuestDriver {
     pub heal_every: u64,
     /// Entries applied again because the game had drifted from the replica.
     pub healed: u32,
+    /// The live ladder (players in the world); `None` leaves the session story-only.
+    pub ladder: Option<ladder::Ladder>,
     /// Drifted entries the game refused when applied again (counted once each time they are
     /// tried; the same entry is in [`GuestDriver::refused`] from its first apply).
     pub heal_refused: u32,
@@ -266,6 +317,7 @@ impl GuestDriver {
             steps: 0,
             heal_every: 20,
             healed: 0,
+            ladder: None,
             heal_refused: 0,
             refused: 0,
             bad_packets: 0,
@@ -287,6 +339,18 @@ impl GuestDriver {
         for (_, msg) in receive(net, &mut self.bad_packets) {
             for reply in self.sync.on_msg(msg) {
                 send(net, PlayerId::HOST, &reply, &mut self.send_failures);
+            }
+        }
+        if let Some(ladder) = self.ladder.as_mut() {
+            let ids: Vec<PlayerId> = self.sync.live.remote.keys().copied().collect();
+            let peers: Vec<(PlayerId, Sample)> = ids
+                .into_iter()
+                .filter_map(|p| Some((p, self.sync.live.sample(p, now_ms)?)))
+                .filter(|(_, s)| s.cell.0 != 0)
+                .collect();
+            if let Some(me) = ladder.frame(e, now_ms, &peers) {
+                // Sent by coop-core's guest sync at its fixed rate, in the tick below.
+                self.sync.live.local = ladder::state_of(&me);
             }
         }
         for msg in self.sync.tick(Tick(0)) {

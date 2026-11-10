@@ -47,11 +47,12 @@ machine with FNV 1.4.0.525. "Headless" means `cargo test` with no game files.
 | # | State |
 | --- | --- |
 | M0 | Done here: branch, agnostic crates, `Cargo.lock`; their tests pass (four nv-launcher tests expect a Windows install and fail on Linux, as before) |
-| M1 | Done here, PC check pending: owner, journal, gate, forms; `NV_COOP=journal` |
+| M1 | Done, confirmed on a PC (2026-11-10): the journal names the opening's quests, objectives and the DLC start quests |
 | M2 | Superseded for M3 by D2's driver; the checklist's engine backend follows |
-| M3 | Built and verified headlessly (S7); the two-PC run is next (TESTING.md) |
+| M3 | Done: two games on a PC, the host played the opening, the guest held its story (3883 hash checks, 0 desyncs, 0 refused; 2026-11-10) |
 | M4 | Quests, objectives, quest variables and globals carried as fields; the generic changed-form stream for other types is next |
-| M5 to M9 | Not started |
+| M5 | First version built and verified headlessly (S8: the guest comes to the host, sliding avatars); the PC ladder run is next (TESTING.md) |
+| M6 to M9 | Not started |
 
 ## Ownership and order
 

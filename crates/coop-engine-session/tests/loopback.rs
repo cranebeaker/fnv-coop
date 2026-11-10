@@ -34,6 +34,7 @@ fn spec() -> StorySpec {
         globals: vec![(0x39, 0.0), (0x3a, 1.0), (0x3b, 0.0)],
         objectives: vec![(MQ, vec![10, 20, 30]), (SIDE, vec![1])],
         vars: vec![(MQ, vec![1, 2, 3]), (SIDE, vec![4])],
+        ..StorySpec::default()
     }
 }
 

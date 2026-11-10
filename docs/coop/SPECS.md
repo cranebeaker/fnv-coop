@@ -187,3 +187,37 @@ endpoint on 127.0.0.1. Each guarded behaviour was removed once to see the tests 
 
 **Not verified here:** the real translated functions behind the stand-ins, the real load order,
 and two real games (docs/coop/TESTING.md).
+
+## S8: the live ladder (implemented; docs/coop/DECISIONS.md D3)
+
+Players in the world, one logged rung at a time (`coop_engine::live`, `coop_engine_session::ladder`):
+
+| Rung | What | Game calls |
+| --- | --- | --- |
+| 1 | This game's player is read: parent cell (+0x40, its form id), position (+0x30), heading (+0x2c), 3D (+0x64) | none (the pointer at `011dea3c`) |
+| 2 | Another player's state arrives (coop-core's avatar stream, 20 Hz, interpolated) | none |
+| 3 | A guest's player is moved to the host's cell; again, at most every 5 s, when the host is in another cell | `PlayerCharacter::CenterOnCell` `0093db60` |
+| 4 | A remote player in this player's cell gets an avatar at this player's place; its AI off (`bProcessMe` +0xbc = 0, `EndMovement` `0087faa0`, `SetGhost(1)` `008acf10`) | `PlaceAtMe` worker `005c4b30` |
+| 5 | The avatar is moved every frame; an AI switched back on is switched off and counted | `SetPosBase` `005c0740` x3, `SetAngleBase` `005c0b10` |
+
+- Lines: `COOP-RUNG n entering: ...` at once, before the rung's first call into the game, and
+  `COOP-RUNG n PASS|FAIL ...` once. Rung 5 passes after 100 moves.
+- `NV_COOP_LIVE=log|warp|avatar|off` caps the ladder (default `avatar`); `NV_COOP_AVATAR=<hex>` is the
+  avatar's base form (default 7, the player's own NPC).
+- The host's own state goes to every guest whatever their cell (a guest needs it to come); guests'
+  states are relayed by coop-core's interest rules.
+- No avatar is placed or moved while this player's own move to another cell is under way. An avatar is
+  removed (`TESObjectREFR::Disable` `00574400`) when its player leaves, is in another cell, or is not in
+  the world; it is kept by form id and looked up each frame, never by pointer.
+- A failed rung is reported once and not retried in that run (a failed avatar), or reported and retried on
+  the next host cell change (a failed warp).
+- First version limits: no own guest character (the guest's game is the default courier; the opening is
+  gated), a sliding figure without animation, no avatar across cells, avatars are not removed before a
+  save (nv-viewer keeps saves in memory unless `NV_SAVE_OUT` is set).
+
+**Verified here:** 8 tests on two games in one process: the whole ladder, a guest still at its menu, each
+cap, a refused avatar, a cell the guest lacks, an avatar woken by the game, following the host to another
+cell, a guest leaving; the story channel's revision, echo, desyncs and guest script count are unchanged by
+all of it. Three behaviours were removed once each to see the tests fail.
+
+**Not verified here:** every game call in the table (the PC run of docs/coop/TESTING.md).

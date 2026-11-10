@@ -11,6 +11,7 @@
 //! - [`gate`]: on a guest, the story's scripts do not run (the host runs them).
 //! - [`quest`]: a quest's story state as the host sends it and a guest applies it.
 //! - [`vars`]: a quest script's variables, read on the host and written on a guest.
+//! - [`live`]: the local player's place, a guest's warp to the host, a remote player's avatar.
 //! - [`addr`]: every exe address and offset used, in one place.
 //! - [`diag`]: `NV_COOP=journal`, the change journal printed on a PC run.
 
@@ -19,6 +20,7 @@ pub mod diag;
 pub mod forms;
 pub mod gate;
 pub mod journal;
+pub mod live;
 pub mod quest;
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
