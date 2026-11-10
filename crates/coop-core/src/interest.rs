@@ -70,7 +70,7 @@ impl InterestMap {
             || self
                 .neighbors
                 .get(&peer_cell)
-                .map_or(false, |n| n.contains(&cell))
+                .is_some_and(|n| n.contains(&cell))
     }
 
     /// Peers that should receive an update for an entity in `cell`.
@@ -78,7 +78,7 @@ impl InterestMap {
         self.peer_cell
             .iter()
             .filter(|(p, c)| {
-                self.visible(**c, cell) || self.reach.get(p).map_or(false, |r| r.contains(&cell))
+                self.visible(**c, cell) || self.reach.get(p).is_some_and(|r| r.contains(&cell))
             })
             .map(|(p, _)| *p)
             .collect()

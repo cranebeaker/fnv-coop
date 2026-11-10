@@ -28,6 +28,7 @@ const RUN_SPEED: f32 = 220.0;
 
 /// Starts replicating the people and creatures on screen, once each (the
 /// host registers them; a guest reports them to the host).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn track(
     time: Res<Time>,
     mut link: NonSendMut<CoopLink>,
@@ -95,7 +96,7 @@ pub fn publish(
 
 /// Before the animations: the local copy of an actor another peer owns
 /// stands where the owner says, and the AI leaves it alone.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn apply_remote(
     time: Res<Time>,
     now: Res<LiveNow>,
@@ -123,7 +124,7 @@ pub fn apply_remote(
             // an owner with no place for it yet publishes the origin: leave it to the AI
             Some(a) if !a.dead && !state.0.dead.contains(&me) && a.pos != [0.0; 3] => {
                 if mark.is_none() {
-                    commands.entity(e).insert(CoopPuppet(None));
+                    commands.entity(e).try_insert(CoopPuppet(None));
                 }
                 let entry = seen.entry(me).or_insert((a.pos, [0.0; 3]));
                 let raw = [0, 1, 2].map(|i| (a.pos[i] - entry.0[i]) / dt);
@@ -142,7 +143,7 @@ pub fn apply_remote(
             }
             _ => {
                 if mark.is_some() {
-                    commands.entity(e).remove::<CoopPuppet>();
+                    commands.entity(e).try_remove::<CoopPuppet>();
                     seen.remove(&me);
                 }
             }
@@ -227,6 +228,7 @@ pub fn adopt_remote(
 /// Counts the spawned people and creatures in the scene, and how many are
 /// not hidden, for the state dump (so a run on a real machine can assert
 /// that the people are there).
+#[allow(clippy::type_complexity)]
 pub fn count(
     time: Res<Time>,
     mut now: ResMut<LiveNow>,
@@ -265,5 +267,49 @@ pub fn count(
             c.creature_entities += 1;
             c.creature_entities_visible += shown;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    /// An actor another peer owns leaves in the frame that its remote state comes
+    /// (its cell unloads first): the mark for the gone entity does not stop the game.
+    #[test]
+    fn a_remote_actor_gone_in_the_same_frame_does_not_stop_the_game() {
+        let me = FormId(0x0012_3456);
+        let mut app = App::new();
+        app.init_resource::<Time>();
+        app.insert_resource(DialogueState(world::scripting::GameState::default()));
+        app.insert_resource(LiveNow {
+            view: Some(coop_session::LiveView {
+                remote_actors: vec![ActorView {
+                    id: me,
+                    pos: [1.0, 2.0, 3.0],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let skeleton = Arc::new(preview::cell::ActorSkeleton::default());
+        app.world_mut().spawn((
+            Walker::at(me, [0.0; 3], 0.0, 1.0, false),
+            ActorRig::new(skeleton, 1.0, 0.0),
+            Transform::default(),
+        ));
+        fn unload(mut commands: Commands, people: Query<Entity, With<Walker>>) {
+            for e in &people {
+                commands.entity(e).despawn();
+            }
+        }
+        // both systems' commands apply at the end of the frame, the unload's first
+        app.add_systems(Update, (unload, apply_remote).chain_ignore_deferred());
+        app.update();
+        let left = app.world_mut().query::<&Walker>().iter(app.world()).count();
+        assert_eq!(left, 0);
     }
 }

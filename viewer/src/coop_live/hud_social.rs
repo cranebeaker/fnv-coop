@@ -107,6 +107,8 @@ impl Binding {
     }
 
     /// Held now.
+    // not called yet: the f71db09 feature merge left push to talk unwired
+    #[allow(dead_code)]
     pub fn pressed(&self, keys: &ButtonInput<KeyCode>, mouse: &ButtonInput<MouseButton>) -> bool {
         match self {
             Binding::Key(k) => keys.pressed(*k),
@@ -128,6 +130,8 @@ impl Binding {
 }
 
 /// Settings from the command line, set once by [`configure`].
+// `ptt`, `voice` and `gamepad` are not read yet: the f71db09 feature merge left them unwired
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct Settings {
     pub ping: Binding,

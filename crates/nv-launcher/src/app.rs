@@ -747,7 +747,7 @@ impl App {
             report.problems.join(" | "),
             self.viewer.display(),
             self.viewer.is_file(),
-            steam::find_dll(&[self.exe_dir.clone()]).is_some(),
+            steam::find_dll(std::slice::from_ref(&self.exe_dir)).is_some(),
         );
         let files = crate::diag::collect(&self.home, &out, self.user.as_deref(), &info)?;
         Ok((out, files))

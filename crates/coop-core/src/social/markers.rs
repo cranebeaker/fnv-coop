@@ -63,7 +63,7 @@ impl MarkerTable {
         let q = self.recent.entry(p).or_default();
         while q
             .front()
-            .map_or(false, |t| now_ms.saturating_sub(*t) >= RATE_WINDOW_MS)
+            .is_some_and(|t| now_ms.saturating_sub(*t) >= RATE_WINDOW_MS)
         {
             q.pop_front();
         }
@@ -131,7 +131,7 @@ impl MarkerTable {
         for (owner, slots) in self.owners.iter_mut() {
             let gone: Vec<u16> = slots
                 .iter()
-                .filter(|(_, s)| s.expires_ms.map_or(false, |e| now_ms >= e))
+                .filter(|(_, s)| s.expires_ms.is_some_and(|e| now_ms >= e))
                 .map(|(i, _)| *i)
                 .collect();
             for id in gone {

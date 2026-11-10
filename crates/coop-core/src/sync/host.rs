@@ -347,7 +347,7 @@ impl HostSync {
                 self.ring.on_ack(from, seq);
             }
             Msg::Input { tick, payload } => {
-                if self.guests.get(&from).map_or(false, |g| g.active) {
+                if self.guests.get(&from).is_some_and(|g| g.active) {
                     self.inputs.push((from, tick, payload));
                 }
             }
@@ -364,7 +364,7 @@ impl HostSync {
             | Msg::Interact(_)
             | Msg::Roam(_)
             | Msg::Combat(_)) => {
-                if self.guests.get(&from).map_or(false, |g| g.active) {
+                if self.guests.get(&from).is_some_and(|g| g.active) {
                     out.extend(self.live.on_msg(from, m, self.now_ms, &mut self.auth));
                 }
             }

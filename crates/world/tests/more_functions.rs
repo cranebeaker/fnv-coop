@@ -133,7 +133,7 @@ fn teammates_follow_only_their_own_packages_without_guesses() {
     let who = FormId(PERSON_REF);
     state.teammates.insert(who);
     assert!(world::ai::current_package(&order, &state, who)
-        .is_none_or(|p| p.kind != world::ai::kinds::FOLLOW));
+        .map_or(true, |p| p.kind != world::ai::kinds::FOLLOW));
 }
 
 #[test]

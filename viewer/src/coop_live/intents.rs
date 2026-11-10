@@ -7,7 +7,6 @@ use bevy::prelude::*;
 use coop_session::{Intent, Role};
 use esm::FormId;
 use world::coop::apply::Ctx;
-use world::coop::facts::LootOp;
 
 use super::LiveNow;
 use crate::coop::CoopLink;

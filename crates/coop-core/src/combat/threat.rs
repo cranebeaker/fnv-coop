@@ -94,9 +94,36 @@ impl ThreatDirector {
         self.mem.values().filter(|m| m.current == Some(p)).count()
     }
 
+    /// The damage that `p` dealt to `enemy`, as the director counts it.
+    pub fn damage_by(&self, enemy: FormId, p: PlayerId) -> f32 {
+        self.mem
+            .get(&enemy)
+            .and_then(|m| m.damage.get(&p))
+            .copied()
+            .unwrap_or(0.0)
+    }
+
     /// The current target of an enemy.
     pub fn current(&self, enemy: FormId) -> Option<PlayerId> {
         self.mem.get(&enemy).and_then(|m| m.current)
+    }
+
+    /// The game itself turned `enemy` on `p` (a script's `StartCombat`, the
+    /// engine's own combat AI). The director takes `p` as the current target
+    /// from `now_ms`, so the hold time and the margin apply to what the enemy
+    /// really does. Before, the director kept its own old pick and never
+    /// wrote again, because its pick did not change. An enemy without a pick
+    /// yet keeps its first free choice. Returns true when the target changed.
+    pub fn adopt(&mut self, enemy: FormId, p: PlayerId, now_ms: u64) -> bool {
+        let Some(m) = self.mem.get_mut(&enemy) else {
+            return false;
+        };
+        if m.current.is_none() || m.current == Some(p) {
+            return false;
+        }
+        m.current = Some(p);
+        m.since_ms = now_ms;
+        true
     }
 
     fn score(

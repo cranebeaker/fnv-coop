@@ -28,7 +28,7 @@ fn with_guesses_on_teammates_follow_and_people_on_their_feet_animate() {
     let before = world::ai::current_package(&order, &state, who);
     assert!(before
         .as_ref()
-        .is_none_or(|p| p.kind != world::ai::kinds::FOLLOW));
+        .map_or(true, |p| p.kind != world::ai::kinds::FOLLOW));
     state.teammates.insert(who);
     let package = world::ai::current_package(&order, &state, who).unwrap();
     assert_eq!(package.kind, world::ai::kinds::FOLLOW);

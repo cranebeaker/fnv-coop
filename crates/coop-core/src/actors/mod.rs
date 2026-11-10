@@ -77,15 +77,24 @@ pub enum ActorMsg {
         actor: FormId,
         /// Per-attacker hit id (deduplicated).
         hit: u32,
-        /// Damage points.
+        /// Damage points. 0: a player's blow under one point (the sender
+        /// keeps the part points). The host's friendly-fire guard counts it,
+        /// and the ledger takes no health for it.
         amount: u16,
+        /// An NPC's blow (Doc Mitchell on a gecko): the NPC that struck. No
+        /// player and no follower struck it. The host applies it but credits
+        /// no player. A guest's NPC blow counts only when the host's ledger
+        /// tracks that NPC alive near the victim, and the guest owns that NPC
+        /// or the victim. `None`: a blow of the sender's player or follower.
+        npc: Option<FormId>,
     },
     /// Host: damage applied.
     Damaged {
         /// Victim.
         actor: FormId,
-        /// Attacker.
-        by: PlayerId,
+        /// The player who struck. `None`: an NPC's blow, which pays no player
+        /// and adds no threat to anyone.
+        by: Option<PlayerId>,
         /// Points applied.
         amount: u16,
         /// Health afterwards.
@@ -173,6 +182,15 @@ pub enum ActorMsg {
         actor: FormId,
         /// Health afterwards.
         health: u16,
+    },
+    /// Host to the striker only: the friendly-fire guard dropped its blow
+    /// on `actor`. The striker forgets the part point it kept for `actor`,
+    /// so the dropped blow adds nothing to a later blow.
+    HitBlocked {
+        /// Victim.
+        actor: FormId,
+        /// The dropped blow was an NPC's blow (see [`ActorMsg::Hit`]).
+        npc: bool,
     },
 }
 

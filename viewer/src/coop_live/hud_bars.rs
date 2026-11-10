@@ -101,6 +101,7 @@ pub fn spawn_bar(commands: &mut Commands) -> Entity {
 }
 
 /// Applies each bar's fraction and position to its nodes.
+#[allow(clippy::type_complexity)]
 pub fn render_bars(
     mut roots: Query<(&HealthBar, &mut Node, &mut Visibility, &Children), Without<BarFill>>,
     mut fills: Query<(&mut Node, &mut BackgroundColor), (With<BarFill>, Without<HealthBar>)>,

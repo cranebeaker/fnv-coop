@@ -163,7 +163,7 @@ impl Reviver {
                 if slot.is_some() {
                     return Err(ReviveDeny::Busy);
                 }
-                if !dist.map_or(false, |d| d <= HOST_RANGE) {
+                if !dist.is_some_and(|d| d <= HOST_RANGE) {
                     return Err(ReviveDeny::OutOfRange);
                 }
                 *slot = Some((helper, now_ms));
@@ -218,7 +218,7 @@ impl Reviver {
                 continue;
             }
             let Some((h, began)) = helper else { continue };
-            if !dist(h, t).map_or(false, |d| d <= HOST_RANGE)
+            if !dist(h, t).is_some_and(|d| d <= HOST_RANGE)
                 || !matches!(self.players.get(&h), Some(Status::Up))
             {
                 self.players.insert(

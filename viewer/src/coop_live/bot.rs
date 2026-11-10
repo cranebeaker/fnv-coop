@@ -97,6 +97,7 @@ fn form(order: &esm::LoadOrder, word: &str) -> Option<FormId> {
 }
 
 /// Runs the lines that are due.
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     time: Res<Time>,
     mut bot: ResMut<Bot>,
