@@ -410,6 +410,8 @@ pub(crate) struct GuestSide {
     pub(crate) seen_repairs: u32,
     pub(crate) seen_checks: u32,
     pub(crate) seen_snaps: u32,
+    /// The late snapshots that the log has (`GuestSync::stale_snapshots`).
+    pub(crate) seen_stale: u32,
     pub(crate) reported_reject: bool,
     pub(crate) roster: Vec<PeerInfo>,
     pub(crate) drift_logged: u32,
@@ -632,6 +634,7 @@ impl Session {
             seen_repairs: 0,
             seen_checks: 0,
             seen_snaps: 0,
+            seen_stale: 0,
             reported_reject: false,
             roster: Vec::new(),
             drift_logged: 0,
@@ -1543,6 +1546,14 @@ impl Session {
                         ("kind".into(), "hash".into()),
                         ("subsystem".into(), "shared".into()),
                     ],
+                ));
+            }
+            // A late snapshot that the guest did not load: the log shows that it came.
+            if g.sync.stale_snapshots > g.seen_stale {
+                g.seen_stale = g.sync.stale_snapshots;
+                logs.push((
+                    "stale_snapshot",
+                    vec![("total".into(), g.sync.stale_snapshots.to_string())],
                 ));
             }
         }
