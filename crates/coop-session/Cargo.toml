@@ -14,6 +14,7 @@ steam = ["coop-net/steam"]
 
 [dependencies]
 coop-core = { path = "../coop-core" }
+coop-game = { path = "../coop-game" }
 world = { path = "../world" }
 esm = { path = "../esm" }
 coop-net = { path = "../coop-net" }

@@ -42,6 +42,7 @@ pub mod dialogue;
 pub mod env;
 pub mod export;
 pub mod facts;
+pub mod game;
 pub mod interact;
 pub mod interact_acts;
 pub mod live;

@@ -38,6 +38,18 @@ impl ShardHashes {
         ShardHashes { shards }
     }
 
+    /// The shard hashes of a set of fields (each key once), as [`ShardHashes::compute`]
+    /// gives for a store with these fields. A game adapter hashes its export with this, so
+    /// two adapters with equal fields have equal hashes.
+    pub fn of_fields<'a>(fields: impl IntoIterator<Item = (FormId, &'a Field)>) -> Self {
+        let mut shards = vec![0u64; SHARD_COUNT];
+        for (form, field) in fields {
+            let s = shard_of(form) as usize;
+            shards[s] = shards[s].wrapping_add(record_hash(form, field));
+        }
+        ShardHashes { shards }
+    }
+
     /// Wraps hashes received from a peer; `None` if the count is wrong.
     pub fn from_vec(shards: Vec<u64>) -> Option<Self> {
         (shards.len() == SHARD_COUNT).then_some(ShardHashes { shards })

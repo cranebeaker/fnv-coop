@@ -7,12 +7,15 @@ use coop_core::ids::{PlayerId, Tick};
 use coop_core::proto::{self, Channel, Hello, Msg, RejectReason, PROTOCOL_VERSION};
 use coop_core::sync::{GuestPhase, GuestSync, HostConfig, HostSync};
 use coop_core::transport::{ChaosProfile, Transport};
+use coop_game::{Game, Intent, Setup, Shared};
 use world::coop::apply::Opts;
-use world::coop::{Authority, GuestBridge, HostBridge, WorldBackend};
+use world::coop::game::WorldCoop;
+use world::coop::WorldBackend;
 use world::scripting::GameState;
 
 use crate::ext::{Command, Ext, PeerInfo, Place, MARK};
 use crate::json::V;
+use crate::mirror::{GuestMirror, HostMirror};
 use crate::net::{self, LinkErrors, Net};
 use crate::out::{DumpFile, LogFile};
 use crate::target::{parse_host_port, JoinTarget};
@@ -377,7 +380,7 @@ fn place_for(pl: Place, to: PlayerId) -> Place {
 
 pub(crate) struct HostSide {
     pub(crate) sync: HostSync,
-    pub(crate) bridge: HostBridge,
+    pub(crate) mirror: HostMirror,
     pub(crate) peers: BTreeMap<PlayerId, Peer>,
     pub(crate) commands: Vec<(PlayerId, Command)>,
     pub(crate) place: Option<Place>,
@@ -387,7 +390,7 @@ pub(crate) struct HostSide {
 
 pub(crate) struct GuestSide {
     pub(crate) sync: GuestSync,
-    pub(crate) bridge: GuestBridge,
+    pub(crate) mirror: GuestMirror,
     pub(crate) place: Option<Place>,
     pub(crate) outbox: BTreeMap<u32, (Command, Option<u64>)>,
     pub(crate) next_cmd: u32,
@@ -407,12 +410,14 @@ pub(crate) struct GuestSide {
     pub(crate) seen_repairs: u32,
     pub(crate) seen_checks: u32,
     pub(crate) seen_snaps: u32,
+    /// The late snapshots that the log has (`GuestSync::stale_snapshots`).
+    pub(crate) seen_stale: u32,
     pub(crate) reported_reject: bool,
     pub(crate) roster: Vec<PeerInfo>,
     pub(crate) drift_logged: u32,
 }
 
-/// A co-op peer: transport, protocol state machines and world bridges.
+/// A co-op peer: transport, protocol state machines and the mirrors of the game's state.
 pub struct Session {
     pub(crate) role: Role,
     pub(crate) name: String,
@@ -567,7 +572,7 @@ impl Session {
         s.link_errors = errors;
         s.host = Some(HostSide {
             sync: HostSync::new(hc),
-            bridge: HostBridge::default(),
+            mirror: HostMirror::default(),
             peers: BTreeMap::new(),
             commands: Vec::new(),
             place: None,
@@ -609,7 +614,7 @@ impl Session {
         let first = sync.start();
         s.guest = Some(GuestSide {
             sync,
-            bridge: GuestBridge::default(),
+            mirror: GuestMirror::default(),
             place: None,
             outbox: BTreeMap::new(),
             next_cmd: 1,
@@ -629,6 +634,7 @@ impl Session {
             seen_repairs: 0,
             seen_checks: 0,
             seen_snaps: 0,
+            seen_stale: 0,
             reported_reject: false,
             roster: Vec::new(),
             drift_logged: 0,
@@ -834,7 +840,116 @@ impl Session {
         }
     }
 
-    // ---- frame hooks -------------------------------------------------
+    // ---- frame hooks: the core, on any game ---------------------------
+
+    /// Start of the frame, on any game of the engine interface.
+    ///
+    /// It receives from the transport (the join, the handshake, the host's state, the
+    /// messages of the session). It tells the game its role. A guest then makes the game's
+    /// shared state equal to the host's state.
+    ///
+    /// `present`: the game shows the journal lines of the changes to its player.
+    ///
+    /// Call it one time at the start of each frame, before the game runs its rules. Call
+    /// [`Session::post_frame_game`] at the end of the same frame. For a frame with no game
+    /// (a load screen), call [`Session::poll`].
+    pub fn pre_frame_game(&mut self, game: &mut dyn Game, present: bool) {
+        self.recv_all();
+        self.follow_game(game, present);
+    }
+
+    /// End of the frame, on any game of the engine interface.
+    ///
+    /// A host runs each command that the caller did not take ([`Session::take_commands`])
+    /// on the game. It then mirrors the game's shared state into the store, tells each
+    /// guest the place of its player, and gives each guest's character to the game. Then
+    /// the protocol clock runs for `dt` seconds, and the messages go to the transport.
+    ///
+    /// Call it one time at the end of each frame, after the game ran its rules.
+    pub fn post_frame_game(&mut self, game: &mut dyn Game, dt: f32) {
+        self.run_commands(game);
+        self.mirror_game(game);
+        self.drive(dt as f64);
+    }
+
+    /// Runs the network with no game (before the game's world is there, for example while
+    /// a guest waits for the host's place).
+    pub fn poll(&mut self, dt: f32) {
+        self.recv_all();
+        self.drive(dt as f64);
+    }
+
+    /// The second half of [`Session::pre_frame_game`]: the role, and a guest's reconcile.
+    fn follow_game(&mut self, game: &mut dyn Game, present: bool) {
+        self.set_role(game);
+        let now = self.now_ms;
+        let mut drift = None;
+        if let Some(g) = &mut self.guest {
+            if g.sync.phase() == GuestPhase::Active {
+                if g.sync.snapshots_loaded != g.seen_snaps {
+                    g.seen_snaps = g.sync.snapshots_loaded;
+                    g.mirror.reset();
+                }
+                let recheck = now.saturating_sub(g.last_recheck_ms) >= RECHECK_EVERY_MS;
+                if recheck {
+                    g.last_recheck_ms = now;
+                }
+                g.mirror.sync(game, &g.sync.store, recheck, present);
+                if g.mirror.drift_repairs != g.drift_logged {
+                    g.drift_logged = g.mirror.drift_repairs;
+                    drift = Some(g.drift_logged);
+                }
+            }
+        }
+        if let Some(n) = drift {
+            self.log_ev("drift_repair", &[("total", V::U(n as u64))]);
+        }
+    }
+
+    /// The first half of [`Session::post_frame_game`] after the commands: the role, the
+    /// host's diff, the host's place and the host's part of the start flow.
+    fn mirror_game(&mut self, game: &mut dyn Game) {
+        self.set_role(game);
+        if let Some(h) = &mut self.host {
+            h.mirror.collect(game, &mut h.sync);
+        }
+        if self.host.is_some() {
+            let local = game.local_player();
+            self.publish_place(&local.place);
+            self.host_start_frame(game, &local.sheet.name);
+        }
+    }
+
+    /// Host: runs each queued command on the game, with the rows of the player that sent
+    /// it. A stage of a quest that the game does not know is not run.
+    ///
+    /// Only [`Session::post_frame_game`] calls it. The `GameState` path leaves the commands
+    /// to its caller, which takes them with [`Session::take_commands`].
+    fn run_commands(&mut self, game: &mut dyn Game) {
+        for (from, cmd) in self.take_commands() {
+            let intent = match &cmd {
+                Command::Line(line) => Some(Intent::ScriptLine(line.clone())),
+                Command::Stage(quest, stage) => game.form_of(quest).map(|quest| Intent::SetStage {
+                    quest,
+                    stage: *stage,
+                }),
+            };
+            let answer = match &intent {
+                Some(intent) => format!("{:?}", game.run_intent(from.0, intent)),
+                None => "no such quest".to_string(),
+            };
+            self.log_ev(
+                "cmd_run",
+                &[
+                    ("from", V::U(from.0 as u64)),
+                    ("line", V::S(&cmd.as_line())),
+                    ("answer", V::S(&answer)),
+                ],
+            );
+        }
+    }
+
+    // ---- frame hooks: the `GameState` path -----------------------------
 
     /// Start of the frame: receive; a guest applies the replicated state.
     pub fn pre_frame(&mut self, gs: &mut GameState) {
@@ -848,64 +963,53 @@ impl Session {
     }
 
     /// [`Session::pre_frame`] with game data for journal text and names.
+    ///
+    /// It is [`Session::pre_frame_game`] on the `world` adapter, with the setup of the live
+    /// layer between the two halves. That setup installs the per-player rows, and it needs
+    /// the slot that the receive gave. The reconcile needs the rows.
     pub fn pre_frame_with(&mut self, gs: &mut GameState, opts: Opts) {
-        self.ensure_authority(gs);
         self.recv_all();
         self.live_setup(gs, opts.ctx.map(|c| c.order));
-        // a guest making its character keeps its own rows: the host's copy of them is stale
-        gs.coop.bank.hold_own = self.start.flow.holds_own_rows();
-        let now = self.now_ms;
-        let mut drift = None;
-        if let Some(g) = &mut self.guest {
-            if g.sync.phase() == GuestPhase::Active {
-                if g.sync.snapshots_loaded != g.seen_snaps {
-                    g.seen_snaps = g.sync.snapshots_loaded;
-                    g.bridge.reset();
-                }
-                let recheck = now.saturating_sub(g.last_recheck_ms) >= RECHECK_EVERY_MS;
-                if recheck {
-                    g.last_recheck_ms = now;
-                }
-                g.bridge.sync(gs, &g.sync.store, recheck, opts);
-                if g.bridge.drift_repairs != g.drift_logged {
-                    g.drift_logged = g.bridge.drift_repairs;
-                    drift = Some(g.drift_logged);
-                }
-            }
-        }
-        if let Some(n) = drift {
-            self.log_ev("drift_repair", &[("total", V::U(n as u64))]);
-        }
+        self.follow_game(&mut WorldCoop::over(gs, opts.ctx), opts.present);
     }
 
     /// End of the frame: the host mirrors the frame's changes; the protocol
     /// clock runs for `dt` seconds; outgoing messages are sent.
+    ///
+    /// It is [`Session::post_frame_game`] on the `world` adapter with no command run (the
+    /// caller takes the commands), the party code before the protocol clock, and the state
+    /// dump after it.
     pub fn post_frame(&mut self, gs: &mut GameState, dt: f32) {
-        self.ensure_authority(gs);
-        if let Some(h) = &mut self.host {
-            h.bridge.collect(gs, &mut h.sync);
-        }
-        self.publish_place(gs);
-        self.host_start_frame(gs);
+        self.mirror_game(&mut WorldCoop::over(gs, None));
         self.party_tick(gs);
         self.drive(dt as f64);
         self.write_outputs(gs);
     }
 
-    /// Runs the network without a `GameState` (before the world exists,
-    /// e.g. while a guest waits for the host's place).
-    pub fn poll(&mut self, dt: f32) {
-        self.recv_all();
-        self.drive(dt as f64);
-    }
-
-    fn ensure_authority(&self, gs: &mut GameState) {
-        let want = match self.role {
-            Role::Host => Authority::Host,
-            Role::Guest => Authority::Guest,
+    /// Tells the game its role. Each frame hook calls it: the caller can give another
+    /// game state at each frame.
+    ///
+    /// The setup carries no policy. `live_setup` installs the policy one time, and a setup
+    /// with a policy starts the per-player rows again (SPEC-02 F.1). A guest that makes
+    /// its character keeps its own rows: the host's copy of them is stale.
+    fn set_role<G: Shared + ?Sized>(&mut self, game: &mut G) {
+        let (role, me) = match (self.role, &self.guest) {
+            (Role::Guest, Some(g)) => (coop_game::Role::Guest, g.sync.player.0),
+            (Role::Guest, None) => (coop_game::Role::Guest, PlayerId::HOST.0),
+            (Role::Host, _) => (coop_game::Role::Host, PlayerId::HOST.0),
         };
-        if gs.authority() != want {
-            gs.set_authority(want);
+        let setup = Setup {
+            role,
+            me,
+            policy: None,
+            keep_own_rows: self.start.flow.holds_own_rows(),
+        };
+        if let Err(why) = game.configure(&setup) {
+            // one line for each cause, not one for each frame
+            let msg = format!("the game did not take its role: {why}");
+            if self.last_error.as_deref() != Some(msg.as_str()) {
+                self.log_ev("error", &[("msg", V::S(&msg))]);
+            }
         }
     }
 
@@ -1184,13 +1288,15 @@ impl Session {
 
     // ---- the protocol clock ------------------------------------------
 
-    fn publish_place(&mut self, gs: &GameState) {
+    /// Host: tells each guest where the host's player is, when the place changed. `at` is
+    /// the place of the local player. A place with no cell is not told.
+    fn publish_place(&mut self, at: &coop_game::Place) {
         let Some(h) = &mut self.host else { return };
-        let Some(cell) = gs.player_cell else { return };
+        let Some(cell) = at.cell else { return };
         let now_place = Place {
             cell: cell.0,
-            world: gs.player_world.map_or(0, |w| w.0),
-            pos: gs.player_position,
+            world: at.world.map_or(0, |w| w.0),
+            pos: at.pos,
         };
         let moved = h.place.map(|p| p.key()) != Some(now_place.key());
         h.place = Some(now_place);
@@ -1442,10 +1548,18 @@ impl Session {
                     ],
                 ));
             }
+            // A late snapshot that the guest did not load: the log shows that it came.
+            if g.sync.stale_snapshots > g.seen_stale {
+                g.seen_stale = g.sync.stale_snapshots;
+                logs.push((
+                    "stale_snapshot",
+                    vec![("total".into(), g.sync.stale_snapshots.to_string())],
+                ));
+            }
         }
         let ready_now = match (&self.host, &self.guest) {
             (Some(h), _) => h.peers.values().any(|p| p.announced),
-            (_, Some(g)) => g.sync.phase() == GuestPhase::Active && !g.lost && g.bridge.applies > 0,
+            (_, Some(g)) => g.sync.phase() == GuestPhase::Active && !g.lost && g.mirror.applies > 0,
             _ => false,
         };
         if ready_now && !self.ready {
@@ -1506,7 +1620,7 @@ impl Session {
     /// comparison then uses the host's root at the guest's revision.
     pub fn hash_points(&self) -> HashPoints {
         if let Some(h) = &self.host {
-            let keep = |f: &coop_core::schema::Field| !world::coop::export::is_tombstone(f);
+            let keep = |f: &coop_core::schema::Field| !f.is_tombstone();
             let recent: Vec<(u64, u64)> = h
                 .sync
                 .recent_roots(RECENT_ROOTS_MS, &keep)
@@ -1522,7 +1636,7 @@ impl Session {
             rev: self
                 .guest
                 .as_ref()
-                .and_then(|g| g.bridge.applied_rev())
+                .and_then(|g| g.mirror.applied_rev())
                 .map(|r| r.0),
             recent: Vec::new(),
         }
@@ -1546,15 +1660,15 @@ impl Session {
         if !force && self.now_ms.saturating_sub(self.last_out_ms) < OUT_EVERY_MS {
             return;
         }
+        // A host's key has no count of its own. The old count (the writes that no effect
+        // of the `world` layer named) moved only with a store write, and each store write
+        // moves the revision.
         let (rev, applies) = match (&self.host, &self.guest) {
-            (Some(h), _) => (
-                h.sync.store.rev().0,
-                h.bridge.uncovered_total.values().sum::<u32>() as u64,
-            ),
-            (_, Some(g)) => (g.sync.store.rev().0, g.bridge.applies as u64),
+            (Some(h), _) => (h.sync.store.rev().0, 0),
+            (_, Some(g)) => (g.sync.store.rev().0, g.mirror.applies),
             _ => (0, 0),
         };
-        let key = (rev, applies as u32, gs.coop.stats.effects);
+        let key = (rev, applies, gs.coop.stats.effects);
         if key == self.last_out_key && !force {
             self.last_out_ms = self.now_ms;
             return;
@@ -1630,5 +1744,103 @@ impl Session {
         repl.push(bad);
         store.replace_shards(&[shard], repl);
         true
+    }
+}
+
+#[cfg(test)]
+mod role_tests {
+    use coop_core::schema::Field;
+    use coop_core::transport::LoopbackNet;
+    use coop_game::fake::{Call, FakeGame};
+    use coop_game::{Applied, Change, FormId};
+
+    use super::*;
+    use crate::start::Opening;
+
+    fn session(role: Role) -> Session {
+        let net = LoopbackNet::new();
+        let me = match role {
+            Role::Host => PlayerId::HOST,
+            Role::Guest => PlayerId(1),
+        };
+        let cfg = SessionConfig {
+            transport: Some(Box::new(net.endpoint(me))),
+            session_id: 7,
+            ..SessionConfig::default()
+        };
+        match role {
+            Role::Host => Session::host(cfg),
+            Role::Guest => Session::join(cfg),
+        }
+        .expect("a session")
+    }
+
+    #[test]
+    fn the_role_goes_to_the_game_at_each_call_with_no_policy() {
+        let mut host = session(Role::Host);
+        let mut game = FakeGame::new();
+        host.set_role(&mut game);
+        host.set_role(&mut game);
+        let host_role = Call::Configure {
+            role: coop_game::Role::Host,
+            me: 0,
+        };
+        assert_eq!(game.calls(), [host_role.clone(), host_role]);
+        let setup = game.setup().expect("a setup");
+        // SPEC-02 F.1: a setup with a policy starts the per-player rows again
+        assert!(setup.policy.is_none());
+        assert!(!setup.keep_own_rows);
+        assert_eq!(host.last_error(), None);
+
+        // the twin: a guest's session gives the guest's role and the guest's slot
+        let mut guest = session(Role::Guest);
+        let mut game = FakeGame::new();
+        guest.set_role(&mut game);
+        let guest_role = Call::Configure {
+            role: coop_game::Role::Guest,
+            me: 1,
+        };
+        assert_eq!(game.calls(), [guest_role]);
+        assert!(!game.setup().expect("a setup").keep_own_rows);
+        // a guest that makes its character keeps its own rows
+        guest.start.flow.guest_joined(Opening::Over);
+        guest.set_role(&mut game);
+        assert!(game.setup().expect("a setup").keep_own_rows);
+    }
+
+    /// A game that takes no role.
+    struct Refuses;
+
+    impl Shared for Refuses {
+        fn configure(&mut self, _: &Setup) -> Result<(), String> {
+            Err("no rows".into())
+        }
+        fn export_shared(&mut self, _: bool) -> Option<Vec<(FormId, Field)>> {
+            Some(Vec::new())
+        }
+        fn apply_shared(&mut self, _: &[Change], _: bool) -> Applied {
+            Applied::default()
+        }
+        fn quest(&self, _: FormId) -> Option<(u16, u32)> {
+            None
+        }
+        fn stage(&self, _: FormId) -> Option<u16> {
+            None
+        }
+        fn activity(&self) -> u64 {
+            0
+        }
+    }
+
+    #[test]
+    fn a_game_that_refuses_its_role_gives_an_error() {
+        let mut host = session(Role::Host);
+        host.set_role(&mut Refuses);
+        let error = host.last_error().expect("an error").to_string();
+        assert!(error.contains("did not take its role: no rows"), "{error}");
+        // the twin: a game that takes the role gives no error
+        let mut host = session(Role::Host);
+        host.set_role(&mut FakeGame::new());
+        assert_eq!(host.last_error(), None);
     }
 }
