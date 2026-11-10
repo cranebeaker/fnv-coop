@@ -18,6 +18,8 @@
 //! The transport is coop-core's `Transport`: coop-net's endpoint in the game, the loopback and
 //! chaos transports in tests.
 
+// fights
+pub mod fight;
 pub mod ladder;
 pub mod record;
 
@@ -167,6 +169,8 @@ pub struct HostDriver {
     pub unencodable: u32,
     /// The live ladder (players in the world); `None` leaves the session story-only.
     pub ladder: Option<ladder::Ladder>,
+    /// Shared fights (fights); `None` leaves every game running its own actors.
+    pub fight: Option<fight::Fight>,
     sender: AvatarSender,
     /// The host player's own view of the other players (their interpolated states).
     view: GuestLive,
@@ -207,6 +211,7 @@ impl HostDriver {
             claim_notes: Vec::new(),
             unencodable: 0,
             ladder: None,
+            fight: None, // fights
             sender: AvatarSender::new(PlayerId::HOST),
             view: GuestLive::new(PlayerId::HOST),
             unencodable_notes: Vec::new(),
@@ -363,6 +368,17 @@ impl HostDriver {
         self.enact_claims(e);
         self.collect(e);
         self.write_clock(e, now_ms);
+        // fights
+        if let Some(f) = self.fight.as_mut() {
+            let avatars = self
+                .ladder
+                .as_ref()
+                .map(ladder::Ladder::avatar_ids)
+                .unwrap_or_default();
+            for (to, msg) in f.host_step(e, &mut self.sync, &avatars, now_ms) {
+                send(net, to, &msg, &mut self.send_failures);
+            }
+        }
         let mut out = self.sync.tick();
         self.steps += 1;
         if self.steps % self.hash_every.max(1) == 0 {
@@ -452,6 +468,8 @@ pub struct GuestDriver {
     healed_seen: BTreeSet<(u32, u8)>,
     /// The live ladder (players in the world); `None` leaves the session story-only.
     pub ladder: Option<ladder::Ladder>,
+    /// Shared fights (fights); `None` leaves this game running its own actors.
+    pub fight: Option<fight::Fight>,
     /// Drifted entries the game refused when applied again (counted once each time they are
     /// tried; the same entry is in [`GuestDriver::refused`] from its first apply).
     pub heal_refused: u32,
@@ -484,6 +502,7 @@ impl GuestDriver {
             healed_notes: Vec::new(),
             healed_seen: BTreeSet::new(),
             ladder: None,
+            fight: None, // fights
             heal_refused: 0,
             refused: 0,
             bad_packets: 0,
@@ -519,6 +538,12 @@ impl GuestDriver {
             if let Some(me) = ladder.frame(e, now_ms, &peers) {
                 // Sent by coop-core's guest sync at its fixed rate, in the tick below.
                 self.sync.live.local = ladder::state_of(&me);
+            }
+        }
+        // fights
+        if let Some(f) = self.fight.as_mut() {
+            for msg in f.guest_step(e, &mut self.sync, now_ms) {
+                send(net, PlayerId::HOST, &msg, &mut self.send_failures);
             }
         }
         for msg in self.sync.tick(Tick(0)) {

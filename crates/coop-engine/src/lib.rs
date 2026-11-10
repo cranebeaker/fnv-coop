@@ -12,12 +12,16 @@
 //! - [`quest`]: a quest's story state as the host sends it and a guest applies it.
 //! - [`vars`]: a quest script's variables, read on the host and written on a guest.
 //! - [`live`]: the local player's place, a guest's warp to the host, a remote player's avatar.
+//! - [`fight`]: actors as the host's game has them, held on a guest; hits, threat and the
+//!   player's fall (shared fights).
 //! - [`addr`]: every exe address and offset used, in one place.
 //! - [`diag`]: `NV_COOP=journal`, the change journal printed on a PC run.
 
 pub mod actors;
 pub mod addr;
 pub mod diag;
+// fights
+pub mod fight;
 pub mod forms;
 pub mod gate;
 pub mod journal;

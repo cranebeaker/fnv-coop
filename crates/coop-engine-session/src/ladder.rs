@@ -388,6 +388,14 @@ impl Ladder {
         ));
     }
 
+    /// fights: the other players' avatars in this game now, as (player, the avatar's form id).
+    pub fn avatar_ids(&self) -> Vec<(PlayerId, u32)> {
+        self.peers
+            .iter()
+            .filter_map(|(p, peer)| Some((*p, peer.avatar?.id)))
+            .collect()
+    }
+
     /// Removes every avatar (the session ends).
     pub fn close(&mut self, e: &mut Engine) {
         for p in self.peers.keys().copied().collect::<Vec<_>>() {

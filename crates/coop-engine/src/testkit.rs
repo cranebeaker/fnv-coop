@@ -17,6 +17,10 @@ use engine_core::prelude::*;
 
 use crate::{addr, forms};
 
+// fights: actors with health, combat and a process, and the stand-ins fights call.
+#[path = "fight_kit.rs"]
+pub mod fight_kit;
+
 /// Where the story lives.
 const HEAP: u32 = 0x0200_0000;
 const HEAP_LEN: u32 = 0x0010_0000;
@@ -464,6 +468,8 @@ impl Story {
             bump(e, GHOSTS);
             Ret::default()
         });
+        // fights
+        fight_kit::register(&mut e);
         crate::install(&mut e);
         Story { e }
     }
