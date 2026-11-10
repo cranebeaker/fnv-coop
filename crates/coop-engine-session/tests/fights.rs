@@ -396,3 +396,115 @@ fn without_the_threat_slice_avatars_stay_ghosts_and_nobody_is_redirected() {
     assert_eq!(p.host.combats_started(), 0);
     p.story_is_whole();
 }
+
+/// Every control of the player disabled.
+const NO_CONTROLS: u8 = 0x7f;
+
+#[test]
+fn a_guest_who_would_die_is_down_and_the_host_next_to_them_revives_them() {
+    let mut p = in_a_fight("");
+    let avatar = p.guest_avatar();
+    p.host.hit(avatar, RAIDER, 500.0);
+    p.frames(3);
+    // Not dead: down, with 1 health and no controls, and everyone knows.
+    assert!(!p.guest.player_dead());
+    assert_eq!(p.guest.actor_view(PLAYER).health, 1.0);
+    assert_eq!(p.guest.controls(), NO_CONTROLS);
+    assert!(p.guest_fight().down());
+    assert!(p.hd.sync.live.rules.revive.is_downed(PlayerId(1)));
+    // A downed player is out of the fight: more hits on the avatar do nothing.
+    let taken = p.guest_fight().hurts_taken;
+    p.host.hit(avatar, RAIDER, 50.0);
+    p.frames(3);
+    assert_eq!(p.guest_fight().hurts_taken, taken);
+    // The host stands where the guest came to: after the reviver's hold the guest is up, at its
+    // share of the health it had.
+    p.frames(70);
+    assert!(!p.guest_fight().down());
+    assert_eq!(p.guest.actor_view(PLAYER).health, 30.0);
+    assert_eq!(p.guest.controls(), 0);
+    assert_eq!((p.guest_fight().downs, p.guest_fight().ups), (1, 1));
+    assert!(!p.hd.sync.live.rules.revive.is_downed(PlayerId(1)));
+    p.story_is_whole();
+}
+
+#[test]
+fn a_host_who_would_die_is_revived_by_the_guest_next_to_them() {
+    let mut p = in_a_fight("");
+    // The raider kills the host's player in the host's own game: held.
+    p.host.hit(PLAYER, RAIDER, 500.0);
+    p.frames(3);
+    assert!(!p.host.player_dead());
+    assert!(p.host_fight().down());
+    assert_eq!(p.host.controls(), NO_CONTROLS);
+    assert!(p.gd.sync.live.rules.downed.contains(&PlayerId::HOST));
+    p.frames(70);
+    assert!(!p.host_fight().down());
+    assert_eq!(p.host.actor_view(PLAYER).health, 30.0);
+    assert_eq!(p.host.controls(), 0);
+    p.story_is_whole();
+}
+
+#[test]
+fn a_downed_player_nobody_comes_to_is_up_again_when_the_window_ends() {
+    let mut p = in_a_fight("");
+    let avatar = p.guest_avatar();
+    // The host walks far off in the same house.
+    p.host.move_player(HOUSE, [9000.0, 9000.0, 0.0], 0.0);
+    p.frames(5);
+    p.host.hit(avatar, RAIDER, 500.0);
+    p.frames(100);
+    assert!(p.guest_fight().down());
+    assert_eq!(p.guest.controls(), NO_CONTROLS);
+    // The reviver's window is a minute.
+    p.frames(1200);
+    assert!(!p.guest_fight().down());
+    assert_eq!(p.guest.actor_view(PLAYER).health, 100.0);
+    assert_eq!(p.guest.controls(), 0);
+    assert!(!p.guest.player_dead());
+    p.story_is_whole();
+}
+
+#[test]
+fn with_everyone_down_every_player_dies_as_the_game_has_it() {
+    let mut p = in_a_fight("");
+    let avatar = p.guest_avatar();
+    p.host.hit(avatar, RAIDER, 500.0);
+    p.frames(3);
+    assert!(p.guest_fight().down());
+    p.host.hit(PLAYER, RAIDER, 500.0);
+    p.frames(5);
+    assert!(p.host.player_dead());
+    assert!(p.guest.player_dead());
+    assert_eq!((p.host_fight().wipes, p.guest_fight().wipes), (1, 1));
+    assert_eq!((p.host.controls(), p.guest.controls()), (0, 0));
+}
+
+#[test]
+fn without_the_revive_slice_a_player_at_no_health_dies() {
+    let mut p = in_a_fight("threat");
+    let avatar = p.guest_avatar();
+    p.host.hit(avatar, RAIDER, 500.0);
+    p.frames(3);
+    assert!(p.guest.player_dead());
+    assert!(!p.guest_fight().down());
+    p.host.hit(PLAYER, RAIDER, 500.0);
+    assert!(p.host.player_dead());
+}
+
+#[test]
+fn the_sessions_end_gives_a_downed_player_its_controls_and_its_death_back() {
+    let mut p = in_a_fight("");
+    let avatar = p.guest_avatar();
+    p.host.move_player(HOUSE, [9000.0, 9000.0, 0.0], 0.0);
+    p.frames(5);
+    p.host.hit(avatar, RAIDER, 500.0);
+    p.frames(3);
+    assert_eq!(p.guest.controls(), NO_CONTROLS);
+    let mut f = p.gd.fight.take().unwrap();
+    f.close(&mut p.guest.e);
+    assert_eq!(p.guest.controls(), 0);
+    // No session: the guest's game applies hits and kills its player itself again.
+    p.guest.hit(PLAYER, RAIDER, 500.0);
+    assert!(p.guest.player_dead());
+}

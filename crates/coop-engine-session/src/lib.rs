@@ -378,6 +378,9 @@ impl HostDriver {
             for (to, msg) in f.host_step(e, &mut self.sync, &avatars, now_ms) {
                 send(net, to, &msg, &mut self.send_failures);
             }
+            for (to, msg) in f.host_body(e, &mut self.sync, &mut self.view, now_ms) {
+                send(net, to, &msg, &mut self.send_failures);
+            }
         }
         let mut out = self.sync.tick();
         self.steps += 1;
@@ -409,7 +412,12 @@ impl HostDriver {
         let Some(me) = ladder.frame(e, now_ms, &peers) else {
             return;
         };
-        let Some(m) = self.sender.tick(now_ms, &ladder::state_of(&me)) else {
+        // fights: the host's own health and fall, for the other players.
+        let mut state = ladder::state_of(&me);
+        if let Some(f) = self.fight.as_ref() {
+            f.stamp(e, &mut state);
+        }
+        let Some(m) = self.sender.tick(now_ms, &state) else {
             return;
         };
         let relayed = self.sync.live.on_msg(

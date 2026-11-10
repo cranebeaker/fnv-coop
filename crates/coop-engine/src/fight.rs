@@ -13,6 +13,9 @@
 //!   actor the host runs: its player's hit is kept for the host as a claim, and what the held
 //!   actors do to each other or to the guest's player is the host's to decide. With no session
 //!   ([`Role::Off`]) every hit goes to the game as before.
+//! - The player's fall: a wrap of `Actor::Kill` (`0089d900`) holds this game's player's death
+//!   while a session shares revives ([`set_spare`]); the session reads the fall ([`take_falls`]),
+//!   takes the player's controls away ([`set_controls`]) and gives them back on a revive.
 //! - Damage the session decides: [`hurt_actor`] and [`kill_by`] on the host, [`hurt_player`] on
 //!   the machine of the player who was hurt.
 //!
@@ -20,13 +23,16 @@
 //! ladder's are.
 
 use std::collections::BTreeSet;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Mutex, PoisonError, RwLock};
 
 use engine_core::extend::{Owner, WrapSlot};
 use engine_core::prelude::*;
 
 use crate::{actors, addr, forms, live};
+
+/// Co-op's place in front of `Actor::Kill`.
+pub(crate) const KILL: WrapSlot = WrapSlot::new(Owner::Coop, addr::ACTOR_KILL);
 
 /// Co-op's place in front of `Actor::HitMe`.
 pub(crate) const HIT_ME: WrapSlot = WrapSlot::new(Owner::Coop, addr::ACTOR_HIT_ME);
@@ -74,6 +80,10 @@ pub struct Fights {
     hits: Mutex<Vec<Hit>>,
     /// Hits kept from the game, ever.
     kept: AtomicU64,
+    /// This game's player is not to die: its kill is held (1) or not (0).
+    spare: AtomicU8,
+    /// Kills of this game's player held since the last [`take_falls`].
+    falls: AtomicU32,
 }
 
 /// Installs the hit wrap when the game has `Actor::HitMe` (the translation, or a test's
@@ -83,9 +93,36 @@ pub(crate) fn install(e: &mut Engine) {
     if wrapped {
         e.wrap(HIT_ME, hit_me);
     }
+    if e.is_registered(addr::ACTOR_KILL) {
+        e.wrap(KILL, kill);
+    }
     e.ext_free::<Fights>()
         .wrapped
         .store(u8::from(wrapped), Ordering::SeqCst);
+}
+
+/// Holds this game's player's death from now on (or stops holding it): a kill of the player is
+/// kept from the game and counted for [`take_falls`]. Every other actor dies as before.
+pub fn set_spare(e: &mut Engine, on: bool) {
+    e.ext_free::<Fights>()
+        .spare
+        .store(u8::from(on), Ordering::SeqCst);
+}
+
+/// How often the player's death was held since the last call.
+pub fn take_falls(e: &mut Engine) -> u32 {
+    e.ext_free::<Fights>().falls.swap(0, Ordering::SeqCst)
+}
+
+/// The wrap at `0089d900`. Its words are the call's: the actor, the attacker and the damage.
+pub(crate) fn kill(e: &mut Engine, a: &[u32]) -> Ret {
+    let actor = a.first().copied().unwrap_or(0);
+    let spare = e.ext_free::<Fights>().spare.load(Ordering::SeqCst) != 0;
+    if spare && actor != 0 && actor == e.mem.u32(addr::PLAYER_SINGLETON) {
+        e.ext_free::<Fights>().falls.fetch_add(1, Ordering::SeqCst);
+        return Ret::default();
+    }
+    e.call_next(addr::ACTOR_KILL, a)
 }
 
 /// Whether `Actor::HitMe` is wrapped on this game (hits can be shared).
@@ -423,6 +460,33 @@ pub fn kill_player(e: &mut Engine) -> bool {
     }
 }
 
+/// The byte of this game's player's disabled-controls flags; `None` before the game has a
+/// player.
+pub fn controls(e: &mut Engine) -> Option<u8> {
+    let p = live::player(e)?;
+    Some(
+        e.mem
+            .u8(p.wrapping_add(addr::PLAYER_DISABLED_CONTROLS_OFFSET)),
+    )
+}
+
+/// Writes the byte of this game's player's disabled-controls flags (all seven:
+/// [`addr::PLAYER_ALL_CONTROLS`]). Only the byte the game reads is written; what the
+/// `DisablePlayerControls` command does besides (the weapon put away) is not done.
+pub fn set_controls(e: &mut Engine, flags: u8) {
+    if let Some(p) = live::player(e) {
+        e.mem
+            .set_u8(p.wrapping_add(addr::PLAYER_DISABLED_CONTROLS_OFFSET), flags);
+    }
+}
+
+/// Sets this game's player's health to `want` through the game's own value change.
+pub fn set_player_health(e: &mut Engine, want: f32) {
+    if let Some(p) = live::player(e) {
+        set_health(e, p, want);
+    }
+}
+
 /// Makes actor `id` fight `target` (form ids; the target is a player's avatar, or this game's
 /// player, `0x14`) the way the `StartCombat` command does: the actor's process starts the
 /// combat (virtual `0x33c`, with the command's own words). False, and nothing done, when either
@@ -676,5 +740,51 @@ mod hit_tests {
         assert!(!start_combat(&mut s.e, GECKO, 0x9999));
         assert!(!start_combat(&mut s.e, 0x9999, avatar));
         assert_eq!(s.combats_started(), 1);
+    }
+}
+
+#[cfg(test)]
+mod fall_tests {
+    use super::*;
+    use crate::testkit::{Story, StorySpec};
+
+    const HOUSE: u32 = 0x0010_5a00;
+    const RAIDER: u32 = 0x0010_4f25;
+    const PLAYER: u32 = actors::PLAYER_REF_ID;
+
+    #[test]
+    fn a_spared_player_s_death_is_held_and_counted_and_nobody_else_s() {
+        let mut s = Story::new(&StorySpec {
+            cells: vec![HOUSE],
+            actors: vec![RAIDER],
+            ..StorySpec::default()
+        });
+        s.move_player(HOUSE, [0.0; 3], 0.0);
+        s.place_actor(RAIDER, HOUSE, [1.0, 2.0, 3.0], 0.5);
+        set_spare(&mut s.e, true);
+        // A lethal hit of the game's own: the damage lands, the kill is held.
+        s.hit(PLAYER, RAIDER, 500.0);
+        assert!(!s.player_dead());
+        assert_eq!(player_health(&mut s.e), Some(-400.0));
+        assert!(kill_player(&mut s.e));
+        assert_eq!(take_falls(&mut s.e), 2);
+        assert_eq!(take_falls(&mut s.e), 0);
+        // The fallen player: 1 health, no controls; then up again.
+        set_player_health(&mut s.e, 1.0);
+        assert_eq!(controls(&mut s.e), Some(0));
+        set_controls(&mut s.e, addr::PLAYER_ALL_CONTROLS);
+        assert_eq!(s.controls(), 0x7f);
+        set_controls(&mut s.e, 0);
+        set_player_health(&mut s.e, 30.0);
+        assert_eq!(player_health(&mut s.e), Some(30.0));
+        // Other actors die as before.
+        s.kill(RAIDER);
+        assert_eq!(s.dead(RAIDER), Some(true));
+        assert_eq!(take_falls(&mut s.e), 0);
+        // Not spared any more: the player dies as the game has it.
+        set_spare(&mut s.e, false);
+        assert!(kill_player(&mut s.e));
+        assert!(s.player_dead());
+        assert_eq!(take_falls(&mut s.e), 0);
     }
 }

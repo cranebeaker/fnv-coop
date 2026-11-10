@@ -169,6 +169,14 @@ pub const WRAPS: &[Entry] = &[
         owners: COOP,
         step: "C-2",
     },
+    // Actor::Kill (this, attacker, damage): what a lethal hit and the kill command call. In a
+    // co-op session a player's own death is held: the player is down and can be revived
+    // (docs/coop/SPECS.md S12).
+    Entry {
+        addr: 0x0089_d900,
+        owners: COOP,
+        step: "C-3",
+    },
     // DINPUT8 DirectInput8Create, its import slot: the keyboard and mouse devices put behind
     // xNVSE's (`Hook_DirectInput8Create_Init` writes this slot).
     Entry {

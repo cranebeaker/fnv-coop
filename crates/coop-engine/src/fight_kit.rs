@@ -320,3 +320,20 @@ impl Story {
         self.e.mem.u8(a + GHOST) != 0
     }
 }
+
+impl Story {
+    /// Whether the game killed its player.
+    pub fn player_dead(&mut self) -> bool {
+        matches!(
+            self.e.mem.u32(PLAYER + addr::ACTOR_LIFE_STATE_OFFSET),
+            1 | 2
+        )
+    }
+
+    /// The byte of the player's disabled-controls flags.
+    pub fn controls(&mut self) -> u8 {
+        self.e
+            .mem
+            .u8(PLAYER + addr::PLAYER_DISABLED_CONTROLS_OFFSET)
+    }
+}

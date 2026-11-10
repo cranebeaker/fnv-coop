@@ -23,20 +23,31 @@
 //! game's own choice the host's game is asked to start that combat (the body of `StartCombat`),
 //! against the guest's avatar or the host's player. An actor fighting someone who is not a
 //! player is left alone. Avatars on the host stop being ghosts so that they can be fought.
+//!
+//! **Downed and revive.** In a session a player does not die at once: the game's kill of its
+//! own player is held, the player is left with 1 health and no controls, and the machine tells
+//! the host (`RulesMsg::ReportDown`). coop-core's `Reviver` runs the rest on the host: another
+//! player standing next to the downed one (this machine asks for them, there is no key to hold
+//! yet) revives them after its hold time at its share of health; nobody coming in its window is
+//! a respawn (up again at full health where they lie); everyone down is a wipe, and then every
+//! game lets its player die as the game does.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 
 use coop_core::actors::{ActorMsg, ActorState};
 use coop_core::avatar::{
-    dequant_heading, dequant_pos, quant_heading, quant_pos, FLAG_DEAD as AVATAR_DEAD,
+    dequant_heading, dequant_pos, quant_heading, quant_pos, AvatarState, FLAG_DEAD as AVATAR_DEAD,
     FLAG_DOWNED as AVATAR_DOWNED,
 };
 use coop_core::combat::{DamageKind, ThreatInput, LIMB_COUNT};
 use coop_core::ids::{CellId, FormId, PlayerId, Seq};
 use coop_core::interest::Audience;
 use coop_core::proto::Msg;
-use coop_core::sync::{GuestSync, HostSync};
+use coop_core::rules::revive::CLIENT_RANGE;
+use coop_core::rules::{Notice, RulesMsg};
+use coop_core::sync::{GuestLive, GuestSync, HostSync};
+use coop_engine::addr::PLAYER_ALL_CONTROLS;
 use coop_engine::fight::{self, Role, Snap};
 use coop_engine::{actors, gate, live};
 use engine_core::Engine;
@@ -50,6 +61,8 @@ pub enum Cap {
     Damage,
     /// Also: the host's actors can turn on a guest.
     Threat,
+    /// Also: a player who would die is down and can be revived.
+    Revive,
 }
 
 impl Cap {
@@ -58,7 +71,8 @@ impl Cap {
         match v.trim() {
             "state" => Cap::State,
             "damage" => Cap::Damage,
-            _ => Cap::Threat,
+            "threat" => Cap::Threat,
+            _ => Cap::Revive,
         }
     }
 }
@@ -74,6 +88,12 @@ pub const PLAYER_TARGET_BASE: u32 = 0xfe00_0000;
 pub const PUBLISH_EVERY_MS: u64 = 50;
 /// The host's threat director looks at the fights this often.
 pub const THREAT_EVERY_MS: u64 = 500;
+
+/// A helper whose request to revive got no result asks again after this long (longer than the
+/// reviver's hold time).
+pub const REVIVE_ASK_EVERY_MS: u64 = 4000;
+/// After a wipe the player's death is held again this much later (the game was loaded again).
+pub const SPARE_AGAIN_MS: u64 = 10_000;
 
 /// The player `ActorState::target` names, if it names one.
 pub fn target_player(target: u32) -> Option<PlayerId> {
@@ -126,6 +146,22 @@ pub struct Fight {
     pub hits_sent: u32,
     /// Guest: damage from the host applied to this game's player.
     pub hurts_taken: u32,
+    /// This game's player is down.
+    down: bool,
+    /// The player's disabled-controls byte from before it went down.
+    saved_controls: u8,
+    /// The highest health this game's player had in the session (its full health, for a
+    /// revive's share).
+    max_health: f32,
+    /// The downed player this one is reviving, and when it last asked.
+    helping: Option<(PlayerId, u64)>,
+    wiped_ms: Option<u64>,
+    /// Times this game's player went down.
+    pub downs: u32,
+    /// Times this game's player got up again (revived, or respawned).
+    pub ups: u32,
+    /// Times everyone was down and this game's player died as the game does.
+    pub wipes: u32,
 }
 
 fn print_now(line: &str) {
@@ -176,6 +212,14 @@ impl Fight {
             deaths: 0,
             hits_sent: 0,
             hurts_taken: 0,
+            down: false,
+            saved_controls: 0,
+            max_health: 0.0,
+            helping: None,
+            wiped_ms: None,
+            downs: 0,
+            ups: 0,
+            wipes: 0,
         }
     }
 
@@ -203,6 +247,9 @@ impl Fight {
         self.started = true;
         if self.cap < Cap::Damage {
             return;
+        }
+        if self.cap >= Cap::Revive {
+            fight::set_spare(e, true);
         }
         if fight::hits_wrapped(e) {
             fight::set_role(e, if self.guest { Role::Guest } else { Role::Host });
@@ -478,7 +525,7 @@ impl Fight {
                 player: PlayerId::HOST,
                 dist: dist(me.pos, s.pos),
                 seen: true,
-                downed: false,
+                downed: self.down,
                 dead: false,
                 same_cell: me.cell == s.space,
             }];
@@ -526,7 +573,7 @@ impl Fight {
         e: &mut Engine,
         sync: &mut GuestSync,
         avatars: &[(PlayerId, u32)],
-        _now_ms: u64,
+        now_ms: u64,
     ) -> Vec<Msg> {
         let mut out = Vec::new();
         if !self.guest {
@@ -579,7 +626,185 @@ impl Fight {
         if self.cap >= Cap::Damage {
             self.guest_damage(e, sync, avatars, &mut out);
         }
+        if self.cap >= Cap::Revive {
+            let me = sync.player;
+            for m in self.body(e, &mut sync.live, me, now_ms) {
+                out.push(Msg::Rules(m));
+            }
+        }
+        self.stamp(e, &mut sync.live.local);
         out
+    }
+
+    /// The host's own player: what the other players' hits and the reviver decided for it.
+    /// `view` is the host player's own view of the session (what the host sends to itself).
+    /// Returns the sends.
+    pub fn host_body(
+        &mut self,
+        e: &mut Engine,
+        sync: &mut HostSync,
+        view: &mut GuestLive,
+        now_ms: u64,
+    ) -> Vec<(PlayerId, Msg)> {
+        let mut out = Vec::new();
+        if self.guest || self.cap < Cap::Damage {
+            return out;
+        }
+        self.take_hurts(e, view);
+        if self.cap >= Cap::Revive {
+            for m in self.body(e, view, PlayerId::HOST, now_ms) {
+                out.extend(sync.on_local(Msg::Rules(m)));
+            }
+        }
+        out
+    }
+
+    /// Writes this game's player's health and fall into the state the other players get.
+    pub fn stamp(&self, e: &mut Engine, state: &mut AvatarState) {
+        if self.cap < Cap::Damage {
+            return;
+        }
+        if let Some(h) = fight::player_health(e) {
+            state.health = health16(h);
+        }
+        if self.down {
+            state.flags |= AVATAR_DOWNED;
+        }
+    }
+
+    /// The damage the host decided for this game's player is taken by it.
+    fn take_hurts(&mut self, e: &mut Engine, glive: &mut GuestLive) {
+        for n in std::mem::take(&mut glive.combat.hurts) {
+            if let Some(left) = fight::hurt_player(e, f32::from(n.amount), n.attacker.0) {
+                self.hurts_taken += 1;
+                // Without revives a player at no health dies as the game has it.
+                if left <= 0.0 && self.cap < Cap::Revive {
+                    fight::kill_player(e);
+                }
+            }
+        }
+    }
+
+    /// Whether player `p` stands next to this game's player.
+    fn next_to(e: &mut Engine, glive: &mut GuestLive, p: PlayerId, now_ms: u64) -> bool {
+        let (Some(me), Some(s)) = (live::local(e).filter(|l| l.loaded), glive.sample(p, now_ms))
+        else {
+            return false;
+        };
+        me.cell == s.cell.0 && dist(me.pos, s.pos) <= CLIENT_RANGE
+    }
+
+    /// This game's player's fall and rise, and its help for another player who is down.
+    /// `glive` is this player's view of the session. Returns what to tell the host's rules.
+    fn body(
+        &mut self,
+        e: &mut Engine,
+        glive: &mut GuestLive,
+        me: PlayerId,
+        now_ms: u64,
+    ) -> Vec<RulesMsg> {
+        let mut out = Vec::new();
+        let Some(health) = fight::player_health(e) else {
+            return out;
+        };
+        self.max_health = self.max_health.max(health);
+        if self
+            .wiped_ms
+            .is_some_and(|t| now_ms.saturating_sub(t) >= SPARE_AGAIN_MS)
+        {
+            self.wiped_ms = None;
+            fight::set_spare(e, true);
+        }
+        let fell = fight::take_falls(e) > 0 || health <= 0.0;
+        if fell && !self.down && self.wiped_ms.is_none() {
+            self.down = true;
+            self.downs += 1;
+            self.saved_controls = fight::controls(e).unwrap_or(0);
+            self.say(
+                "co-op fights: this player is down; another player standing next to them revives them"
+                    .into(),
+            );
+            out.push(RulesMsg::ReportDown { revivable: true });
+        }
+        // The reviver's word for this player; other notices are not the fights' to take.
+        let (mut up, mut wipe) = (None, false);
+        glive.rules.notices.retain(|n| match n {
+            Notice::Revived(pct) => {
+                up = Some(f32::from(*pct));
+                false
+            }
+            Notice::Respawn => {
+                up = Some(100.0);
+                false
+            }
+            Notice::Wipe => {
+                wipe = true;
+                false
+            }
+            _ => true,
+        });
+        if self.down {
+            self.helping = None;
+            if wipe {
+                self.down = false;
+                self.wipes += 1;
+                self.wiped_ms = Some(now_ms);
+                fight::set_controls(e, self.saved_controls);
+                fight::set_spare(e, false);
+                self.say("co-op fights: everyone is down; this player dies".into());
+                fight::kill_player(e);
+            } else if let Some(pct) = up {
+                self.down = false;
+                self.ups += 1;
+                fight::set_controls(e, self.saved_controls);
+                fight::set_player_health(e, (self.max_health * pct / 100.0).max(1.0));
+                self.say(format!(
+                    "co-op fights: this player is up again at {pct:.0} percent health"
+                ));
+            } else {
+                if health < 1.0 {
+                    fight::set_player_health(e, 1.0);
+                }
+                fight::set_controls(e, self.saved_controls | PLAYER_ALL_CONTROLS);
+            }
+            return out;
+        }
+        // Up: stand next to a downed player and the host is asked to let this one revive them.
+        let downed: Vec<PlayerId> = glive
+            .rules
+            .downed
+            .iter()
+            .copied()
+            .filter(|p| *p != me)
+            .collect();
+        match self.helping {
+            Some((t, asked)) => {
+                if !downed.contains(&t) {
+                    self.helping = None;
+                } else if !Self::next_to(e, glive, t, now_ms) {
+                    out.push(RulesMsg::ReviveCancel);
+                    self.helping = None;
+                } else if now_ms.saturating_sub(asked) >= REVIVE_ASK_EVERY_MS {
+                    out.push(RulesMsg::ReviveBegin { target: t });
+                    self.helping = Some((t, now_ms));
+                }
+            }
+            None => {
+                for t in downed {
+                    if Self::next_to(e, glive, t, now_ms) {
+                        out.push(RulesMsg::ReviveBegin { target: t });
+                        self.helping = Some((t, now_ms));
+                        break;
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether this game's player is down.
+    pub fn down(&self) -> bool {
+        self.down
     }
 
     /// The guest's part of the damage: this player's kept hits go to the host, and what the host
@@ -611,17 +836,7 @@ impl Fight {
                 self.hits_sent += 1;
             }
         }
-        for n in std::mem::take(&mut sync.live.combat.hurts) {
-            if let Some(left) = fight::hurt_player(e, f32::from(n.amount), n.attacker.0) {
-                self.hurts_taken += 1;
-                if left <= 0.0 {
-                    fight::kill_player(e);
-                }
-            }
-        }
-        if let Some(h) = fight::player_health(e) {
-            sync.live.local.health = health16(h);
-        }
+        self.take_hurts(e, &mut sync.live);
     }
 
     /// The actors this guest holds now.
@@ -639,6 +854,11 @@ impl Fight {
         fight::set_held(e, []);
         fight::set_avatars(e, []);
         fight::set_role(e, Role::Off);
+        fight::set_spare(e, false);
+        if self.down {
+            self.down = false;
+            fight::set_controls(e, self.saved_controls);
+        }
         self.avatars.clear();
         self.started = false;
     }
@@ -647,24 +867,28 @@ impl Fight {
     pub fn status(&self) -> String {
         if self.guest {
             format!(
-                "fights: holding {} actors, moves {}, AI woke {}, released {}, deaths {}, hits sent {}, hurts taken {}",
+                "fights: holding {} actors, moves {}, AI woke {}, released {}, deaths {}, hits sent {}, hurts taken {}, down {} up {}",
                 self.held.len(),
                 self.moves,
                 self.woke,
                 self.released,
                 self.deaths,
                 self.hits_sent,
-                self.hurts_taken
+                self.hurts_taken,
+                self.downs,
+                self.ups
             )
         } else {
             format!(
-                "fights: tracking {} actors, states sent {}, guests' hits applied {}, kills {}, hurts sent {}, retargets {}",
+                "fights: tracking {} actors, states sent {}, guests' hits applied {}, kills {}, hurts sent {}, retargets {}, down {} up {}",
                 self.tracked.len(),
                 self.published,
                 self.hits_applied,
                 self.kills,
                 self.hurts_sent,
-                self.retargets
+                self.retargets,
+                self.downs,
+                self.ups
             )
         }
     }
