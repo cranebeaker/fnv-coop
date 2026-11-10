@@ -14,12 +14,16 @@
 //! - [`live`]: the local player's place, a guest's warp to the host, a remote player's avatar.
 //! - [`changes`]: one form's change as the game's own save record, taken on the host and loaded
 //!   on a guest; [`world`]: doors and locks through the game's own functions.
+//! - [`fight`]: actors as the host's game has them, held on a guest; hits, threat and the
+//!   player's fall (shared fights).
 //! - [`addr`]: every exe address and offset used, in one place.
 //! - [`diag`]: `NV_COOP=journal`, the change journal printed on a PC run.
 
 pub mod actors;
 pub mod addr;
 pub mod diag;
+// fights
+pub mod fight;
 pub mod forms;
 pub mod gate;
 pub mod journal;
@@ -65,6 +69,8 @@ pub fn install(e: &mut Engine) {
     e.wrap(gate::RUN, gate::run);
     // The gate's slot too, before the threads start.
     let _ = e.ext_free::<gate::Gate>();
+    // fights: the hit wrap and its slot.
+    fight::install(e);
 }
 
 // The unit tests' own program: no other crate's functions are linked in.

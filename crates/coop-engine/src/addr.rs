@@ -406,3 +406,78 @@ pub const REF_UNLOCK: u32 = 0x0056_92a0;
 /// records that the reference's lock changed, as `Lock` and `UnLock` do.
 pub const REF_ADD_LOCK_CHANGE: u32 = 0x0057_89b0;
 // world: end
+// fights (docs/coop/SPECS.md S12): every constant below names the translation it is read from.
+
+/// The game's one `ProcessLists` object (`011e0e80`, `processlists.rs`, `PROCESS_LISTS`), its
+/// `pActorsCloseToPlayerA` (50 `Actor *` at +0x88, sorted by distance to the player) and
+/// `iActorsCloseToPlayer` (the count of used entries, at +0x150): the actors the game runs at
+/// full detail around its player (`processlists.rs`, `ProcessLists` layout).
+pub const PROCESS_LISTS: u32 = 0x011e_0e80;
+/// See [`PROCESS_LISTS`].
+pub const CLOSE_ACTORS_OFFSET: u32 = 0x88;
+/// See [`PROCESS_LISTS`].
+pub const CLOSE_ACTORS_COUNT_OFFSET: u32 = 0x150;
+/// See [`PROCESS_LISTS`] (`MAX_ACTORS_CLOSE_TO_PLAYER`).
+pub const CLOSE_ACTORS_MAX: u32 = 50;
+
+/// The `ActorValueOwner` part of an actor, at +0xa4, and its virtual `+0x0c`, the current value
+/// of an actor value as a float (`tesconditionfunctions.rs`, `fn_0059c4f0`, the `GetActorValue`
+/// condition; `actor_p6.rs`, `ACTOR_VALUE_OWNER_OFFSET`).
+pub const ACTOR_VALUE_OWNER_OFFSET: u32 = 0xa4;
+/// See [`ACTOR_VALUE_OWNER_OFFSET`].
+pub const OWNER_CURRENT_VALUE_SLOT: u32 = 0x0c;
+/// The actor value that is health (`actor_p3.rs`, `actor_get_health_percentage`: value `0x10`).
+pub const ACTOR_VALUE_HEALTH: u32 = 0x10;
+
+/// `Actor` virtual slot `0x3ac`: changes an actor value by an amount, `(value, amount as f32,
+/// source actor or 0)` (`actor_p3.rs`, `ACTOR_SLOT_MODIFY_ACTOR_VALUE`; `actor_p2.rs`,
+/// `actor_restore_actor_value` raises a value through it, `fn_0089d6f0` lowers health through
+/// it).
+pub const ACTOR_MODIFY_VALUE_SLOT: u32 = 0x3ac;
+
+/// `Actor` virtual slot `0x338`: applies a health and a fatigue loss from an attacker,
+/// `(health loss as f32, fatigue loss as f32, attacker or 0)` (`actor_p3.rs`, `fn_0089d6f0`,
+/// `ACTOR_SLOT_APPLY_DAMAGE`): the difficulty's adjustment, the attacker's and the victim's
+/// combat controllers told, then health lowered. `Actor::HitMe` applies a hit's damage through
+/// it. It does nothing for a protected actor and does not itself kill.
+pub const ACTOR_APPLY_DAMAGE_SLOT: u32 = 0x338;
+
+/// The actor's "in combat" byte test (`00493bb0`: the byte at +0x104; `actor_p3.rs`,
+/// `ACTOR_IN_COMBAT`; the `IsInCombat` condition, `tesconditionfunctions_p2.rs`).
+pub const ACTOR_IN_COMBAT: u32 = 0x0049_3bb0;
+
+/// `Actor` virtual slot `0x42c`: the actor's combat target, or 0 (`tesscriptfunctions_p5.rs`,
+/// `script_get_combat_target_function`).
+pub const ACTOR_COMBAT_TARGET_SLOT: u32 = 0x42c;
+
+/// `Actor::pCurrentProcess`: the word at +0x68 (`leaf::word_at_68`, typed from `008d8520`).
+pub const ACTOR_PROCESS_OFFSET: u32 = 0x68;
+
+/// How the `StartCombat` command starts an actor's combat with a target
+/// (`tesscriptfunctions_p2.rs`, `script_start_combat_function`): the process's virtual `0x33c`
+/// with the thirteen words `(actor, target, 1, 1, 0, 0, 0, not alarmed, 0, 1, 0, 1, 0)`, where
+/// "not alarmed" is the negation of the actor's virtual `0x304`.
+pub const PROCESS_START_COMBAT_SLOT: u32 = 0x33c;
+/// See [`PROCESS_START_COMBAT_SLOT`].
+pub const ACTOR_ALARMED_SLOT: u32 = 0x304;
+
+/// `Actor::GetEssential` (`0087f3d0`, `tesconditionfunctions_p2.rs`, `ACTOR_GET_ESSENTIAL`).
+pub const ACTOR_GET_ESSENTIAL: u32 = 0x0087_f3d0;
+
+/// `Actor::HitMe` (`0089a760`, `actor_p3.rs`, `actor_hit_me`): `thiscall` on the actor that is
+/// hit, with the `HitData` and a kind byte. Every weapon hit on an actor goes through it.
+pub const ACTOR_HIT_ME: u32 = 0x0089_a760;
+/// `HitData` (`actor_p3.rs`, `HitData` layout): `pAggressor` at +0x00, `eDamageLimb` at +0x10
+/// (-1 for none), `fHealthDamage` at +0x14.
+pub const HIT_AGGRESSOR_OFFSET: u32 = 0x00;
+/// See [`HIT_AGGRESSOR_OFFSET`].
+pub const HIT_LIMB_OFFSET: u32 = 0x10;
+/// See [`HIT_AGGRESSOR_OFFSET`].
+pub const HIT_HEALTH_DAMAGE_OFFSET: u32 = 0x14;
+
+/// The byte of the player's disabled-controls flags, at +0x680, one bit for each of the seven
+/// controls (`tesconditionfunctions.rs`, `fn_005a03d0`, `PLAYER_DISABLED_CONTROLS_OFFSET`; the
+/// `GetPlayerControlsDisabled` condition reads it).
+pub const PLAYER_DISABLED_CONTROLS_OFFSET: u32 = 0x680;
+/// See [`PLAYER_DISABLED_CONTROLS_OFFSET`]: all seven controls.
+pub const PLAYER_ALL_CONTROLS: u8 = 0x7f;

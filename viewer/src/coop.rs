@@ -12,6 +12,11 @@
 //! `NV_COOP_WORLD=doors` shares doors and locks but no changed-form records, `off` neither
 //! (docs/coop/SPECS.md S12).
 //!
+//! Shared fights (fights; docs/coop/SPECS.md S13) run with the ladder: `NV_COOP_FIGHT=state` shows
+//! the host's actors on the guests, `damage` also sends hits through the host, `threat` also lets
+//! the host's actors turn on a guest, `revive` (the default) also holds a player's death for a
+//! revive; `off` leaves every game running its own fights.
+//!
 //! Both players start the same game (a new game, or the same save) from installations whose
 //! plugins load in the same order; the handshake refuses a guest whose plugins differ.
 
@@ -266,6 +271,20 @@ impl Coop {
         session::world::Share::parse(&std::env::var("NV_COOP_WORLD").unwrap_or_default())
     }
 
+    /// fights: the shared fights `NV_COOP_FIGHT` asks for; `None` for `off` or without the ladder.
+    /// Returns the line that says so.
+    fn fight(guest: bool, ladder: bool) -> (Option<session::fight::Fight>, String) {
+        let ask = std::env::var("NV_COOP_FIGHT").unwrap_or_default();
+        if ask.trim() == "off" || !ladder {
+            return (None, "co-op fights: off".into());
+        }
+        let cap = session::fight::Cap::parse(&ask);
+        (
+            Some(session::fight::Fight::new(guest, cap)),
+            format!("co-op fights: shared up to {cap:?}"),
+        )
+    }
+
     /// Opens the session `ask` asks for, for the installation whose `Data` folder is `data`.
     /// Returns the session and the lines to print (the join code).
     pub fn open(ask: &Ask, data: &Path, name: &str) -> Result<(Coop, Vec<String>), String> {
@@ -313,6 +332,10 @@ impl Coop {
                 if let Some(w) = share.host() {
                     host.share_world(w);
                 }
+                // fights
+                let (fight, line) = Self::fight(false, host.ladder.is_some());
+                host.fight = fight;
+                lines.push(line);
                 (Endpoint::host(b, token, cfg), Role::Host(Box::new(host)))
             }
             Ask::Join(code) => {
@@ -363,6 +386,10 @@ impl Coop {
                             let share = Self::world_share();
                             lines.push(share.line().into());
                             g.world = share.guest();
+                            // fights
+                            let (fight, line) = Self::fight(true, g.ladder.is_some());
+                            g.fight = fight;
+                            lines.push(line);
                             *slot = Some(Box::new(g));
                         }
                         // Joined again after losing the host: resume from what this guest has.
@@ -443,6 +470,16 @@ impl Coop {
             lines.push(self.status(e));
             // world
             lines.extend(self.world_status());
+            // fights
+            match &self.role {
+                Role::Host(h) => {
+                    lines.extend(h.fight.iter().map(|f| format!("co-op {}", f.status())))
+                }
+                Role::Guest(Some(g)) => {
+                    lines.extend(g.fight.iter().map(|f| format!("co-op {}", f.status())))
+                }
+                Role::Guest(None) => {}
+            }
             if let Role::Guest(_) = self.role {
                 // Which story scripts this guest holds back, each named once (the first 80): what
                 // a guest would have to run itself to have its own start.

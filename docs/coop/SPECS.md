@@ -353,3 +353,39 @@ a placed object's real record holds after its initial data, that a live `LoadGam
 **Not done:** a guest's take from a container and a guest's trade do not reach the host (loot can
 be taken twice; each game has its own trader stock and caps); terminals' own state beyond their
 lock; references moved to another cell; records above 512 bytes.
+
+## S13: shared fights (implemented with unit tests; not yet run on a PC)
+
+The host's game is the authority for actors that are not players (`coop_engine::fight`,
+`coop_engine_session::fight`). `NV_COOP_FIGHT=state|damage|threat|revive|off` caps it (default `revive`);
+it needs the live ladder. With it off, or with co-op off, every game runs its own fights as before.
+
+| Part | What | Game facts (each from this tree's translation) |
+| --- | --- | --- |
+| State | About 20 times a second the host reads the actors its game runs around its player and tracks each placed one in coop-core's actor ledger (`ActorHost`), pinned to the host as owner. The ledger announces it to the guests in that space and relays place, heading, health, life, combat flag and combat target. A guest holds each such actor that is in its own space: AI off (`bProcessMe`), moved with `SetPosBase`/`SetAngleBase`, health set, killed inside the apply scope when the host says it died. An actor the host stops running goes back to the guest's game | the process lists' close-to-player array (`011e0e80` +0x88, count +0x150, 50 entries; `processlists.rs`); health through the `ActorValueOwner` at +0xa4, virtual `0x0c`, value `0x10`; the in-combat test `00493bb0`; the combat target, virtual `0x42c`; a value change, virtual `0x3ac` |
+| Damage | A wrap of `Actor::HitMe` decides whose game applies a weapon hit. A guest's hit on a held actor is kept from its own copy and sent as `ActorMsg::Hit`; the ledger judges it and the host's game applies it, credited to the guest's avatar; a kill is `Actor::Kill`. The host's actors' hits on an avatar are kept from the avatar and become `PlayerHurt` through coop-core's vitals; the guest's game applies it to its player. A guest's game applies no hit of a held actor on anyone | `Actor::HitMe` `0089a760` and `HitData` (+0x00 aggressor, +0x10 limb, +0x14 health damage); the damage applier, virtual `0x338` (`fn_0089d6f0`); `Actor::GetEssential` `0087f3d0` |
+| Threat | Twice a second coop-core's `ThreatDirector` picks the player each of the host's actors that is fighting a player attends to; the host's game is asked to start that combat. Avatars on the host stop being ghosts | the process's start of combat, virtual `0x33c`, with the words the `StartCombat` command passes; `Actor::pCurrentProcess` +0x68; the alarmed test, virtual `0x304` |
+| Downed and revive | A wrap of `Actor::Kill` holds the kill of the game's own player in a session. The player is left with 1 health and no controls and reports down; coop-core's `Reviver` on the host decides revive (a player standing within 150 units, after 3 s, 30 percent health), respawn (after 60 s, full health in place) or wipe (everyone down: every game lets its player die) | `Actor::Kill` `0089d900`; the player's disabled-controls byte at +0x680 |
+
+- `engine-core`'s wrap table gets two Coop rows: `0089a760` (`C-2`) and `0089d900` (`C-3`). Each wrap is installed
+  only where the address is registered, and passes every call on unless a session set its role.
+- No new wire message: coop-core's `Msg::Actor`, `Msg::Combat` and `Msg::Rules` carry everything.
+
+**Limits, stated.** Only placed actors (ids below `ff000000`) among the up to 50 the host's game runs near
+its player; an actor made while playing, or one near a guest who is elsewhere, runs in each game by itself.
+A held actor slides without animation and is not interpolated between states. A hit's kind and limb are not
+read (a direct hit, no limb), so limbs are not crippled through this path. Damage that does not go through
+`Actor::HitMe` (explosions, falls, effects) stays local to the game it happens in. Friendly fire is off
+(coop-core's default). A revive needs no key: standing next to the downed player starts it. A respawn does
+not move the player. Only the controls byte is written for a downed player, not the rest of what
+`DisablePlayerControls` does.
+
+**Not done.** V.A.T.S. for two players (the host's own V.A.T.S. still stops or slows its game, and so the
+actors everyone sees): the time multiplier's setter (`00aa4db0`) and the V.A.T.S. mode (`011f2250` +8) are
+in the translation, but what stops the game while a target is picked was not traced in this work, so
+nothing was wired rather than half of it.
+
+**Verified here:** 7 unit tests in `coop-engine` (`fight.rs`) and 17 two-game tests
+(`coop-engine-session/tests/fights.rs`); in each the story channel's echo, desyncs, refusals and guest script
+count are unchanged. **Not verified here:** every game call above (stand-ins only), and whether the game's
+own combat lets an actor fight an avatar whose AI is off.
