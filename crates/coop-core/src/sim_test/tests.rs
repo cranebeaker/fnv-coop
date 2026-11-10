@@ -320,6 +320,70 @@ fn guest_intents_obey_authority_and_apply_once() {
     assert_eq!(sim.host.store.rev(), before);
 }
 
+/// A claim tag is a guest's report for the host's game to judge: it is kept apart from the
+/// store, in order, once per intent, and a story field in the same intent is still refused.
+/// Mutation twin: without the tag registered the same field is a plain write, and the
+/// authority refuses it.
+#[test]
+fn a_claim_is_kept_for_the_host_and_never_written() {
+    const LIFE: u16 = 0x4c46;
+    let dead = Field::Custom {
+        tag: LIFE,
+        data: vec![1],
+    };
+    let npc = FormId(0x0001_5000);
+    let send = |sim: &mut Sim, id: u32, changes: Vec<(FormId, Field)>| {
+        let m = Msg::Intent {
+            id,
+            epoch: Epoch(0),
+            changes,
+        };
+        let b = proto::encode(&m).unwrap();
+        sim.guests[0]
+            .net
+            .send(PlayerId::HOST, m.channel(), b)
+            .unwrap();
+        sim.run(20, 0);
+    };
+
+    let mut twin = Sim::new(1, profile("perfect"), 83);
+    twin.start_guest(0);
+    twin.run(20, 0);
+    send(&mut twin, 1, vec![(npc, dead.clone())]);
+    assert!(twin.host.claims.is_empty(), "the twin: no claim tag");
+    assert!(twin.host.store.get(npc, &dead).is_none());
+
+    let mut sim = Sim::new(1, profile("perfect"), 83);
+    sim.host.claim_tags.insert(LIFE);
+    sim.start_guest(0);
+    sim.run(20, 0);
+    let before = sim.host.store.rev();
+    let story = (FormId(0x0100_0001), Field::QuestStage { stage: 99 });
+    send(&mut sim, 1, vec![(npc, dead.clone()), story.clone()]);
+    send(&mut sim, 1, vec![(npc, dead.clone())]);
+    assert_eq!(
+        std::mem::take(&mut sim.host.claims),
+        [(PlayerId(1), npc, dead.clone())]
+    );
+    assert_eq!(sim.host.store.rev(), before, "a claim is not a write");
+    assert!(sim.host.store.get(npc, &dead).is_none());
+    assert_eq!(sim.guests[0].sync.unacked_intents(), 0);
+}
+
+/// A delta cap of one sends each key in a delta of its own, and the guest still converges.
+#[test]
+fn a_delta_cap_of_one_still_converges() {
+    let mut sim = Sim::new(1, profile("perfect"), 84);
+    let mut cfg = HostConfig::new(test_hello(), 0x5E55);
+    cfg.max_guests = 1;
+    cfg.delta_cap = 1;
+    sim.host = HostSync::new(cfg);
+    sim.start_guest(0);
+    sim.run(200, 4);
+    assert!(sim.run_until_converged(60_000));
+    assert_eq!(sim.guests[0].sync.store.entries(), sim.host.store.entries());
+}
+
 #[test]
 fn duplicate_intent_is_applied_once() {
     let mut sim = Sim::new(1, profile("perfect"), 82);
