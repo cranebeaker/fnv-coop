@@ -4,7 +4,7 @@
 // coop-sim run   SCENARIO.json [--seed N] [--net PROFILE] [--data DIR] [--out DIR] [--twice]
 // coop-sim suite DIR [--seeds 1..50] [--jobs N] [--net PROFILE] [--soak] [--data DIR] [--out DIR] [--twice] [--rows]
 // coop-sim checklist [--area X] [--seeds 1..N] [--quick] [--net all|PROFILE] [--peers 2|3|4] [--jobs N] [--full]
-//                    [--backend world|engine] [--real-out DIR] [--data DIR] [--md out.md] [--json out.json]
+//                    [--backend world|world-game|engine] [--real-out DIR] [--data DIR] [--md out.md] [--json out.json]
 // coop-sim questwalk [--only EDID|PLUGIN|DLC] [--net P,P] [--peers 2,3,4] [--full] [--jobs N] [--data DIR]
 // coop-sim watch [--scenarios DIR] [--seeds 1..5] [--data DIR] [--net PROFILE] [--jobs N] [--once] [--no-clear]
 //     rebuild and re-run when a crates/coop-* or world source or a scenario file changes (docs/FASTDEV.md)

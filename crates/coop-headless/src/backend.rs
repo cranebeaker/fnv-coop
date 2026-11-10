@@ -12,14 +12,19 @@
 //! names the peer server's program. Without it every test is
 //! `PENDING (engine backend)`.
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use coop_core::delta::{Change, Delta, SnapEntry};
 use coop_core::hash::ShardHashes;
 use coop_core::ids::{FormId as CForm, Rev, Tick};
-use coop_core::schema::Field;
+use coop_core::schema::{Field, Key};
+use coop_game::conformance::Subject;
+use coop_game::{Change as SlotChange, Intent, Role, Setup, Slot};
 use coop_policy::PolicyTable;
 use world::coop::apply::{Ctx, Opts};
+use world::coop::game::WorldCoop;
 use world::coop::{Authority, ShadowPlan, WorldBackend};
 use world::scripting::{GameState, Runner};
 
@@ -560,6 +565,186 @@ impl CoopBackend for GameStateBackend {
     }
 }
 
+/// The hand-written world layer behind the engine interface. Each call of a peer goes
+/// through `dyn` traits of `coop_game` ([`WorldCoop`]): the rows of [`TESTS`] show that the
+/// interface carries what a session does with a game. The verdicts must be those of
+/// [`GameStateBackend`].
+pub struct WorldGameBackend {
+    table: Arc<PolicyTable>,
+}
+
+impl WorldGameBackend {
+    /// With the bundled policy table.
+    pub fn new() -> Result<WorldGameBackend, String> {
+        Ok(WorldGameBackend {
+            table: Arc::new(PolicyTable::bundled().map_err(|e| format!("{e:?}"))?),
+        })
+    }
+}
+
+/// One game of the world layer, as the engine interface shows it.
+struct GPeer<'a> {
+    d: &'a Data,
+    /// The game. It is in a cell because an export through the interface needs `&mut`
+    /// (the export empties the effect queue), and a peer reads with `&self`.
+    gs: RefCell<GameState>,
+    /// The slot of this game's own player.
+    me: Slot,
+}
+
+impl GPeer<'_> {
+    /// Runs `f` on the game. `f` gets only the traits of `coop_game`.
+    fn game<R>(&self, f: impl FnOnce(&mut dyn Subject) -> R) -> R {
+        let mut gs = self.gs.borrow_mut();
+        let ctx = Ctx {
+            order: &self.d.order,
+            scripts: &self.d.scripts,
+        };
+        f(&mut WorldCoop::new(&mut gs, ctx))
+    }
+
+    /// A forced export, by slot.
+    fn fields(&self) -> BTreeMap<Key, Field> {
+        self.export()
+            .into_iter()
+            .map(|(form, field)| (field.key(form), field))
+            .collect()
+    }
+
+    fn apply(&self, changes: &[SlotChange], present: bool) -> (u32, u32) {
+        let applied = self.game(|g| g.apply_shared(changes, present));
+        (applied.set, applied.cleared)
+    }
+}
+
+impl BackendPeer for GPeer<'_> {
+    fn set_stage(&mut self, quest: &str, stage: u16) -> bool {
+        self.set_stage_as(self.me, quest, stage)
+    }
+    fn set_stage_as(&mut self, slot: u8, quest: &str, stage: u16) -> bool {
+        self.game(|g| {
+            let Some(quest) = g.form_of(quest) else {
+                return false;
+            };
+            g.run_intent(slot, &Intent::SetStage { quest, stage }) == Ok(true)
+        })
+    }
+    fn stage(&self, quest: &str) -> Option<u16> {
+        self.game(|g| g.stage(g.form_of(quest)?))
+    }
+    /// The rows of a player come in the export as a blob on the player's own form. The
+    /// interface has no call for the rows of one player yet (SPEC-02 step 7), so the peer
+    /// reads the blob with the codec of the world layer.
+    fn player_stage(&self, slot: u8, quest: &str) -> Option<u16> {
+        use world::coop::shadow;
+        let quest = self.d.order.form_by_editor_id(quest)?;
+        let rows = CForm(shadow::shadow_form(slot).0);
+        let fields = self.fields();
+        let mut blob = Vec::new();
+        for tag in shadow::TAG_BASE..shadow::TAG_END {
+            let probe = Field::Custom {
+                tag,
+                data: Vec::new(),
+            };
+            match fields.get(&probe.key(rows)) {
+                Some(Field::Custom { data, .. }) => blob.extend_from_slice(data),
+                _ => break,
+            }
+        }
+        shadow::decode(&blob)?.quest_stage.get(&quest).copied()
+    }
+    /// A plain write of the global: a guest's game takes it too (a test's local drift).
+    fn set_global(&mut self, global: &str, v: f32) -> bool {
+        let Some(form) = self.game(|g| g.form_of(global)) else {
+            return false;
+        };
+        let field = Field::global(v);
+        self.apply(&[(field.key(form), Some(field))], false);
+        true
+    }
+    fn global(&self, global: &str) -> Option<f32> {
+        let form = self.game(|g| g.form_of(global))?;
+        match self.fields().get(&Field::global(0.0).key(form)) {
+            Some(Field::Global { bits }) => Some(f32::from_bits(*bits)),
+            _ => None,
+        }
+    }
+    fn export(&self) -> Vec<(CForm, Field)> {
+        self.game(|g| g.export_shared(true)).unwrap_or_default()
+    }
+    fn shard_hashes(&self) -> ShardHashes {
+        let fields = self.export();
+        ShardHashes::of_fields(fields.iter().map(|(form, field)| (*form, field)))
+    }
+    /// The reconcile of a session: a slot that differs gets the snapshot's value, and a
+    /// slot that the snapshot does not have returns to its default.
+    fn apply_snapshot(&mut self, entries: &[SnapEntry]) -> (u32, u32) {
+        let want: BTreeMap<Key, Field> = entries
+            .iter()
+            .filter(|e| !e.field.is_tombstone())
+            .map(|e| (e.field.key(e.form), e.field.clone()))
+            .collect();
+        let have = self.fields();
+        let mut changes: Vec<SlotChange> = Vec::new();
+        for (key, field) in &want {
+            if have.get(key) != Some(field) {
+                changes.push((*key, Some(field.clone())));
+            }
+        }
+        for key in have.keys() {
+            if !want.contains_key(key) {
+                changes.push((*key, None));
+            }
+        }
+        self.apply(&changes, false)
+    }
+    fn apply_delta(&mut self, d: &Delta) -> (u32, u32) {
+        let changes: Vec<SlotChange> = d
+            .changes
+            .iter()
+            .map(|c| (c.field.key(c.form), Some(c.field.clone())))
+            .collect();
+        self.apply(&changes, true)
+    }
+    fn register_player(&mut self, slot: u8) {
+        self.game(|g| g.add_player(slot));
+    }
+}
+
+impl CoopBackend for WorldGameBackend {
+    fn name(&self) -> &'static str {
+        "world-game"
+    }
+    fn peer<'a>(&self, d: &'a Data, host: bool) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        let table = Arc::new(coop_session::policy_ids::resolve_policy(&self.table, &d.order)?.0);
+        let me: Slot = if host { 0 } else { 1 };
+        let setup = Setup {
+            role: if host { Role::Host } else { Role::Guest },
+            me,
+            policy: Some(table),
+            keep_own_rows: false,
+        };
+        let mut peer = GPeer {
+            d,
+            gs: RefCell::new(GameState::new(&d.order)),
+            me,
+        };
+        peer.game(|g| g.configure(&setup))?;
+        if host {
+            // The guest of these tests is player 1: the host keeps its rows.
+            peer.game(|g| g.add_player(1));
+            // The interface has no call for the tether rule yet. These tests are about
+            // replication, not tether zones: the tether of the shared quest is off, so
+            // `SetStage` applies at once.
+            let gs = peer.gs.get_mut();
+            if let Some(g) = gs.coop.gate.as_mut() {
+                g.tether_mode = coop_policy::TetherMode::Off;
+            }
+        }
+        Ok(Box::new(peer))
+    }
+}
+
 /// Snapshot entries of a peer's shared state.
 pub fn snapshot_of(p: &dyn BackendPeer) -> Vec<SnapEntry> {
     p.export()
@@ -795,7 +980,10 @@ pub fn by_name(name: &str) -> Result<Box<dyn CoopBackend>, String> {
     match name {
         "world" => Ok(Box::new(GameStateBackend::new()?)),
         "engine" => Ok(Box::new(EngineBackend)),
-        other => Err(format!("unknown backend {other} (world or engine)")),
+        "world-game" => Ok(Box::new(WorldGameBackend::new()?)),
+        other => Err(format!(
+            "unknown backend {other} (world, world-game or engine)"
+        )),
     }
 }
 

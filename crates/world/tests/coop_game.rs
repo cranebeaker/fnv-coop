@@ -10,7 +10,7 @@ use std::sync::Arc;
 use coop_core::ids::{FormId as CForm, PlayerId};
 use coop_core::schema::{flag, Field};
 use coop_game::conformance::{check, Sample, ROWS};
-use coop_game::{Intent, Names, Refused, Role, Setup, Shared, Story};
+use coop_game::{opening, Intent, Names, Players, Refused, Role, Setup, Shared, Sheet, Story};
 use coop_policy::PolicyTable;
 use esm::{ActivePlugins, FormId, LoadOrder};
 use testdata::quest_ids::*;
@@ -270,4 +270,167 @@ fn names_come_from_the_load_order() {
     // the twin: a form and a plugin that the load order does not have
     assert_eq!(game.name_of(CForm(0x00FF_FFF0)), None);
     assert_eq!(game.load_index("DeadMoney.esm"), None);
+}
+
+#[test]
+fn a_view_with_no_game_data_carries_the_state_and_knows_no_name() {
+    let (_d, order) = order("coop-game-no-data");
+    let mut host = GameState::new(&order);
+    let mut game = WorldCoop::over(&mut host, None);
+    game.configure(&setup(Role::Host, None)).unwrap();
+    assert_eq!(game.form_of("TestQuest"), None);
+    assert_eq!(game.name_of(CForm(QUEST)), None);
+    assert_eq!(game.load_index("FalloutNV.esm"), None);
+    // the role and the shared state work: a plain write shows in the export
+    let field = Field::QuestStage { stage: 10 };
+    let change = (field.key(CForm(QUEST)), Some(field.clone()));
+    let applied = game.apply_shared(&[change], true);
+    assert_eq!((applied.set, applied.cleared), (1, 0));
+    let list = game.export_shared(false).expect("a write came");
+    assert!(list.contains(&(CForm(QUEST), field)));
+    assert_eq!(game.stage(CForm(QUEST)), Some(10));
+    // an intent needs a script of the game data
+    let line = Intent::ScriptLine("set TestGlobal to 9".into());
+    assert_eq!(game.run_intent(0, &stage(20)), Err(Refused::NoSuchForm));
+    assert_eq!(game.run_intent(0, &line), Err(Refused::NoSuchForm));
+    assert_eq!(host.authority(), Authority::Host);
+    assert_eq!(host.stages.get(&FormId(QUEST)), Some(&10));
+    assert_eq!(host.globals.get(&FormId(GLOBAL)), Some(&5.0));
+
+    // the twin: a view of a new game with its data knows the name and runs the intents
+    let scripts = ScriptCache::default();
+    let ctx = Ctx {
+        order: &order,
+        scripts: &scripts,
+    };
+    let mut host = GameState::new(&order);
+    let mut game = WorldCoop::over(&mut host, Some(ctx));
+    game.configure(&setup(Role::Host, None)).unwrap();
+    assert_eq!(game.form_of("TestQuest"), Some(CForm(QUEST)));
+    assert_eq!(game.run_intent(0, &stage(10)), Ok(true));
+    assert_eq!(game.run_intent(0, &line), Ok(true));
+    assert_eq!(host.stages.get(&FormId(QUEST)), Some(&10));
+    assert_eq!(host.globals.get(&FormId(GLOBAL)), Some(&9.0));
+}
+
+fn sheet(name: &str) -> Sheet {
+    Sheet {
+        name: name.into(),
+        female: Some(true),
+        special: [3, 4, 5, 6, 7, 8, 9],
+        tags: vec![32, 40, 41],
+        perks: vec![CForm(0x1234)],
+    }
+}
+
+#[test]
+fn the_local_player_is_the_live_player_rows() {
+    let (_d, order) = order("coop-game-local");
+    let mut gs = GameState::new(&order);
+    // a new game: no place, and the attributes that no menu changed
+    let new = WorldCoop::over(&mut gs, None).local_player();
+    assert_eq!(new.place, coop_game::Place::default());
+    assert_eq!(new.sheet.special, [5; 7]);
+    assert_eq!((new.sheet.name.as_str(), new.sheet.female), ("", None));
+    // outdoors the game can know the worldspace and not the cell
+    gs.player_world = Some(FormId(0x000D_A726));
+    gs.player_position = Some([1.0, 2.0, 3.0]);
+    gs.player_heading = 0.5;
+    gs.player_name = Some("Al".into());
+    gs.actor_values
+        .insert((world::dialogue::PLAYER_REF, 5), 11.6);
+    gs.actor_values
+        .insert((world::dialogue::PLAYER_REF, 11), 0.2);
+    gs.tag_skills = [41u16, 32].into_iter().collect();
+    gs.perks.insert(FormId(0x0200));
+    gs.perks.insert(FormId(0x0100));
+    let local = WorldCoop::over(&mut gs, None).local_player();
+    assert_eq!(local.place.cell, None);
+    assert_eq!(local.place.world, Some(CForm(0x000D_A726)));
+    assert_eq!(local.place.pos, Some([1.0, 2.0, 3.0]));
+    assert_eq!(local.place.heading, 0.5);
+    assert_eq!(local.sheet.name, "Al");
+    // an attribute stays in 1 to 10
+    assert_eq!(local.sheet.special, [10, 5, 5, 5, 5, 5, 1]);
+    assert_eq!(local.sheet.tags, [32, 41]);
+    assert_eq!(local.sheet.perks, [CForm(0x0100), CForm(0x0200)]);
+    // the read function for a caller with `&GameState` gives the same answer
+    assert_eq!(world::coop::game::local_player_of(&gs), local);
+    // the twin: indoors there is a cell and no worldspace
+    gs.player_world = None;
+    gs.player_cell = Some(FormId(0x0010_4C0F));
+    let indoors = WorldCoop::over(&mut gs, None).local_player().place;
+    assert_eq!(
+        (indoors.cell, indoors.world),
+        (Some(CForm(0x0010_4C0F)), None)
+    );
+}
+
+#[test]
+fn a_character_goes_to_the_rows_of_its_player() {
+    let (_d, order) = order("coop-game-character");
+    let mut host = GameState::new(&order);
+    // a view with no game data takes a character: it needs no script
+    let mut game = WorldCoop::over(&mut host, None);
+    game.configure(&setup(Role::Host, Some(table("")))).unwrap();
+    assert!(game.add_player(1));
+    assert!(game.add_player(1), "a second add gives the same answer");
+    let before = game.local_player();
+    assert_eq!(
+        game.run_intent(1, &Intent::Character(sheet("Bo"))),
+        Ok(true)
+    );
+    // the host's own player did not change
+    assert_eq!(game.local_player(), before);
+    let rows = host.shadow_of(1).expect("rows of player 1");
+    assert_eq!(rows.name.as_deref(), Some("Bo"));
+    assert_eq!(rows.female, Some(true));
+    assert_eq!(rows.actor_values.get(&11), Some(&9.0));
+    assert!(rows.perks.contains(&FormId(0x1234)));
+    assert_eq!(rows.tag_skills, [32u16, 40, 41].into_iter().collect());
+
+    // the twin: the same character for the host's own player changes the local player
+    let mut game = WorldCoop::over(&mut host, None);
+    assert_eq!(
+        game.run_intent(0, &Intent::Character(sheet("Al"))),
+        Ok(true)
+    );
+    assert_eq!(game.local_player().sheet, sheet("Al"));
+    // the opening is done for that player, and a later stage does not go down
+    assert_eq!(game.stage(opening::VCG00), Some(opening::VCG00_DONE));
+    assert_eq!(
+        game.stage(opening::VCG01),
+        Some(opening::OPENING_OVER_STAGE)
+    );
+    host.stages.insert(FormId(opening::VCG01.0), 150);
+    let mut game = WorldCoop::over(&mut host, None);
+    assert_eq!(
+        game.run_intent(0, &Intent::Character(sheet("Al"))),
+        Ok(true)
+    );
+    assert_eq!(game.stage(opening::VCG01), Some(150));
+}
+
+#[test]
+fn a_game_with_no_policy_keeps_one_shared_player() {
+    let (_d, order) = order("coop-game-one-player");
+    let mut host = GameState::new(&order);
+    let mut game = WorldCoop::over(&mut host, None);
+    game.configure(&setup(Role::Host, None)).unwrap();
+    assert!(!game.add_player(1), "no rows for a player");
+    assert!(host.shadow_of(1).is_none());
+    // the twin: with a policy the game keeps rows for each player
+    let mut host = GameState::new(&order);
+    let mut game = WorldCoop::over(&mut host, None);
+    game.configure(&setup(Role::Host, Some(table("")))).unwrap();
+    assert!(game.add_player(1));
+    assert!(host.shadow_of(1).is_some());
+    // a guest's game and a game for one player take no character
+    let mut guest = GameState::new(&order);
+    let mut game = WorldCoop::over(&mut guest, None);
+    let bo = Intent::Character(sheet("Bo"));
+    assert_eq!(game.run_intent(0, &bo), Err(Refused::NotHost));
+    game.configure(&setup(Role::Guest, None)).unwrap();
+    assert_eq!(game.run_intent(1, &bo), Err(Refused::NotHost));
+    assert_eq!(guest.player_name, None);
 }

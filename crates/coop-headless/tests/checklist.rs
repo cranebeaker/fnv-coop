@@ -244,6 +244,34 @@ fn world_backend_conformance_holds_and_its_twins_fail() {
     }
 }
 
+/// The world layer behind the engine interface (`world-game`): each call of a peer goes
+/// through `dyn` traits of `coop_game`. Each row passes, and each twin fails, as on the
+/// `world` backend.
+#[test]
+fn world_game_backend_conformance_holds_and_its_twins_fail() {
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(d) = data() else { return };
+    let b = backend::by_name("world-game").unwrap();
+    assert_eq!(b.name(), "world-game");
+    for (id, _) in backend::TESTS {
+        assert_eq!(backend::run_test(&*b, &d, id, false), Verdict::Pass, "{id}");
+        let twin = backend::run_test(&*b, &d, id, true);
+        assert!(matches!(twin, Verdict::Fail(_)), "{id} twin: {twin:?}");
+    }
+}
+
+/// A backend name that no backend has is an error. The error names each backend.
+#[test]
+fn an_unknown_backend_name_is_refused() {
+    let Err(why) = backend::by_name("world_game") else {
+        panic!("a wrong name gave a backend");
+    };
+    for name in ["world", "world-game", "engine"] {
+        assert!(backend::by_name(name).is_ok(), "{name}");
+        assert!(why.contains(name), "{why}");
+    }
+}
+
 #[test]
 fn questwalk_walks_the_prologue_and_a_dlc_quest() {
     let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());

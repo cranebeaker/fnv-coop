@@ -13,12 +13,15 @@ use std::sync::Arc;
 use coop_core::schema::flag;
 use coop_policy::PolicyTable;
 
-use crate::{Change, Field, FormId, Intent, Key, Names, Refused, Role, Setup, Shared, Slot, Story};
+use crate::{
+    opening, Change, Field, FormId, Intent, Key, Names, Players, Refused, Role, Setup, Shared,
+    Sheet, Slot, Story,
+};
 
 /// A game under test: each trait that the rows use.
-pub trait Subject: Names + Shared + Story {}
+pub trait Subject: Names + Shared + Story + Players {}
 
-impl<T: Names + Shared + Story + ?Sized> Subject for T {}
+impl<T: Names + Shared + Story + Players + ?Sized> Subject for T {}
 
 /// Data of the game under test that the rows use.
 #[derive(Clone, Debug)]
@@ -80,6 +83,21 @@ pub const ROWS: &[Row] = &[
         name: "idle_export",
         run: idle_export,
         twin_cause: "differ between two exports",
+    },
+    Row {
+        name: "stage_tells_no_stage_from_stage_0",
+        run: stage_tells_no_stage_from_stage_0,
+        twin_cause: "after stage 0 is set",
+    },
+    Row {
+        name: "character_reaches_the_local_player",
+        run: character_reaches_the_local_player,
+        twin_cause: "the local player has the character",
+    },
+    Row {
+        name: "character_stays_with_its_player",
+        run: character_stays_with_its_player,
+        twin_cause: "changed the local player",
     },
 ];
 
@@ -169,14 +187,33 @@ fn each_intent(sample: &Sample) -> Vec<Intent> {
             stage: sample.stage,
         },
         Intent::ScriptLine(sample.line.clone()),
+        Intent::Character(another_character(&Sheet::default())),
     ];
     // A new kind of intent must come into the list. Without it this match does not compile.
     for intent in &all {
         match intent {
-            Intent::SetStage { .. } | Intent::ScriptLine(_) => {}
+            Intent::SetStage { .. } | Intent::ScriptLine(_) | Intent::Character(_) => {}
         }
     }
     all
+}
+
+/// A character that differs from `now` in each part that a sheet sets. It keeps the perks:
+/// a character only adds perks.
+fn another_character(now: &Sheet) -> Sheet {
+    Sheet {
+        name: format!("{} the Second", now.name),
+        female: Some(!now.female.unwrap_or(false)),
+        special: now
+            .special
+            .map(|v| if (1..10).contains(&v) { v + 1 } else { 1 }),
+        tags: if now.tags == [32, 33, 34] {
+            vec![35, 36, 37]
+        } else {
+            vec![32, 33, 34]
+        },
+        perks: now.perks.clone(),
+    }
 }
 
 /// An editor ID gives a form, the form gives the editor ID again, and the form's top byte is
@@ -422,6 +459,140 @@ pub fn idle_export(game: &mut dyn Subject, s: &Sample, mutate: bool) -> Result<(
     Ok(())
 }
 
+/// `stage` gives `None` for a quest that has no stage, also when the quest has flags. It
+/// gives `Some(0)` after stage 0 is set, and then each stage that is set.
+///
+/// Twin: the row does not set stage 0.
+pub fn stage_tells_no_stage_from_stage_0(
+    game: &mut dyn Subject,
+    s: &Sample,
+    mutate: bool,
+) -> Result<(), String> {
+    configure(game, s, Role::Guest)?;
+    if let Some(stage) = game.stage(s.quest) {
+        return Err(format!(
+            "a new game holds the stage {stage} for the sample's quest"
+        ));
+    }
+    let running = Field::QuestFlags {
+        flags: flag::RUNNING,
+    };
+    game.apply_shared(&[set_of(s.quest, running)], false);
+    match game.quest(s.quest) {
+        Some((0, flags)) if flags & flag::RUNNING != 0 => {}
+        other => {
+            return Err(format!(
+                "quest() gives {other:?} for a quest that has flags and no stage, want stage 0"
+            ))
+        }
+    }
+    if let Some(stage) = game.stage(s.quest) {
+        return Err(format!(
+            "stage() gives Some({stage}) for a quest that has flags and no stage, want None"
+        ));
+    }
+    if !mutate {
+        game.apply_shared(&[set_of(s.quest, Field::QuestStage { stage: 0 })], false);
+    }
+    if game.stage(s.quest) != Some(0) {
+        return Err(format!(
+            "stage() gives {:?} after stage 0 is set, want Some(0)",
+            game.stage(s.quest)
+        ));
+    }
+    game.apply_shared(
+        &[set_of(s.quest, Field::QuestStage { stage: s.stage })],
+        false,
+    );
+    if game.stage(s.quest) != Some(s.stage) {
+        return Err(format!(
+            "stage() gives {:?}, want Some({})",
+            game.stage(s.quest),
+            s.stage
+        ));
+    }
+    Ok(())
+}
+
+/// A host's game gives a character to its own player. The local player then has the name,
+/// the sex, the attributes and the tag skills of the sheet, and the opening is done for
+/// that player.
+///
+/// Twin: the row does not send the character.
+pub fn character_reaches_the_local_player(
+    game: &mut dyn Subject,
+    s: &Sample,
+    mutate: bool,
+) -> Result<(), String> {
+    let me = configure(game, s, Role::Host)?;
+    let want = another_character(&game.local_player().sheet);
+    if !mutate {
+        let answer = game.run_intent(me, &Intent::Character(want.clone()));
+        if answer != Ok(true) {
+            return Err(format!("the host answered {answer:?} to a character"));
+        }
+    }
+    let got = game.local_player().sheet;
+    let same = got.name == want.name
+        && got.female == want.female
+        && got.special == want.special
+        && got.tags == want.tags
+        && want.perks.iter().all(|p| got.perks.contains(p));
+    if !same {
+        return Err(format!(
+            "the local player has the character {got:?}, want {want:?}"
+        ));
+    }
+    for (quest, stage) in [
+        (opening::VCG00, opening::VCG00_DONE),
+        (opening::VCG01, opening::OPENING_OVER_STAGE),
+    ] {
+        match game.stage(quest) {
+            Some(now) if now >= stage => {}
+            other => {
+                return Err(format!(
+                    "the opening quest {quest:?} has the stage {other:?}, want {stage} or more"
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A character for another player does not change the local player. A game that keeps one
+/// shared player says so (`add_player` gives `false`), and the row then sends no character.
+///
+/// Twin: the row gives the character to the game's own player.
+pub fn character_stays_with_its_player(
+    game: &mut dyn Subject,
+    s: &Sample,
+    mutate: bool,
+) -> Result<(), String> {
+    let me = configure(game, s, Role::Host)?;
+    let before = game.local_player().sheet;
+    let other = another_character(&before);
+    let kept = game.add_player(GUEST);
+    let target = if mutate { me } else { GUEST };
+    if kept || mutate {
+        let answer = game.run_intent(target, &Intent::Character(other));
+        if answer != Ok(true) {
+            return Err(format!(
+                "the host answered {answer:?} to the character of player {target}"
+            ));
+        }
+    }
+    let after = game.local_player().sheet;
+    if after != before {
+        return Err(format!(
+            "the character of player {target} changed the local player: {after:?}, want {before:?}"
+        ));
+    }
+    if game.add_player(GUEST) != kept {
+        return Err("a second add of the same player gave another answer".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,6 +681,25 @@ mod tests {
         }
     }
 
+    /// A game that keeps one shared player is a correct game too: each row passes on it,
+    /// and each twin fails for its own cause.
+    #[test]
+    fn check_takes_each_row_on_a_fake_with_one_shared_player() {
+        let shared = || {
+            let mut g = game();
+            g.one_shared_player();
+            g
+        };
+        for row in ROWS {
+            assert_eq!(
+                check(row, &mut shared(), &mut shared(), &sample()),
+                Ok(()),
+                "{}",
+                row.name
+            );
+        }
+    }
+
     /// The twin of `check` itself: a twin that passes, and a twin that fails for another
     /// cause, are each a failure.
     #[test]
@@ -546,6 +736,14 @@ mod tests {
         GuestRuns,
         /// Each export carries a number that moves.
         ExportMoves,
+        /// `stage` gives stage 0 for a quest that has flags and no stage, as `quest` does.
+        StageFromQuest,
+        /// The game answers `Ok(true)` to a character, and it writes nothing.
+        CharacterDropped,
+        /// The character of each player goes to the game's own player.
+        CharacterToLocal,
+        /// The game keeps one shared player, and `add_player` answers `true`.
+        SharedPlayerSaysKept,
     }
 
     /// A fake with one fault.
@@ -611,6 +809,12 @@ mod tests {
         fn quest(&self, quest: FormId) -> Option<(u16, u32)> {
             self.game.quest(quest)
         }
+        fn stage(&self, quest: FormId) -> Option<u16> {
+            if self.fault == Fault::StageFromQuest {
+                return self.game.quest(quest).map(|(stage, _)| stage);
+            }
+            self.game.stage(quest)
+        }
         fn activity(&self) -> u64 {
             self.game.activity()
         }
@@ -618,7 +822,28 @@ mod tests {
 
     impl Story for Broken {
         fn run_intent(&mut self, slot: Slot, intent: &Intent) -> Result<bool, Refused> {
+            if let Intent::Character(_) = intent {
+                match self.fault {
+                    Fault::CharacterDropped => return Ok(true),
+                    Fault::CharacterToLocal => return self.game.run_intent(HOST, intent),
+                    _ => {}
+                }
+            }
             self.game.run_intent(slot, intent)
+        }
+    }
+
+    impl Players for Broken {
+        fn add_player(&mut self, slot: Slot) -> bool {
+            if self.fault == Fault::SharedPlayerSaysKept {
+                self.game.one_shared_player();
+                self.game.add_player(slot);
+                return true;
+            }
+            self.game.add_player(slot)
+        }
+        fn local_player(&self) -> crate::LocalPlayer {
+            self.game.local_player()
         }
     }
 
@@ -647,6 +872,26 @@ mod tests {
                 "idle_export",
                 Fault::ExportMoves,
                 "differ between two exports",
+            ),
+            (
+                "stage_tells_no_stage_from_stage_0",
+                Fault::StageFromQuest,
+                "has flags and no stage, want None",
+            ),
+            (
+                "character_reaches_the_local_player",
+                Fault::CharacterDropped,
+                "the local player has the character",
+            ),
+            (
+                "character_stays_with_its_player",
+                Fault::CharacterToLocal,
+                "changed the local player",
+            ),
+            (
+                "character_stays_with_its_player",
+                Fault::SharedPlayerSaysKept,
+                "changed the local player",
             ),
         ];
         for row in ROWS {

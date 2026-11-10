@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 coop-core = { path = "../coop-core", features = ["testkit"] }
+coop-game = { path = "../coop-game" }
 coop-session = { path = "../coop-session" }
 coop-voice = { path = "../coop-voice" }
 # steam-mock: MockSteam and SteamBackend for the checklist's Steam check, no DLL loader.

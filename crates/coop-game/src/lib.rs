@@ -7,10 +7,12 @@
 //! * [`Names`]: editor IDs, form IDs and plugin indexes.
 //! * [`Shared`]: the role of the game, and its shared state as `coop_core` fields.
 //! * [`Story`]: story actions, which only a host's game runs.
+//! * [`Players`]: the rows of each player, and the player of the game's own slot.
 //! * [`fake::FakeGame`]: a game made of maps, for the tests of other crates.
 //! * [`conformance`]: the checks that each adapter must pass.
 //!
-//! The traits for players, for the live layer and for the state dump come in later steps.
+//! The traits for the live layer and for the state dump come in later steps. More calls
+//! of [`Players`] come with the per-player rows.
 
 #![warn(missing_docs)]
 
@@ -64,6 +66,63 @@ pub struct Applied {
     pub announced: u32,
 }
 
+/// The actor values of the seven SPECIAL attributes, from Strength to Luck.
+pub const SPECIAL: [u16; 7] = [5, 6, 7, 8, 9, 10, 11];
+
+/// The quests of the game's opening. A session reads them to know how far the host's
+/// opening is. A game adapter writes them when a player gets a character
+/// ([`Intent::Character`]).
+pub mod opening {
+    use crate::FormId;
+
+    /// `VCG00`, the prologue quest.
+    pub const VCG00: FormId = FormId(0x0010_2037);
+    /// `VCG01`, the quest of the first talk with the doctor.
+    pub const VCG01: FormId = FormId(0x0010_4C1C);
+    /// The stage of [`VCG00`] that ends the prologue.
+    pub const VCG00_DONE: u16 = 100;
+    /// The stage of [`VCG01`] from which the character is made.
+    pub const OPENING_OVER_STAGE: u16 = 105;
+}
+
+/// A player's character: what the menus of the game's opening decide.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Sheet {
+    /// The name. An empty name: not set.
+    pub name: String,
+    /// The sex. `None`: not known.
+    pub female: Option<bool>,
+    /// The values of the attributes of [`SPECIAL`], in that order.
+    pub special: [u8; 7],
+    /// The tag skills as actor values, in rising order.
+    pub tags: Vec<u16>,
+    /// The perks of the player, the traits among them, in rising order.
+    pub perks: Vec<FormId>,
+}
+
+/// Where a player is. A game knows each part separately: outdoors it can know the
+/// worldspace and not the cell.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Place {
+    /// The cell. `None`: the game knows no cell at the player's position.
+    pub cell: Option<FormId>,
+    /// The worldspace. `None`: the player is not outdoors.
+    pub world: Option<FormId>,
+    /// The position of the feet. `None`: the game did not place the player yet.
+    pub pos: Option<[f32; 3]>,
+    /// The heading, in radians.
+    pub heading: f32,
+}
+
+/// The player of a game's own slot ([`Players::local_player`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LocalPlayer {
+    /// Where the player is.
+    pub place: Place,
+    /// The character of the player.
+    pub sheet: Sheet,
+}
+
 /// A story action. Only a host's game runs it, with the game's own code.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
@@ -76,6 +135,15 @@ pub enum Intent {
     },
     /// Runs one line of the game's script language, as the game's console does.
     ScriptLine(String),
+    /// Gives a player the character that the menus of the opening made. It is plain
+    /// state: no script runs.
+    ///
+    /// The name and the sex change only when the sheet has them. The attributes and the
+    /// tag skills become those of the sheet. The perks of the sheet are added. The
+    /// opening is then done for that player: [`opening::VCG00`] has the stage
+    /// [`opening::VCG00_DONE`] or a later one, and [`opening::VCG01`] has
+    /// [`opening::OPENING_OVER_STAGE`] or a later one. No stage goes down.
+    Character(Sheet),
 }
 
 /// Why a game did not try to run an [`Intent`].
@@ -136,6 +204,13 @@ pub trait Shared {
     /// `None`: these rows hold no stage and no flag for the quest.
     fn quest(&self, quest: FormId) -> Option<(u16, u32)>;
 
+    /// The current stage of a quest, from the rows of the live player.
+    ///
+    /// `None`: these rows hold no stage for the quest. A stage 0 that is set gives
+    /// `Some(0)`. [`Shared::quest`] gives stage 0 in the two cases: use this call to tell
+    /// "no stage" from "stage 0".
+    fn stage(&self, quest: FormId) -> Option<u16>;
+
     /// A number that moves when shared state possibly changed. An equal number does not
     /// prove that the state is equal.
     fn activity(&self) -> u64;
@@ -152,4 +227,18 @@ pub trait Story {
     /// A game that is not a host's game answers [`Refused::NotHost`] to each intent, and
     /// changes no state.
     fn run_intent(&mut self, slot: Slot, intent: &Intent) -> Result<bool, Refused>;
+}
+
+/// The players of the game.
+pub trait Players {
+    /// Makes sure that the game has rows for player `slot`. A player that has none gets
+    /// new rows. A second call for the same player gives the same answer.
+    ///
+    /// `false`: this game keeps one shared player, and it has no rows for a player. The
+    /// caller then must not send [`Intent::Character`] for another player: that character
+    /// replaces the shared one.
+    fn add_player(&mut self, slot: Slot) -> bool;
+
+    /// The player of this game's own slot, as the game holds it now.
+    fn local_player(&self) -> LocalPlayer;
 }

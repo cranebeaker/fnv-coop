@@ -1,13 +1,14 @@
 //! A game made of maps, for the tests of other crates.
 //!
-//! [`FakeGame`] has a field map, a name table, a table of scripted intents and a call log.
-//! It runs no game code. A test fills the tables, hands the fake to the code under test, and
-//! then reads the fields and the log.
+//! [`FakeGame`] has a field map, a name table, a table of scripted intents, the rows of its
+//! players and a call log. It runs no game code. A test fills the tables, hands the fake to
+//! the code under test, and then reads the fields and the log.
 
 use std::collections::BTreeMap;
 
 use crate::{
-    Applied, Change, Field, FormId, Intent, Key, Names, Refused, Role, Setup, Shared, Slot, Story,
+    opening, Applied, Change, Field, FormId, Intent, Key, LocalPlayer, Names, Place, Players,
+    Refused, Role, Setup, Shared, Sheet, Slot, Story,
 };
 
 /// One call that a [`FakeGame`] got through a trait of this crate.
@@ -43,13 +44,51 @@ pub enum Call {
         /// The answer of the fake.
         answer: Result<bool, Refused>,
     },
+    /// [`Players::add_player`].
+    AddPlayer {
+        /// The player.
+        slot: Slot,
+        /// The answer of the fake: true when it keeps rows for each player.
+        kept: bool,
+    },
+}
+
+/// The rows that the fake keeps for a player who is not its own.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct PlayerRows {
+    sheet: Sheet,
+    /// The stages of the opening quests.
+    stages: BTreeMap<FormId, u16>,
+}
+
+/// The stages that end the opening for a player.
+const OPENING_DONE: [(FormId, u16); 2] = [
+    (opening::VCG00, opening::VCG00_DONE),
+    (opening::VCG01, opening::OPENING_OVER_STAGE),
+];
+
+/// Writes `sheet` over `to` as [`Intent::Character`] tells: the name and the sex only when
+/// the sheet has them, and the perks added.
+fn write_sheet(to: &mut Sheet, sheet: &Sheet) {
+    if !sheet.name.is_empty() {
+        to.name = sheet.name.clone();
+    }
+    if sheet.female.is_some() {
+        to.female = sheet.female;
+    }
+    to.special = sheet.special;
+    to.tags = sheet.tags.clone();
+    to.perks.extend(sheet.perks.iter().copied());
+    to.perks.sort_unstable();
+    to.perks.dedup();
 }
 
 /// A game made of maps.
 ///
 /// A new fake has no role. It refuses each intent until [`Shared::configure`] makes it a
 /// host. As a guest it refuses each intent. [`Shared::apply_shared`] writes plain state and
-/// never runs an intent.
+/// never runs an intent. The fake keeps rows for each player, until
+/// [`FakeGame::one_shared_player`] makes it a game with one shared player.
 #[derive(Debug, Default)]
 pub struct FakeGame {
     fields: BTreeMap<Key, Field>,
@@ -66,6 +105,12 @@ pub struct FakeGame {
     activity: u64,
     /// True when a write came after the last export that gave a list.
     changed: bool,
+    /// True: the fake keeps one shared player, and it has no rows for a player.
+    one_player: bool,
+    /// The rows of each player who is not the fake's own.
+    players: BTreeMap<Slot, PlayerRows>,
+    /// The player of the fake's own slot.
+    local: LocalPlayer,
 }
 
 impl FakeGame {
@@ -143,6 +188,47 @@ impl FakeGame {
         self.setup.as_ref().map(|s| s.role)
     }
 
+    /// Makes the fake a game with one shared player: [`Players::add_player`] answers
+    /// `false`, and each character goes to that player.
+    pub fn one_shared_player(&mut self) {
+        self.one_player = true;
+    }
+
+    /// Puts the local player at a place, as a game does when its player moves.
+    pub fn set_place(&mut self, place: Place) {
+        self.local.place = place;
+    }
+
+    /// The character of a player who is not the fake's own. `None`: the fake has no rows
+    /// for that player.
+    pub fn sheet_of(&self, slot: Slot) -> Option<&Sheet> {
+        self.players.get(&slot).map(|rows| &rows.sheet)
+    }
+
+    /// The slot of the fake's own player. It is 0 before a [`Shared::configure`] call.
+    fn me(&self) -> Slot {
+        self.setup.as_ref().map_or(0, |s| s.me)
+    }
+
+    /// Gives `slot` a character, and ends the opening for that player. No stage goes down.
+    fn give_character(&mut self, slot: Slot, sheet: &Sheet) {
+        if self.one_player || slot == self.me() {
+            write_sheet(&mut self.local.sheet, sheet);
+            for (quest, stage) in OPENING_DONE {
+                if self.stage(quest).unwrap_or(0) < stage {
+                    self.set(quest, Field::QuestStage { stage });
+                }
+            }
+            return;
+        }
+        let rows = self.players.entry(slot).or_default();
+        write_sheet(&mut rows.sheet, sheet);
+        for (quest, stage) in OPENING_DONE {
+            let now = rows.stages.entry(quest).or_insert(0);
+            *now = (*now).max(stage);
+        }
+    }
+
     /// Writes one slot. A default value removes the slot. A field of another slot is ignored.
     fn write(&mut self, key: Key, field: Option<Field>) {
         match field {
@@ -158,9 +244,13 @@ impl FakeGame {
         self.changed = true;
     }
 
-    fn answer(&mut self, intent: &Intent) -> Result<bool, Refused> {
+    fn answer(&mut self, slot: Slot, intent: &Intent) -> Result<bool, Refused> {
         if self.role() != Some(Role::Host) {
             return Err(Refused::NotHost);
+        }
+        if let Intent::Character(sheet) = intent {
+            self.give_character(slot, sheet);
+            return Ok(true);
         }
         if let Intent::SetStage { quest, .. } = intent {
             if !self.editor_ids.contains_key(quest) {
@@ -238,10 +328,7 @@ impl Shared for FakeGame {
     }
 
     fn quest(&self, quest: FormId) -> Option<(u16, u32)> {
-        let stage = match self.fields.get(&Field::QuestStage { stage: 0 }.key(quest)) {
-            Some(Field::QuestStage { stage }) => Some(*stage),
-            _ => None,
-        };
+        let stage = self.stage(quest);
         let flags = match self.fields.get(&Field::QuestFlags { flags: 0 }.key(quest)) {
             Some(Field::QuestFlags { flags }) => *flags,
             _ => 0,
@@ -252,6 +339,13 @@ impl Shared for FakeGame {
         Some((stage.unwrap_or(0), flags))
     }
 
+    fn stage(&self, quest: FormId) -> Option<u16> {
+        match self.fields.get(&Field::QuestStage { stage: 0 }.key(quest)) {
+            Some(Field::QuestStage { stage }) => Some(*stage),
+            _ => None,
+        }
+    }
+
     fn activity(&self) -> u64 {
         self.activity
     }
@@ -259,13 +353,28 @@ impl Shared for FakeGame {
 
 impl Story for FakeGame {
     fn run_intent(&mut self, slot: Slot, intent: &Intent) -> Result<bool, Refused> {
-        let answer = self.answer(intent);
+        let answer = self.answer(slot, intent);
         self.calls.push(Call::Intent {
             slot,
             intent: intent.clone(),
             answer,
         });
         answer
+    }
+}
+
+impl Players for FakeGame {
+    fn add_player(&mut self, slot: Slot) -> bool {
+        let kept = !self.one_player;
+        if kept && slot != self.me() {
+            self.players.entry(slot).or_default();
+        }
+        self.calls.push(Call::AddPlayer { slot, kept });
+        kept
+    }
+
+    fn local_player(&self) -> LocalPlayer {
+        self.local.clone()
     }
 }
 
@@ -418,5 +527,89 @@ mod tests {
                 },
             ]
         );
+    }
+
+    fn sheet(name: &str) -> Sheet {
+        Sheet {
+            name: name.into(),
+            female: Some(true),
+            special: [3, 4, 5, 6, 7, 8, 9],
+            tags: vec![32, 40],
+            perks: vec![FormId(0x1234)],
+        }
+    }
+
+    #[test]
+    fn a_character_goes_to_the_rows_of_its_player() {
+        let mut g = game();
+        g.configure(&setup(Role::Host, 0)).unwrap();
+        assert!(g.add_player(1));
+        assert_eq!(g.sheet_of(1), Some(&Sheet::default()));
+        let bo = Intent::Character(sheet("Bo"));
+        assert_eq!(g.run_intent(1, &bo), Ok(true));
+        assert_eq!(g.sheet_of(1), Some(&sheet("Bo")));
+        // the local player and the shared state did not change
+        assert_eq!(g.local_player(), LocalPlayer::default());
+        assert!(g.fields().is_empty());
+        // the fake's own player: the opening is done, and a later stage stays
+        g.set(opening::VCG01, Field::QuestStage { stage: 150 });
+        assert_eq!(g.run_intent(0, &Intent::Character(sheet("Al"))), Ok(true));
+        assert_eq!(g.local_player().sheet, sheet("Al"));
+        assert_eq!(g.stage(opening::VCG00), Some(opening::VCG00_DONE));
+        assert_eq!(g.stage(opening::VCG01), Some(150));
+        // an empty name and an unknown sex keep what the player has, and the perks add
+        let more = Sheet {
+            name: String::new(),
+            female: None,
+            perks: vec![FormId(0x0100)],
+            ..sheet("")
+        };
+        assert_eq!(g.run_intent(0, &Intent::Character(more)), Ok(true));
+        let now = g.local_player().sheet;
+        assert_eq!((now.name.as_str(), now.female), ("Al", Some(true)));
+        assert_eq!(now.perks, [FormId(0x0100), FormId(0x1234)]);
+
+        // the twin: a guest's game takes no character
+        let mut guest = game();
+        guest.configure(&setup(Role::Guest, 1)).unwrap();
+        assert_eq!(guest.run_intent(1, &bo), Err(Refused::NotHost));
+        assert_eq!(guest.local_player(), LocalPlayer::default());
+    }
+
+    #[test]
+    fn a_fake_with_one_shared_player_has_no_rows_for_a_player() {
+        let mut g = game();
+        g.configure(&setup(Role::Host, 0)).unwrap();
+        g.one_shared_player();
+        assert!(!g.add_player(1));
+        assert_eq!(g.sheet_of(1), None);
+        // a character for another player replaces the shared one
+        assert_eq!(g.run_intent(1, &Intent::Character(sheet("Bo"))), Ok(true));
+        assert_eq!(g.local_player().sheet, sheet("Bo"));
+        // the twin: a fake with rows for each player keeps the two apart
+        let mut g = game();
+        g.configure(&setup(Role::Host, 0)).unwrap();
+        assert!(g.add_player(1));
+        assert_eq!(g.run_intent(1, &Intent::Character(sheet("Bo"))), Ok(true));
+        assert_eq!(g.local_player().sheet, Sheet::default());
+        let added = Call::AddPlayer {
+            slot: 1,
+            kept: true,
+        };
+        assert!(g.calls().contains(&added));
+    }
+
+    #[test]
+    fn the_local_player_is_where_the_test_put_it() {
+        let mut g = game();
+        assert_eq!(g.local_player().place, Place::default());
+        let place = Place {
+            cell: Some(FormId(0x0010_4C0F)),
+            world: None,
+            pos: Some([1.0, 2.0, 3.0]),
+            heading: 0.5,
+        };
+        g.set_place(place);
+        assert_eq!(g.local_player().place, place);
     }
 }
