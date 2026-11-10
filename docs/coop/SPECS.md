@@ -389,3 +389,118 @@ nothing was wired rather than half of it.
 (`coop-engine-session/tests/fights.rs`); in each the story channel's echo, desyncs, refusals and guest script
 count are unchanged. **Not verified here:** every game call above (stand-ins only), and whether the game's
 own combat lets an actor fight an avatar whose AI is off.
+## S14: conversations (implemented with unit tests; not run on a PC)
+
+The player who talks to an NPC drives the conversation in the own game's dialogue menu. The other
+players see each line; a line's results happen once, in the host's game.
+
+- **In the game** (`coop_engine::talk`). Co-op wraps `TESTopicInfo::RunResult` (`0061f170`: the info,
+  index 0 when the line is said and 1 when it ends, the speaker) and `DialogMenu::Create` (`00761a20`),
+  both as owner `Coop` (new rows of the wrap table). With sharing off (no session, or a host with no
+  guest) both pass every call on. With it on, a call that belongs to the player's own conversation (the
+  open dialogue menu's speaker, `011d9510` +0x80) is noted, and on a guest a line of the shared story
+  runs inside the apply scope, so its result script does not run there. Which story a line belongs to
+  is its quest: the quest its topic holds it under (`0061a310`, `00619d00`), else the info's own owner
+  quest (+0x48). A line of one of the player's own quests (the opening), and a line whose quest cannot
+  be told, runs on the guest as before. An info's result script has no owner quest of its own
+  (`Script::InitItem` gives one only for a quest), so until now the script gate let it run on a guest
+  and the heal put the story back.
+- **In the session** (`coop_engine_session::talk`, coop-core's `dialogue`). The first shared line asks
+  the host for the NPC (`Open`); each line said is a `Pick` of its info; its end, or the next line, a
+  `LineDone`; the menu closing a `Close`. The host's own conversations go through the same table. The
+  host's game runs a guest's result through `RunResult` itself (`talk::enact`) at the protocol's
+  `RunBegin` and `RunEnd`, when the line's quest is one the session shares and the speaker is in the
+  host's game; anything else is counted and named in the log.
+- **Watching.** A machine that is not the talker shows a picked line when its player is in the NPC's
+  cell: what was chosen (the info's prompt, when it has one) and each response, as the game's own HUD
+  messages (`007052f0`; the text from `TESTopicInfo::GetInfoDisplayText`, `0061e2b0`). It reports the
+  line done at once, so the talker never waits for a watcher.
+- **One conversation per NPC.** The host's table grants an NPC to one player. A game that knows
+  another player has the NPC opens no menu on it (`Create` answers 0, the game's own answer for a
+  conversation that could not start) and says so on the HUD. Two players who start in the same moment:
+  the host grants one, and the other's menu is closed through `DialogMenu::Close` (`00762160`).
+- **Limits, stated.** A result that gives something to "the player" gives it to the host's character
+  (the host's game runs the script; a guest's reward is not carried to the guest). A result's
+  conditions were judged in the talker's game. Only the newest conversation of another player is known
+  to a machine (the host still refuses a second one). No voice or lip movement on a watcher; the line
+  is text. A choice with no prompt of its own (the topic's name was the choice) shows the response
+  only. A conversation that started before a player joined is not replayed to it.
+
+**Verified here:** 7 tests in the bridge (the wraps with sharing off and on, a host's and a guest's
+lines, lines outside the player's conversation, the host running a guest's result, a busy NPC, the text
+and the message) and 7 two- and three-game tests (a guest's line once on the host and seen by the
+others, a line whose end never comes, the host's line, an own-quest line, one conversation per NPC, two
+players at once, a pick the host cannot run). Removing the hold on a guest fails five of them.
+**Not verified here:** every game function named above in the real game; in particular that the
+dialogue menu's lines all pass `RunResult` with the menu open, and that closing the menu from outside
+its own code leaves the game sound.
+
+## S15: party saves (implemented with unit tests; not run on a PC)
+
+- **A part** (`coop_engine_session::party::Part`) is a guest's own piece of the game: where the player
+  is (space, position, heading) and the state of the quests each player runs for themself (the story
+  channel's quest record and the script's variables). The file: `NVCP`, a version byte (1), the
+  player's key, then tagged sections (tag, length, body). A reader refuses a higher version and skips
+  a section it does not know.
+- **A player's key** is a hash of the name the player chose (`NV_COOP_NAME` as the viewer passes it),
+  not the session slot. Two guests who keep the default name share a key, and so one part: each player sets a name.
+- **Guest to host.** A guest in the world reads its part every 5 s and sends it when it changed, as
+  claims (`Field::Custom` tag 60, chunks of at most 480 bytes). The host keeps the newest part of each
+  key in memory; nothing is written to the story.
+- **Saving.** Co-op is a second owner of the script extender's seams in `BGSSaveLoadGame::SaveGame`
+  (`00847c45`) and `LoadGame` (`00848c3c`), after `nvse`; it takes neither call and only notes the
+  save's name (`coop_engine::saves`). When the host's game writes a save, the host writes each part it
+  holds as `<save>.<key as 16 hex digits>.nvcoop` in its party folder (`NV_COOP_PARTY_DIR`, default
+  `coop-party` in the folder the game was started from). The game's `.fos` is not touched.
+- **Loading.** When the host's game reads a save, the parts found for it are published in the
+  replicated store (`Field::Custom` tag 61 on ids from `fe500000`), so deltas, the join snapshot and
+  the hashes carry them. Each guest takes the newest part with its key once: its own quests are put
+  back as on a load (no script runs) and the player is asked to be moved to the saved place, once the
+  player is in the world.
+- **Limits, stated.** The character's values and the inventory are not in the part yet: no function
+  of the repository was established for reading and writing them here, so a guest keeps those in its
+  own game and its own `.fos`. A guest's part is as old as its last upload (at most 5 s). The party
+  folder is not the save folder: the platform layer keeps saves, and co-op writes plain files.
+
+## S16: rejoining and joining late (implemented with unit tests; not run on a PC)
+
+- A guest that joins a running game gets coop-core's snapshot, which now also holds the published
+  parts; one that lost the host resumes from its replica (S7). Either ends with the host's hashes.
+- When a guest leaves, the host publishes its last part, marked as left behind. A guest takes such a
+  part only in a game that just started (its driver's first join): a guest that merely lost the
+  connection keeps what its still running game has; one whose game was started anew gets its place and
+  own quests back. A part from a load is always taken.
+
+**Verified here (S15, S16):** 5 unit tests of the format (round trip, unknown sections, refusals, chunks,
+file names) and 4 multi-game tests: a save writes one file per guest and a load gives each part back
+once (place and own quests, files unchanged by later play); a player who joins late gets the snapshot
+and its saved part while a stranger gets none; a dropped guest keeps its game while a restarted one
+gets its part back; a guest at its main menu gets its part once it is in the world. Hash checks ran
+with 0 desyncs in each. **Not verified here:** the seams in the real game, the real save names, the
+move of a player to a saved place across cells.
+
+## S17: sleep and wait (implemented with unit tests; not run on a PC)
+
+- **In the game** (`coop_engine::rest`). Co-op wraps `SleepWaitMenu::DoClick` (`007c0220`). With
+  sharing on, the rest button (4) does not start the rest: the hours (the slider's value plus one, as
+  the button reads it) and the bed flag are noted and the click goes on as the game's own cancel (5),
+  which closes the menu.
+- **In the session** (`coop_engine_session::rest`, coop-core's `rules::vote`). The click proposes the
+  rest to the party (sleep in a bed, wait otherwise). The others are told on the HUD and agree by
+  pressing rest in their own menu while the vote is open; coop-core's vote needs everyone and runs out
+  after 30 s. When all agreed, every game passes the hours itself as the menu does for each hour (the
+  scripts once, `00455490`; the player's hour step, `0094df80`, which moves the clock and restores the
+  player), and the host sends its clock at once, which holds every guest on the host's time (S10).
+- **Limits, stated.** The fade and the menu's hour counter are not shown (the hours pass in one frame).
+  Hardcore needs are not updated per hour as the menu does. A vote is not refused in combat yet (the
+  rules' combat flag is not set by the engine session).
+
+**Verified here:** 3 tests in the bridge (the button with sharing off, the click turned into a cancel
+with the hours asked, the hours through the hour step with its limits) and 3 multi-game tests (three
+players agree and the hours pass in every game, ending on the host's clock; one player does not agree
+and nothing passes; a host alone rests as the game does). **Not verified here:** the real menu and
+hour step.
+
+## Not done: followers
+
+A companion that follows the player who hired it, as the host's actor, was not started.

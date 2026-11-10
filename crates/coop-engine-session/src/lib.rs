@@ -25,6 +25,12 @@ pub mod record;
 // world
 pub mod world;
 
+// social: conversations, party saves and the rest vote (docs/coop/SPECS.md S12 to S15).
+pub mod party;
+pub mod rest;
+pub mod social;
+pub mod talk;
+
 use std::collections::BTreeSet;
 
 use coop_core::avatar::{AvatarMsg, AvatarSender, Sample};
@@ -192,6 +198,9 @@ pub struct HostDriver {
     /// The rest of the world's state (records, doors, locks); `None` leaves it unshared. Set it
     /// with [`HostDriver::share_world`].
     pub world: Option<world::HostWorld>,
+    // social
+    /// Conversations, party saves and the rest vote.
+    pub social: social::HostSocial,
 }
 
 impl HostDriver {
@@ -237,6 +246,8 @@ impl HostDriver {
             bad_packets: 0,
             send_failures: 0,
             world: None, // world
+            // social
+            social: social::HostSocial::default(),
         }
     }
 
@@ -392,6 +403,8 @@ impl HostDriver {
                 send(net, to, &msg, &mut self.send_failures);
             }
         }
+        // social
+        social::host_step(self, e, net, now_ms);
         self.enact_claims(e);
         self.collect(e);
         self.write_clock(e, now_ms);
@@ -518,6 +531,9 @@ pub struct GuestDriver {
     // world
     /// The rest of the world's state (records, doors, locks); `None` leaves it unshared.
     pub world: Option<world::GuestWorld>,
+    // social
+    /// Conversations, this player's part of a party save, and the rest vote.
+    pub social: social::GuestSocial,
 }
 
 impl GuestDriver {
@@ -546,6 +562,8 @@ impl GuestDriver {
             bad_packets: 0,
             send_failures: 0,
             world: None, // world
+            // social
+            social: social::GuestSocial::default(),
         }
     }
 
@@ -593,6 +611,8 @@ impl GuestDriver {
         for msg in self.sync.tick(Tick(0)) {
             send(net, PlayerId::HOST, &msg, &mut self.send_failures);
         }
+        // social
+        social::guest_step(self, e, net, now_ms);
         self.claim_deaths(e, net);
         self.apply(e);
         // world

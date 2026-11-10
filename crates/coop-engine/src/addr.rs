@@ -481,3 +481,89 @@ pub const HIT_HEALTH_DAMAGE_OFFSET: u32 = 0x14;
 pub const PLAYER_DISABLED_CONTROLS_OFFSET: u32 = 0x680;
 /// See [`PLAYER_DISABLED_CONTROLS_OFFSET`]: all seven controls.
 pub const PLAYER_ALL_CONTROLS: u8 = 0x7f;
+// social: conversations, party saves, sleep and wait (docs/coop/SPECS.md S12 to S15).
+
+/// `TESTopicInfo::RunResult` (`thiscall`: info, index, reference; `RET 8`; `0061f170`,
+/// `testopicinfo.rs`, `tes_topic_info_run_result`): runs the info's result script at the index
+/// on the reference (index 0 when the line is said, `menutopic.rs`; index 1 when it ends,
+/// `dialogmenu.rs`), nothing without a reference.
+pub const INFO_RUN_RESULT: u32 = 0x0061_f170;
+/// `TESTopicInfo::pOwnerQuest`: the word at +0x48 (`testopicinfo.rs`, `TesTopicInfo` layout).
+pub const INFO_OWNER_QUEST_OFFSET: u32 = 0x48;
+/// The info's prompt, a string object at +0x28 whose first word is its characters
+/// (`testopicinfo.rs`: "the prompt string (+0x28)"; `00559450` reads a string's characters at
+/// +0).
+pub const INFO_PROMPT_OFFSET: u32 = 0x28;
+/// `TESTopic::GetOwnerTopic` (`cdecl`: info; `0061a310`, `testopic.rs`): the topic that holds
+/// the info, or 0.
+pub const TOPIC_GET_OWNER_TOPIC: u32 = 0x0061_a310;
+/// The quest under which a topic holds an info (`thiscall`: topic, info; `RET 4`; `00619d00`,
+/// `run_00619b60.rs`), or 0.
+pub const TOPIC_INFO_QUEST: u32 = 0x0061_9d00;
+/// `TESTopicInfo::GetInfoDisplayText` (`thiscall`: info, string, first only; `RET 8`;
+/// `0061e2b0`, `testopicinfo.rs`): fills the string with the text of the info's responses,
+/// `" | "` between them.
+pub const INFO_GET_DISPLAY_TEXT: u32 = 0x0061_e2b0;
+/// A string object's constructor and destructor (`thiscall`; `004037b0`, `004037d0`;
+/// `testopicinfo.rs`: "construct and destroy"). The object is 8 bytes: its characters at +0.
+pub const STRING_CONSTRUCT: u32 = 0x0040_37b0;
+/// See [`STRING_CONSTRUCT`].
+pub const STRING_DESTROY: u32 = 0x0040_37d0;
+/// See [`STRING_CONSTRUCT`].
+pub const STRING_SIZE: u32 = 8;
+/// Shows a HUD message (`cdecl`, six words: text, 0, icon path or 0, 0, time as `f32`, 0;
+/// `007052f0`, `run_008c51f0.rs` and `actor_p3.rs`). The text is copied (at most 0x103
+/// characters, `hudmainmenu.rs`, `fn_00775380`), so the caller's buffer may be freed.
+pub const SHOW_HUD_MESSAGE: u32 = 0x0070_52f0;
+/// The longest text [`SHOW_HUD_MESSAGE`] keeps.
+pub const HUD_MESSAGE_MAX: usize = 0x103;
+/// `DialogMenu::Create` (`cdecl`: speaker, a word for the topic manager, a target or 0;
+/// `00761a20`, `dialogmenu.rs`): the menu's tile, or 0 when no menu was made (as for a null
+/// speaker).
+pub const DIALOG_MENU_CREATE: u32 = 0x0076_1a20;
+/// `DialogMenu::Close` (no arguments; `00762160`, `dialogmenu.rs`): ends the open conversation
+/// as the game's own goodbye does.
+pub const DIALOG_MENU_CLOSE: u32 = 0x0076_2160;
+/// The open dialogue menu (`011d9510`, `dialogmenu.rs`: `Create` stores it, the destructor
+/// clears it) and `DialogMenu::pSpeaker` at +0x80 (`dialogmenu.rs` layout).
+pub const DIALOG_MENU_OPEN: u32 = 0x011d_9510;
+/// See [`DIALOG_MENU_OPEN`].
+pub const DIALOG_MENU_SPEAKER_OFFSET: u32 = 0x80;
+
+/// The seam in `BGSSaveLoadGame::SaveGame` where the co-save is written (`00847c45`, word: the
+/// save's name) and the one in `LoadGame` after the `.fos` was read (`00848c3c`, word: the
+/// save's name); `bgssaveloadgame.rs`, engine-core's seam table.
+pub const SAVE_GAME_SITE: u32 = 0x0084_7c45;
+/// See [`SAVE_GAME_SITE`].
+pub const LOAD_GAME_SITE: u32 = 0x0084_8c3c;
+
+/// `SleepWaitMenu::DoClick` (`thiscall`: menu, button id, tile; `RET 8`; `007c0220`,
+/// `sleepwaitmenu.rs`): button 4 starts the rest, button 5 cancels and closes the menu.
+pub const SLEEP_WAIT_DO_CLICK: u32 = 0x007c_0220;
+/// See [`SLEEP_WAIT_DO_CLICK`].
+pub const SLEEP_WAIT_REST_BUTTON: u32 = 4;
+/// See [`SLEEP_WAIT_DO_CLICK`].
+pub const SLEEP_WAIT_CANCEL_BUTTON: u32 = 5;
+/// `SleepWaitMenu`: `pTiles[1]` at +0x2c (the hours slider) and `bSleepingInBed` at +0x45
+/// (`sleepwaitmenu.rs`).
+pub const SLEEP_WAIT_HOURS_TILE_OFFSET: u32 = 0x2c;
+/// See [`SLEEP_WAIT_HOURS_TILE_OFFSET`].
+pub const SLEEP_WAIT_IN_BED_OFFSET: u32 = 0x45;
+/// The trait id of the slider's value (`iUT_CurrentValue`, `011da918`) and `Tile`'s float
+/// getter (`thiscall`: tile, trait; the value in `ST0`; `00a011b0`); the hours asked for are
+/// that value plus one (`sleepwaitmenu.rs`, `DoClick`).
+pub const SLEEP_WAIT_VALUE_TRAIT: u32 = 0x011d_a918;
+/// See [`SLEEP_WAIT_VALUE_TRAIT`].
+pub const TILE_GET_FLOAT: u32 = 0x00a0_11b0;
+/// The player's wait: `(player, hours, in bed)` stores the hours left and the bed flag
+/// (`thiscall`; `005c1a00`, `tesscriptfunctions_p2.rs`; the rest button calls it,
+/// `sleepwaitmenu.rs`).
+pub const PLAYER_SET_WAIT: u32 = 0x005c_1a00;
+/// One hour of waiting or sleeping (`thiscall`: player; `0094df80`, `playercharacter_p2.rs`):
+/// the clock and the calendar move an hour, health comes back, the hours left count down.
+pub const PLAYER_WAIT_HOUR: u32 = 0x0094_df80;
+/// What the menu runs before each hour (`sleepwaitmenu.rs`, `UpdateSleeping`): the scripts once
+/// (`thiscall` on the object at `011dea10`; `00455490`, `tes.rs`).
+pub const TES_SINGLETON: u32 = 0x011d_ea10;
+/// See [`TES_SINGLETON`].
+pub const TES_RUN_SCRIPTS: u32 = 0x0045_5490;
