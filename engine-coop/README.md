@@ -78,6 +78,16 @@ occlusion query has no answer without it).
   the main menu, so that a guest gets its gate before its first frame of play.
 - `probe` (`coop-probe`): starts the engine, runs the game's frames, and runs a probe script
   between frames. `probe/scripts` holds the scripts.
+- `session` (`coop-engine-session`): the session between two games. A host driver and a guest
+  driver over coop-core's sync, on any coop-core transport. It drives a game through the
+  adapter (the `coop-game` traits of `game.rs`, and the adapter's own calls for the space,
+  avatars and actors' lives) and names no engine type, so its tests run on the fake program.
+  `record.rs` carries a quest's stage, flags, done stages and objectives as one field, and
+  `ladder.rs` puts the players in the world, one logged rung at a time.
+- `nv-coop`: starts one game through the glue, runs it to its main menu, and hosts a session
+  (`host [PORT]`, it prints a join code) or joins one (`join CODE`) over UDP. A guest's game
+  gets its gate at the main menu. `--names FILE` is the name table of the load order (as for
+  the peer's conformance rows).
 - `tools`: the machine table and the scratch instance for a test run.
 
 ## The conformance tests on the real game
@@ -112,6 +122,10 @@ The host's game runs the story once. On a guest:
 - A change of a shared quest's state from any code (stage, running, completed, failed,
   objective) does nothing and answers success. It waits as one intent for the host.
 - The adapter's own call into the program (a console line, an apply) is not gated.
+- While the adapter applies the host's state (`Program::applying`), no script runs, also inside
+  the adapter's own call, and the adapter's own change of a quest passes. An objective goes
+  through the game's own `SetState` there, so that it is in the player's objective list (the
+  Pip-Boy's quest page), and a death through the game's own kill.
 - A write that the gate cannot stop (a script's `set` line) is found by the audit: it names
   the slot, and the host's value comes back.
 - The script variables of a quest whose own script is a local script are each machine's own.
@@ -162,7 +176,44 @@ of play is a "gate blind" alarm.
 - The session's interface: the engine adapter passes six conformance rows of `coop-game` on
   real games, and their twins fail (`the_interface_rows_pass_on_the_engine_and_their_twins_fail`).
   The two rows of a player's character are open until the per-player rows exist here.
-- Not yet: per-player rows, a dialogue result's owner, an exterior cell for an avatar, the
-  session between two games (`nv-coop`), the host's hit ledger, records of each kind, party
-  saves.
+- Not yet on real games: per-player rows, a dialogue result's owner, an exterior cell for an
+  avatar, the session between two games (`nv-coop`: built, and tested on the fake program only,
+  see below), the host's hit ledger, records of each kind, party saves.
   The plan is in the project's notes.
+
+## The session between two games: tested on the fake program only
+
+The `session` member and `nv-coop` bring the other contributor's session driver (branch
+`coop-next` of Alexanger-dev/fnv-coop) onto this workspace's adapter. That branch was run on a
+PC with two games. Here, nothing of it has run on a real game: each item below passes its
+tests on the fake program (`coop-engine/src/fake.rs`), two fake games over coop-core's loopback
+and chaos transports, or over coop-net's UDP endpoint on 127.0.0.1. Each still needs a run on
+two real games.
+
+- The story: each quest crosses as one record (stage, flags, done stages, objectives), so a
+  delta never splits a quest; script variables and globals cross as their own keys. With one
+  key in each delta, after each frame each guest's game holds only quest records that the host
+  really had. A late guest starts from the join snapshot, a bad network converges, a guest
+  that lost the host rejoins and catches up. Every 20 steps a guest compares its game with
+  the replica (the adapter's audit) and puts back what drifted.
+- Objectives in a guest's Pip-Boy: an applied objective goes through the game's own setter,
+  so it is in the player's objective list, and the heal puts a lost one back.
+- Objective numbers of variable length in a quest record: a quest with 108 objectives fits.
+  A record that cannot be carried is named once in the host's log, and keeps its last value.
+- The clock: the host writes its clock globals about once a second, and a guest sets its own
+  clock to the host's last one about once a second. The clock is no story global.
+- Each player plays its own opening: the generic timer and the four pre-order pack quests are
+  per-player rows of the policy, so a guest's game runs them.
+- Deaths of placed actors, both ways: the host reads its game's map of changed forms for
+  actors whose life changed and shares a death; a guest kills its copy with the game's kill
+  inside the apply bracket. A guest's own death of a placed actor goes to the host as a claim,
+  the host's game does the kill, and it reaches every guest from there.
+- A guest moved to the host: once the guest's player is in the world, the game's own position
+  request moves it into the host's space (an interior cell, or a worldspace), again when the
+  host is in another space. An avatar is placed anew when its player's space changes.
+- `nv-coop`, `glue` and `peer` pass `cargo check` and clippy against upstream 815b187, built
+  with an older compiler than the pinned one (with `--ignore-rust-version`). `nv-coop` has not
+  run: neither as a host nor as a guest, and its own unit test has not run.
+
+Program facts that these items use and that come from the other branch, not re-measured here,
+carry a line naming that branch in `addr.rs`.
