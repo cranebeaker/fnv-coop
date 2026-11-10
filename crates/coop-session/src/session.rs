@@ -1506,7 +1506,7 @@ impl Session {
     /// comparison then uses the host's root at the guest's revision.
     pub fn hash_points(&self) -> HashPoints {
         if let Some(h) = &self.host {
-            let keep = |f: &coop_core::schema::Field| !world::coop::export::is_tombstone(f);
+            let keep = |f: &coop_core::schema::Field| !f.is_tombstone();
             let recent: Vec<(u64, u64)> = h
                 .sync
                 .recent_roots(RECENT_ROOTS_MS, &keep)
