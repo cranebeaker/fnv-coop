@@ -15,7 +15,10 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9._-]+$')][string]$Version,
-    [Parameter(Mandatory)][string]$Game,
+    [string]$Game,
+    # The co-op package of cranebeaker/fnv-coop: its own name, the co-op launcher and READ ME, and a
+    # source link to that repository. -Game is then optional (a build machine has no game).
+    [switch]$Coop,
     [switch]$TestBuild,
     [switch]$UseBuilt,
     [string]$Target,
@@ -32,9 +35,10 @@ try {
     if ($LASTEXITCODE) { throw 'Package from a committed Git checkout.' }
     $dirty = git status --porcelain --untracked-files=normal
     if ($dirty) { throw 'Commit or remove untracked changes before packaging.' }
-    if (!(Test-Path -LiteralPath $Game -PathType Leaf)) { throw "-Game must be the game's FalloutNV.exe, and this file is not there: $Game" }
+    if (!$Coop -and !$Game) { throw "-Game is needed: the game's FalloutNV.exe." }
+    if ($Game -and !(Test-Path -LiteralPath $Game -PathType Leaf)) { throw "-Game must be the game's FalloutNV.exe, and this file is not there: $Game" }
     # BUILD.txt links to the commit, so a release package is only made from one GitHub has.
-    if (!$TestBuild) {
+    if (!$TestBuild -and !$Coop) {
         git fetch --quiet origin
         if ($LASTEXITCODE) { throw 'Could not ask origin which commits it has. Fix the connection, or use -TestBuild for a package that is not for release.' }
         # Only origin's main counts: another remote, or a feature branch deleted on GitHub that this
@@ -76,7 +80,7 @@ try {
         Remove-Item Env:CARGO_ENCODED_RUSTFLAGS
     }
 
-    $name = "nv-rs-preview-$Version-windows-x64" + $(if ($TestBuild) { '-test' } else { '' })
+    $name = $(if ($Coop) { "fnv-coop-$Version-windows-x64" } else { "nv-rs-preview-$Version-windows-x64" }) + $(if ($TestBuild) { '-test' } else { '' })
     $stage = Join-Path $Out $name
     $zip = "$stage.zip"
     if ((Test-Path -LiteralPath $stage) -or (Test-Path -LiteralPath $zip)) { throw 'This package version already exists. Use a new version.' }
@@ -100,15 +104,23 @@ try {
     foreach ($file in @('LICENSE', 'LEGAL.md')) { Copy-Item -LiteralPath (Join-Path $root $file) -Destination $stage }
     Copy-Item -LiteralPath (Join-Path $root 'crates/vorbis/LICENSE-libvorbis') -Destination (Join-Path $stage 'licenses/LICENSE-libvorbis')
     Copy-Item -LiteralPath (Join-Path $root 'crates/nvse/LICENSE-msvc-stl') -Destination (Join-Path $stage 'licenses/LICENSE-msvc-stl')
-    # Text files for Notepad.
-    foreach ($file in @('READ ME.txt', 'mods/READ ME.txt')) {
+    $notepad = @('READ ME.txt', 'mods/READ ME.txt')
+    if ($Coop) {
+        foreach ($file in @('Play Co-op.cmd', 'READ ME co-op.txt')) {
+            Copy-Item -LiteralPath (Join-Path $root "distribution/coop/$file") -Destination $stage
+        }
+        Copy-Item -LiteralPath (Join-Path $root 'distribution/coop/join-code.ps1') -Destination (Join-Path $stage 'app/tools/join-code.ps1')
+        $notepad += @('Play Co-op.cmd', 'READ ME co-op.txt', 'app/tools/join-code.ps1')
+    }
+    # Text files for Notepad (and the line ends that cmd.exe reads).
+    foreach ($file in $notepad) {
         $path = Join-Path $stage $file
         $text = [IO.File]::ReadAllText($path) -replace "`r?`n", "`r`n"
         [IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding($false)))
     }
     $sha = (Get-FileHash -LiteralPath (Join-Path $stage 'app/FalloutNV.exe') -Algorithm SHA256).Hash
-    $source = if ($TestBuild) { 'test build, not for release' } else { "Source: https://github.com/slaterain/nv-rs/tree/$commit" }
-    @("nv-rs Windows preview $Version", "Source commit: $commit", "app\FalloutNV.exe SHA256: $sha", 'Platform: Windows x64', $source) |
+    $source = if ($TestBuild) { 'test build, not for release' } elseif ($Coop) { "Source: https://github.com/cranebeaker/fnv-coop/tree/$commit" } else { "Source: https://github.com/slaterain/nv-rs/tree/$commit" }
+    @($(if ($Coop) { "FNV Co-Op $Version (on nv-rs)" } else { "nv-rs Windows preview $Version" }), "Source commit: $commit", "app\FalloutNV.exe SHA256: $sha", 'Platform: Windows x64', $source) |
         Set-Content -LiteralPath (Join-Path $stage 'BUILD.txt') -Encoding ascii
 
     # What must not be in it: the file types first, then the build machine's traces and game data.
@@ -122,7 +134,7 @@ try {
     $checkArguments = @($stage) + ($needles | ForEach-Object { '--needle'; $_ }) + ($programNeedles | ForEach-Object { '--program-needle'; $_ })
     # Required: no run of the game's bytes longer than the C runtime's own tables (the longest seen
     # is about 2 KB) in any program.
-    $checkArguments += @('--game', $Game, '--max-run', '4096')
+    if ($Game) { $checkArguments += @('--game', $Game, '--max-run', '4096') }
     & (Join-Path $x64 'package-check.exe') @checkArguments
     if ($LASTEXITCODE) { throw 'package-check found something that must not be in the package.' }
 

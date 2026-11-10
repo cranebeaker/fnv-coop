@@ -186,6 +186,19 @@ fn local_ip() -> IpAddr {
         .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST))
 }
 
+/// The address in a host's join code. `NV_COOP_ADDRESS` gives it when friends reach the host at
+/// another address than its own network's: its public address, or its address in a private network
+/// app. Anything else there is ignored, and the local network's address stands.
+fn join_ip() -> IpAddr {
+    address_from(std::env::var("NV_COOP_ADDRESS").ok().as_deref()).unwrap_or_else(local_ip)
+}
+
+fn address_from(value: Option<&str>) -> Option<IpAddr> {
+    value
+        .and_then(|v| v.trim().parse::<IpAddr>().ok())
+        .filter(|ip| !ip.is_unspecified())
+}
+
 enum Role {
     Host(Box<HostDriver>),
     /// A guest before the host accepted it, then with its driver.
@@ -246,7 +259,7 @@ impl Coop {
                 let bind = SocketAddr::from(([0, 0, 0, 0], *port));
                 let b = UdpBackend::host(bind, token, UdpConfig::default())
                     .map_err(|e| format!("co-op: UDP port {port}: {e}"))?;
-                let ip = local_ip();
+                let ip = join_ip();
                 let code = JoinCode::new(JoinTarget::Direct(SocketAddr::new(ip, *port)), token);
                 lines.push(format!(
                     "co-op: hosting on UDP port {port}; join code for this network: {code} (over the internet: forward UDP port {port} and give your public address)"
@@ -439,6 +452,18 @@ impl Coop {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_join_address_is_taken_only_from_a_real_address() {
+        assert_eq!(
+            address_from(Some(" 203.0.113.7 ")),
+            Some(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)))
+        );
+        assert_eq!(address_from(Some("")), None);
+        assert_eq!(address_from(Some("my-pc")), None);
+        assert_eq!(address_from(Some("0.0.0.0")), None);
+        assert_eq!(address_from(None), None);
+    }
 
     #[test]
     fn the_opening_quests_are_each_player_s_own_in_any_load_order() {

@@ -1,0 +1,50 @@
+FNV Co-Op on nv-rs
+==================
+
+Play the story of Fallout: New Vegas together. One player hosts the story, the others join it.
+This package is nv-rs (see READ ME.txt) with the co-op layer in it. It has no game files: each
+player needs their own installed Fallout: New Vegas, version 1.4.0.525, with the same add-ons.
+
+This is an early alpha. Tell us what happens: https://github.com/cranebeaker/fnv-coop/issues
+
+
+Start
+-----
+1. Each player extracts the whole ZIP as READ ME.txt says, and runs Play.exe once alone. That
+   first start finds the game and reads the graphics card and the sound device. Close the game.
+2. The host double-clicks "Play Co-op.cmd", types H and a name.
+   - Friends in the same home network: press Enter at the address question.
+   - Friends over the internet: type your public address, and forward UDP port 27961 to your PC
+     in your router. Or all players use a private network app (Tailscale, ZeroTier, Radmin VPN),
+     and the host types its address in that app.
+   The window shows the join code (NVRS-...) and copies it. Send it to your friends.
+3. Each friend double-clicks "Play Co-op.cmd", types J, a name, and pastes the join code.
+4. Everybody presses New Game. Each player makes their own character at Doc Mitchell's. When a
+   guest is in the world, the game moves it to the host.
+
+
+What is shared
+--------------
+- The story: quests, stages, objectives and quest variables. Each Pip-Boy lists the same quests.
+- The clock and the calendar.
+- Where each player is: you see the other players as figures, also after a door or a fast travel.
+- Deaths of the people and creatures that the game placed in the world.
+- Each player has their own character, inventory, opening and pack items.
+
+
+Not shared in this version
+--------------------------
+- Fights: each game runs its own enemies. A placed person that dies in one game dies in all.
+- Loot, containers, barter, and what people say to the other player.
+- Saves of a party. Start a session from a new game, or from the same save on each PC.
+- The other player's figure slides. It does not walk, and it has the base look.
+
+
+If something goes wrong
+-----------------------
+The game writes a log for each start in userdata\logs (game-....log). Lines with "co-op" say what
+the session does. Attach the logs of the host and of a guest to your report. A log may show your
+Windows user name in folder paths.
+
+The co-op layer comes from the fnv-coop project (GPL-3.0-or-later):
+https://github.com/cranebeaker/fnv-coop
