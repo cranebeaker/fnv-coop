@@ -1,0 +1,32 @@
+# The co-op layer on the upstream engine (slaterain/nv-rs), out of tree.
+#
+# This workspace is separate from the root workspace: one binary links one engine, and the
+# root workspace links the older engine snapshot. Upstream is a pinned git dependency. This
+# repository holds no upstream code (see README.md here).
+[workspace]
+resolver = "2"
+members = ["probe"]
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-or-later"
+rust-version = "1.75"
+
+# The upstream engine, pinned. Move the revision only when the conformance rows and a smoke
+# route pass on the new one.
+[workspace.dependencies]
+host = { git = "https://github.com/slaterain/nv-rs", rev = "815b1876fbe936e5fd0d649a6a666376bce49934" }
+engine = { git = "https://github.com/slaterain/nv-rs", rev = "815b1876fbe936e5fd0d649a6a666376bce49934" }
+
+# The build that the probes and the tests run: release, with quick code generation. The engine
+# crates are large (about 180 MB of Rust), and their build time is almost all code generation.
+[profile.play]
+inherits = "release"
+incremental = true
+debug = 0
+opt-level = 1
+codegen-units = 256
+
+[profile.play.package."*"]
+opt-level = 1
+codegen-units = 256

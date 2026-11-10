@@ -1,0 +1,9 @@
+# M0d, part 2 (with a real window): the Legate's camp, one cell of each add-on, and the Dam again.
+menu+120  console coc GSDocMitchellHouse
+play+200  console coc LegateCampTent
+play+600  console coc NVDLC01Casino
+play+800  console coc NVDLC02Survivalist01
+play+1000 console coc NVDLC03SLMedCenterINT
+play+1400 console coc NVDLC04DivideUlyssesTemple
+play+1800 console coc HooverDamIntOliverArea
+play+2200 quit

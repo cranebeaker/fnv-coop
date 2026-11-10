@@ -1,0 +1,14 @@
+# M0b: does a console line execute a script statement and a script command?
+# GameHour = 00000038. VCG03 = 0015D912 (stage 10 exists).
+menu+120 console coc GSDocMitchellHouse
+play+30  watch 0015D912
+play+31  count 0060D510
+play+60  global 00000038
+play+61  console set GameHour to 3.5
+play+62  global 00000038
+play+90  console setstage VCG03 10
+play+91  stage 0015D912
+play+120 setstage 0015D912 10
+play+121 stage 0015D912
+play+150 counts
+play+160 quit
