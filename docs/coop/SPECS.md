@@ -196,7 +196,7 @@ Players in the world, one logged rung at a time (`coop_engine::live`, `coop_engi
 | --- | --- | --- |
 | 1 | This game's player is read: parent cell (+0x40, its form id), position (+0x30), heading (+0x2c), 3D (+0x64) | none (the pointer at `011dea3c`) |
 | 2 | Another player's state arrives (coop-core's avatar stream, 20 Hz, interpolated) | none |
-| 3 | A guest's player is moved to the host's cell; again, at most every 5 s, when the host is in another cell | `PlayerCharacter::CenterOnCell` `0093db60` |
+| 3 | A guest's player, once in the world itself (a cell and its 3D), is moved to the host's place; again, at most every 5 s, when the host is in another space. A space is an interior cell, or an exterior's world space | a 0x34-byte position request (`operator new` `00401000`, constructor `00456540`) given to `PlayerCharacter::RequestPositionPlayer` `0093be30`, which the game carries out in its own frame; not while the player's slot `0x22c` says it cannot be moved |
 | 4 | A remote player in this player's cell gets an avatar at this player's place; its AI off (`bProcessMe` +0xbc = 0, `EndMovement` `0087faa0`, `SetGhost(1)` `008acf10`) | `PlaceAtMe` worker `005c4b30` |
 | 5 | The avatar is moved every frame; an AI switched back on is switched off and counted | `SetPosBase` `005c0740` x3, `SetAngleBase` `005c0b10` |
 
@@ -220,4 +220,8 @@ cap, a refused avatar, a cell the guest lacks, an avatar woken by the game, foll
 cell, a guest leaving; the story channel's revision, echo, desyncs and guest script count are unchanged by
 all of it. Three behaviours were removed once each to see the tests fail.
 
-**Not verified here:** every game call in the table (the PC run of docs/coop/TESTING.md).
+**PC run 2026-11-10 (first ladder):** rungs 1 and 2 passed in the real game. Rung 3 then used
+`PlayerCharacter::CenterOnCell` on a guest still at its main menu; the guest's game stayed on its loading
+screen. Rung 3 now uses the game's own request path and waits for the guest to be in the world.
+
+**Not verified here:** the game calls of rungs 3 to 5 (the PC run of docs/coop/TESTING.md).

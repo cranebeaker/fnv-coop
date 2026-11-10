@@ -51,14 +51,14 @@ differing entries never go back to 0.
 Same two windows as M3 (host with `NV_COOP=host`, guest with `NV_COOP=join:<code>`), logs kept with
 `2>&1 | Tee-Object host-log.txt` and `guest-log.txt`.
 
-1. Host: start a new game and play until you stand in Doc Mitchell's house and can walk.
-2. Guest: press New Game and wait.
+1. Guest: press New Game first and wait until something is on screen (or a minute passes).
+2. Host: start a new game and play until you stand in Doc Mitchell's house and can walk.
 3. Host: walk around the room for a minute, then go outside and walk a little.
 4. Close both, then in the folder run:
 
 ```powershell
 Select-String "COOP-RUNG|co-op live" host-log.txt
-Select-String "COOP-RUNG|co-op live" guest-log.txt
+Select-String "COOP-RUNG|co-op live|co-op gate" guest-log.txt
 Select-String "co-op guest:" guest-log.txt | Select-Object -Last 2
 ```
 

@@ -142,6 +142,8 @@ pub struct Coop {
     plugins: Vec<String>,
     started: Instant,
     last_status: Option<Instant>,
+    /// The skipped story scripts already named in the log.
+    gate_named: std::collections::BTreeSet<u32>,
 }
 
 impl Coop {
@@ -218,6 +220,7 @@ impl Coop {
                 plugins,
                 started: Instant::now(),
                 last_status: None,
+                gate_named: Default::default(),
             },
             lines,
         ))
@@ -296,6 +299,19 @@ impl Coop {
         {
             self.last_status = Some(Instant::now());
             lines.push(self.status(e));
+            if let Role::Guest(_) = self.role {
+                // Which story scripts this guest holds back, each named once (the first 80): what
+                // a guest would have to run itself to have its own start.
+                for (id, s) in coop_engine::gate::skipped_scripts(e) {
+                    if self.gate_named.len() < 80 && self.gate_named.insert(id) {
+                        lines.push(format!(
+                            "co-op gate: holding back script {id:08x} (quest script {}, owner quest {:08x})",
+                            if s.quest_script { "yes" } else { "no" },
+                            s.owner_quest
+                        ));
+                    }
+                }
+            }
         }
         lines
     }

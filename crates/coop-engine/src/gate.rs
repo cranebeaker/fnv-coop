@@ -11,7 +11,9 @@
 //! references changed), as a run of an empty script does. Every skip is counted, so a run on a
 //! PC can show that no story script ran on the guest (M3's exit).
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::{Mutex, PoisonError};
 
 use engine_core::extend::{Owner, WrapSlot};
 use engine_core::prelude::*;
@@ -32,6 +34,31 @@ pub struct Gate {
     skipped_applying: AtomicU64,
     /// Story scripts skipped.
     skipped_story: AtomicU64,
+    /// The distinct story scripts skipped (at most [`SEEN_MAX`]): the script's form id to whether
+    /// it is a quest script, its owner quest's form id (0 for none) and how often it was skipped.
+    seen: Mutex<BTreeMap<u32, SkippedScript>>,
+}
+
+/// One story script a guest skipped ([`skipped_scripts`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SkippedScript {
+    /// `SCRIPT_HEADER::bIsQuestScript`.
+    pub quest_script: bool,
+    /// The owner quest's form id (`Script::pOwnerQuest`), 0 for none.
+    pub owner_quest: u32,
+    /// How often it was skipped.
+    pub times: u64,
+}
+
+/// Most distinct scripts kept for [`skipped_scripts`].
+pub const SEEN_MAX: usize = 512;
+
+/// The distinct story scripts this guest skipped, by script form id: which quests' scripts the gate
+/// holds back, for deciding which a guest should run itself (a player's own quests).
+pub fn skipped_scripts(e: &mut Engine) -> Vec<(u32, SkippedScript)> {
+    let g = e.ext_free::<Gate>();
+    let seen = g.seen.lock().unwrap_or_else(PoisonError::into_inner);
+    seen.iter().map(|(k, v)| (*k, *v)).collect()
 }
 
 /// Makes this machine a guest (story scripts gated) or not.
@@ -86,9 +113,27 @@ pub(crate) fn run(e: &mut Engine, a: &[u32]) -> Ret {
         }
         let script = a.get(1).copied().unwrap_or(0);
         if is_story_script(e, script) {
-            e.ext_free::<Gate>()
-                .skipped_story
-                .fetch_add(1, Ordering::SeqCst);
+            let id = e.mem.u32(script.wrapping_add(addr::FORM_ID_OFFSET));
+            let quest_script = e.mem.u8(script.wrapping_add(addr::SCRIPT_IS_QUEST_OFFSET)) != 0;
+            let owner = e
+                .mem
+                .u32(script.wrapping_add(addr::SCRIPT_OWNER_QUEST_OFFSET));
+            let owner_quest = match owner {
+                0 => 0,
+                q => e.mem.u32(q.wrapping_add(addr::FORM_ID_OFFSET)),
+            };
+            let g = e.ext_free::<Gate>();
+            g.skipped_story.fetch_add(1, Ordering::SeqCst);
+            let mut seen = g.seen.lock().unwrap_or_else(PoisonError::into_inner);
+            if seen.len() < SEEN_MAX || seen.contains_key(&id) {
+                seen.entry(id)
+                    .or_insert(SkippedScript {
+                        quest_script,
+                        owner_quest,
+                        times: 0,
+                    })
+                    .times += 1;
+            }
             return Ret::default();
         }
     }
@@ -122,6 +167,11 @@ mod tests {
         e.map(SCRIPTS, 0x1000);
         e.map(RAN, 0x100);
         e.mem.set_u8(QUEST + addr::SCRIPT_IS_QUEST_OFFSET, 1);
+        e.mem.set_u32(QUEST + addr::FORM_ID_OFFSET, 0x11);
+        e.mem.set_u32(RESULT + addr::FORM_ID_OFFSET, 0x22);
+        // The result script's owner quest: a form with id 0x77.
+        e.map(0x0300_0000, 0x100);
+        e.mem.set_u32(0x0300_0000 + addr::FORM_ID_OFFSET, 0x77);
         e.mem
             .set_u32(RESULT + addr::SCRIPT_OWNER_QUEST_OFFSET, 0x0300_0000);
         e.register(addr::SCRIPT_RUNNER_RUN, base);
@@ -173,6 +223,12 @@ mod tests {
         assert_eq!(run_script(&mut e, OBJECT), 1);
         assert_eq!((runs(&e), e.mem.u32(RAN + 4)), (1, OBJECT));
         assert_eq!(skipped(&mut e), (0, 2));
+        // Which scripts they were: the quest script, and the one with an owner quest.
+        let seen = skipped_scripts(&mut e);
+        assert_eq!(seen.len(), 2);
+        assert!(seen[0].1.quest_script && seen[0].1.owner_quest == 0);
+        assert!(!seen[1].1.quest_script && seen[1].1.owner_quest == 0x77);
+        assert_eq!(seen[1].1.times, 1);
     }
 
     #[test]

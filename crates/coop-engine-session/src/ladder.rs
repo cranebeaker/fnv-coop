@@ -3,8 +3,8 @@
 //!
 //! 1. This game's player is read (cell, position, 3D).
 //! 2. Another player's state arrives.
-//! 3. A guest's player is moved to the host's cell (`CenterOnCell`), again when the host changes
-//!    cell.
+//! 3. A guest's player, once it is in the world itself, is moved to the host (a position request,
+//!    the way a door moves the player), again when the host is in another space.
 //! 4. A remote player in this player's cell gets an avatar (`PlaceAtMe`, AI off).
 //! 5. The avatar is moved every frame; its AI is kept off.
 //!
@@ -49,6 +49,8 @@ pub const DEFAULT_AVATAR_BASE: u32 = 7;
 const WARP_FRAMES: u32 = 600;
 /// At least this long between two warps of a guest.
 const WARP_EVERY_MS: u64 = 5000;
+/// How long a guest's player may be out of the world, with the host in it, before the log says so.
+const HINT_AFTER_MS: u64 = 15_000;
 /// Moves of an avatar before rung 5 reports.
 const MOVES_TO_PASS: u64 = 100;
 
@@ -91,6 +93,9 @@ pub struct Ladder {
     warp: Warp,
     last_warp_ms: Option<u64>,
     warps: u32,
+    /// When the host was first known while this guest's player was not in the world.
+    waiting_since: Option<u64>,
+    hinted: bool,
     peers: BTreeMap<PlayerId, Peer>,
 }
 
@@ -118,6 +123,8 @@ impl Ladder {
             warp: Warp::Idle,
             last_warp_ms: None,
             warps: 0,
+            waiting_since: None,
+            hinted: false,
             peers: BTreeMap::new(),
         }
     }
@@ -188,7 +195,8 @@ impl Ladder {
         }
         if self.guest && self.cap >= Cap::Warp {
             if let Some((_, host)) = peers.iter().find(|(p, _)| p.is_host()) {
-                self.warp_step(e, now_ms, host.cell.0, me.map(|l| l.cell));
+                let host = *host;
+                self.warp_step(e, now_ms, &host, me);
                 me = live::local(e);
             }
         }
@@ -199,20 +207,36 @@ impl Ladder {
         me
     }
 
-    fn warp_step(&mut self, e: &mut Engine, now_ms: u64, host_cell: u32, my_cell: Option<u32>) {
+    fn warp_step(&mut self, e: &mut Engine, now_ms: u64, host: &Sample, me: Option<Local>) {
+        let host_cell = host.cell.0;
+        // Only a player that is in the world itself is moved: at the main menu, or before a new
+        // game has put the player somewhere, the game is not in a state to move it (PC run,
+        // 2026-11-10: a move from the menu never finished).
+        let Some(me) = me.filter(|l| l.loaded) else {
+            let since = *self.waiting_since.get_or_insert(now_ms);
+            if !self.hinted && now_ms.saturating_sub(since) >= HINT_AFTER_MS {
+                self.hinted = true;
+                self.say(
+                    "co-op live: the host is in the world, but this game's player is not yet (at the menu: press New Game)"
+                        .into(),
+                );
+            }
+            return;
+        };
+        self.waiting_since = None;
         match self.warp {
             Warp::Waiting { cell, frames } => {
-                if my_cell == Some(cell) {
+                if me.cell == cell {
                     self.warp = Warp::Idle;
-                    self.result(3, true, format!("moved to the host's cell {cell:08x}"));
+                    self.result(3, true, format!("moved to the host in {cell:08x}"));
                 } else if frames >= WARP_FRAMES {
                     self.warp = Warp::Idle;
-                    let at = my_cell.map_or("no cell".into(), |c| format!("cell {c:08x}"));
                     self.result(
                         3,
                         false,
                         format!(
-                            "still in {at} {WARP_FRAMES} frames after CenterOnCell to {cell:08x}"
+                            "still in {:08x} {WARP_FRAMES} frames after asking to move to {cell:08x}",
+                            me.cell
                         ),
                     );
                 } else {
@@ -222,12 +246,8 @@ impl Ladder {
                     };
                 }
             }
-            Warp::Idle if my_cell == Some(host_cell) => {
-                self.result(
-                    3,
-                    true,
-                    format!("already in the host's cell {host_cell:08x}"),
-                );
+            Warp::Idle if me.cell == host_cell => {
+                self.result(3, true, format!("already with the host in {host_cell:08x}"));
             }
             Warp::Idle => {
                 if self
@@ -236,15 +256,12 @@ impl Ladder {
                 {
                     return;
                 }
-                if live::player(e).is_none() {
-                    return;
-                }
                 self.last_warp_ms = Some(now_ms);
                 self.entering(
                     3,
-                    format!("CenterOnCell to the host's cell {host_cell:08x}"),
+                    format!("asking the game to move this player to the host in {host_cell:08x}"),
                 );
-                match live::warp(e, host_cell) {
+                match live::warp(e, host_cell, host.pos, host.heading) {
                     Ok(()) => {
                         self.warps += 1;
                         self.warp = Warp::Waiting {
@@ -252,6 +269,8 @@ impl Ladder {
                             frames: 0,
                         };
                     }
+                    // Not a failure of the rung: the game says not now; asked again later.
+                    Err(live::Refusal::Busy) => {}
                     Err(why) => self.result(3, false, why.to_string()),
                 }
             }

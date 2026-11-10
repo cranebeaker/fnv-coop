@@ -43,8 +43,21 @@ const END_MOVES: u32 = RAN + 16;
 const GHOSTS: u32 = RAN + 20;
 /// The first id a placed reference gets, as the game's dynamic ids (`ff......`).
 const FIRST_PLACED_ID: u32 = 0xff00_0001;
-/// The form type of a cell (`CELL`) in the test data.
-const FORM_TYPE_CELL: u8 = 0x39;
+/// More counters: the player-cannot-move answer, and the next address `operator new` hands out
+/// (from `ALLOCS`).
+const BUSY: u32 = RAN + 24;
+const NEXT_ALLOC: u32 = RAN + 28;
+const ALLOCS: u32 = 0x0142_0000;
+/// The player's vtable and the stand-in its slot `0x22c` points at.
+const PLAYER_VTABLE: u32 = 0x0141_f000;
+const CANNOT_MOVE_FN: u32 = 0x0130_0000;
+/// `TESObjectCELL::pWorldSpace` (+0xc0, as the game), and where a test world space keeps a cell of
+/// its own.
+const CELL_WORLD_OFFSET: u32 = 0xc0;
+const WORLD_CELL_OFFSET: u32 = 0x10;
+/// The form type of a world space in the test data (anything but a cell's).
+const FORM_TYPE_WORLD: u8 = 0x41;
+use addr::FORM_TYPE_CELL;
 
 /// Bytes per form in the heap. A quest's slot: the form, stages at +0x80 (4 bytes each), stage list
 /// nodes at +0x180, objectives at +0x400 (0x28 each), objective nodes at +0x700, its script's
@@ -62,9 +75,11 @@ pub struct StorySpec {
     pub objectives: Vec<(u32, Vec<u32>)>,
     /// (quest id, its script's variable ids in list order); a quest listed here has a script.
     pub vars: Vec<(u32, Vec<u32>)>,
-    /// Cell form ids. A story with cells also has a player (in no cell until
+    /// Interior cell form ids. A story with cells also has a player (in no cell until
     /// [`Story::move_player`]) and the base form 7 an avatar is placed from.
     pub cells: Vec<u32>,
+    /// Exterior cells: (cell form id, its world space's form id).
+    pub exteriors: Vec<(u32, u32)>,
 }
 
 /// One machine's engine holding a [`StorySpec`].
@@ -269,14 +284,32 @@ impl Story {
             entries.push((*id, c));
             slot += SLOT;
         }
-        if !spec.cells.is_empty() {
+        for (cell, world) in &spec.exteriors {
+            let (c, w) = (slot, slot + SLOT);
+            e.mem.set_u8(c + addr::FORM_TYPE_OFFSET, FORM_TYPE_CELL);
+            e.mem.set_u32(c + addr::FORM_ID_OFFSET, *cell);
+            e.mem.set_u32(c + CELL_WORLD_OFFSET, w);
+            e.mem.set_u8(w + addr::FORM_TYPE_OFFSET, FORM_TYPE_WORLD);
+            e.mem.set_u32(w + addr::FORM_ID_OFFSET, *world);
+            e.mem.set_u32(w + WORLD_CELL_OFFSET, c);
+            entries.push((*cell, c));
+            entries.push((*world, w));
+            slot += 2 * SLOT;
+        }
+        if !spec.cells.is_empty() || !spec.exteriors.is_empty() {
             // The avatar's base form and the player, as the game has them from its start.
             e.mem.set_u32(slot + addr::FORM_ID_OFFSET, 7);
             entries.push((7, slot));
             slot += SLOT;
-            e.map(PLAYER, 0x2_0000);
+            e.map(PLAYER, 0x3_0000);
             e.map(addr::PLAYER_SINGLETON & !0xfff, 0x1000);
             e.mem.set_u32(PLAYER + addr::FORM_ID_OFFSET, 0x14);
+            e.mem.set_u32(PLAYER, PLAYER_VTABLE);
+            e.mem.set_u32(
+                PLAYER_VTABLE + addr::PLAYER_CANNOT_MOVE_SLOT,
+                CANNOT_MOVE_FN,
+            );
+            e.mem.set_u32(NEXT_ALLOC, ALLOCS);
             e.mem.set_u32(addr::PLAYER_SINGLETON, PLAYER);
             entries.push((0x14, PLAYER));
         }
@@ -309,15 +342,36 @@ impl Story {
             e.mem.set_f32(a[0] + addr::REF_HEADING_OFFSET, rad);
             Ret::default()
         });
-        e.register(addr::CENTER_ON_CELL, |e, a| {
-            // The cell's own arrival point: here its origin.
-            e.mem.set_u32(a[0] + addr::REF_CELL_OFFSET, a[2]);
+        e.register(addr::OPERATOR_NEW, |e, a| {
+            let at = e.mem.u32(NEXT_ALLOC);
+            e.mem.set_u32(NEXT_ALLOC, at + ((a[0] + 0xf) & !0xf));
+            eax(at)
+        });
+        e.register(addr::POSITION_REQUEST_CONSTRUCT, |_, a| eax(a[0]));
+        e.register(addr::REQUEST_POSITION_PLAYER, |e, a| {
+            // The game's frame carries the request out: here at once.
+            let (player, request) = (a[0], a[1]);
+            let cell = match e.mem.u32(request) {
+                0 => e.mem.u32(request + 4),
+                world => e.mem.u32(world + WORLD_CELL_OFFSET),
+            };
+            e.mem.set_u32(player + addr::REF_CELL_OFFSET, cell);
             for o in [0, 4, 8] {
-                e.mem.set_f32(a[0] + addr::REF_POS_OFFSET + o, 0.0);
+                let w = e.mem.u32(request + 8 + o);
+                e.mem.set_u32(player + addr::REF_POS_OFFSET + o, w);
             }
-            e.mem.set_u32(a[0] + addr::REF_LOADED_OFFSET, 1);
+            let heading = e.mem.u32(request + 0x1c);
+            e.mem.set_u32(player + addr::REF_HEADING_OFFSET, heading);
+            e.mem.set_u32(player + addr::REF_LOADED_OFFSET, 1);
             bump(e, WARPS);
             Ret::default()
+        });
+        e.register(CANNOT_MOVE_FN, |e, _| eax(e.mem.u32(BUSY)));
+        e.register(addr::CELL_IS_INTERIOR, |e, a| {
+            eax(u32::from(e.mem.u32(a[0] + CELL_WORLD_OFFSET) == 0))
+        });
+        e.register(addr::CELL_GET_WORLD_SPACE, |e, a| {
+            eax(e.mem.u32(a[0] + CELL_WORLD_OFFSET))
         });
         e.register(addr::REF_DISABLE, |e, a| {
             let flags = e.mem.u32(a[0] + addr::FORM_FLAGS_OFFSET);
@@ -409,6 +463,11 @@ impl Story {
         self.e.mem.set_u32(PLAYER + addr::REF_LOADED_OFFSET, 1);
     }
 
+    /// Makes the game say the player cannot be moved (or can again).
+    pub fn set_busy(&mut self, busy: bool) {
+        self.e.mem.set_u32(BUSY, u32::from(busy));
+    }
+
     /// Makes `PlaceAtMe` fail from now on (the game refusing a base form).
     pub fn refuse_placing(&mut self) {
         self.e.register(addr::PLACE_AT_ME, |_, _| eax(0));
@@ -440,7 +499,7 @@ impl Story {
             .collect()
     }
 
-    /// How often the player was moved with `CenterOnCell`.
+    /// How often the player was moved by a position request.
     pub fn warps(&self) -> u32 {
         self.e.mem.u32(WARPS)
     }
@@ -462,6 +521,7 @@ mod tests {
             objectives: vec![(0x0010_4c0c, vec![10, 20])],
             vars: vec![(0x0010_4c0c, vec![1, 2, 7])],
             cells: vec![0x0010_5a00, 0x0010_5a01],
+            exteriors: vec![(0x0010_5b00, 0x0000_da7e)],
         }
     }
 
@@ -557,14 +617,37 @@ mod tests {
         );
         assert!(live::avatar_remove(&mut s.e, a));
         assert!(s.placed()[0].4);
-        // The warp: to a known cell; an unknown one is refused, and nothing moves.
-        assert_eq!(live::warp(&mut s.e, 0x0010_5a01), Ok(()));
-        assert_eq!(live::local(&mut s.e).unwrap().cell, 0x0010_5a01);
+        // The warp: to a place in a known interior; an unknown space is refused, a busy player is
+        // left alone, and nothing moves.
         assert_eq!(
-            live::warp(&mut s.e, 0x9999),
+            live::warp(&mut s.e, 0x0010_5a01, [7.0, 8.0, 9.0], 2.0),
+            Ok(())
+        );
+        let l = live::local(&mut s.e).unwrap();
+        assert_eq!(
+            (l.cell, l.pos, l.heading),
+            (0x0010_5a01, [7.0, 8.0, 9.0], 2.0)
+        );
+        assert_eq!(
+            live::warp(&mut s.e, 0x9999, [0.0; 3], 0.0),
             Err(live::Refusal::FormNotFound(0x9999))
         );
+        s.set_busy(true);
+        assert_eq!(
+            live::warp(&mut s.e, 0x0010_5a00, [0.0; 3], 0.0),
+            Err(live::Refusal::Busy)
+        );
+        s.set_busy(false);
         assert_eq!(s.warps(), 1);
+        // An exterior: the space is its world space, which is what a warp there names.
+        assert_eq!(
+            live::warp(&mut s.e, 0x0000_da7e, [1.0, 1.0, 1.0], 0.0),
+            Ok(())
+        );
+        assert_eq!(live::local(&mut s.e).unwrap().cell, 0x0000_da7e);
+        s.move_player(0x0010_5b00, [3.0, 3.0, 3.0], 0.0);
+        assert_eq!(live::local(&mut s.e).unwrap().cell, 0x0000_da7e);
+        s.move_player(0x0010_5a00, [10.0, 20.0, 30.0], 1.5);
         // A base form the data lacks, and a game that refuses to place.
         assert_eq!(
             live::avatar_create(&mut s.e, 0x9999),

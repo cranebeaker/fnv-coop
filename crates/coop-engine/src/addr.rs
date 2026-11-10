@@ -143,9 +143,33 @@ pub const SET_POS_BASE: u32 = 0x005c_0740;
 /// See [`SET_POS_BASE`].
 pub const SET_ANGLE_BASE: u32 = 0x005c_0b10;
 
-/// `PlayerCharacter::CenterOnCell(this, editor id text or 0, cell)` (`0093db60`,
-/// `playercharacter.rs`): puts the player at the cell's `COC` placement, loading the cell.
-pub const CENTER_ON_CELL: u32 = 0x0093_db60;
+/// `PlayerCharacter::RequestPositionPlayer(this, request)` (`0093be30`, `playercharacter.rs`):
+/// queues a move of the player that the game carries out in its own frame once the cell grid can
+/// take it, as a door, a fast travel and the player's `MoveTo` do. The request is 0x34 bytes
+/// (`PositionPlayerRequest`), made with `operator new` (`00401000`) and its constructor
+/// (`00456540`, returns `this`): the world space at +0x00 (an exterior), or the interior cell at
+/// +0x04; the position at +0x08; the rotation at +0x14 (its Z, the heading, at +0x1c); "reset the
+/// weather" at +0x20. The game frees it.
+pub const REQUEST_POSITION_PLAYER: u32 = 0x0093_be30;
+/// See [`REQUEST_POSITION_PLAYER`].
+pub const OPERATOR_NEW: u32 = 0x0040_1000;
+/// See [`REQUEST_POSITION_PLAYER`].
+pub const POSITION_REQUEST_CONSTRUCT: u32 = 0x0045_6540;
+/// See [`REQUEST_POSITION_PLAYER`].
+pub const POSITION_REQUEST_SIZE: u32 = 0x34;
+
+/// The player's virtual at slot `0x22c` with 0: true while the player cannot be moved (the
+/// player's `MoveTo` does nothing then, `tesscriptfunctions_p4.rs`).
+pub const PLAYER_CANNOT_MOVE_SLOT: u32 = 0x22c;
+
+/// `TESObjectCELL` "is interior" (`00425fd0`) and `TESObjectCELL::GetWorldSpace` (`0054ddd0`: the
+/// world space of an exterior cell, 0 for an interior), `tesobjectcell.rs`.
+pub const CELL_IS_INTERIOR: u32 = 0x0042_5fd0;
+/// See [`CELL_IS_INTERIOR`].
+pub const CELL_GET_WORLD_SPACE: u32 = 0x0054_ddd0;
+
+/// The form type of a `TESObjectCELL` (`CELL`, `TYPE_CELL` in the translations).
+pub const FORM_TYPE_CELL: u8 = 0x39;
 
 /// `Actor::EndMovement(this)` (`0087faa0`) and `Actor::SetGhost(this, on)` (`008acf10`).
 pub const ACTOR_END_MOVEMENT: u32 = 0x0087_faa0;

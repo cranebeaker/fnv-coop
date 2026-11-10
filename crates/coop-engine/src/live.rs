@@ -10,7 +10,9 @@ use crate::{addr, forms};
 /// Where the local player is.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Local {
-    /// The parent cell's form id.
+    /// The space the player is in: the interior cell's form id, or for an exterior the world
+    /// space's (its cells are one seamless place, and a world space is always a known form while an
+    /// exterior cell is only one where it is loaded).
     pub cell: u32,
     /// Position.
     pub pos: [f32; 3],
@@ -39,8 +41,16 @@ pub fn local(e: &mut Engine) -> Option<Local> {
     if cell == 0 {
         return None;
     }
+    let space = if e.call(addr::CELL_IS_INTERIOR, &args![cell]).bool() {
+        cell
+    } else {
+        match e.call(addr::CELL_GET_WORLD_SPACE, &args![cell]).u32() {
+            0 => cell,
+            world => world,
+        }
+    };
     Some(Local {
-        cell: e.mem.u32(cell.wrapping_add(addr::FORM_ID_OFFSET)),
+        cell: e.mem.u32(space.wrapping_add(addr::FORM_ID_OFFSET)),
         pos: pos_of(e, p),
         heading: e.mem.f32(p.wrapping_add(addr::REF_HEADING_OFFSET)),
         loaded: e.mem.u32(p.wrapping_add(addr::REF_LOADED_OFFSET)) != 0,
@@ -56,6 +66,10 @@ pub enum Refusal {
     FormNotFound(u32),
     /// `PlaceAtMe` answered no reference.
     NotPlaced,
+    /// The player cannot be moved right now (the game says so); try again later.
+    Busy,
+    /// The game could not allocate the request.
+    NoMemory,
 }
 
 impl std::fmt::Display for Refusal {
@@ -64,6 +78,8 @@ impl std::fmt::Display for Refusal {
             Refusal::NoPlayer => write!(f, "the game has no player"),
             Refusal::FormNotFound(id) => write!(f, "form {id:08x} not found"),
             Refusal::NotPlaced => write!(f, "PlaceAtMe returned no reference"),
+            Refusal::Busy => write!(f, "the game says the player cannot be moved now"),
+            Refusal::NoMemory => write!(f, "the game could not allocate the move request"),
         }
     }
 }
@@ -79,13 +95,36 @@ fn place(e: &mut Engine, r: u32, pos: [f32; 3], heading: f32) {
     );
 }
 
-/// Moves the local player to the cell `cell` (`PlayerCharacter::CenterOnCell`, which loads it).
-/// The player lands at the cell's own arrival point; [`local`] shows where once the game has moved
-/// it.
-pub fn warp(e: &mut Engine, cell: u32) -> Result<(), Refusal> {
+/// Asks the game to move the local player to `pos`, facing `heading` (radians), in the space
+/// `space` (an interior cell's form id or a world space's, as [`Local::cell`]). The game carries the
+/// move out in its own frame (`PlayerCharacter::RequestPositionPlayer`, the way a door moves the
+/// player); [`local`] shows the new place once it has.
+pub fn warp(e: &mut Engine, space: u32, pos: [f32; 3], heading: f32) -> Result<(), Refusal> {
     let p = player(e).ok_or(Refusal::NoPlayer)?;
-    let c = forms::form(e, cell).ok_or(Refusal::FormNotFound(cell))?;
-    e.call(addr::CENTER_ON_CELL, &args![p, 0u32, c]);
+    let form = forms::form(e, space).ok_or(Refusal::FormNotFound(space))?;
+    if e.vcall(p, addr::PLAYER_CANNOT_MOVE_SLOT, &args![0u32])
+        .bool()
+    {
+        return Err(Refusal::Busy);
+    }
+    let request = e
+        .call(addr::OPERATOR_NEW, &args![addr::POSITION_REQUEST_SIZE])
+        .u32();
+    if request == 0 {
+        return Err(Refusal::NoMemory);
+    }
+    let request = e
+        .call(addr::POSITION_REQUEST_CONSTRUCT, &args![request])
+        .u32();
+    for (i, v) in pos.into_iter().enumerate() {
+        e.mem.set_f32(request + 0x08 + 4 * i as u32, v);
+    }
+    e.mem.set_f32(request + 0x1c, heading);
+    e.mem.set_u8(request + 0x20, 1);
+    let is_cell = e.mem.u8(form.wrapping_add(addr::FORM_TYPE_OFFSET)) == addr::FORM_TYPE_CELL;
+    e.mem
+        .set_u32(request + if is_cell { 0x04 } else { 0x00 }, form);
+    e.call(addr::REQUEST_POSITION_PLAYER, &args![p, request]);
     Ok(())
 }
 

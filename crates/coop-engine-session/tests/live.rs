@@ -163,14 +163,63 @@ fn a_guest_comes_to_the_host_and_each_sees_the_other_follow() {
 }
 
 #[test]
-fn a_guest_still_at_its_menu_is_moved_too() {
+fn a_guest_still_at_its_menu_is_left_alone_and_told_why() {
     let mut p = Pair::new(Cap::Avatar, &spec());
     p.host.move_player(HOUSE, [1.0, 2.0, 3.0], 0.0);
-    // The guest's player is in no cell.
-    p.frames(60);
+    // The guest's player is in no cell (its main menu): nothing in its game is touched.
+    p.frames(400);
+    assert_eq!(p.guest.warps(), 0);
+    assert_eq!(live::local(&mut p.guest.e), None);
+    assert_eq!(rungs(p.guest_lines()), [(2, true)]);
+    let hints = p
+        .guest_lines()
+        .iter()
+        .filter(|l| l.contains("press New Game"))
+        .count();
+    assert_eq!(hints, 1);
+    // Once it is in the world (it pressed New Game), it is moved to the host, where the host is.
+    p.guest.move_player(TOWN, [0.0; 3], 0.0);
+    p.frames(20);
     assert_eq!(p.guest.warps(), 1);
-    assert_eq!(live::local(&mut p.guest.e).unwrap().cell, HOUSE);
+    let l = live::local(&mut p.guest.e).unwrap();
+    assert_eq!((l.cell, l.pos), (HOUSE, [1.0, 2.0, 3.0]));
+}
+
+#[test]
+fn a_guest_the_game_will_not_move_now_is_asked_again_later() {
+    let mut p = Pair::new(Cap::Avatar, &spec());
+    p.host.move_player(HOUSE, [1.0, 2.0, 3.0], 0.0);
+    p.guest.move_player(TOWN, [0.0; 3], 0.0);
+    p.guest.set_busy(true);
+    p.frames(60);
+    assert_eq!(p.guest.warps(), 0);
+    assert!(!p.guest_lines().iter().any(|l| l.contains("FAIL")));
+    p.guest.set_busy(false);
+    p.frames(120);
+    assert_eq!(p.guest.warps(), 1);
     assert!(rungs(p.guest_lines()).contains(&(3, true)));
+}
+
+#[test]
+fn players_outdoors_share_the_world_space_whatever_their_cells() {
+    let mut s = spec();
+    s.exteriors = vec![(0x0010_5b00, 0xda7e), (0x0010_5b01, 0xda7e)];
+    let net_spec = s.clone();
+    let mut p = Pair::new(Cap::Avatar, &net_spec);
+    p.host = Story::new(&s);
+    p.hd.start(&mut p.host.e);
+    p.host.move_player(0x0010_5b00, [100.0, 0.0, 0.0], 0.0);
+    // The guest indoors: it is moved out to the host's world space.
+    p.guest.move_player(HOUSE, [0.0; 3], 0.0);
+    p.frames(40);
+    assert_eq!(live::local(&mut p.guest.e).unwrap().cell, 0xda7e);
+    // The host walks into the next exterior cell: no new move of the guest, the avatar stays.
+    p.host.move_player(0x0010_5b01, [4200.0, 0.0, 0.0], 0.0);
+    p.frames(150);
+    assert_eq!(p.guest.warps(), 1);
+    let g = p.guest.placed();
+    assert_eq!(g.len(), 1);
+    assert!(close(g[0].2, [4200.0, 0.0, 0.0]), "{:?}", g[0]);
 }
 
 #[test]
