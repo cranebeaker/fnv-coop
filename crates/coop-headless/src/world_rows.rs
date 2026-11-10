@@ -127,6 +127,65 @@ fn record_disables_on_guest(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Resu
     Ok(())
 }
 
+/// The host moves and scales a reference with the game's own commands. Its record crosses
+/// to a guest in the same cell: the guest's reference, and its 3D object in the scene, have
+/// the host's place and scale. Twin: a guest that takes no record keeps the old place.
+fn record_moves_on_guest(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result<(), Verdict> {
+    /// A reference's place (three floats) and its scale.
+    const PLACE: u32 = 0x30;
+    const SCALE: u32 = 0x3c;
+    const NEW_X: f32 = 2300.0;
+    let words = |p: &dyn BackendPeer| -> Option<[u32; 4]> {
+        Some([
+            p.form_word(MACHINE, PLACE)?,
+            p.form_word(MACHINE, PLACE + 4)?,
+            p.form_word(MACHINE, PLACE + 8)?,
+            p.form_word(MACHINE, SCALE)?,
+        ])
+    };
+    let mut host = need(b.peer(d, true))?;
+    let mut guest = need(b.guest(d, GuestRules::Policy))?;
+    let at_start = guest
+        .node_place(MACHINE)
+        .ok_or_else(|| bad("the guest's reference has no 3D object: the row proves nothing"))?;
+    let moved = host.adapter_line(&format!("\"{MACHINE:08X}\".SetPos x {NEW_X}"))
+        && host.adapter_line(&format!("\"{MACHINE:08X}\".SetScale 1.5"))
+        && host.frames(3);
+    if !moved {
+        return Err(bad("the host's game did not run the commands"));
+    }
+    let want = words(&*host).ok_or_else(|| bad("no reference on the host"))?;
+    if f32::from_bits(want[0]) != NEW_X || (at_start[0] - NEW_X).abs() < 1.0 {
+        return Err(bad("the host's command did not move the reference"));
+    }
+    let record = host
+        .record(MACHINE)
+        .ok_or_else(|| bad("the host's game saved no record"))?;
+    if !mutate {
+        if guest.take_pairs(&host.index_pairs(1)).is_none() {
+            return Err(bad("the guest's game took no index pair"));
+        }
+        if !need(guest.take_record(&record))? {
+            return Err(bad("the record waits, but the form is in memory"));
+        }
+    }
+    if !guest.frames(60) {
+        return Err(bad("the guest's game ran no frame"));
+    }
+    let got = words(&*guest).ok_or_else(|| bad("no reference on the guest"))?;
+    if got != want {
+        return Err(bad(format!(
+            "the guest's place and scale are {got:08X?}, the host's are {want:08X?}"
+        )));
+    }
+    match guest.node_place(MACHINE) {
+        Some(scene) if (scene[0] - NEW_X).abs() < 0.01 => Ok(()),
+        other => Err(bad(format!(
+            "the guest's 3D object is at {other:?}: the scene did not follow the record"
+        ))),
+    }
+}
+
 /// A guest in another cell takes the host's record of a reference that its game does not
 /// have in memory. The record waits, and the game's own load applies it when the guest goes
 /// into the reference's cell. Twin: with no record the reference is not disabled there.
@@ -166,5 +225,6 @@ fn record_waits_for_its_cell(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Res
 pub const TESTS: &[(&str, Test)] = &[
     ("change_is_found", change_is_found),
     ("record_disables_on_guest", record_disables_on_guest),
+    ("record_moves_on_guest", record_moves_on_guest),
     ("record_waits_for_its_cell", record_waits_for_its_cell),
 ];

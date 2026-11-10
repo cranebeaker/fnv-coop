@@ -472,6 +472,15 @@ impl BackendPeer for EnginePeer<'_> {
         let answer = self.ask(&format!("form_word {id:08X} {offset:X}"))?;
         u32::from_str_radix(&answer, 16).ok()
     }
+    fn node_place(&self, id: u32) -> Option<[f32; 3]> {
+        let answer = self.ask(&format!("node_place {id:08X}"))?;
+        let mut words = answer.split_whitespace().map(str::parse::<f32>);
+        Some([
+            words.next()?.ok()?,
+            words.next()?.ok()?,
+            words.next()?.ok()?,
+        ])
+    }
     fn enter(&mut self, cell: &str) -> bool {
         self.ask(&format!("enter {cell}")).is_some()
     }

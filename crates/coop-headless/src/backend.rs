@@ -168,6 +168,11 @@ pub trait BackendPeer {
     fn form_word(&self, _id: u32, _offset: u32) -> Option<u32> {
         None
     }
+    /// The place of a reference's 3D object in the scene. `None` when it has no 3D object, or
+    /// the game has no such form.
+    fn node_place(&self, _id: u32) -> Option<[f32; 3]> {
+        None
+    }
     /// Goes into another cell (an editor id) and runs some frames of play there.
     fn enter(&mut self, _cell: &str) -> bool {
         false

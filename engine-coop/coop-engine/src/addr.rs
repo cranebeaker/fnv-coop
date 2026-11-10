@@ -416,3 +416,21 @@ pub const HIT_FLAGS: u32 = 0x58;
 /// writes the health as a part of 1.
 // ghidra: 0059c7e0. run: m3/A e10a (1.0 to 0.6 after three shots).
 pub const REF_HEALTH_PART: u32 = 0x0059_c7e0;
+/// A reference's 3D object in the scene (0: none).
+// legacy: section 3. runs: ws/C e8, and the two-game record run (the word is 0 after a
+// disable).
+pub const REF_NODE: u32 = 0x64;
+/// A scene object's place: three floats.
+// Measured with the probe (2026-11-10): the three floats at +0xA0 of a reference's 3D object
+// equal the reference's place, and they follow the console's `SetPos`.
+pub const NODE_PLACE: u32 = 0xa0;
+
+// ---- The avatar's save rule (SPEC-06 slice 5).
+
+/// The game's save function: method (save manager, name, word, flag). Each save goes through
+/// it: a quick save, an autosave at a door, a save from the menu or the console.
+// ghidra: 008503b0 (all 8 call sites). run: m3/A s1 (one call for a console save).
+pub const GAME_SAVE: u32 = 0x0085_03b0;
+/// The game's load function: method (save manager, name, word, flag, flag).
+// ghidra: 00850760. run: m3/A s2.
+pub const GAME_LOAD: u32 = 0x0085_0760;

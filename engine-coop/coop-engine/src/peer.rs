@@ -36,6 +36,7 @@
 //! | `take_pairs INDEX:FORM,..` | `ok TAKEN NEXT`: the host's pairs go into a guest's table, in index order |
 //! | `take_record FORM FLAGS KIND VERSION PAIRS BYTES [attach]` | `ok loaded`, `ok waits` (the form is not in memory, or `attach` was asked) or `err refused` |
 //! | `form_word FORM OFFSET` | `ok WORD`: the 32-bit word at this offset of the form (hex). `err` when the game has no such form |
+//! | `node_place FORM` | `ok X Y Z`: the place of the reference's 3D object in the scene, `ok none` when it has no 3D object. `err` when the game has no such form |
 //! | `form FORM` | `ok 1` when the game has a form with this id now, else `ok 0` |
 //! | `player` | `ok CELL X Y Z HEADING`: the local player's cell (an address, hex), place and heading in degrees. `err` before the game made the player |
 //! | `avatar_make SLOT FEMALE RACE X Y Z HEADING` | `ok ID`: the avatar of the remote player SLOT, with a female body (1) or not (0) and the race's form id (0: the base's own), at this place. ID is its form id. `err` when the game makes none |
@@ -54,7 +55,7 @@ use coop_core::schema::{fields_from_hex, fields_to_hex, Field};
 
 use crate::addr;
 use crate::audit::Audit;
-use crate::avatar::{Avatar, Base, Drive, Gone, Hit, Look};
+use crate::avatar::{Avatar, Base, Drive, Gone, Hit, Left, Look};
 use crate::changes::Changes;
 use crate::gate::{Counters, Intent, Rules, BLIND_MS};
 use crate::program::Program;
@@ -232,13 +233,28 @@ impl Peer {
         }
     }
 
-    /// The avatars that are in this game now: (address, slot). The server gives them to the
-    /// avatars' damage rules.
-    pub fn bodies(&self) -> Vec<(u32, u8)> {
+    /// The avatars that are in this game now, each with its slot. The server gives them to
+    /// the avatars' rules.
+    pub fn bodies(&self) -> Vec<(Avatar, u8)> {
         self.avatars
             .iter()
-            .filter_map(|(slot, (_, avatar))| avatar.map(|a| (a.at, *slot)))
+            .filter_map(|(slot, (_, avatar))| avatar.map(|a| (a, *slot)))
             .collect()
+    }
+
+    /// The avatars' rules took an avatar out of the game for a save or a load: this game has
+    /// none in that slot now. After a load the slot's base copy is gone too.
+    pub fn avatar_left(&mut self, slot: u8, why: Left) {
+        match why {
+            Left::Save => {
+                if let Some((_, avatar)) = self.avatars.get_mut(&slot) {
+                    *avatar = None;
+                }
+            }
+            Left::Load => {
+                self.avatars.remove(&slot);
+            }
+        }
     }
 
     /// Answers one request line.
@@ -496,6 +512,19 @@ impl Peer {
                     Taken::Waits => reply("ok waits".into()),
                     Taken::Refused => Err("refused".into()),
                 }
+            }
+            "node_place" => {
+                let at = p.call(addr::FORM_BY_ID, &[hex(words.next())?]).eax;
+                if at == 0 {
+                    return Err("the game has no such form".into());
+                }
+                reply(match p.u32(at + addr::REF_NODE) {
+                    0 => "ok none".into(),
+                    node => {
+                        let v = [0, 4, 8].map(|o| p.f32(node + addr::NODE_PLACE + o));
+                        format!("ok {} {} {}", v[0], v[1], v[2])
+                    }
+                })
             }
             "form_word" => {
                 let at = p.call(addr::FORM_BY_ID, &[hex(words.next())?]).eax;
@@ -936,11 +965,24 @@ mod tests {
             .unwrap();
         assert_eq!(
             run.1[3],
-            peer.bodies()[0].0,
+            peer.bodies()[0].0.at,
             "the avatar is the calling reference"
         );
         assert_eq!(peer.bodies().len(), 1);
         assert_eq!(peer.bodies()[0].1, 1);
+        // A save takes the avatar and keeps the base. A load takes both.
+        let mut after = Peer::new(Role::Guest);
+        let mut q = FakeProgram::new();
+        q.add_player([0.0; 3]);
+        ask(&mut after, &mut q, "avatar_make 1 0 0 1 2 3 0");
+        after.avatar_left(1, Left::Save);
+        assert!(after.bodies().is_empty());
+        ask(&mut after, &mut q, "avatar_make 1 0 0 1 2 3 0");
+        let made = |q: &FakeProgram| q.calls.iter().filter(|(a, _)| *a == addr::NPC_COPY).count();
+        assert_eq!(made(&q), 1, "after a save the base copy is used again");
+        after.avatar_left(1, Left::Load);
+        ask(&mut after, &mut q, "avatar_make 1 0 0 1 2 3 0");
+        assert_eq!(made(&q), 2, "after a load the base copy is made again");
         assert_eq!(peer.handle(&mut p, "avatar_guard"), Action::AvatarGuard);
         assert_eq!(peer.handle(&mut p, "avatar_hits"), Action::AvatarHits);
         let hit = Hit {
@@ -1017,6 +1059,11 @@ mod tests {
             ask(&mut host, &mut hp, "form_word 00104C13 C"),
             "ok 00104C13"
         );
+        assert_eq!(ask(&mut host, &mut hp, "node_place 00104C13"), "ok none");
+        hp.set_u32(door + addr::REF_NODE, 0x3100_0000);
+        hp.set_f32(0x3100_0000 + addr::NODE_PLACE + 4, 2.5);
+        assert_eq!(ask(&mut host, &mut hp, "node_place 00104C13"), "ok 0 2.5 0");
+        assert!(ask(&mut host, &mut hp, "node_place 00000BAD").starts_with("err "));
 
         let (mut gp, mut guest, guest_door) = build(Role::Guest);
         let take = "take_record 00104C13 1 3A B 2 aa01";

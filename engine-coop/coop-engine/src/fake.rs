@@ -212,7 +212,8 @@ impl FakeProgram {
     /// Adds a plain form with this id (a race, a base object, a reference with no actor
     /// parts). Returns its address.
     pub fn add_form(&mut self, id: u32) -> u32 {
-        let at = self.take(0x40);
+        // Room for a reference's words that the adapter reads (the 3D word is at +0x64).
+        let at = self.take(0x80);
         self.set_u32(at, FAKE_TABLE);
         self.set_u32(at + addr::FORM_ID, id);
         self.forms.insert(id, at);

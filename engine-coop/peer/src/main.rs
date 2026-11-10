@@ -137,7 +137,11 @@ fn main() {
         peer.last_script = gate::counters().map_or(0, |c| c.last_script);
         // A request is the adapter's own work: what the program runs for it is not gated.
         let action = gate::own(|| peer.handle(&mut EngineProgram(&mut game.engine), &line));
-        // The avatars' damage rules know each avatar by its address.
+        // An avatar that left for a save or a load is not this game's any more.
+        for (slot, why) in avatar_guard::take_left() {
+            peer.avatar_left(slot, why);
+        }
+        // The avatars' rules know each avatar by its address.
         avatar_guard::set_bodies(peer.bodies());
         match action {
             Action::Reply(text) => say(&text),
@@ -185,6 +189,10 @@ fn main() {
             Action::Frames(n) => {
                 let ran = (0..n).all(|_| {
                     let ran = coop_engine_glue::frame(&mut game);
+                    // A save or a load in this frame took the avatars out of the game.
+                    for (slot, why) in avatar_guard::take_left() {
+                        peer.avatar_left(slot, why);
+                    }
                     if coop_engine_glue::screen(&game) == coop_engine_glue::Screen::Play {
                         gate::frame(FRAME_MS);
                     }

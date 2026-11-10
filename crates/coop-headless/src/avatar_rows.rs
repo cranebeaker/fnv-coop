@@ -277,6 +277,58 @@ fn avatar_hit_recorded_not_applied(
     Ok(())
 }
 
+/// No save holds an avatar, and no load meets one: the avatar leaves the game before the
+/// game's save runs, the same remote player gets an avatar again at once, and after a load
+/// the slot is empty and takes a new avatar with the right look. Twin: with no rules the
+/// avatar is in the game when the save runs.
+///
+/// Measured on the game program: an avatar of a temporary base copy does not come back from
+/// a save in each case, so the row checks the moment of the save.
+fn avatar_not_in_save(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result<(), Verdict> {
+    const SAVE: &str = "cooprow1";
+    // A save draws its picture: the game must draw.
+    let mut guest = need(b.guest_that_draws(d))?;
+    let id = made(guest.avatar_make(SLOT, true, 0, [START_X, Y, Z], 270.0))?;
+    frames(&mut *guest, 10)?;
+    if !mutate {
+        need(guest.avatar_guard())?;
+    }
+    if !guest.adapter_line(&format!("save {SAVE}")) {
+        return Err(bad("the game did not run the save line"));
+    }
+    frames(&mut *guest, 30)?;
+    if guest.has_form(id) {
+        return Err(bad("the avatar was in the game when the save ran"));
+    }
+    if guest.avatar_state(SLOT).is_some() {
+        return Err(bad("the slot still has an avatar after the save"));
+    }
+    // The next gap makes it again.
+    made(guest.avatar_make(SLOT, true, 0, [START_X, Y, Z], 270.0))?;
+    frames(&mut *guest, 10)?;
+    if state(&*guest, "after the save")?.life != RESTRAINED {
+        return Err(bad("the avatar that was made again is not held"));
+    }
+    if !guest.adapter_line(&format!("load {SAVE}")) {
+        return Err(bad("the game did not run the load line"));
+    }
+    frames(&mut *guest, 400)?;
+    if guest.avatar_state(SLOT).is_some() {
+        return Err(bad("an avatar is in the slot after the load"));
+    }
+    made(guest.avatar_make(SLOT, true, 0, [START_X, Y, Z], 270.0))?;
+    frames(&mut *guest, 30)?;
+    if state(&*guest, "after the load")?.life != RESTRAINED {
+        return Err(bad("the avatar after the load is not held"));
+    }
+    match guest.avatar_look(SLOT, RACE) {
+        Some((true, _)) => Ok(()),
+        other => Err(bad(format!(
+            "the avatar after the load has the look {other:?}, want a female body"
+        ))),
+    }
+}
+
 /// The avatar's rows: id and function.
 pub const TESTS: &[(&str, Test)] = &[
     ("avatar_follows_walk", avatar_follows_walk),
@@ -291,4 +343,5 @@ pub const TESTS: &[(&str, Test)] = &[
         "avatar_hit_recorded_not_applied",
         avatar_hit_recorded_not_applied,
     ),
+    ("avatar_not_in_save", avatar_not_in_save),
 ];

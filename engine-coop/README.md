@@ -151,12 +151,13 @@ of play is a "gate blind" alarm.
   `avatar_follows_walk`, `avatar_holds_place`, `avatar_removed_and_made_again` and
   `avatar_look` pass on real games, and their mutation twins fail. A local hit on an avatar
   is recorded for the host and not applied, and local code does not kill an avatar
-  (`avatar_survives_local_damage`, `avatar_hit_recorded_not_applied`).
+  (`avatar_survives_local_damage`, `avatar_hit_recorded_not_applied`). No save holds an
+  avatar, and no load meets one (`avatar_not_in_save`).
 - The world's state: the adapter reads the game's own map of changed forms, saves one
   changed form with the game's own save functions, and a guest's game loads the bytes with
   its own load: at once, or with the form's cell. The conformance tests `change_is_found`,
-  `record_disables_on_guest` and `record_waits_for_its_cell` pass on real games, and their
-  mutation twins fail.
-- Not yet: per-player rows, a dialogue result's owner, the avatar's cell changes and its save
-  rule, the live path between two games, the host's hit ledger, records of each kind, saves.
+  `record_disables_on_guest`, `record_moves_on_guest` and `record_waits_for_its_cell` pass
+  on real games, and their mutation twins fail.
+- Not yet: per-player rows, a dialogue result's owner, the avatar's cell changes, the live
+  path between two games, the host's hit ledger, records of each kind, party saves.
   The plan is in the project's notes.

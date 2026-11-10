@@ -395,15 +395,46 @@ pub struct Hit {
 pub struct Guard {
     /// The avatars in this game: address to slot.
     bodies: std::collections::BTreeMap<u32, u8>,
+    /// The same avatars, for a removal: the reference and its slot.
+    avatars: Vec<(Avatar, u8)>,
     hits: Vec<Hit>,
+    /// The avatars that left the game for a save or a load, each one time.
+    left: Vec<(u8, Left)>,
     /// How many kills of an avatar the guard stopped.
     pub kills_stopped: u64,
 }
 
+/// Why an avatar left the game by the guard's rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Left {
+    /// The game saved: the avatar's base form is still good, and the avatar can be made
+    /// again in the next gap.
+    Save,
+    /// The game loaded: each form of the game's own making is gone, the base copy too.
+    Load,
+}
+
 impl Guard {
-    /// The avatars that are in the game now: (address, slot).
-    pub fn set_bodies(&mut self, bodies: impl IntoIterator<Item = (u32, u8)>) {
-        self.bodies = bodies.into_iter().collect();
+    /// The avatars that are in the game now, each with its slot.
+    pub fn set_bodies(&mut self, bodies: impl IntoIterator<Item = (Avatar, u8)>) {
+        self.avatars = bodies.into_iter().collect();
+        self.bodies = self.avatars.iter().map(|(a, slot)| (a.at, *slot)).collect();
+    }
+
+    /// The game saves or loads: no save must hold an avatar, and no load must meet one. The
+    /// guard forgets each avatar and gives them to the caller, which removes them from the
+    /// game before the save or the load goes on.
+    pub fn leave(&mut self, why: Left) -> Vec<Avatar> {
+        self.bodies.clear();
+        let avatars = std::mem::take(&mut self.avatars);
+        self.left
+            .extend(avatars.iter().map(|(_, slot)| (*slot, why)));
+        avatars.into_iter().map(|(a, _)| a).collect()
+    }
+
+    /// The avatars that left for a save or a load. The list is empty after.
+    pub fn take_left(&mut self) -> Vec<(u8, Left)> {
+        std::mem::take(&mut self.left)
     }
 
     /// The slot of the avatar at this address.
@@ -498,7 +529,11 @@ mod guard_tests {
             !guard.hit(&p, 0x2222_0000, data),
             "the twin: not in the list"
         );
-        guard.set_bodies([(0x2222_0000, 3)]);
+        let body = Avatar {
+            at: 0x2222_0000,
+            id: 0xff00_130a,
+        };
+        guard.set_bodies([(body, 3)]);
         assert!(!guard.hit(&p, 0x2222_0100, data), "another actor");
         assert!(guard.hit(&p, 0x2222_0000, data));
         assert_eq!(
@@ -517,13 +552,49 @@ mod guard_tests {
 
     #[test]
     fn local_code_does_not_kill_an_avatar() {
+        let body = Avatar {
+            at: 0x2222_0000,
+            id: 0xff00_130a,
+        };
         let mut guard = Guard::default();
         assert!(!guard.kill(0x2222_0000));
-        guard.set_bodies([(0x2222_0000, 1)]);
+        guard.set_bodies([(body, 1)]);
         assert!(guard.kill(0x2222_0000));
         assert!(!guard.kill(0x2222_0100));
         assert_eq!(guard.kills_stopped, 1);
         guard.set_bodies([]);
         assert!(!guard.kill(0x2222_0000), "a removed avatar is no avatar");
+    }
+
+    /// At a save or a load each avatar leaves: the guard gives them for the removal, knows
+    /// none after, and reports each slot one time with the reason. Mutation twin: with no
+    /// avatar in the list, a save removes nothing.
+    #[test]
+    fn each_avatar_leaves_at_a_save_and_at_a_load() {
+        let mut p = FakeProgram::new();
+        p.add_player([0.0; 3]);
+        let base = Base::make(&mut p, Look::default()).unwrap();
+        let first = Drive::default();
+        let one = Avatar::make(&mut p, base, &first).unwrap();
+        let two = Avatar::make(&mut p, base, &first).unwrap();
+
+        let mut guard = Guard::default();
+        assert!(guard.leave(Left::Save).is_empty(), "the twin: no avatar");
+        guard.set_bodies([(one, 1), (two, 2)]);
+        let leaving = guard.leave(Left::Save);
+        assert_eq!(leaving, [one, two]);
+        for avatar in leaving {
+            avatar.remove(&mut p);
+        }
+        assert_eq!(one.seen(&mut p), Err(Gone::Destroyed));
+        assert_eq!(two.seen(&mut p), Err(Gone::Destroyed));
+        assert_eq!(guard.slot_of(one.at), None);
+        assert!(!guard.kill(one.at));
+        assert_eq!(guard.take_left(), [(1, Left::Save), (2, Left::Save)]);
+        assert!(guard.take_left().is_empty());
+
+        guard.set_bodies([(one, 1)]);
+        guard.leave(Left::Load);
+        assert_eq!(guard.take_left(), [(1, Left::Load)]);
     }
 }
