@@ -97,6 +97,16 @@ pub fn set_own_scripts(e: &mut Engine, ids: impl IntoIterator<Item = u32>) {
         .unwrap_or_else(PoisonError::into_inner) = ids.into_iter().collect();
 }
 
+// social
+/// Whether quest `id` is one the player runs for themself ([`set_own_quests`]).
+pub fn is_own_quest(e: &mut Engine, id: u32) -> bool {
+    let g = e.ext_free::<Gate>();
+    g.own
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .contains(&id)
+}
+
 /// How many runs of the player's own quests' scripts went ahead on this guest.
 pub fn ran_own(e: &mut Engine) -> u64 {
     e.ext_free::<Gate>().ran_own.load(Ordering::SeqCst)

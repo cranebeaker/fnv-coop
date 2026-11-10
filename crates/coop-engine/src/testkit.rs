@@ -464,8 +464,23 @@ impl Story {
             bump(e, GHOSTS);
             Ret::default()
         });
+        // social: the stand-ins of conversations, saves and rests.
+        crate::social_kit::register(&mut e);
         crate::install(&mut e);
         Story { e }
+    }
+
+    // social
+    /// Where the count of scripts that really ran is kept.
+    pub(crate) const RAN_AT: u32 = RAN;
+
+    // social
+    /// Adds a form made outside the story's heap to its form table.
+    pub fn add_form(&mut self, id: u32, form: u32) {
+        let n = self.e.mem.u32(TABLE);
+        self.e.mem.set_u32(TABLE + 4 + 8 * n, id);
+        self.e.mem.set_u32(TABLE + 8 + 8 * n, form);
+        self.e.mem.set_u32(TABLE, n + 1);
     }
 
     /// Sets a quest's stage as a script's `SetStage` does.

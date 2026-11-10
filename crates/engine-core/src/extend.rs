@@ -154,6 +154,25 @@ pub const WRAPS: &[Entry] = &[
         owners: NVSE,
         step: "I-3",
     },
+    // social: co-op's shared conversations and its sleep and wait vote (docs/coop/SPECS.md S12,
+    // S15). TESTopicInfo::RunResult (info, index, reference): a conversation's results run once,
+    // on the host. DialogMenu::Create (speaker, word, target): one conversation per NPC.
+    // SleepWaitMenu::DoClick (menu, button, tile): resting is put to the party's vote.
+    Entry {
+        addr: 0x0061_f170,
+        owners: COOP,
+        step: "C-6",
+    },
+    Entry {
+        addr: 0x0076_1a20,
+        owners: COOP,
+        step: "C-6",
+    },
+    Entry {
+        addr: 0x007c_0220,
+        owners: COOP,
+        step: "C-6",
+    },
     // BGSSaveLoadGame::AddChange (this, form, flags, force): every form's change for the save
     // game (TESForm::AddChange 00484b60 and ::ForceChange 00484b90 both end here), recorded in
     // co-op's change journal (docs/coop/SPECS.md S2).
@@ -361,10 +380,10 @@ pub const SITES: &[Entry] = &[
         owners: NVSE,
         step: "I-10",
     },
-    // BGSSaveLoadGame::SaveGame: the co-save written.
+    // BGSSaveLoadGame::SaveGame: the co-save written; social: co-op's party save (S13).
     Entry {
         addr: 0x0084_7c45,
-        owners: NVSE,
+        owners: NVSE_COOP,
         step: "I-10",
     },
     // BGSSaveLoadGame::LoadGame: the co-save read before the .fos, after it, and post-load.
@@ -373,9 +392,10 @@ pub const SITES: &[Entry] = &[
         owners: NVSE,
         step: "I-10",
     },
+    // social: after the .fos, co-op's party save is read too (S13).
     Entry {
         addr: 0x0084_8c3c,
-        owners: NVSE,
+        owners: NVSE_COOP,
         step: "I-10",
     },
     Entry {

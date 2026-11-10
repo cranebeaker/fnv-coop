@@ -27,6 +27,14 @@ pub mod quest;
 pub mod testkit;
 pub mod vars;
 
+// social: conversations, party saves and the rest vote (docs/coop/SPECS.md S12 to S15).
+pub mod rest;
+pub mod saves;
+pub mod social;
+#[cfg(any(test, feature = "testkit"))]
+pub mod social_kit;
+pub mod talk;
+
 use std::sync::atomic::Ordering;
 
 use engine_core::prelude::*;
@@ -55,6 +63,8 @@ pub fn install(e: &mut Engine) {
     e.wrap(gate::RUN, gate::run);
     // The gate's slot too, before the threads start.
     let _ = e.ext_free::<gate::Gate>();
+    // social
+    social::install(e);
 }
 
 // The unit tests' own program: no other crate's functions are linked in.
