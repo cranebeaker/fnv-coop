@@ -471,3 +471,32 @@ pub const FILE_NAME_BYTES: u32 = 260;
 /// A file: its load index, a 32-bit word.
 // Measured (same run): 0 to 9 for the 10 pointers, in the order of the list.
 pub const FILE_INDEX: u32 = 0x40c;
+
+// ---- The game's clock (SPEC-16, Decision 005).
+
+/// The program's clock object: six pointers to the clock's globals (the forms 00000035 to
+/// 0000003A: year, month, day, hour, days passed, time scale), in this order.
+// Measured with the probe at the main menu (2026-11-10, script exp_clock_menu): the six words
+// are the addresses that `LookupFormByID` gives for the six forms. The planners' runs gave
+// the same in play (ck/A e3, ck/B e1, ck/C e1). ghidra: 00867890.
+pub const CLOCK: u32 = 0x011d_e7b8;
+/// The clock's advance: method (clock, float seconds). It adds the time scale times the
+/// seconds to the hour, moves the date at 24 hours, and computes the days passed.
+// Measured (same run): no wrap, and a call with 120.0 seconds moves `GameHour` from 12.0 to
+// 13.0 at time scale 30. Runs ck/A e1: one call for each frame of play (600 in 600), none in
+// a menu (e1b). ghidra: shard 6. Its callers: the main loop 0086E9CA, the wait step
+// 0094DFEB, fast travel 0093D247 and 0093D368, two cell tests.
+pub const CLOCK_ADVANCE: u32 = 0x0086_7a40;
+/// The clock object: the count of midnights, a 32-bit word. Only the advance adds to it.
+/// The sandbox package code reads it (009F3C90, 009F3D50, 009F3E80).
+// Runs ck/A e3 (0 to 1 at a midnight, constant under a block), ck/B e4.
+pub const CLOCK_MIDNIGHTS: u32 = 0x18;
+/// The clock object: a flag that the advance writes. Not read by the adapter: recorded for a
+/// guest's game that becomes the host's game.
+// Measured (exp_clock_menu): 1 at the main menu. The deciders' read of the program's code.
+pub const CLOCK_FLAG: u32 = 0x1c;
+/// The clock object: the last-hour word, a float. The advance computes the days passed again
+/// when the hour passes this word by 1.0. Not written by the adapter: recorded for a guest's
+/// game that becomes the host's game.
+// Measured (exp_clock_menu): 13.0 after the call that moved the hour to 13.0. Run ck/B e4.
+pub const CLOCK_LAST_HOUR: u32 = 0x2c;

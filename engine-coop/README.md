@@ -68,11 +68,13 @@ occlusion query has no answer without it).
   `addr.rs` holds each program fact with its source. `gate.rs` decides where story code runs
   on a guest, and `audit.rs` compares a guest's shared state with the host's. `avatar.rs` is
   the remote player's body. `changes.rs` reads the game's map of changed forms, and
-  `record.rs` carries one changed form as the game's own save writes it. `game.rs`
+  `record.rs` carries one changed form as the game's own save writes it. `clock.rs` is the
+  game's clock on a guest. `game.rs`
   implements the session's interface (the traits of `crates/coop-game`) on the program.
 - `glue`: the one crate that names upstream types. It gives the adapter its view of the
   program and starts a game for a test. `glue/src/gate.rs` puts the guest gate on the game:
-  six overrides by address, each refused when the address has a wrap.
+  six overrides by address, each refused when the address has a wrap. `glue/src/clock.rs`
+  stops a guest's clock advance (one override, with its own start check).
 - `coop-app`: the co-op program without the engine. `App` runs the frame loop on a `Machine`
   (the game's frames, its screen, the guest gate): the session before and after each frame,
   the flags of the harness contract (`tools/coop-run`), the control port's answers and the
@@ -202,14 +204,18 @@ of play is a "gate blind" alarm.
   game, and each game has the result. The two state dumps have the same hash of the shared
   state without the game's clock (309 quests with state and 255 globals), at each check.
   The guest's gate stopped each script run of a shared quest (about one run in six).
+- The game's clock: a guest's clock does not run by itself. The program's clock advance
+  (`00867A40`) does nothing on a guest, and the host's clock comes as plain state, with the
+  count of midnights. With the host's clock running, and across a midnight, the guest's hash
+  of the shared state equals the host's root at the guest's revision (the contract's strict
+  hash). A local `set GameHour` on a guest is one `clock_leak`, and the host's value is back
+  before the next frame.
 - Known limits of the session on real games:
   - One frame of the game loads a whole cell (9 seconds for the first cell with two games on
     one PC). The program cannot poll the network inside a frame, so the host keeps a silent
     guest for 20 seconds.
-  - A guest's game advances its own clock (`GameHour`, `GameDaysPassed`) between the host's
-    values. The guest's check against the host's state returns it each 2 seconds. The strict
-    hash of the contract (`hash.shared`) differs by these two globals. `hash.steady` leaves
-    them out. The clock rule for a guest is the next design step.
+  - A host in a menu does not advance its clock, and the clock of each guest stands with it.
+    The pause rule is a later decision.
   - The game starts its own opening dialogue in Doc Mitchell's house on a host with no
     character yet (a menu about 100 frames after the entry).
 - Not yet: per-player rows, a dialogue result's owner, an exterior cell for an avatar, the

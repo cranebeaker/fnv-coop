@@ -21,7 +21,7 @@ use crate::audit::Audit;
 use crate::gate::Rules;
 use crate::program::Program;
 use crate::record::Pairs;
-use crate::{addr, changes, console, shared};
+use crate::{addr, changes, clock, console, shared};
 
 /// The names of the game's data, from the plugin files of the load order. The program does
 /// not resolve each editor id at run time, and a table from the files is the same on each
@@ -150,6 +150,8 @@ pub struct EngineState {
     writes: u64,
     /// The campaign policy for this load order, for a setup that brings none.
     policy: Option<std::sync::Arc<coop_policy::PolicyTable>>,
+    /// A guest's check of its clock.
+    clock: clock::Guard,
 }
 
 impl EngineState {
@@ -238,6 +240,13 @@ impl<'a> EngineCoop<'a> {
         self.state.shared.export(self.p)
     }
 
+    /// A guest's check of its clock, before a frame: each word that the adapter did not
+    /// leave. The adapter's values are in the program again after the call. Empty on a
+    /// host's game.
+    pub fn clock_leaks(&mut self) -> Vec<clock::ClockLeak> {
+        self.state.clock.check(self.p)
+    }
+
     /// The address of a quest: from the catalog, or by the game's own lookup.
     fn quest_at(&mut self, quest: FormId) -> Option<u32> {
         self.state.shared.address(quest.0).or_else(|| {
@@ -317,12 +326,20 @@ impl Shared for EngineCoop<'_> {
             .collect();
         let scripts: Vec<u32> = rules.local_scripts.iter().copied().collect();
         let globals = self.state.names.globals().to_vec();
-        let catalog = shared::Shared::with_local_scripts(self.p, &quests, &globals, &scripts);
+        let mut catalog = shared::Shared::with_local_scripts(self.p, &quests, &globals, &scripts);
+        // The clock: its layout is checked before a write goes there.
+        let clock_globals = clock::globals(self.p)?;
+        if clock_globals.is_some() {
+            catalog = catalog.with_clock();
+        }
         if setup.role == Role::Guest {
-            // A guest's game runs no script of a shared quest from now on.
+            // A guest's game runs no script of a shared quest from now on, and its clock
+            // does not run by itself.
             let shared_quest = catalog.quests().next().map(|(_, at)| at);
             self.p.install_gate(&rules, shared_quest)?;
             self.state.pairs = Pairs::join(self.p);
+            self.state.clock = clock::Guard::new(clock_globals);
+            self.state.clock.note(self.p);
         }
         self.state.shared = catalog;
         self.state.role = Some(setup.role);
@@ -367,6 +384,10 @@ impl Shared for EngineCoop<'_> {
             }
         }
         self.state.writes += 1;
+        if guest {
+            // The clock's words are the host's now.
+            self.state.clock.note(self.p);
+        }
         // The game's own journal lines for an applied change are not shown yet:
         // `announced` stays 0.
         done
@@ -695,6 +716,104 @@ mod tests {
         let mut got = [0u8; 20];
         p.read(text, &mut got);
         assert_eq!(&got, b"SetStage 0015D912 10");
+    }
+
+    /// The clock's names for a table: the six clock globals.
+    fn clock_names() -> NameTable {
+        NameTable::parse(
+            "P 00 FalloutNV.esm\nF QUST 0015D912 VCG03\n\
+             F GLOB 00000035 GameYear\nF GLOB 00000036 GameMonth\nF GLOB 00000037 GameDay\n\
+             F GLOB 00000038 GameHour\nF GLOB 00000039 GameDaysPassed\nF GLOB 0000003A TimeScale\n",
+        )
+        .unwrap()
+    }
+
+    fn clock_game() -> (FakeProgram, EngineState) {
+        let mut p = FakeProgram::new();
+        p.add_quest(QUEST, &[10, 20], &[10]);
+        p.add_clock(12.0);
+        (p, EngineState::new(clock_names()))
+    }
+
+    fn advance(p: &mut FakeProgram, seconds: f32) {
+        p.call(addr::CLOCK_ADVANCE, &[addr::CLOCK, seconds.to_bits()]);
+    }
+
+    fn clock_words(p: &mut FakeProgram) -> clock::Words {
+        let at = clock::globals(p).unwrap().expect("the clock");
+        clock::read(p, &at)
+    }
+
+    /// A guest's clock does not run by itself. It takes the host's clock as plain state,
+    /// with the count of midnights, and it is the host's clock bit for bit.
+    #[test]
+    fn a_guests_clock_is_the_hosts_clock() {
+        let (mut hp, mut hs) = clock_game();
+        let (mut gp, mut gs) = clock_game();
+        EngineCoop::over(&mut hp, &mut hs)
+            .configure(&setup(Role::Host))
+            .unwrap();
+        EngineCoop::over(&mut gp, &mut gs)
+            .configure(&setup(Role::Guest))
+            .unwrap();
+        // The host plays across a midnight. The guest's own advance does nothing.
+        advance(&mut hp, 12.5 * 120.0);
+        advance(&mut gp, 3.0 * 120.0);
+        assert_eq!(clock_words(&mut gp).0[3], 12.0f32.to_bits(), "blocked");
+        let export = EngineCoop::over(&mut hp, &mut hs).fields();
+        let changes: Vec<Change> = export
+            .iter()
+            .map(|(form, field)| (field.key(*form), Some(field.clone())))
+            .collect();
+        let mut guest = EngineCoop::over(&mut gp, &mut gs);
+        guest.apply_shared(&changes, false);
+        assert!(
+            guest.clock_leaks().is_empty(),
+            "the apply is the adapter's own"
+        );
+        assert_eq!(guest.fields(), export, "the same shared state");
+        assert_eq!(clock_words(&mut gp), clock_words(&mut hp));
+        assert_eq!(clock::midnights(&gp), 1, "the host's count of midnights");
+
+        // The twin: a host's game runs its own clock, and it has no guard.
+        advance(&mut hp, 120.0);
+        assert_ne!(clock_words(&mut gp), clock_words(&mut hp));
+        assert!(EngineCoop::over(&mut hp, &mut hs).clock_leaks().is_empty());
+    }
+
+    /// A word of a guest's clock that the adapter did not leave is a leak: it is reported
+    /// one time, and the adapter's value comes back.
+    #[test]
+    fn a_local_change_of_a_guests_clock_is_a_leak() {
+        let (mut gp, mut gs) = clock_game();
+        EngineCoop::over(&mut gp, &mut gs)
+            .configure(&setup(Role::Guest))
+            .unwrap();
+        let before = clock_words(&mut gp);
+        let hour = gp.call(addr::FORM_BY_ID, &[HOUR]).eax;
+        gp.set_f32(hour + addr::GLOBAL_VALUE, 3.0);
+        let mut guest = EngineCoop::over(&mut gp, &mut gs);
+        let leaks = guest.clock_leaks();
+        assert_eq!(leaks.len(), 1, "{leaks:?}");
+        assert_eq!(
+            (leaks[0].form, leaks[0].left, leaks[0].found),
+            (HOUR, 12.0f32.to_bits(), 3.0f32.to_bits())
+        );
+        assert!(guest.clock_leaks().is_empty());
+        assert_eq!(clock_words(&mut gp), before);
+    }
+
+    /// A clock object with another layout stops the role: the adapter must not write there.
+    #[test]
+    fn a_clock_with_another_layout_is_refused() {
+        let (mut gp, mut gs) = clock_game();
+        let day = gp.u32(addr::CLOCK + 8);
+        gp.set_u32(addr::CLOCK + 12, day);
+        let why = EngineCoop::over(&mut gp, &mut gs)
+            .configure(&setup(Role::Guest))
+            .unwrap_err();
+        assert!(why.contains("clock object"), "{why}");
+        assert!(gp.gates.is_empty(), "no gate before the layout is known");
     }
 
     #[test]

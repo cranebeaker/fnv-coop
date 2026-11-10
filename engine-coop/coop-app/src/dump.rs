@@ -6,14 +6,14 @@
 //! form has one, else the form id as 8 hex digits. So one comparison reads each program.
 //!
 //! The sections that only the older program writes are named in `only_world`. The sections
-//! `gate`, `intents` and `session` (the connection's state and counters) are this program's
-//! own.
+//! `gate`, `intents`, `clock_leaks` and `session` (the connection's state and counters) are
+//! this program's own.
 //!
-//! `hash.steady` is this program's own too: the hash of the shared state without the globals
-//! that the game moves by itself (the session's volatile keys, the game's clock). A guest's
-//! game advances its own clock between the host's values, so `hash.shared` of a guest differs
-//! from the host's root until the clock of a guest follows the host's clock only. Until then
-//! `hash.steady` shows that each other slot is equal.
+//! `hash.steady` is this program's own too: the hash of the shared state without the game's
+//! clock (the session's volatile keys). A guest's clock is the host's clock (the program's
+//! advance does nothing on a guest), so `hash.shared` holds with the clock in it.
+//! `hash.steady` stays for a diagnosis: when the two differ in their result, the clock is
+//! the cause.
 
 use std::collections::BTreeMap;
 
@@ -75,6 +75,8 @@ pub struct View<'a> {
     pub gate: Option<Counters>,
     /// The intents that went to the host, and those that had no command.
     pub intents: (u64, u64),
+    /// The words of a guest's clock that the adapter found changed and repaired.
+    pub clock_leaks: u64,
     /// The session's own status, as JSON (an object).
     pub session: String,
 }
@@ -195,7 +197,7 @@ pub fn state_json(v: &View<'_>) -> String {
         "{{\"schema\":1,\"program\":\"nv-coop\",\"role\":\"{}\",\"t\":{:.3},\"seq\":{},\"ready\":{},\
          \"quests\":{},\"player_quests\":{{}},\"globals\":{},\"positions\":{},\"cell\":\"{}\",\
          \"hash\":{{\"shared\":\"{:016x}\",\"steady\":\"{:016x}\"{rev}{recent}}},\"gate\":{gate},\
-         \"intents\":{{\"sent\":{},\"open\":{}}},\"session\":{},\"only_world\":[{}]}}",
+         \"intents\":{{\"sent\":{},\"open\":{}}},\"clock_leaks\":{},\"session\":{},\"only_world\":[{}]}}",
         if v.host { "host" } else { "guest" },
         v.t,
         v.seq,
@@ -208,6 +210,7 @@ pub fn state_json(v: &View<'_>) -> String {
         steady_root(v.export, v.names),
         v.intents.0,
         v.intents.1,
+        v.clock_leaks,
         v.session,
         only.join(",")
     )
@@ -270,6 +273,7 @@ mod tests {
                 quiet_ms: 16,
             }),
             intents: (1, 0),
+            clock_leaks: 0,
             session: "{}".into(),
         }
     }

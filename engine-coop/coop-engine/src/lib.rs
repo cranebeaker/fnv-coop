@@ -14,6 +14,7 @@ pub mod addr;
 pub mod audit;
 pub mod avatar;
 pub mod changes;
+pub mod clock;
 pub mod console;
 pub mod fake;
 pub mod files;

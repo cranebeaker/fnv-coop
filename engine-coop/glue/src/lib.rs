@@ -11,6 +11,7 @@ use std::path::Path;
 use coop_engine::{Program, Ret};
 
 pub mod avatar_guard;
+pub mod clock;
 pub mod gate;
 use engine::Engine;
 
@@ -51,7 +52,9 @@ impl Program for EngineProgram<'_> {
         shared_quest: Option<u32>,
     ) -> Result<(), String> {
         gate::install(self.0, rules.clone())?;
-        gate::self_check(self.0, shared_quest)
+        gate::self_check(self.0, shared_quest)?;
+        // A guest's clock does not run by itself.
+        clock::install(self.0)
     }
 }
 

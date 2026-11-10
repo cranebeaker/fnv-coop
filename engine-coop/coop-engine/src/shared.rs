@@ -7,10 +7,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use coop_core::ids::FormId;
-use coop_core::schema::{Field, Key};
+use coop_core::schema::{tag, Field, Key};
 
 use crate::addr;
 use crate::audit::Leak;
+use crate::clock;
 use crate::program::Program;
 use crate::quest;
 
@@ -35,6 +36,8 @@ pub struct Shared {
     pub missing: Vec<u32>,
     /// The quests whose stage was set to 0 as plain state ([`Shared::set`]).
     zero_stage: BTreeSet<u32>,
+    /// The program has a clock object: its count of midnights is a shared slot.
+    clock: bool,
 }
 
 /// How many slots an apply set and cleared.
@@ -82,6 +85,25 @@ impl Shared {
             }
         }
         shared
+    }
+
+    /// The catalog also carries the clock's count of midnights, as a slot on the global
+    /// `GameDaysPassed`. Call it for a program that has a clock object and that global.
+    pub fn with_clock(mut self) -> Shared {
+        self.clock = matches!(self.forms.get(&clock::COUNT_FORM), Some((Kind::Global, _)));
+        self
+    }
+
+    /// The count of midnights as a field. A count of 0 is the slot's default.
+    fn count_field(count: u32) -> Field {
+        Field::Custom {
+            tag: tag::CLOCK_MIDNIGHTS,
+            data: if count == 0 {
+                Vec::new()
+            } else {
+                count.to_le_bytes().to_vec()
+            },
+        }
     }
 
     /// The address of a catalog form.
@@ -151,11 +173,29 @@ impl Shared {
                 out.insert(f.key(form), (form, f));
             }
         }
+        if self.clock {
+            let count = Shared::count_field(clock::midnights(p));
+            if !count.is_tombstone() {
+                let form = FormId(clock::COUNT_FORM);
+                out.insert(count.key(form), (form, count));
+            }
+        }
         out.into_values().collect()
     }
 
     /// Writes one field into the program's memory. True when memory changed.
     fn write(&self, p: &mut dyn Program, form: FormId, field: &Field) -> bool {
+        // The clock's count of midnights: an empty field is the count 0.
+        if let (true, Field::Custom { tag, data }) = (self.clock, field) {
+            if form.0 == clock::COUNT_FORM && *tag == tag::CLOCK_MIDNIGHTS {
+                let count = match <[u8; 4]>::try_from(data.as_slice()) {
+                    Ok(bytes) => u32::from_le_bytes(bytes),
+                    Err(_) if data.is_empty() => 0,
+                    Err(_) => return false,
+                };
+                return clock::set_midnights(p, count);
+            }
+        }
         match self.forms.get(&form.0) {
             // A machine's own variables take no value from another machine.
             Some((
@@ -431,5 +471,53 @@ mod tests {
         let (mut p, mut shared) = game();
         let change = (FormId(0x999), Field::QuestStage { stage: 10 });
         assert_eq!(shared.apply(&mut p, &[change]), Applied::default());
+    }
+
+    /// The clock's count of midnights is one shared slot on `GameDaysPassed`: a count of 0
+    /// has no slot, a value crosses to another program, and an empty field returns it to 0.
+    #[test]
+    fn the_count_of_midnights_is_a_shared_slot() {
+        const DAYS: u32 = 0x39;
+        let clock_game = || {
+            let mut p = FakeProgram::new();
+            p.add_clock(12.0);
+            let shared = Shared::new(&mut p, &[], &[HOUR, DAYS]).with_clock();
+            (p, shared)
+        };
+        let count = |fields: &[(FormId, Field)]| {
+            fields.iter().find_map(|(form, f)| match f {
+                Field::Custom { tag, data } if *tag == tag::CLOCK_MIDNIGHTS => {
+                    Some((form.0, data.clone()))
+                }
+                _ => None,
+            })
+        };
+        let (mut hp, host) = clock_game();
+        assert_eq!(count(&host.export(&hp)), None, "a count of 0 has no slot");
+        clock::set_midnights(&mut hp, 2);
+        let export = host.export(&hp);
+        assert_eq!(count(&export), Some((DAYS, vec![2, 0, 0, 0])));
+
+        let (mut gp, mut guest) = clock_game();
+        guest.apply_snapshot(&mut gp, &export);
+        assert_eq!(clock::midnights(&gp), 2);
+        assert_eq!(guest.export(&gp), export);
+        // The host's count returns to 0: the slot leaves the export, and a snapshot clears it.
+        clock::set_midnights(&mut hp, 0);
+        guest.apply_snapshot(&mut gp, &host.export(&hp));
+        assert_eq!(clock::midnights(&gp), 0);
+
+        // The twin: a catalog with no clock has no such slot, and it takes no count.
+        let mut p = FakeProgram::new();
+        p.add_clock(12.0);
+        clock::set_midnights(&mut p, 2);
+        let mut plain = Shared::new(&mut p, &[], &[HOUR, DAYS]);
+        assert_eq!(count(&plain.export(&p)), None);
+        let field = Field::Custom {
+            tag: tag::CLOCK_MIDNIGHTS,
+            data: vec![5, 0, 0, 0],
+        };
+        assert!(!plain.set(&mut p, FormId(DAYS), &field));
+        assert_eq!(clock::midnights(&p), 2);
     }
 }

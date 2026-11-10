@@ -43,6 +43,8 @@ pub struct FakeProgram {
     pub freed: Vec<u32>,
     /// The guest gates that the program took, in order.
     pub gates: Vec<crate::gate::Rules>,
+    /// True: the clock's advance does nothing (a guest's game).
+    pub clock_blocked: bool,
 }
 
 /// The fake's table of form functions, and its two save slots.
@@ -387,6 +389,43 @@ impl FakeProgram {
         file
     }
 
+    /// Gives the program its clock: the six clock globals (made when the program does not
+    /// have them, with the year 2281, the month 9, the day 18, this hour, 5.5 days passed
+    /// and the time scale 30) and the clock object that points at them.
+    pub fn add_clock(&mut self, hour: f32) {
+        let start = [2281.0, 9.0, 18.0, hour, 5.5, 30.0];
+        for (slot, id) in crate::clock::GLOBALS.iter().enumerate() {
+            let at = match self.forms.get(id) {
+                Some(at) => *at,
+                None => self.add_global(*id, start[slot]),
+            };
+            self.set_u32(addr::CLOCK + 4 * slot as u32, at);
+        }
+    }
+
+    /// The program's clock advance: the hour moves by the time scale times the seconds, a
+    /// midnight moves the day and the count of midnights, and the days passed follow.
+    fn advance_clock(&mut self, seconds: f32) {
+        if self.clock_blocked {
+            return;
+        }
+        let at: Vec<u32> = (0..6)
+            .map(|slot| self.u32(addr::CLOCK + 4 * slot) + addr::GLOBAL_VALUE)
+            .collect();
+        let hours = self.f32(at[5]) * seconds / 3600.0;
+        let mut hour = self.f32(at[3]) + hours;
+        while hour >= 24.0 {
+            hour -= 24.0;
+            let day = self.f32(at[2]) + 1.0;
+            self.set_f32(at[2], day);
+            let count = self.u32(addr::CLOCK + addr::CLOCK_MIDNIGHTS) + 1;
+            self.set_u32(addr::CLOCK + addr::CLOCK_MIDNIGHTS, count);
+        }
+        self.set_f32(at[3], hour);
+        let days = self.f32(at[4]) + hours / 24.0;
+        self.set_f32(at[4], days);
+    }
+
     /// Adds a global with this value. Returns its address.
     pub fn add_global(&mut self, id: u32, value: f32) -> u32 {
         let global = self.take(0x28);
@@ -442,6 +481,8 @@ impl Program for FakeProgram {
         _shared_quest: Option<u32>,
     ) -> Result<(), String> {
         self.gates.push(rules.clone());
+        // A guest's game: the clock's advance does nothing from now on.
+        self.clock_blocked = true;
         Ok(())
     }
 
@@ -451,6 +492,10 @@ impl Program for FakeProgram {
             addr::FORM_BY_ID => self.forms.get(&args[0]).copied().unwrap_or(0),
             addr::QUEST_SET_STAGE => u32::from(self.set_stage(args[0], args[1] as u8)),
             addr::CONSOLE_MANAGER => self.console_manager,
+            addr::CLOCK_ADVANCE => {
+                self.advance_clock(f32::from_bits(args[1]));
+                0
+            }
             addr::NPC_COPY => self.make_form(0x200),
             addr::NPC_SET_SEX => {
                 self.set_u32(args[0], args[2] & 1);

@@ -10,12 +10,13 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
-use coop_app::fake::{self, FakeMachine, CELL, HOUR, OWN_QUEST, QUEST};
+use coop_app::fake::{self, FakeMachine, CELL, HOUR, OWN_QUEST, QUEST, VALUE};
 use coop_app::{args, App, Flow};
 use coop_core::ids::{FormId, PlayerId};
 use coop_core::schema::Field;
 use coop_core::transport::LoopbackNet;
 use coop_engine::addr;
+use coop_engine::clock;
 use coop_engine::game::NameTable;
 use coop_engine::gate::Intent;
 use coop_engine::Program;
@@ -131,6 +132,48 @@ fn global_of(app: &mut App<FakeMachine>, global: u32) -> Option<f32> {
         })
 }
 
+/// The host's game opens a menu: its clock stands. Then each change reaches the guest, and
+/// the two games can be compared value for value.
+fn settle_in_a_host_menu(rig: &mut Rig) {
+    rig.host.machine.menu(true);
+    rig.frames(SETTLE);
+}
+
+/// The contract's check of the shared state, as the harness makes it: the hashes are equal,
+/// or the guest's hash equals the host's root at the guest's own revision.
+fn hash_match(host: &str, guest: &str) -> Result<(), String> {
+    let (ours, theirs) = (shared_hash(host), shared_hash(guest));
+    if ours == theirs {
+        return Ok(());
+    }
+    let number_after = |text: &str, key: &str| -> Option<u64> {
+        let at = text.find(key)? + key.len();
+        let digits: String = text[at..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        digits.parse().ok()
+    };
+    let hash_of = |text: &str| -> String {
+        let from = text.find("\"hash\":{").expect("the dump has a hash");
+        let to = text[from..].find('}').expect("the hash ends") + from;
+        text[from..to].to_string()
+    };
+    let rev = number_after(&hash_of(guest), "\"rev\":").ok_or(format!(
+        "the guest's dump has no revision: {}",
+        hash_of(guest)
+    ))?;
+    let at_rev = format!("[{rev},\"{theirs}\"]");
+    if hash_of(host).contains(&at_rev) {
+        Ok(())
+    } else {
+        Err(format!(
+            "the guest's hash {theirs} at revision {rev} is not the host's root there: {}",
+            hash_of(host)
+        ))
+    }
+}
+
 /// The value of `"shared":"..."` in a dump.
 fn shared_hash(dump: &str) -> String {
     let at = dump.find("\"shared\":\"").expect("the dump has a hash") + 10;
@@ -227,9 +270,21 @@ fn the_hosts_story_reaches_the_guest_as_plain_state(mutate: bool) -> Result<(), 
             "the guest's stage of VCG03 is {stage:?}, want Some(10)"
         ));
     }
-    let hour = global_of(&mut rig.guest, HOUR);
-    if hour != Some(7.0) {
-        return Err(format!("the guest's GameHour is {hour:?}, want Some(7.0)"));
+    // The host's line set the hour to 7, and the host's clock ran on from there.
+    settle_in_a_host_menu(&mut rig);
+    let (host, guest) = (
+        global_of(&mut rig.host, HOUR),
+        global_of(&mut rig.guest, HOUR),
+    );
+    if !host.is_some_and(|h| (7.0..7.5).contains(&h)) {
+        return Err(format!(
+            "the host's GameHour is {host:?}, want 7 and some minutes"
+        ));
+    }
+    if guest.map(f32::to_bits) != host.map(f32::to_bits) {
+        return Err(format!(
+            "the guest's GameHour is {guest:?}, the host's is {host:?}"
+        ));
     }
     if rig.host.machine.p.stages_set.len() != 1 {
         return Err(format!(
@@ -274,15 +329,28 @@ fn a_guests_intent_and_line_run_on_the_hosts_game(mutate: bool) -> Result<(), St
     if !rig.guest.machine.p.stages_set.is_empty() {
         return Err("the guest's game ran the stage itself".into());
     }
+    settle_in_a_host_menu(&mut rig);
     for (who, app) in [("host", &mut rig.host), ("guest", &mut rig.guest)] {
         let stage = stage_of(app, QUEST);
         if stage != Some(20) {
             return Err(format!("the {who}'s stage is {stage:?}, want Some(20)"));
         }
+        // The guest's line set the host's hour to 9, and the host's clock ran on.
         let hour = global_of(app, HOUR);
-        if hour != Some(9.0) {
-            return Err(format!("the {who}'s GameHour is {hour:?}, want Some(9.0)"));
+        if !hour.is_some_and(|h| (9.0..9.5).contains(&h)) {
+            return Err(format!(
+                "the {who}'s GameHour is {hour:?}, want 9 and some minutes"
+            ));
         }
+    }
+    let (host, guest) = (
+        global_of(&mut rig.host, HOUR),
+        global_of(&mut rig.guest, HOUR),
+    );
+    if guest.map(f32::to_bits) != host.map(f32::to_bits) {
+        return Err(format!(
+            "the guest's GameHour is {guest:?}, the host's is {host:?}"
+        ));
     }
     if !rig
         .host
@@ -313,6 +381,7 @@ fn a_guests_intent_and_line_run_on_the_hosts_game(mutate: bool) -> Result<(), St
 fn the_dumps_agree_and_a_guests_own_change_does_not_stay(mutate: bool) -> Result<(), String> {
     let mut rig = Rig::new(&["--stage", "VCG03", "10"], &[]);
     rig.join()?;
+    settle_in_a_host_menu(&mut rig);
     let (host, guest) = (rig.host.dump_text(), rig.guest.dump_text());
     for (key, next) in [("quests", "player_quests"), ("globals", "positions")] {
         if section(&host, key, next) != section(&guest, key, next) {
@@ -326,9 +395,9 @@ fn the_dumps_agree_and_a_guests_own_change_does_not_stay(mutate: bool) -> Result
     if shared_hash(&host) != shared_hash(&guest) {
         return Err("the hashes differ before the change".into());
     }
-    // The guest's own code moves a shared global.
-    let hour = rig.guest.machine.call(addr::FORM_BY_ID, &[HOUR]).eax;
-    rig.guest.machine.p.set_f32(hour + addr::GLOBAL_VALUE, 3.0);
+    // The guest's own code moves a shared global (not a part of the clock).
+    let value = rig.guest.machine.call(addr::FORM_BY_ID, &[VALUE]).eax;
+    rig.guest.machine.p.set_f32(value + addr::GLOBAL_VALUE, 5.0);
     if shared_hash(&rig.guest.dump_text()) == shared_hash(&host) {
         return Err("the hash did not follow the guest's change".into());
     }
@@ -338,8 +407,8 @@ fn the_dumps_agree_and_a_guests_own_change_does_not_stay(mutate: bool) -> Result
     let (host, guest) = (rig.host.dump_text(), rig.guest.dump_text());
     if shared_hash(&host) != shared_hash(&guest) {
         return Err(format!(
-            "the hashes differ after the guest's own change: the guest's GameHour is {:?}",
-            global_of(&mut rig.guest, HOUR)
+            "the hashes differ after the guest's own change: the guest's value is {:?}",
+            global_of(&mut rig.guest, VALUE)
         ));
     }
     Ok(())
@@ -384,6 +453,179 @@ fn a_change_after_a_guests_long_load_reaches_the_guest(mutate: bool) -> Result<(
         }
     }
     Ok(())
+}
+
+/// The count of clock leaks in a dump.
+fn clock_leaks(dump: &str) -> u64 {
+    let key = "\"clock_leaks\":";
+    let at = dump.find(key).expect("the dump counts clock leaks") + key.len();
+    let digits: String = dump[at..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    digits.parse().expect("a count")
+}
+
+/// The host's clock advance, as a wait or a sleep makes it: this many hours of the clock.
+fn host_waits(rig: &mut Rig, hours: f32) {
+    rig.host.machine.call(
+        addr::CLOCK_ADVANCE,
+        &[addr::CLOCK, (hours * 120.0).to_bits()],
+    );
+}
+
+/// While the host plays, its clock runs, and the guest's clock is the host's clock at each
+/// revision: the contract's strict hash holds with the clock in it. The guest's clock moved
+/// with the host's, and the adapter found no word that it did not leave.
+///
+/// Twin: the guest's own clock advance is not stopped.
+fn a_guests_clock_is_the_hosts_clock_at_each_revision(mutate: bool) -> Result<(), String> {
+    let mut rig = Rig::new(&[], &[]);
+    rig.join()?;
+    if mutate {
+        rig.guest.machine.p.clock_blocked = false;
+    }
+    for round in 0..5 {
+        rig.frames(60);
+        let (host, guest) = (rig.host.dump_text(), rig.guest.dump_text());
+        let leaks = clock_leaks(&guest);
+        if leaks != 0 {
+            return Err(format!(
+                "the guest's clock leaked {leaks} times in round {round}"
+            ));
+        }
+        hash_match(&host, &guest).map_err(|why| format!("round {round}: {why}"))?;
+    }
+    let (host, guest) = (
+        global_of(&mut rig.host, HOUR),
+        global_of(&mut rig.guest, HOUR),
+    );
+    if !guest.is_some_and(|g| g > 12.02) {
+        return Err(format!(
+            "the guest's clock did not follow the host's: {guest:?}, {host:?}"
+        ));
+    }
+    Ok(())
+}
+
+/// A host in a menu does not advance its clock, and the guest's clock stands with it while
+/// the guest plays.
+///
+/// Twin: the host plays.
+fn a_guests_clock_stands_with_the_hosts_menu(mutate: bool) -> Result<(), String> {
+    let mut rig = Rig::new(&[], &[]);
+    rig.join()?;
+    if !mutate {
+        rig.host.machine.menu(true);
+    }
+    rig.frames(40);
+    let first = global_of(&mut rig.guest, HOUR).map(f32::to_bits);
+    let guest_frames = rig.guest.machine.gate_frames;
+    rig.frames(120);
+    let last = global_of(&mut rig.guest, HOUR).map(f32::to_bits);
+    if first != last {
+        return Err(format!(
+            "the guest's clock moved: {first:?} to {last:?} in 120 frames"
+        ));
+    }
+    if rig.guest.machine.gate_frames < guest_frames + 120 {
+        return Err("the guest did not play in that time".into());
+    }
+    if last != global_of(&mut rig.host, HOUR).map(f32::to_bits) {
+        return Err("the guest's hour is not the host's hour".into());
+    }
+    Ok(())
+}
+
+/// A jump of the host's clock across a midnight (a wait, a sleep) reaches the guest: the
+/// date, the hour, the days passed and the count of midnights.
+///
+/// Twin: the host does not wait.
+fn a_hosts_jump_reaches_the_guest_with_its_midnight(mutate: bool) -> Result<(), String> {
+    let mut rig = Rig::new(&[], &[]);
+    rig.join()?;
+    if !mutate {
+        host_waits(&mut rig, 12.5);
+    }
+    settle_in_a_host_menu(&mut rig);
+    let count = clock::midnights(&rig.guest.machine);
+    if count != 1 {
+        return Err(format!("the guest's count of midnights is {count}, want 1"));
+    }
+    for form in clock::GLOBALS {
+        let (host, guest) = (
+            global_of(&mut rig.host, form),
+            global_of(&mut rig.guest, form),
+        );
+        if host.map(f32::to_bits) != guest.map(f32::to_bits) {
+            return Err(format!(
+                "the clock global {form:08X} is {guest:?} on the guest and {host:?} on the host"
+            ));
+        }
+    }
+    if global_of(&mut rig.guest, 0x37) != Some(19.0) {
+        return Err("the guest's day did not move".into());
+    }
+    hash_match(&rig.host.dump_text(), &rig.guest.dump_text())
+}
+
+/// A local write of a guest's clock (a script's `set`, a console line) is a leak: the dump
+/// counts it, and the host's value is back before the next frame.
+///
+/// Twin: no local write.
+fn a_local_set_of_a_guests_clock_is_a_leak(mutate: bool) -> Result<(), String> {
+    let mut rig = Rig::new(&[], &[]);
+    rig.join()?;
+    settle_in_a_host_menu(&mut rig);
+    if !mutate {
+        let hour = rig.guest.machine.call(addr::FORM_BY_ID, &[HOUR]).eax;
+        rig.guest.machine.p.set_f32(hour + addr::GLOBAL_VALUE, 3.0);
+    }
+    rig.frames(2);
+    let leaks = clock_leaks(&rig.guest.dump_text());
+    if leaks != 1 {
+        return Err(format!("the dump counts {leaks} clock leaks, want 1"));
+    }
+    let (host, guest) = (
+        global_of(&mut rig.host, HOUR),
+        global_of(&mut rig.guest, HOUR),
+    );
+    if guest.map(f32::to_bits) != host.map(f32::to_bits) {
+        return Err(format!(
+            "the guest's hour is {guest:?}, the host's is {host:?}"
+        ));
+    }
+    Ok(())
+}
+
+/// A guest that joins after the host's clock crossed a midnight takes the whole clock with
+/// its join snapshot: the date and the count of midnights.
+///
+/// Twin: the host's clock crossed no midnight before the join.
+fn a_late_guest_takes_the_clock_with_its_snapshot(mutate: bool) -> Result<(), String> {
+    let mut rig = Rig::new(&[], &[]);
+    // Only the host's program runs: it plays alone.
+    for _ in 0..60 {
+        rig.host.step(DT);
+    }
+    if rig.host.machine.first_play.is_none() {
+        return Err("the host did not reach play alone".into());
+    }
+    if !mutate {
+        host_waits(&mut rig, 13.0);
+    }
+    rig.join()?;
+    settle_in_a_host_menu(&mut rig);
+    let count = clock::midnights(&rig.guest.machine);
+    if count != 1 {
+        return Err(format!(
+            "the late guest's count of midnights is {count}, want 1"
+        ));
+    }
+    if global_of(&mut rig.guest, 0x37) != global_of(&mut rig.host, 0x37) {
+        return Err("the late guest's day is not the host's day".into());
+    }
+    hash_match(&rig.host.dump_text(), &rig.guest.dump_text())
 }
 
 /// One request to a control port, and its answer. The program's frames run while the
@@ -537,6 +779,46 @@ fn a_change_after_a_long_load_reaches_the_guest() {
     check(
         a_change_after_a_guests_long_load_reaches_the_guest,
         "the guest's stage is None",
+    );
+}
+
+#[test]
+fn a_guests_clock_is_the_hosts_clock() {
+    check(
+        a_guests_clock_is_the_hosts_clock_at_each_revision,
+        "the guest's clock leaked",
+    );
+}
+
+#[test]
+fn a_guests_clock_stands_with_a_host_menu() {
+    check(
+        a_guests_clock_stands_with_the_hosts_menu,
+        "the guest's clock moved",
+    );
+}
+
+#[test]
+fn a_hosts_jump_reaches_the_guest() {
+    check(
+        a_hosts_jump_reaches_the_guest_with_its_midnight,
+        "the guest's count of midnights is 0",
+    );
+}
+
+#[test]
+fn a_local_set_of_a_guests_clock_leaks() {
+    check(
+        a_local_set_of_a_guests_clock_is_a_leak,
+        "the dump counts 0 clock leaks",
+    );
+}
+
+#[test]
+fn a_late_guest_takes_the_clock() {
+    check(
+        a_late_guest_takes_the_clock_with_its_snapshot,
+        "the late guest's count of midnights is 0",
     );
 }
 

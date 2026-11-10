@@ -100,6 +100,8 @@ pub struct App<M: Machine> {
     dump_at: f64,
     /// The intents that went to the host, and those that had no command.
     intents: (u64, u64),
+    /// The words of a guest's clock that the adapter did not leave, found and repaired.
+    clock_leaks: u64,
     blind: bool,
     fps: f32,
 }
@@ -224,6 +226,7 @@ impl<M: Machine> App<M> {
             dump_key: None,
             dump_at: 0.0,
             intents: (0, 0),
+            clock_leaks: 0,
             blind: false,
             fps: 0.0,
             args,
@@ -262,6 +265,7 @@ impl<M: Machine> App<M> {
             self.fps += (1.0 / dt - self.fps) * 0.1;
         }
         self.control_requests();
+        self.guard_clock();
         let screen = self.machine.screen();
         if self.entered && screen == Screen::Play {
             self.in_play = true;
@@ -319,6 +323,27 @@ impl<M: Machine> App<M> {
         self.events();
         self.dump_when_due(false);
         self.quit_checks()
+    }
+
+    /// A guest's check of its clock, before each frame: only the adapter writes a guest's
+    /// clock. A word that the adapter did not leave is a `clock_leak` event, and the
+    /// adapter's value is in the program again.
+    fn guard_clock(&mut self) {
+        if self.host {
+            return;
+        }
+        let leaks = EngineCoop::over(&mut self.machine, &mut self.state).clock_leaks();
+        for leak in leaks {
+            self.clock_leaks += 1;
+            self.session.log_event(
+                "clock_leak",
+                &[
+                    ("form", V::S(&format!("{:08X}", leak.form))),
+                    ("left", V::S(&format!("{:08x}", leak.left))),
+                    ("found", V::S(&format!("{:08x}", leak.found))),
+                ],
+            );
+        }
     }
 
     /// Gives the game its role before the session's first call on it: the catalog of shared
@@ -516,6 +541,7 @@ impl<M: Machine> App<M> {
             recent: points.recent,
             gate: self.machine.counters(),
             intents: self.intents,
+            clock_leaks: self.clock_leaks,
             session: format!(
                 "{{\"state\":\"{:?}\",\"rev\":{},\"desync\":{},\"desyncs\":{},\"repairs\":{},\"snapshots\":{},\"pending_commands\":{},\"decode_errors\":{},\"peers\":{}}}",
                 status.state,

@@ -17,6 +17,8 @@ pub const QUEST: u32 = 0x0015_d912;
 pub const OWN_QUEST: u32 = 0x0010_4c1c;
 /// The sample global.
 pub const HOUR: u32 = 0x38;
+/// A global that is not a part of the clock.
+pub const VALUE: u32 = 0x0b00;
 /// The sample cell.
 pub const CELL: u32 = 0x0010_3df9;
 /// A second cell.
@@ -25,9 +27,15 @@ pub const OTHER_CELL: u32 = 0x0010_6e6f;
 /// How many frames the fake shows a loading screen for a cell.
 const LOAD_FRAMES: u32 = 3;
 
+/// The seconds of one frame of play, for the clock.
+pub const FRAME_SECONDS: f32 = 0.016;
+
 /// The names of the sample data, in the text form of [`NameTable::parse`].
 pub const NAMES: &str = "P 00 FalloutNV.esm\n\
-    F QUST 0015D912 VCG03\nF QUST 00104C1C VCG01\nF GLOB 00000038 GameHour\n\
+    F QUST 0015D912 VCG03\nF QUST 00104C1C VCG01\n\
+    F GLOB 00000035 GameYear\nF GLOB 00000036 GameMonth\nF GLOB 00000037 GameDay\n\
+    F GLOB 00000038 GameHour\nF GLOB 00000039 GameDaysPassed\nF GLOB 0000003A TimeScale\n\
+    F GLOB 00000B00 SampleValue\n\
     F CELL 00103DF9 GSDocMitchellHouse\nF CELL 00106E6F GSProspectorSaloonInterior\n";
 
 /// The name table of the sample data.
@@ -79,6 +87,8 @@ impl FakeMachine {
         p.add_quest(QUEST, &[10, 20], &[10]);
         p.add_quest(OWN_QUEST, &[5], &[]);
         p.add_global(HOUR, 12.0);
+        p.add_global(VALUE, 1.0);
+        p.add_clock(12.0);
         p.add_cell(CELL, addr::cell_state::ATTACHED);
         p.add_cell(OTHER_CELL, 0);
         p.add_file("FalloutNV.esm");
@@ -105,6 +115,16 @@ impl FakeMachine {
             gate_frames: 0,
             running: true,
         }
+    }
+
+    /// Opens (`true`) or closes a menu of the game: the game's clock stands in a menu.
+    /// No effect before the game plays.
+    pub fn menu(&mut self, open: bool) {
+        self.screen = match (self.screen, open) {
+            (Screen::Play, true) => Screen::Menu,
+            (Screen::Menu, false) if self.first_play.is_some() => Screen::Play,
+            (screen, _) => screen,
+        };
     }
 
     /// This guest's game wanted to make a change of a shared quest: its gate noted it.
@@ -224,6 +244,11 @@ impl Machine for FakeMachine {
         }
         if self.screen == Screen::Play && self.first_play.is_none() {
             self.first_play = Some(self.frames);
+        }
+        // The program's main loop: one advance of the clock for each frame of play.
+        if self.screen == Screen::Play {
+            self.p
+                .call(addr::CLOCK_ADVANCE, &[addr::CLOCK, FRAME_SECONDS.to_bits()]);
         }
         self.seen = self.p.calls.len();
         true

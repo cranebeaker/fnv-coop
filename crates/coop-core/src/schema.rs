@@ -64,6 +64,10 @@ pub mod tag {
     /// The player's crime, on `PLAYER_REF` (data: minor u32 le, major u32
     /// le, steal warnings u32 le, murderer u8).
     pub const PLAYER_CRIME: u16 = 13;
+    /// The game clock's count of midnights, on the global `GameDaysPassed` (data: u32
+    /// le). A program that keeps such a count exports it, so that a guest's game has the
+    /// host's count. A count of 0 has no slot.
+    pub const CLOCK_MIDNIGHTS: u16 = 14;
     /// Done stages of a quest: `STAGES_BASE + stage / STAGES_CHUNK`.
     pub const STAGES_BASE: u16 = 0x1000;
     /// Stages per chunk (2 bytes each, well under the 512 byte limit).
@@ -89,7 +93,8 @@ pub mod flag {
 // The tag blocks do not meet: the single tags end below the chunks of done stages, and the 256
 // stage numbers of a quest end below the faction block. The flag bits are distinct.
 const _: () = {
-    assert!(tag::PLAYER_CRIME < tag::STAGES_BASE);
+    assert!(tag::PLAYER_CRIME < tag::CLOCK_MIDNIGHTS);
+    assert!(tag::CLOCK_MIDNIGHTS < tag::STAGES_BASE);
     assert!(tag::STAGES_BASE + 255 / tag::STAGES_CHUNK < tag::FACTION_BASE);
     assert!(flag::RUNNING | flag::COMPLETED | flag::FAILED | flag::ANNOUNCED == 15);
 };
