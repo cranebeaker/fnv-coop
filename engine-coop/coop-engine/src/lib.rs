@@ -12,12 +12,15 @@
 
 pub mod addr;
 pub mod audit;
+pub mod avatar;
+pub mod changes;
 pub mod console;
 pub mod fake;
 pub mod gate;
 pub mod peer;
 pub mod program;
 pub mod quest;
+pub mod record;
 pub mod script;
 pub mod shared;
 

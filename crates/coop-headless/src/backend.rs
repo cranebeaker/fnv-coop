@@ -106,6 +106,147 @@ pub trait BackendPeer {
     fn local_stage(&self, _quest: &str) -> Option<u16> {
         None
     }
+    /// Makes the avatar of the remote player `slot` in this game, at a place and heading
+    /// (degrees). `race`: a race's form id, or 0 for the base form's own. The avatar's form
+    /// id, or the reason. PENDING on a backend that has no avatar of this kind.
+    fn avatar_make(
+        &mut self,
+        _slot: u8,
+        _female: bool,
+        _race: u32,
+        _place: [f32; 3],
+        _heading: f32,
+    ) -> Result<u32, String> {
+        Err("PENDING (this backend has no engine avatar)".into())
+    }
+    /// One frame's command for an avatar: the place, the heading and the movement flags
+    /// (0: the remote player stands).
+    fn avatar_drive(
+        &mut self,
+        _slot: u8,
+        _place: [f32; 3],
+        _heading: f32,
+        _flags: u32,
+    ) -> Result<(), String> {
+        Err("PENDING (this backend has no engine avatar)".into())
+    }
+    /// What an avatar is now. `None` when the slot has none, or the game destroyed it.
+    fn avatar_state(&self, _slot: u8) -> Option<AvatarState> {
+        None
+    }
+    /// What the game's own tests say of an avatar's base: a female body, and the race `race`
+    /// (a form id).
+    fn avatar_look(&self, _slot: u8, _race: u32) -> Option<(bool, bool)> {
+        None
+    }
+    /// Removes an avatar from the game.
+    fn avatar_remove(&mut self, _slot: u8) -> bool {
+        false
+    }
+    /// Puts the avatars' damage rules on this game: a local hit on an avatar is recorded and
+    /// not applied, and local code does not kill an avatar.
+    fn avatar_guard(&mut self) -> Result<(), String> {
+        Err("PENDING (this backend has no engine avatar)".into())
+    }
+    /// The kills of an avatar that were stopped, and the recorded hits, each one time.
+    fn avatar_hits(&mut self) -> Option<(u64, Vec<AvatarHit>)> {
+        None
+    }
+    /// An avatar's health as a part of 1, by the game's own test.
+    fn avatar_health(&self, _slot: u8) -> Option<f64> {
+        None
+    }
+    /// Gives an avatar its full health again.
+    fn avatar_heal(&mut self, _slot: u8) -> bool {
+        false
+    }
+    /// True when the game has a form with this id now.
+    fn has_form(&self, _id: u32) -> bool {
+        false
+    }
+    /// The 32-bit word at an offset of a form. `None` when the game has no such form.
+    fn form_word(&self, _id: u32, _offset: u32) -> Option<u32> {
+        None
+    }
+    /// Goes into another cell (an editor id) and runs some frames of play there.
+    fn enter(&mut self, _cell: &str) -> bool {
+        false
+    }
+    /// The game's map of changed forms as it is now becomes the baseline. The count of its
+    /// forms. `None` on a backend that has no such map.
+    fn changes_baseline(&mut self) -> Option<u32> {
+        None
+    }
+    /// Each form that is new in the game's change map or has a new flag bit since the last
+    /// look: form id and the new bits.
+    fn changes(&mut self) -> Option<Vec<(u32, u32)>> {
+        None
+    }
+    /// The game's own save of one changed form, with the flags of its entry in the change
+    /// map. `None` when the form is not in memory.
+    fn record(&mut self, _form: u32) -> Option<ChangeRecord> {
+        None
+    }
+    /// The game's form index pairs from an index: (index, form id).
+    fn index_pairs(&self, _from: u32) -> Vec<(u32, u32)> {
+        Vec::new()
+    }
+    /// Gives a guest's game the host's index pairs. The count that it took.
+    fn take_pairs(&mut self, _pairs: &[(u32, u32)]) -> Option<u32> {
+        None
+    }
+    /// Gives a guest's game a record of the host. `Ok(true)`: the game's own load applied it.
+    /// `Ok(false)`: it waits for the form's cell. `Err`: the game refused it.
+    fn take_record(&mut self, _record: &ChangeRecord) -> Result<bool, String> {
+        Err("PENDING (this backend has no change records)".into())
+    }
+}
+
+/// One form's change record: what the game's own save holds for one changed form.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChangeRecord {
+    /// The form's id.
+    pub form: u32,
+    /// The change flags.
+    pub flags: u32,
+    /// The form's type, as the game's save names it.
+    pub kind: u32,
+    /// The save version.
+    pub version: u32,
+    /// The host's count of index pairs when it made the record.
+    pub pairs: u32,
+    /// The record's bytes, as hex text.
+    pub bytes: String,
+}
+
+/// A local hit on an avatar that the game did not apply.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AvatarHit {
+    /// The remote player whose avatar was hit.
+    pub slot: u8,
+    /// The form id of the reference that made the hit.
+    pub source: u32,
+    /// The weapon's form id.
+    pub weapon: u32,
+    /// The health damage that the local game computed.
+    pub damage: f32,
+}
+
+/// What an avatar is in a game.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AvatarState {
+    /// The place.
+    pub place: [f32; 3],
+    /// The heading, in degrees.
+    pub heading: f32,
+    /// The game's life state (5: restrained).
+    pub life: u32,
+    /// The movement animation group that plays (3: forward).
+    pub group: u32,
+    /// The mover's flag override.
+    pub flags: u32,
+    /// The cell's address in this game.
+    pub cell: u32,
 }
 
 /// What a guest's gate counted.
@@ -161,6 +302,11 @@ pub trait CoopBackend: Sync {
         _rules: GuestRules,
     ) -> Result<Box<dyn BackendPeer + 'a>, String> {
         Err("PENDING (this backend has no script gate)".into())
+    }
+    /// A new guest with the policy's rules whose game draws its frames. A weapon's shot
+    /// needs it: the game asks the graphics device about what it drew.
+    fn guest_that_draws<'a>(&self, d: &'a Data) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        self.guest(d, GuestRules::Policy)
     }
 }
 
@@ -233,13 +379,20 @@ impl EngineBackend {
         d: &'a Data,
         host: bool,
         gate: Option<crate::engine_peer::Gate>,
+        draws: bool,
     ) -> Result<Box<dyn BackendPeer + 'a>, String> {
         let Some(program) = crate::engine_peer::program() else {
             return Err("PENDING (engine backend)".into());
         };
         let catalog = policy_setup(d)?.0;
-        let peer =
-            crate::engine_peer::EnginePeer::start(d, &program, host, &catalog, gate.as_ref())?;
+        let peer = crate::engine_peer::EnginePeer::start(
+            d,
+            &program,
+            host,
+            &catalog,
+            gate.as_ref(),
+            draws,
+        )?;
         Ok(Box::new(peer))
     }
 }
@@ -250,7 +403,7 @@ impl CoopBackend for EngineBackend {
     }
     fn peer<'a>(&self, d: &'a Data, host: bool) -> Result<Box<dyn BackendPeer + 'a>, String> {
         if host {
-            self.start(d, true, None)
+            self.start(d, true, None, false)
         } else {
             // A guest of a session always has its gate.
             self.guest(d, GuestRules::Policy)
@@ -280,7 +433,10 @@ impl CoopBackend for EngineBackend {
                 Some(gate)
             }
         };
-        self.start(d, false, gate)
+        self.start(d, false, gate, false)
+    }
+    fn guest_that_draws<'a>(&self, d: &'a Data) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        self.start(d, false, Some(policy_setup(d)?.1), true)
     }
 }
 
@@ -621,6 +777,14 @@ pub const TESTS: &[(&str, Test)] = &[
 /// backend that runs the game's own scripts.
 pub const GATE_TESTS: &[(&str, Test)] = crate::gate_rows::TESTS;
 
+/// The tests of a remote player's avatar (`crate::avatar_rows`): id and function. They need
+/// a backend that runs the game's own actors.
+pub const AVATAR_TESTS: &[(&str, Test)] = crate::avatar_rows::TESTS;
+
+/// The tests of the world's state (`crate::world_rows`): id and function. They need a backend
+/// with the game's own change map.
+pub const WORLD_TESTS: &[(&str, Test)] = crate::world_rows::TESTS;
+
 /// The backend by name.
 pub fn by_name(name: &str) -> Result<Box<dyn CoopBackend>, String> {
     match name {
@@ -632,7 +796,12 @@ pub fn by_name(name: &str) -> Result<Box<dyn CoopBackend>, String> {
 
 /// Runs one conformance test; `mutate` runs its twin (which must fail).
 pub fn run_test(b: &dyn CoopBackend, d: &Data, id: &str, mutate: bool) -> Verdict {
-    let Some((_, f)) = TESTS.iter().chain(GATE_TESTS).find(|(n, _)| *n == id) else {
+    let all = TESTS
+        .iter()
+        .chain(GATE_TESTS)
+        .chain(AVATAR_TESTS)
+        .chain(WORLD_TESTS);
+    let Some((_, f)) = all.into_iter().find(|(n, _)| *n == id) else {
         return Verdict::Pending(format!("no conformance test {id}"));
     };
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(b, d, mutate))) {

@@ -66,7 +66,9 @@ occlusion query has no answer without it).
 - `coop-engine`: the adapter. It sees the game program by address only (read, write, call),
   and names no engine type. Its tests run on a fake program: no engine, no game files.
   `addr.rs` holds each program fact with its source. `gate.rs` decides where story code runs
-  on a guest, and `audit.rs` compares a guest's shared state with the host's.
+  on a guest, and `audit.rs` compares a guest's shared state with the host's. `avatar.rs` is
+  the remote player's body. `changes.rs` reads the game's map of changed forms, and
+  `record.rs` carries one changed form as the game's own save writes it.
 - `glue`: the one crate that names upstream types. It gives the adapter its view of the
   program and starts a game for a test. `glue/src/gate.rs` puts the guest gate on the game:
   six overrides by address, each refused when the address has a wrap.
@@ -144,5 +146,17 @@ of play is a "gate blind" alarm.
   `inline_global_is_repaired`, `guest_stage_ask_moves_host_once`,
   `audit_names_leak_when_gate_is_blind` and `adapter_line_passes_gate` pass on real games, and
   their mutation twins fail.
-- Not yet: per-player rows, a dialogue result's owner, actors, combat, items, saves. The plan
-  is in the project's notes.
+- The remote player's avatar: a restrained actor that the game's own mover walks from the
+  remote player's movement flags, with a commanded heading and place. The conformance tests
+  `avatar_follows_walk`, `avatar_holds_place`, `avatar_removed_and_made_again` and
+  `avatar_look` pass on real games, and their mutation twins fail. A local hit on an avatar
+  is recorded for the host and not applied, and local code does not kill an avatar
+  (`avatar_survives_local_damage`, `avatar_hit_recorded_not_applied`).
+- The world's state: the adapter reads the game's own map of changed forms, saves one
+  changed form with the game's own save functions, and a guest's game loads the bytes with
+  its own load: at once, or with the form's cell. The conformance tests `change_is_found`,
+  `record_disables_on_guest` and `record_waits_for_its_cell` pass on real games, and their
+  mutation twins fail.
+- Not yet: per-player rows, a dialogue result's owner, the avatar's cell changes and its save
+  rule, the live path between two games, the host's hit ledger, records of each kind, saves.
+  The plan is in the project's notes.

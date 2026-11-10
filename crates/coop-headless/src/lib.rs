@@ -7,6 +7,7 @@
 //! bot, movement, the dialogue menu) is modelled in [`peer`] and [`bot`];
 //! every stand-in is listed in the verdict's `modelled` field.
 
+pub mod avatar_rows;
 pub mod backend;
 pub mod bot;
 pub mod campaign_bot;
@@ -29,3 +30,4 @@ pub mod social_bot;
 pub mod suite;
 pub mod verdict;
 pub mod watch;
+pub mod world_rows;

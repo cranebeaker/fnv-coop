@@ -24,11 +24,10 @@ pub const PLAYER: u32 = addr::PLAYER;
 pub const FORM_ID: u32 = addr::FORM_ID;
 /// A reference's place: three floats.
 pub const REF_PLACE: u32 = addr::REF_POSITION;
-/// A reference's three angles, in radians. Probe only: the adapter does not use it yet.
-/// Source: the three floats before the place change with `SetAngle` (measured with `peekf`).
-pub const REF_ANGLE: u32 = 0x24;
-/// A reference's cell. Source: the legacy plugin's layout table (`parentCell` +0x40).
-pub const REF_CELL: u32 = 0x40;
+/// A reference's three angles, in radians.
+pub const REF_ANGLE: u32 = addr::REF_ANGLE;
+/// A reference's cell.
+pub const REF_CELL: u32 = addr::REF_CELL;
 
 /// The address of the form with this id, or 0. The game's own lookup finds it.
 pub fn form(e: &mut Engine, id: u32) -> u32 {

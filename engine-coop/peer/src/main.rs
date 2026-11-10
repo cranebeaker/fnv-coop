@@ -10,8 +10,8 @@
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
-use coop_engine::peer::{intents_reply, stats_reply, Action, Peer, Role};
-use coop_engine_glue::{gate, EngineProgram};
+use coop_engine::peer::{hits_reply, intents_reply, stats_reply, Action, Peer, Role};
+use coop_engine_glue::{avatar_guard, gate, EngineProgram};
 
 const USAGE: &str = "\
 coop-engine-peer - one game behind the peer protocol
@@ -137,8 +137,21 @@ fn main() {
         peer.last_script = gate::counters().map_or(0, |c| c.last_script);
         // A request is the adapter's own work: what the program runs for it is not gated.
         let action = gate::own(|| peer.handle(&mut EngineProgram(&mut game.engine), &line));
+        // The avatars' damage rules know each avatar by its address.
+        avatar_guard::set_bodies(peer.bodies());
         match action {
             Action::Reply(text) => say(&text),
+            Action::AvatarGuard => match avatar_guard::install(&mut game.engine) {
+                Ok(()) => {
+                    avatar_guard::set_bodies(peer.bodies());
+                    say("ok");
+                }
+                Err(why) => say(&format!("err {why}")),
+            },
+            Action::AvatarHits => say(&hits_reply(
+                avatar_guard::kills_stopped(),
+                &avatar_guard::take_hits(),
+            )),
             Action::Gate {
                 rules,
                 shared_quest,

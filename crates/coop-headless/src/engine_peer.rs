@@ -22,7 +22,7 @@ use coop_core::hash::ShardHashes;
 use coop_core::ids::FormId as CForm;
 use coop_core::schema::{fields_from_hex, fields_to_hex, Field};
 
-use crate::backend::{AuditReport, BackendPeer, GateStats};
+use crate::backend::{AuditReport, AvatarHit, AvatarState, BackendPeer, ChangeRecord, GateStats};
 use crate::data::Data;
 
 /// The environment variable that names the peer server's program.
@@ -113,9 +113,17 @@ fn hex_list(ids: &[u32]) -> String {
 }
 
 impl<'a> EnginePeer<'a> {
-    /// Starts one server at its main menu. `Err` when it does not get there.
-    fn start_at_menu(d: &Data, program: &PathBuf, host: bool) -> Result<Io, String> {
-        let mut child = Command::new(program)
+    /// Starts one server at its main menu. `Err` when it does not get there. `draws`: the
+    /// game draws its frames on the real graphics device, in a window that does not take the
+    /// focus.
+    fn start_at_menu(d: &Data, program: &PathBuf, host: bool, draws: bool) -> Result<Io, String> {
+        let mut command = Command::new(program);
+        if draws {
+            command
+                .env("NV_D3D9", "real")
+                .env("NV_D3D9_BACKGROUND", "1");
+        }
+        let mut child = command
             .arg(&d.dir)
             .args(["--role", if host { "host" } else { "guest" }, "--menu"])
             // The engine's test clock: each run reads the same times, whatever the load of
@@ -167,10 +175,11 @@ impl<'a> EnginePeer<'a> {
         host: bool,
         catalog: &Catalog,
         gate: Option<&Gate>,
+        draws: bool,
     ) -> Result<EnginePeer<'a>, String> {
         let mut last = String::new();
         for _ in 0..STARTS {
-            let mut io = match Self::start_at_menu(d, program, host) {
+            let mut io = match Self::start_at_menu(d, program, host, draws) {
                 Ok(io) => io,
                 Err(why) => {
                     last = why;
@@ -196,6 +205,11 @@ impl<'a> EnginePeer<'a> {
             });
             // A gate that the game refuses is a fault, not a start to try again.
             entered?;
+            if !host {
+                // A guest's own form indexes start above the host's: a record of the host then
+                // names the same forms in this game.
+                io.ask("join_pairs")?;
+            }
             let at_menu = fields_from_hex(&io.ask("export")?)?;
             match io.ask(&format!("enter {CELL}")) {
                 Ok(_) => {
@@ -370,5 +384,159 @@ impl BackendPeer for EnginePeer<'_> {
     fn local_stage(&self, quest: &str) -> Option<u16> {
         let q = self.form(quest)?;
         self.ask(&format!("local_stage {q:08X}"))?.parse().ok()
+    }
+    fn avatar_make(
+        &mut self,
+        slot: u8,
+        female: bool,
+        race: u32,
+        place: [f32; 3],
+        heading: f32,
+    ) -> Result<u32, String> {
+        let request = format!(
+            "avatar_make {slot} {} {race:08X} {} {} {} {heading}",
+            u8::from(female),
+            place[0],
+            place[1],
+            place[2]
+        );
+        let id = self.io.borrow_mut().ask(&request)?;
+        u32::from_str_radix(&id, 16).map_err(|_| format!("a bad form id {id}"))
+    }
+    fn avatar_drive(
+        &mut self,
+        slot: u8,
+        place: [f32; 3],
+        heading: f32,
+        flags: u32,
+    ) -> Result<(), String> {
+        let request = format!(
+            "avatar_drive {slot} {} {} {} {heading} {flags:X}",
+            place[0], place[1], place[2]
+        );
+        self.io.borrow_mut().ask(&request).map(|_| ())
+    }
+    fn avatar_state(&self, slot: u8) -> Option<AvatarState> {
+        let answer = self.ask(&format!("avatar_state {slot}"))?;
+        let words: Vec<&str> = answer.split_whitespace().collect();
+        let float = |i: usize| words.get(i)?.parse::<f32>().ok();
+        let hex = |i: usize| u32::from_str_radix(words.get(i)?, 16).ok();
+        Some(AvatarState {
+            place: [float(0)?, float(1)?, float(2)?],
+            heading: float(3)?,
+            life: words.get(4)?.parse().ok()?,
+            group: hex(5)?,
+            flags: hex(6)?,
+            cell: hex(7)?,
+        })
+    }
+    fn avatar_look(&self, slot: u8, race: u32) -> Option<(bool, bool)> {
+        let answer = self.ask(&format!("avatar_look {slot} {race:08X}"))?;
+        let mut words = answer.split_whitespace();
+        Some((words.next()? == "1", words.next()? == "1"))
+    }
+    fn avatar_remove(&mut self, slot: u8) -> bool {
+        self.ask(&format!("avatar_remove {slot}")).is_some()
+    }
+    fn avatar_guard(&mut self) -> Result<(), String> {
+        self.io.borrow_mut().ask("avatar_guard").map(|_| ())
+    }
+    fn avatar_hits(&mut self) -> Option<(u64, Vec<AvatarHit>)> {
+        let answer = self.ask("avatar_hits")?;
+        let mut words = answer.split_whitespace();
+        let kills = words.next()?.parse().ok()?;
+        let hits: Option<Vec<AvatarHit>> = words
+            .map(|word| {
+                let mut parts = word.split(':');
+                Some(AvatarHit {
+                    slot: parts.next()?.parse().ok()?,
+                    source: u32::from_str_radix(parts.next()?, 16).ok()?,
+                    weapon: u32::from_str_radix(parts.next()?, 16).ok()?,
+                    damage: parts.next()?.parse().ok()?,
+                })
+            })
+            .collect();
+        Some((kills, hits?))
+    }
+    fn avatar_health(&self, slot: u8) -> Option<f64> {
+        self.ask(&format!("avatar_health {slot}"))?.parse().ok()
+    }
+    fn avatar_heal(&mut self, slot: u8) -> bool {
+        self.ask(&format!("avatar_heal {slot}")).is_some()
+    }
+    fn has_form(&self, id: u32) -> bool {
+        self.ask(&format!("form {id:08X}"))
+            .is_some_and(|a| a == "1")
+    }
+    fn form_word(&self, id: u32, offset: u32) -> Option<u32> {
+        let answer = self.ask(&format!("form_word {id:08X} {offset:X}"))?;
+        u32::from_str_radix(&answer, 16).ok()
+    }
+    fn enter(&mut self, cell: &str) -> bool {
+        self.ask(&format!("enter {cell}")).is_some()
+    }
+    fn changes_baseline(&mut self) -> Option<u32> {
+        self.ask("changes baseline")?.parse().ok()
+    }
+    fn changes(&mut self) -> Option<Vec<(u32, u32)>> {
+        let answer = self.ask("changes")?;
+        answer
+            .split_whitespace()
+            .skip(1)
+            .map(|word| {
+                let (form, new) = word.split_once(':')?;
+                Some((
+                    u32::from_str_radix(form, 16).ok()?,
+                    u32::from_str_radix(new, 16).ok()?,
+                ))
+            })
+            .collect()
+    }
+    fn record(&mut self, form: u32) -> Option<ChangeRecord> {
+        let answer = self.ask(&format!("record {form:08X}"))?;
+        let words: Vec<&str> = answer.split_whitespace().collect();
+        let hex = |i: usize| u32::from_str_radix(words.get(i)?, 16).ok();
+        Some(ChangeRecord {
+            form,
+            flags: hex(0)?,
+            kind: hex(1)?,
+            version: hex(2)?,
+            pairs: hex(3)?,
+            bytes: (*words.get(4)?).to_string(),
+        })
+    }
+    fn index_pairs(&self, from: u32) -> Vec<(u32, u32)> {
+        let pair = |word: &str| {
+            let (index, form) = word.split_once(':')?;
+            Some((
+                u32::from_str_radix(index, 16).ok()?,
+                u32::from_str_radix(form, 16).ok()?,
+            ))
+        };
+        self.ask(&format!("pairs {from:X}"))
+            .map(|a| a.split_whitespace().filter_map(pair).collect())
+            .unwrap_or_default()
+    }
+    fn take_pairs(&mut self, pairs: &[(u32, u32)]) -> Option<u32> {
+        if pairs.is_empty() {
+            return Some(0);
+        }
+        let words: Vec<String> = pairs
+            .iter()
+            .map(|(index, form)| format!("{index:X}:{form:08X}"))
+            .collect();
+        let answer = self.ask(&format!("take_pairs {}", words.join(",")))?;
+        answer.split_whitespace().next()?.parse().ok()
+    }
+    fn take_record(&mut self, r: &ChangeRecord) -> Result<bool, String> {
+        let request = format!(
+            "take_record {:08X} {:X} {:X} {:X} {:X} {}",
+            r.form, r.flags, r.kind, r.version, r.pairs, r.bytes
+        );
+        match self.io.borrow_mut().ask(&request)?.as_str() {
+            "loaded" => Ok(true),
+            "waits" => Ok(false),
+            other => Err(format!("an unknown answer {other}")),
+        }
     }
 }

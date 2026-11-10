@@ -10,6 +10,7 @@ use std::path::Path;
 
 use coop_engine::{Program, Ret};
 
+pub mod avatar_guard;
 pub mod gate;
 use engine::Engine;
 

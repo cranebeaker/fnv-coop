@@ -170,3 +170,249 @@ pub const OBJECTIVE_SET_STATE: u32 = 0x005e_c5d0;
 /// An objective's quest (a pointer).
 // legacy: section 3 (`BGSQuestObjective`: `quest` +0x10).
 pub const OBJECTIVE_QUEST: u32 = 0x10;
+
+// ---- The avatar (SPEC-06). Each fact was called or read on the game program by a planner:
+// ---- the run names are folders and scripts under the project's notes (m3/A, m3/B, m3/C).
+
+/// The form id of the player's base form (`TESNPC`).
+// legacy: the player's base is form 7. runs: m3/B e9, m3/C e4 (a Character from its copy).
+pub const PLAYER_BASE_ID: u32 = 7;
+/// Copies an NPC base form: method (form, 0, 0), the copy.
+// ghidra: 004867a0 (the form's table slot +0x40). run: m3/B e9.
+pub const NPC_COPY: u32 = 0x0048_67a0;
+/// Sets a base form's sex: method (base + [`NPC_SEX_DATA`], 1, female, 1).
+// ghidra: 005c65a0 (the `SexChange` command calls it). run: m3/B e17p.
+pub const NPC_SET_SEX: u32 = 0x0047_dd50;
+/// Where a base form keeps the data that [`NPC_SET_SEX`] changes.
+// ghidra: 005c65a0.
+pub const NPC_SEX_DATA: u32 = 0x30;
+/// Sets a base form's race: method (base, race form, 0).
+// ghidra: 005da810 (the `MatchRace` command calls it). run: m3/B e17p.
+pub const NPC_SET_RACE: u32 = 0x0060_b240;
+/// True (low byte) when an actor's base form is female: (actor).
+// ghidra: 0087f4c0 (it reads the actor's base form). run: m3/B e17p.
+pub const ACTOR_IS_FEMALE: u32 = 0x0087_f4c0;
+/// The `GetIsRace` condition: (reference, race form, 0, address of a 64-bit float). It writes
+/// 1.0 when the reference's base form has this race.
+// ghidra: 0059f240. run: m3/A e6.
+pub const REF_IS_RACE: u32 = 0x0059_f240;
+/// Makes a reference of a base form at an anchor reference: (anchor, base, count, 0, 0, 1.0),
+/// the reference.
+// legacy: `Call_PlaceAtMe`. ghidra: 005c4a70 calls it. runs: m3/A e3, m3/B e9, m3/C e4.
+pub const PLACE_AT_ME: u32 = 0x005c_4b30;
+/// Restrains an actor, or lets it go: method (actor, on).
+// ghidra: 005d0920 (the `SetRestrained` command calls it). runs: m3/A e4, m3/B e9, m3/C e6.
+pub const ACTOR_RESTRAIN: u32 = 0x008a_ce50;
+/// An actor's life state ([`life_state`]).
+// legacy: section 3. ghidra: 004f8960. runs: m3/B e9 (5 while restrained), e10 (1 after
+// lethal damage).
+pub const ACTOR_LIFE_STATE: u32 = 0x108;
+/// The values of [`ACTOR_LIFE_STATE`] that the adapter tests.
+pub mod life_state {
+    /// Alive, not held.
+    pub const ALIVE: u32 = 0;
+    /// Dying.
+    pub const DYING: u32 = 1;
+    /// Dead.
+    pub const DEAD: u32 = 2;
+    /// Restrained: alive, and its AI does not move it.
+    pub const RESTRAINED: u32 = 5;
+}
+/// An actor's mover.
+// legacy: section 3. ghidra: 005f36f0 (answers the word at +0x34 of actor+0x15C). run: m3/B e9.
+pub const ACTOR_MOVER: u32 = 0x190;
+/// Sets the mover's movement flag override: method (mover, flags).
+// ghidra: 009de060 (the flags go to +0x38, and the byte at +0x71 becomes 1). runs: m3/B e4c2,
+// e16, m3/C e4.
+pub const MOVER_SET_FLAGS: u32 = 0x009d_e060;
+/// Clears the mover's movement flag override: method (mover).
+// ghidra: 009de080.
+pub const MOVER_CLEAR_FLAGS: u32 = 0x009d_e080;
+/// The mover's override flags.
+// ghidra: 009de060.
+pub const MOVER_FLAGS: u32 = 0x38;
+/// The movement flags.
+// legacy: section 3. ghidra: 009ddc00. run: m3/B e16 (each flag gives its animation group).
+pub mod move_flag {
+    /// Forward.
+    pub const FORWARD: u32 = 1;
+    /// Back.
+    pub const BACK: u32 = 2;
+    /// Left.
+    pub const LEFT: u32 = 4;
+    /// Right.
+    pub const RIGHT: u32 = 8;
+    /// Walk.
+    pub const WALK: u32 = 0x100;
+    /// Run.
+    pub const RUN: u32 = 0x200;
+    /// Sneak.
+    pub const SNEAK: u32 = 0x400;
+}
+/// Sets one coordinate of a reference's place: (reference, axis letter, value).
+// ghidra: 005c05f0 (the `SetPos` command calls it). runs: m3/A e5b, m3/B e9.
+pub const REF_SET_POS: u32 = 0x005c_0740;
+/// Sets one angle of a reference, in degrees: (reference, axis letter, value).
+// ghidra: 005c09c0 (the `SetAngle` command calls it). run: m3/B e9.
+pub const REF_SET_ANGLE: u32 = 0x005c_0b10;
+/// A reference's three angles, in radians.
+// Measured with the probe (2026-11-10): `SetAngle z 90` gives 1.571 in the third float.
+pub const REF_ANGLE: u32 = 0x24;
+/// A reference's cell.
+// legacy: section 3 (`parentCell` +0x40).
+pub const REF_CELL: u32 = 0x40;
+/// Disables a reference: (reference, 0).
+// ghidra: 005aa500 (the `Disable` command calls it). run: m3/B e17p.
+pub const REF_DISABLE: u32 = 0x005a_a500;
+/// The `MarkForDelete` command's handler: (0, 0, reference, 0, 0, 0, 0, 0). The game destroys
+/// the reference in its next frame.
+// ghidra: 005d8e20. run: m3/B e17p (a plain reference goes with no fault).
+pub const REF_MARK_FOR_DELETE: u32 = 0x005d_8e20;
+/// An actor's animation data: method (actor), the data or 0.
+// ghidra: 008b70d0. run: m3/B e9.
+pub const ACTOR_ANIM_DATA: u32 = 0x008b_70d0;
+/// The animation data's group word: the movement group is its high half.
+// Measured: m3/B e9 (0x00030000 for forward), e16 (0x00070000 run, 0x10031000 sneak).
+pub const ANIM_GROUP: u32 = 0x4c;
+/// A form's flags word. Bit 0x800: a disabled reference. Bit 0x4000: a temporary form.
+// ghidra: 00484490 (the temporary mark), 00440da0 (the disabled test).
+pub const FORM_FLAGS: u32 = 8;
+
+// ---- The game's map of changed forms (SPEC-15). Each fact was read on the game program by
+// ---- three planners (runs under the project's notes: ws/A, ws/B, ws/C).
+
+/// Where the program keeps the address of its save manager.
+// ghidra: 0084a690, 00484b60 (the mark method reads it). runs: ws/A e1, ws/B e5, ws/C e9.
+pub const SAVE_MANAGER: u32 = 0x011d_df38;
+/// The save manager: the address of its map of changed forms.
+// ghidra: 008457b0. runs: ws/B e5, ws/C e9.
+pub const SAVE_CHANGE_MAP: u32 = 0;
+/// The change map: the count of its buckets. A form's bucket is its id modulo the count.
+// ghidra: 009a4250, 008456e0. runs: ws/B e7, ws/C e9.
+pub const MAP_BUCKET_COUNT: u32 = 4;
+/// The change map: the address of its bucket array (one item address for each bucket).
+pub const MAP_BUCKETS: u32 = 8;
+/// The change map: the count of its forms.
+pub const MAP_COUNT: u32 = 0xc;
+/// A map item: the next item of the same bucket.
+// run: ws/C e9 (a node reads `next, form id, entry`).
+pub const MAP_ITEM_NEXT: u32 = 0;
+/// A map item: the form's id.
+pub const MAP_ITEM_FORM: u32 = 4;
+/// A map item: the address of the form's change entry.
+pub const MAP_ITEM_ENTRY: u32 = 8;
+/// A change entry: the change flags.
+// runs: ws/A e1 (`80000001` after `Disable`), ws/B e5.
+pub const CHANGE_FLAGS: u32 = 0;
+/// Marks a form as changed: method (map, form id, flags). The game's own code calls it.
+// ghidra: 008457b0. runs: ws/A e1, ws/B e4, ws/C e8 (a script command's change reaches it).
+pub const MAP_MARK: u32 = 0x0084_57b0;
+
+// ---- One form's change record (SPEC-15). The save steps are the steps of the game's own
+// ---- "save one form" (ghidra: 00849730). Runs: ws/A e3h (host), e3gp (guest), e5ga.
+
+/// The save manager: the address of its table of form indexes.
+// ghidra: 0084a690. run: ws/A e3h.
+pub const SAVE_IDS: u32 = 8;
+/// The form index table: the next free index.
+// run: ws/A e3h, e3gp.
+pub const IDS_COUNTER: u32 = 0x20;
+/// The form id of an index: method (table, index).
+// ghidra: 00846d20. run: ws/A e3h.
+pub const IDS_FORM_OF: u32 = 0x0084_6d20;
+/// Adds one pair to a table half: method (half, key, value). The first half (the table) maps
+/// a form id to its index. The second half ([`IDS_REVERSE`]) maps an index to its form id.
+// ghidra: 00844700. run: ws/A e3gp.
+pub const IDS_INSERT: u32 = 0x0084_4700;
+/// The form index table's second half.
+pub const IDS_REVERSE: u32 = 0x10;
+/// Where the program keeps the object that knows the save version.
+// run: ws/A e3h.
+pub const SAVE_VERSION_SOURCE: u32 = 0x011d_e134;
+/// The save version (low byte): method (object).
+// ghidra: 00851110. run: ws/A e3h.
+pub const SAVE_VERSION: u32 = 0x0085_1110;
+/// A form's type (low byte), as the save names it: method (form).
+// ghidra: 00401170 (used by the `GetIsRace` condition for the same test). run: ws/A e3h.
+pub const FORM_TYPE: u32 = 0x0040_1170;
+/// The save buffer of one form: its constructor, method (buffer).
+// ghidra: 008659c0 (it sets the `BGSSaveFormBuffer` table and clears +0x20).
+pub const SAVE_BUFFER_NEW: u32 = 0x0086_59c0;
+/// Bytes for a save buffer object.
+// run: ws/A e3h (64 bytes, the constructor's last member is at +0x20).
+pub const SAVE_BUFFER_BYTES: u32 = 64;
+/// Starts the buffer again: method (buffer). It clears the length.
+// ghidra: 00847db0.
+pub const SAVE_BUFFER_RESET: u32 = 0x0084_7db0;
+/// Sets the record's head: method (buffer, form id, flags, type, version).
+// ghidra: 00865ad0.
+pub const SAVE_BUFFER_HEADER: u32 = 0x0086_5ad0;
+/// Gives the buffer its form: method (buffer, form).
+// ghidra: 0050f9c0.
+pub const SAVE_BUFFER_FORM: u32 = 0x0050_f9c0;
+/// A form's table slot of its own save: method (form, buffer).
+// run: ws/A e3h.
+pub const FORM_SAVE_SLOT: u32 = 0x80;
+/// A form's table slot of the save's last step: method (form, buffer).
+pub const FORM_SAVE_END_SLOT: u32 = 0x54;
+/// The save's middle step (the form's extra data): method (buffer, form, flags).
+// ghidra: 0084eb80.
+pub const SAVE_EXTRA: u32 = 0x0084_eb80;
+/// The save buffer: the address of its bytes.
+pub const SAVE_BUFFER_DATA: u32 = 4;
+/// The save buffer: the count of its bytes.
+pub const SAVE_BUFFER_LENGTH: u32 = 0xc;
+/// The most bytes of one record that the adapter takes. Measured records: 19 bytes (a
+/// reference) to 1400 bytes (an actor).
+pub const RECORD_LIMIT: u32 = 0x1_0000;
+/// The change entry of a form: method (map, form id), the entry or 0.
+// ghidra: 009a4250. runs: ws/A e3h, ws/C e8.
+pub const MAP_ENTRY: u32 = 0x009a_4250;
+/// A change entry: the address of its waiting record (type byte, version byte, length, bytes).
+// run: ws/A e3gp.
+pub const ENTRY_PENDING: u32 = 4;
+/// Gives an entry a waiting record: method (entry + [`ENTRY_PENDING`], bytes, length, type,
+/// version). The game copies the bytes into a block of its own.
+// ghidra: 008665d0 (it allocates the block and copies). run: ws/A e3gp.
+pub const ENTRY_ATTACH: u32 = 0x0086_65d0;
+/// Loads a form's waiting record into the form: method (save manager, form).
+// ghidra: 008495d0 (the game calls it for each form of a cell that loads: ws/A e5ga, 414
+// calls of its own). run: ws/A e3gp.
+pub const SAVE_LOAD_FORM: u32 = 0x0084_95d0;
+/// Ends a load: method (save manager, 0).
+// ghidra: 008492b0. run: ws/A e3gp.
+pub const SAVE_LOAD_FINISH: u32 = 0x0084_92b0;
+/// Where a guest's own form indexes start after its join: the host's indexes stay below.
+// run: ws/A e3gp (the counter was set to this value, and the host's record then loaded). A
+// record holds an index in 3 bytes.
+pub const GUEST_INDEX_BASE: u32 = 0x0040_0000;
+/// Gives a block of the game's own heap back: (block).
+// ghidra: 00401030 (the pair of the allocator 00401000 that [`ENTRY_ATTACH`] uses).
+pub const HEAP_FREE: u32 = 0x0040_1030;
+
+// ---- The avatar's damage rules (SPEC-06 slice 4).
+
+/// The game's hit funnel: method (victim actor, hit data, flag). Each hit of a weapon, a
+/// projectile or a melee attack goes through it.
+// legacy: section 9 (`ApplyHitData`, six callers, no other reference). runs: m3/A e10a (3
+// shots, 3 calls), e10b (not run: the health stays).
+pub const ACTOR_HIT: u32 = 0x0089_a760;
+/// The game's kill function: method (actor, killer, word).
+// legacy: `engine_pins.h`. ghidra: 0089d900. run: m3/B e10 (not run: the life state stays 5
+// under lethal damage).
+pub const ACTOR_KILL: u32 = 0x0089_d900;
+/// The hit data: the reference that made the hit (0: none).
+// legacy: `plugin/combat/combat_addrs.h` (each offset checked in the funnel's disassembly).
+pub const HIT_SOURCE: u32 = 0;
+/// The hit data: the body part (14: none).
+pub const HIT_LOCATION: u32 = 0x10;
+/// The hit data: the health damage (a float).
+pub const HIT_HEALTH_DAMAGE: u32 = 0x14;
+/// The hit data: the weapon's form (0: none).
+pub const HIT_WEAPON: u32 = 0x30;
+/// The hit data: the flags (4: a critical hit).
+pub const HIT_FLAGS: u32 = 0x58;
+/// The `GetHealthPercentage` condition: (reference, 0, 0, address of a 64-bit float). It
+/// writes the health as a part of 1.
+// ghidra: 0059c7e0. run: m3/A e10a (1.0 to 0.6 after three shots).
+pub const REF_HEALTH_PART: u32 = 0x0059_c7e0;

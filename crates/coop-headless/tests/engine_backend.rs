@@ -80,13 +80,54 @@ fn the_gate_tests_pass_on_the_engine_and_their_twins_fail() {
     }
 }
 
+/// Each test of a remote player's avatar passes on the engine, and its mutation twin fails
+/// for its own reason.
+#[test]
+fn the_avatar_tests_pass_on_the_engine_and_their_twins_fail() {
+    let Some(d) = engine_data() else { return };
+    let engine = backend::by_name("engine").unwrap();
+    for (id, _) in backend::AVATAR_TESTS {
+        let verdict = backend::run_test(&*engine, &d, id, false);
+        assert_eq!(verdict, Verdict::Pass, "{id}");
+        let twin = backend::run_test(&*engine, &d, id, true);
+        assert!(
+            matches!(&twin, Verdict::Fail(why) if !why.contains("peer server")
+                && !why.contains("ran no frame")
+                && !why.contains("twin's line")),
+            "{id} twin: {twin:?}"
+        );
+        eprintln!("{id}: pass, twin: {twin:?}");
+    }
+}
+
+/// Each test of the world's state passes on the engine, and its mutation twin fails for its
+/// own reason.
+#[test]
+fn the_world_tests_pass_on_the_engine_and_their_twins_fail() {
+    let Some(d) = engine_data() else { return };
+    let engine = backend::by_name("engine").unwrap();
+    for (id, _) in backend::WORLD_TESTS {
+        let verdict = backend::run_test(&*engine, &d, id, false);
+        assert_eq!(verdict, Verdict::Pass, "{id}");
+        let twin = backend::run_test(&*engine, &d, id, true);
+        assert!(
+            matches!(&twin, Verdict::Fail(why) if !why.contains("peer server")
+                && !why.contains("did not run")
+                && !why.contains("did not get")
+                && !why.contains("proves nothing")),
+            "{id} twin: {twin:?}"
+        );
+        eprintln!("{id}: pass, twin: {twin:?}");
+    }
+}
+
 /// The world layer has no script gate of this kind: each gate test is PENDING there, with
 /// the reason. A row that only one backend runs is reported as open, not as passed.
 #[test]
 fn the_gate_tests_are_pending_on_the_world_layer() {
     let Some(d) = data() else { return };
     let world = backend::by_name("world").unwrap();
-    for (id, _) in backend::GATE_TESTS {
+    for (id, _) in backend::GATE_TESTS.iter().chain(backend::AVATAR_TESTS) {
         let verdict = backend::run_test(&*world, &d, id, false);
         assert!(
             matches!(&verdict, Verdict::Pending(m) if m.contains("no script gate")),
