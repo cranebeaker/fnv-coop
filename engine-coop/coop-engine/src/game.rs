@@ -549,6 +549,54 @@ mod tests {
         assert!(export.iter().all(|(form, _)| form.0 != OWN), "{export:?}");
     }
 
+    /// Each player plays its own opening: the generic timer that ends the opening and the four
+    /// pre-order pack quests are per-player rows, so a guest's game runs them and keeps them
+    /// out of the shared catalog, and the packs' scripts are local by their form ids. Mutation
+    /// twin: with no policy they are shared quests and their scripts stay closed.
+    #[test]
+    fn each_player_runs_its_own_opening_timer_and_pack_quests() {
+        const TIMER: u32 = 0x0016_8a86;
+        const PACKS: [u32; 4] = [0x0017_2a1d, 0x0017_2a1e, 0x0017_2a1f, 0x0016_74d4];
+        const PACK_SCRIPTS: [u32; 4] = [0x0017_2a24, 0x0017_2a25, 0x0017_2a26, 0x0017_2a27];
+        let policy = coop_policy::PolicyTable::bundled().expect("the bundled policy");
+        let with = Setup {
+            policy: Some(std::sync::Arc::new(policy)),
+            ..setup(Role::Guest)
+        };
+        let rules = rules_of(&with, &names());
+        let twin = rules_of(&setup(Role::Guest), &names());
+        for quest in std::iter::once(TIMER).chain(PACKS) {
+            assert!(rules.quest_is_local(quest), "{quest:08x}");
+            assert!(!twin.quest_is_local(quest), "the twin: {quest:08x}");
+        }
+        for script in PACK_SCRIPTS {
+            assert!(rules.local_scripts.contains(&script), "{script:08x}");
+            assert!(!twin.local_scripts.contains(&script));
+        }
+
+        let mut p = FakeProgram::new();
+        p.add_quest(TIMER, &[10], &[]);
+        p.add_quest(QUEST, &[10], &[]);
+        let mut state = EngineState::new(
+            NameTable::parse(
+                "P 00 FalloutNV.esm\nF QUST 00168A86 VGenericTimer\nF QUST 0015D912 VCG03\n",
+            )
+            .unwrap(),
+        );
+        let mut guest = EngineCoop::over(&mut p, &mut state);
+        guest.configure(&with).unwrap();
+        assert_eq!(
+            guest.stage(FormId(TIMER)),
+            None,
+            "not in the shared catalog"
+        );
+        assert!(guest
+            .export_shared(true)
+            .unwrap()
+            .iter()
+            .all(|(f, _)| f.0 != TIMER));
+    }
+
     #[test]
     fn the_local_player_has_its_cell_and_place() {
         let (mut p, mut state) = game();
