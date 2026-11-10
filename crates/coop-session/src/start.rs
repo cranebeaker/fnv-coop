@@ -31,7 +31,7 @@ use std::collections::BTreeMap;
 use coop_core::ids::PlayerId;
 use coop_core::scene::SceneKind;
 use coop_core::schema::flag;
-use coop_game::{opening, Intent, Shared};
+use coop_game::{opening, Game, Intent, Shared};
 use esm::FormId;
 // The tests of this file write the player's rows of a `GameState`.
 #[cfg(test)]
@@ -40,7 +40,7 @@ use world::scripting::GameState;
 
 use crate::ext::Ext;
 use crate::json::V;
-use crate::session::{send_ext, Game, Session};
+use crate::session::{send_ext, Session};
 use crate::Role;
 
 /// `VCG00`, the prologue quest ("Welcome To Fabulous New Vegas").
@@ -703,6 +703,33 @@ impl Session {
         if self.role != Role::Guest {
             return None;
         }
+        self.start_join();
+        // This call gets a `&GameState`, and the adapter of the engine interface needs
+        // `&mut`: the local player comes from the adapter's read function. It is the answer
+        // of `coop_game::Players::local_player`.
+        let local = world::coop::game::local_player_of(gs);
+        let ready = self.host_opening_ready(gs);
+        self.start_step(local, ready, menu_busy)
+    }
+
+    /// [`Session::start_poll`] on any game of the engine interface. Call it one time for
+    /// each frame of a guest, between [`Session::pre_frame_game`] and
+    /// [`Session::post_frame_game`]. A guest that never calls it stays in the joining phase.
+    ///
+    /// The guest does not wait for the host's opening here: the scene and the stages of
+    /// the host's player are not behind the interface yet. The first menu opens when the
+    /// session is ready.
+    pub fn start_poll_game(&mut self, game: &dyn Game, menu_busy: bool) -> Option<Step> {
+        if self.role != Role::Guest {
+            return None;
+        }
+        self.start_join();
+        self.start_step(game.local_player(), true, menu_busy)
+    }
+
+    /// Guest: leaves the joining phase when the session is ready and the host told its
+    /// opening.
+    fn start_join(&mut self) {
         if self.start.flow.phase() == Phase::Joining && self.ready {
             if let Some(o) = self.start.flow.opening() {
                 self.start.flow.guest_joined(o);
@@ -713,13 +740,18 @@ impl Session {
                 }
             }
         }
-        // This call gets a `&GameState`, and the adapter of the engine interface needs
-        // `&mut`: the local player comes from the adapter's read function. It is the answer
-        // of `coop_game::Players::local_player`.
-        let local = world::coop::game::local_player_of(gs);
+    }
+
+    /// Guest: one frame of the start flow. `local` is the game's own player. `host_ready`
+    /// is false while the guest must still watch the host's opening.
+    fn start_step(
+        &mut self,
+        local: coop_game::LocalPlayer,
+        host_ready: bool,
+        menu_busy: bool,
+    ) -> Option<Step> {
         let at = self.at_host_place(&local.place);
-        let ready = self.host_opening_ready(gs);
-        let act = self.start.flow.poll_gated(menu_busy, at, ready);
+        let act = self.start.flow.poll_gated(menu_busy, at, host_ready);
         let phase = self.start.flow.phase();
         if self.start.logged != Some(phase) {
             self.start.logged = Some(phase);

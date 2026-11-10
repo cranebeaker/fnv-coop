@@ -8,6 +8,7 @@
 //! * [`Shared`]: the role of the game, and its shared state as `coop_core` fields.
 //! * [`Story`]: story actions, which only a host's game runs.
 //! * [`Players`]: the rows of each player, and the player of the game's own slot.
+//! * [`Game`]: the four traits together, as the frame functions of a session take a game.
 //! * [`fake::FakeGame`]: a game made of maps, for the tests of other crates.
 //! * [`conformance`]: the checks that each adapter must pass.
 //!
@@ -242,3 +243,12 @@ pub trait Players {
     /// The player of this game's own slot, as the game holds it now.
     fn local_player(&self) -> LocalPlayer;
 }
+
+/// One running game, as a session uses it: each trait of this crate. A type that
+/// implements the four traits is a `Game`.
+///
+/// The frame functions of a session take `&mut dyn Game`. More traits come into this
+/// list with the live layer and the state dump.
+pub trait Game: Names + Shared + Story + Players {}
+
+impl<T: Names + Shared + Story + Players + ?Sized> Game for T {}

@@ -63,7 +63,7 @@ impl HostMirror {
     ///
     /// The first export is not forced: the store of a new host fills at the first change,
     /// or at the first backstop call.
-    pub fn collect(&mut self, game: &mut dyn Shared, host: &mut HostSync) -> Collected {
+    pub fn collect<G: Shared + ?Sized>(&mut self, game: &mut G, host: &mut HostSync) -> Collected {
         self.calls = self.calls.wrapping_add(1);
         let due = self.backstop_every != 0 && self.calls % self.backstop_every == 0;
         let mut done = Collected::default();
@@ -110,9 +110,9 @@ impl GuestMirror {
     /// `recheck`: compare the game with the store also when the store did not change.
     /// `present`: the game shows the journal lines of the changes. The first apply of a
     /// store is the join snapshot, and the game shows nothing for it.
-    pub fn sync(
+    pub fn sync<G: Shared + ?Sized>(
         &mut self,
-        game: &mut dyn Shared,
+        game: &mut G,
         store: &StateStore,
         recheck: bool,
         present: bool,
@@ -147,7 +147,7 @@ impl GuestMirror {
 
 /// Makes the shared state of `game` equal to `store`: a slot that differs gets the store's
 /// value, and a slot that the store does not have returns to its default.
-fn reconcile(game: &mut dyn Shared, store: &StateStore, present: bool) -> Applied {
+fn reconcile<G: Shared + ?Sized>(game: &mut G, store: &StateStore, present: bool) -> Applied {
     let want: BTreeMap<Key, Field> = store
         .iter()
         .filter(|(_, entry)| !entry.field.is_tombstone())

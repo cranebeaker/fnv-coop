@@ -13,15 +13,11 @@ use std::sync::Arc;
 use coop_core::schema::flag;
 use coop_policy::PolicyTable;
 
-use crate::{
-    opening, Change, Field, FormId, Intent, Key, Names, Players, Refused, Role, Setup, Shared,
-    Sheet, Slot, Story,
-};
+use crate::{opening, Change, Field, FormId, Intent, Key, Refused, Role, Setup, Sheet, Slot};
 
-/// A game under test: each trait that the rows use.
-pub trait Subject: Names + Shared + Story + Players {}
-
-impl<T: Names + Shared + Story + Players + ?Sized> Subject for T {}
+/// A game under test: each trait that the rows use. It is [`crate::Game`] under the name
+/// that the rows had first.
+pub use crate::Game as Subject;
 
 /// Data of the game under test that the rows use.
 #[derive(Clone, Debug)]
@@ -597,6 +593,8 @@ pub fn character_stays_with_its_player(
 mod tests {
     use super::*;
     use crate::fake::FakeGame;
+    // The broken game of these tests implements each trait of a game.
+    use crate::{Names, Players, Shared, Story};
 
     /// In the second plugin, so the load index is not 0.
     const QUEST: FormId = FormId(0x0100_0A03);
