@@ -257,6 +257,20 @@ fn place_at_me(e: &mut Engine, a: &[u32]) -> Ret {
     eax(r)
 }
 
+// world: the world kit (`crate::worldkit`) adds its forms to the story's form table.
+/// Enters `form` under `id` in the story's id-to-form table, as a form of the game's data.
+pub(crate) fn add_form(e: &mut Engine, id: u32, form: u32) {
+    let count = e.mem.u32(TABLE);
+    assert!(
+        8 * (count + 1) < TABLE_LEN,
+        "a test story's form table is full"
+    );
+    e.mem.set_u32(TABLE + 4 + 8 * count, id);
+    e.mem.set_u32(TABLE + 8 + 8 * count, form);
+    e.mem.set_u32(TABLE, count + 1);
+}
+// world: end
+
 fn runner(e: &mut Engine, a: &[u32]) -> Ret {
     let n = e.mem.u32(RAN);
     e.mem.set_u32(RAN, n + 1);

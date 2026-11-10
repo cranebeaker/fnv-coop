@@ -20,6 +20,8 @@
 
 pub mod ladder;
 pub mod record;
+// world
+pub mod world;
 
 use std::collections::BTreeSet;
 
@@ -109,6 +111,8 @@ pub fn hello(plugins: Vec<String>) -> Hello {
         CLOCK_TAG,
         LIFE_TAG
     );
+    // world
+    let rules = format!("{rules} {}", world::rules());
     Hello {
         proto: proto::PROTOCOL_VERSION,
         build_hash: compat::plugin_list_hash(&[build]),
@@ -180,9 +184,21 @@ pub struct HostDriver {
     pub bad_packets: u32,
     /// Sends that failed.
     pub send_failures: u32,
+    // world
+    /// The rest of the world's state (records, doors, locks); `None` leaves it unshared. Set it
+    /// with [`HostDriver::share_world`].
+    pub world: Option<world::HostWorld>,
 }
 
 impl HostDriver {
+    // world
+    /// Shares the rest of the world's state: changed forms' records to the guests, doors and
+    /// locks both ways (docs/coop/SPECS.md S12).
+    pub fn share_world(&mut self, w: world::HostWorld) {
+        self.sync.claim_tags.insert(world::LOCK_TAG);
+        self.world = Some(w);
+    }
+
     /// A host with coop-core's config `cfg`, replicating the quests `quest_ids` (the shared story's:
     /// leave out the quests each player runs for themself; all of them are
     /// written at the start, so a guest gets every quest's state from the snapshot, whatever save
@@ -215,6 +231,7 @@ impl HostDriver {
             hash_every: 10,
             bad_packets: 0,
             send_failures: 0,
+            world: None, // world
         }
     }
 
@@ -327,6 +344,10 @@ impl HostDriver {
         // Only the quests this session replicates: a player's own quests (the opening, character
         // creation, ...) change on the host too and are not the shared story.
         let changes = coop_engine::drain(e);
+        // world
+        if let Some(w) = self.world.as_mut() {
+            w.collect(e, &mut self.sync, &changes);
+        }
         let quests: BTreeSet<u32> = changes
             .iter()
             .filter(|c| c.kind == addr::FORM_TYPE_QUEST && self.quests.contains(&c.form))
@@ -358,6 +379,12 @@ impl HostDriver {
         for (from, msg) in receive(net, &mut self.bad_packets) {
             for (to, reply) in self.sync.on_msg(from, msg) {
                 send(net, to, &reply, &mut self.send_failures);
+            }
+        }
+        // world: doors and locks guests moved, before the other claims are judged.
+        if let Some(w) = self.world.as_mut() {
+            for (to, msg) in w.enact(e, &mut self.sync) {
+                send(net, to, &msg, &mut self.send_failures);
             }
         }
         self.enact_claims(e);
@@ -462,6 +489,9 @@ pub struct GuestDriver {
     pub bad_packets: u32,
     /// Sends that failed.
     pub send_failures: u32,
+    // world
+    /// The rest of the world's state (records, doors, locks); `None` leaves it unshared.
+    pub world: Option<world::GuestWorld>,
 }
 
 impl GuestDriver {
@@ -488,6 +518,7 @@ impl GuestDriver {
             refused: 0,
             bad_packets: 0,
             send_failures: 0,
+            world: None, // world
         }
     }
 
@@ -526,10 +557,18 @@ impl GuestDriver {
         }
         self.claim_deaths(e, net);
         self.apply(e);
+        // world
+        if let Some(w) = self.world.as_mut() {
+            w.apply(e, &self.sync.store);
+        }
         self.keep_clock(e, now_ms);
         self.steps += 1;
         if self.steps % self.heal_every.max(1) == 0 {
             self.heal(e);
+            // world
+            if let Some(w) = self.world.as_mut() {
+                w.heal(e, &self.sync.store);
+            }
         }
     }
 
@@ -537,6 +576,12 @@ impl GuestDriver {
     /// story (a death applied from the host is in the replica by then, so it is not sent back).
     fn claim_deaths(&mut self, e: &mut Engine, net: &mut dyn Transport) {
         let changes = coop_engine::drain(e);
+        // world: this game's own doors and locks, told to the host.
+        if let Some(w) = self.world.as_mut() {
+            for msg in w.observe(e, &mut self.sync, &changes) {
+                send(net, PlayerId::HOST, &msg, &mut self.send_failures);
+            }
+        }
         self.life_pending.extend(life_changes(&changes));
         if self.sync.phase() != GuestPhase::Active || self.life_pending.is_empty() {
             return;

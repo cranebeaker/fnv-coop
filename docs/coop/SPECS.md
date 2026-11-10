@@ -280,3 +280,76 @@ DLCs. **Not verified here:** that the guest's opening then plays through in the 
   `echo` reports only a death the guest's game lacks.
 - Rules: `VPreorder*` and `VGenericTimer` are per-player rows (491 rows).
 
+## S12: the rest of the world (implemented on stand-ins; docs/coop/DECISIONS.md D1, option C)
+
+Nothing in this section has run in the real game. Its tests use stand-ins for the game's functions
+(`coop_engine::worldkit`).
+
+### The changed-form stream (`coop_engine::changes`, `coop_engine_session::world`)
+
+- **A record** is what the game writes for one form into a save: the nine-byte form header (the
+  form's index, change flags, save type, version) and the data. `capture` makes it as
+  `BGSSaveLoadGame::SaveGame` and `UnloadForm` do for each changed form: a `BGSSaveFormBuffer`
+  (`008659c0`), its header (`00865ad0`), the form (`0050f9c0`), the form's `CheckSaveGame` (slot
+  0x80), the initial data (`0084eb80`) and the form's `SaveGame` (slot 0x54). It is written with
+  every change flag the game's save holds for the form (`008456e0`), so it is the whole changed
+  form.
+- **Loading** is what `BGSSaveLoadGame::LoadForm` (`008495d0`) does when the game loads a form's
+  stored record while playing: a `BGSLoadFormBuffer` (`008643b0`) with the record's bytes, the
+  form set (`007037c0`), the header's flags (`00428130`), the form marked (`0046a010`), the
+  initial data (`0084f330`), the form's `LoadGame` (slot 0x5c), the data freed, the buffer handed
+  to the game's form buffer array (`007cb2e0`), then the game's unload pass (`008492b0`, which
+  runs `InitLoadGame` and `FinishLoadGame` and deletes the buffer). Not while a load runs
+  (`0042ce10`). On a guest all of it is inside the script gate's apply scope. Nothing is reverted
+  first.
+- **The numbering.** A record names other forms by three-byte indices into a
+  `BGSSaveLoadFormIDMap`, through the map the game object points at (+0x08), and every game
+  numbers for itself. Co-op makes one map of its own per game (`00846b60`) and puts it in the game
+  object's place only while a record is made or loaded. The host's grows as it captures; its ids
+  travel in index order (`NUMBERS_TAG`, 120 ids a field); a guest enters them in the same order
+  (`00846c90`). The game's own save numbering is never used or changed. A record says how many ids
+  it needs and waits on a guest until they are there.
+- **What travels** (`changes::class_of`, in D1's order): a placed object (`REFR`) whose form
+  flags (enabled or not), place, lock or open state changed; a placed object whose contents
+  changed; a faction; a reputation; a note read; a dialogue response said once. Not: actors, cells,
+  quests (their own channel), objects only pushed about by physics, forms made while playing (ids
+  from `ff000000`). A record that does not fit one field (512 bytes) is not sent, counted and named
+  once in the host's log.
+- **On a guest** a record waits while its form is not in the game or the game is loading. After a
+  load the guest makes its own record of the form with the same flags and counts a difference
+  (`records_differ`, named once): on a PC that number says, per kind of form, whether its live load
+  holds. A form of another type than the record's is refused.
+- **D1's condition 1.** No kind of form has its live-load proof on a PC yet. `NV_COOP_WORLD=doors`
+  runs without records, `off` without any of this section.
+
+### Doors and locks (`coop_engine::world`, `coop_engine_session::world`)
+
+- A door is read with `BGSOpenCloseForm::GetOpenState` (`0047b250`) and moved with `SetOpenState`
+  (`0047aec0`, not immediate). A door opened gets its change flag through `AddChange`; shut again
+  it loses the flag through `RemoveChange`, which does not pass the journal's wrap. So the host
+  reads every door it has seen change once a step and writes its state as `DOOR_TAG`.
+- A lock (`REFR_LOCK`: level +0x00, flags +0x08, tries +0x0c) is read from the reference's own
+  lock (`00569140`) and set with `TESObjectREFR::Lock` (`00569250`) and `UnLock` (`005692a0`),
+  then the other values in place and `AddLockChange` (`005789b0`). The host writes it as `LOCK_TAG`
+  when the journal names the lock's change. A lock picked, a lock opened from a terminal and a
+  lock's failed tries (a broken lock is one whose tries reached the game's limit) are all in it.
+- A guest's own door goes to the host as coop-core's `Act::World(Shared::Door)`; the host's game
+  moves the door and the state comes back to everyone. A guest's own lock change goes as a claim
+  (as a death does, D4); the host's game sets the lock. A guest's change the host does not take up
+  (the object is not in the host's game) is put back after 120 steps.
+- The host refuses every other interaction request for now, so a guest is never left waiting.
+
+**Verified here** (no game): `coop-engine` 44 tests, among them a round trip per kind of form
+(host record, guest load, guest record, byte for byte) with `crates/fos` decoding the reference's
+place, the faction, the reputation, the note and the response; `coop-engine-session` 9 tests on two
+and three test games over loopback. Twins: a record loaded with another numbering names other
+forms; a load on a game that is not a guest runs the object's script; with doors not shared a door
+shut on the host stays open on the guest.
+
+**Not verified here:** every game function above (the stand-ins only do what co-op relies on), what
+a placed object's real record holds after its initial data, that a live `LoadGame` shows on screen
+(a door swinging, a container's menu), and two real games.
+
+**Not done:** a guest's take from a container and a guest's trade do not reach the host (loot can
+be taken twice; each game has its own trader stock and caps); terminals' own state beyond their
+lock; references moved to another cell; records above 512 bytes.

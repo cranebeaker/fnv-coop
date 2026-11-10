@@ -9,6 +9,8 @@
 //! sends the players' places only, `warp` also moves a guest to the host's cell, `avatar` (the
 //! default) also shows the other players; `off` leaves the session story-only.
 //! `NV_COOP_AVATAR=<hex form id>` is the base form of an avatar (default 7, the player's own).
+//! `NV_COOP_WORLD=doors` shares doors and locks but no changed-form records, `off` neither
+//! (docs/coop/SPECS.md S12).
 //!
 //! Both players start the same game (a new game, or the same save) from installations whose
 //! plugins load in the same order; the handshake refuses a guest whose plugins differ.
@@ -237,6 +239,33 @@ impl Coop {
         )
     }
 
+    // world
+    /// The world sharing's counters, for the status lines; `None` when it is off.
+    fn world_status(&self) -> Option<String> {
+        match &self.role {
+            Role::Host(h) => h.world.as_ref().map(|w| {
+                format!(
+                    "co-op host world: records sent {}, too large {}, guests' doors and locks done {}, refused {}",
+                    w.records, w.too_large, w.enacted, w.refused
+                )
+            }),
+            Role::Guest(Some(g)) => g.world.as_ref().map(|w| {
+                format!(
+                    "co-op guest world: records loaded {} (own record differs after {}), refused {}, doors and locks set {}, told the host {}, put back {}",
+                    w.records_applied, w.records_differ, w.refused, w.set, w.told_host, w.put_back
+                )
+            }),
+            Role::Guest(None) => None,
+        }
+    }
+
+    // world
+    /// What `NV_COOP_WORLD` asks to share of the world beyond the story (everything unless it
+    /// says `doors` or `off`).
+    fn world_share() -> session::world::Share {
+        session::world::Share::parse(&std::env::var("NV_COOP_WORLD").unwrap_or_default())
+    }
+
     /// Opens the session `ask` asks for, for the installation whose `Data` folder is `data`.
     /// Returns the session and the lines to print (the join code).
     pub fn open(ask: &Ask, data: &Path, name: &str) -> Result<(Coop, Vec<String>), String> {
@@ -278,6 +307,12 @@ impl Coop {
                 let (ladder, line) = Self::ladder(false);
                 host.ladder = ladder;
                 lines.push(line);
+                // world
+                let share = Self::world_share();
+                lines.push(share.line().into());
+                if let Some(w) = share.host() {
+                    host.share_world(w);
+                }
                 (Endpoint::host(b, token, cfg), Role::Host(Box::new(host)))
             }
             Ask::Join(code) => {
@@ -324,6 +359,10 @@ impl Coop {
                             let (ladder, line) = Self::ladder(true);
                             g.ladder = ladder;
                             lines.push(line);
+                            // world
+                            let share = Self::world_share();
+                            lines.push(share.line().into());
+                            g.world = share.guest();
                             *slot = Some(Box::new(g));
                         }
                         // Joined again after losing the host: resume from what this guest has.
@@ -379,11 +418,19 @@ impl Coop {
                 for note in h.claim_notes.drain(..) {
                     lines.push(format!("co-op host: {note}"));
                 }
+                // world
+                for note in h.world.iter_mut().flat_map(|w| w.notes.drain(..)) {
+                    lines.push(format!("co-op host world: {note}"));
+                }
             }
             Role::Guest(Some(g)) => {
                 g.step(e, &mut self.ep, now_ms);
                 for note in g.healed_notes.drain(..) {
                     lines.push(format!("co-op guest healed: {note}"));
+                }
+                // world
+                for note in g.world.iter_mut().flat_map(|w| w.notes.drain(..)) {
+                    lines.push(format!("co-op guest world: {note}"));
                 }
             }
             Role::Guest(None) => {}
@@ -394,6 +441,8 @@ impl Coop {
         {
             self.last_status = Some(Instant::now());
             lines.push(self.status(e));
+            // world
+            lines.extend(self.world_status());
             if let Role::Guest(_) = self.role {
                 // Which story scripts this guest holds back, each named once (the first 80): what
                 // a guest would have to run itself to have its own start.
