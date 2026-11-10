@@ -1,0 +1,44 @@
+name: Package
+# Builds the co-op package on a hosted Windows machine and attaches it to a draft release.
+# A maintainer starts it by hand, checks the draft, and publishes it.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version, for example 0.2.1-alpha"
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  package:
+    name: package
+    runs-on: windows-latest
+    timeout-minutes: 240
+    env:
+      CARGO_INCREMENTAL: 0
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          rustup default stable
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build and package
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          $r = ./scripts/package-coop.ps1 -Version $env:VERSION
+          $r | Format-List
+      - name: Attach the package to a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          $name = "nv-rs-coop-$env:VERSION-windows-x64"
+          gh release create "v$env:VERSION" "dist/$name.zip" "dist/$name.zip.sha256" --draft --prerelease --target $env:GITHUB_SHA --title "FNV Co-Op $env:VERSION" --notes "Draft. The notes come before it is published."
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
