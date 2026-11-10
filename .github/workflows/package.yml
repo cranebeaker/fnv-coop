@@ -41,8 +41,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          $r = ./scripts/package-playtest.ps1 -Version $env:VERSION -Coop
-          $r | Format-List
+          ./scripts/package-playtest.ps1 -Version $env:VERSION -Coop | Format-List
       - name: Attach the package to a draft release
         env:
           GH_TOKEN: ${{ github.token }}
