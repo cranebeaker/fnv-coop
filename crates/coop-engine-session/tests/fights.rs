@@ -17,6 +17,7 @@ const HOUSE: u32 = 0x0010_5a00;
 const TOWN: u32 = 0x0010_5a01;
 const RAIDER: u32 = 0x0010_4f25;
 const GECKO: u32 = 0x0010_4f26;
+const PLAYER: u32 = 0x14;
 
 fn spec() -> StorySpec {
     StorySpec {
@@ -222,5 +223,176 @@ fn a_guest_in_another_space_keeps_its_own_actors() {
     let g = p.guest.actor_view(RAIDER);
     assert_eq!((g.pos, g.ai), ([900.0, 900.0, 0.0], true));
     assert!(p.guest_fight().held().is_empty());
+    p.story_is_whole();
+}
+
+/// Two games in the same house, the raider placed and held, after the ladder's first frames.
+fn in_a_fight(cap: &str) -> Pair {
+    let mut p = Pair::with(Cap::Avatar, Some(fight::Cap::parse(cap)));
+    p.host.place_actor(RAIDER, HOUSE, [10.0, 20.0, 0.0], 0.5);
+    p.guest.place_actor(RAIDER, HOUSE, [900.0, 900.0, 0.0], 2.0);
+    p.frames(40);
+    assert!(p.guest_fight().held().contains(&RAIDER));
+    p
+}
+
+impl Pair {
+    /// The guest's avatar in the host's game.
+    fn guest_avatar(&self) -> u32 {
+        self.hd.ladder.as_ref().unwrap().avatar_ids()[0].1
+    }
+
+    fn host_fight(&self) -> &Fight {
+        self.hd.fight.as_ref().unwrap()
+    }
+}
+
+#[test]
+fn a_guests_hit_is_applied_by_the_hosts_game_and_comes_back() {
+    let mut p = in_a_fight("");
+    let avatar = p.guest_avatar();
+    p.guest.hit(RAIDER, PLAYER, 30.0);
+    // The guest's own game did not apply it.
+    assert_eq!(p.guest.hits_run(), 0);
+    assert_eq!(p.guest.actor_view(RAIDER).health, 100.0);
+    p.frames(3);
+    let h = p.host.actor_view(RAIDER);
+    assert_eq!((h.health, h.attacker), (70.0, avatar));
+    assert_eq!(p.guest.actor_view(RAIDER).health, 70.0);
+    assert_eq!(
+        (p.host_fight().hits_applied, p.guest_fight().hits_sent),
+        (1, 1)
+    );
+    // What the guest's held actors do to each other is not the guest's game's to apply.
+    p.guest.hit(RAIDER, GECKO, 20.0);
+    p.frames(3);
+    assert_eq!(p.guest.hits_run(), 0);
+    assert_eq!(p.host.actor_view(RAIDER).health, 70.0);
+    // A lethal hit: the host's game kills, credited to the guest's avatar, and the death
+    // reaches the guest without its scripts.
+    let ran = p.host.scripts_run();
+    p.guest.hit(RAIDER, PLAYER, 500.0);
+    p.frames(5);
+    assert_eq!(p.host.dead(RAIDER), Some(true));
+    assert_eq!(p.guest.dead(RAIDER), Some(true));
+    assert_eq!(p.host_fight().kills, 1);
+    assert_eq!(
+        p.host.scripts_run(),
+        ran + 1,
+        "the death's script ran on the host, once"
+    );
+    // A hit on the corpse is refused by the ledger.
+    p.guest.hit(RAIDER, PLAYER, 10.0);
+    p.frames(3);
+    assert_eq!(p.host_fight().hits_applied, 2);
+    p.story_is_whole();
+}
+
+#[test]
+fn an_essential_actor_survives_a_guests_lethal_hit() {
+    let mut p = in_a_fight("");
+    p.host.set_essential(RAIDER, true);
+    p.frames(2);
+    p.guest.hit(RAIDER, PLAYER, 500.0);
+    p.frames(5);
+    assert_eq!(p.host.dead(RAIDER), Some(false));
+    assert_eq!(p.guest.dead(RAIDER), Some(false));
+    assert_eq!(p.host_fight().kills, 0);
+    p.story_is_whole();
+}
+
+#[test]
+fn the_hosts_actors_hurt_a_guest_through_the_host() {
+    let mut p = in_a_fight("");
+    let avatar = p.guest_avatar();
+    // The raider hits the guest's avatar in the host's game: kept from the avatar.
+    p.host.hit(avatar, RAIDER, 25.0);
+    assert_eq!(p.host.hits_run(), 0);
+    p.frames(3);
+    // The guest's own player took it (with whatever the party's scaling adds).
+    let health = p.guest.actor_view(PLAYER).health;
+    assert!((70.0..=75.0).contains(&health), "{health}");
+    assert_eq!(p.guest.actor_view(PLAYER).attacker, RAIDER);
+    assert_eq!(
+        (p.host_fight().hurts_sent, p.guest_fight().hurts_taken),
+        (1, 1)
+    );
+    // The host knows the guest's health from then on.
+    let vitals = p.hd.sync.live.combat.vitals.get(PlayerId(1)).unwrap();
+    assert_eq!(f32::from(vitals.hp), health.ceil());
+    // The held raider's own swing at the guest's player, in the guest's game, does nothing.
+    p.guest.hit(PLAYER, RAIDER, 50.0);
+    assert_eq!(p.guest.hits_run(), 0);
+    assert_eq!(p.guest.actor_view(PLAYER).health, health);
+    // Anything else that hits the guest's player is the guest's game's own (a trap, a fall).
+    p.guest.hit(PLAYER, 0, 5.0);
+    assert_eq!(p.guest.hits_run(), 1);
+    // The host's player hitting the avatar: friendly fire is off, nothing arrives.
+    p.host.hit(avatar, PLAYER, 40.0);
+    p.frames(3);
+    assert_eq!(p.guest_fight().hurts_taken, 1);
+    // The host's own fights are its game's.
+    p.host.hit(RAIDER, PLAYER, 10.0);
+    assert_eq!(p.host.hits_run(), 1);
+    p.story_is_whole();
+}
+
+#[test]
+fn with_state_only_every_game_applies_its_own_hits() {
+    let mut p = in_a_fight("state");
+    p.guest.hit(RAIDER, PLAYER, 30.0);
+    assert_eq!(p.guest.hits_run(), 1);
+    p.frames(3);
+    assert_eq!(p.host.actor_view(RAIDER).health, 100.0);
+    assert_eq!(p.host_fight().hits_applied, 0);
+    p.story_is_whole();
+}
+
+#[test]
+fn an_enemy_turns_on_the_guest_that_hurts_it() {
+    let mut p = in_a_fight("");
+    let avatar = p.guest_avatar();
+    // Fights on: the avatar can be fought.
+    assert!(!p.host.ghost(avatar));
+    p.host.set_health(RAIDER, 2000.0);
+    p.host.set_combat(RAIDER, PLAYER);
+    // The gecko fights the raider, not a player: nobody redirects it.
+    p.host.place_actor(GECKO, HOUSE, [50.0, 20.0, 0.0], 0.0);
+    p.host.set_combat(GECKO, RAIDER);
+    p.frames(20);
+    assert_eq!(p.host.actor_view(RAIDER).target, PLAYER);
+    for _ in 0..6 {
+        p.guest.hit(RAIDER, PLAYER, 200.0);
+        p.frames(2);
+    }
+    // The director holds a target for a while before it switches.
+    p.frames(80);
+    assert_eq!(p.host.actor_view(RAIDER).target, avatar);
+    assert_eq!(p.host_fight().retargets, 1);
+    assert_eq!(p.host.combats_started(), 1);
+    assert_eq!(p.host.actor_view(GECKO).target, RAIDER);
+    // The guest is told who the raider is after.
+    let state = p.gd.sync.live.actors.get(FormId(RAIDER)).unwrap().state;
+    assert_eq!(
+        fight::target_player(state.unwrap().target),
+        Some(PlayerId(1))
+    );
+    p.story_is_whole();
+}
+
+#[test]
+fn without_the_threat_slice_avatars_stay_ghosts_and_nobody_is_redirected() {
+    let mut p = in_a_fight("damage");
+    let avatar = p.guest_avatar();
+    assert!(p.host.ghost(avatar));
+    p.host.set_health(RAIDER, 2000.0);
+    p.host.set_combat(RAIDER, PLAYER);
+    for _ in 0..6 {
+        p.guest.hit(RAIDER, PLAYER, 200.0);
+        p.frames(2);
+    }
+    p.frames(80);
+    assert_eq!(p.host.actor_view(RAIDER).target, PLAYER);
+    assert_eq!(p.host.combats_started(), 0);
     p.story_is_whole();
 }

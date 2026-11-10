@@ -7,11 +7,192 @@
 //!   (`bProcessMe`), moved with the bodies of `SetPos` and `SetAngle`, its health set to the
 //!   host's. [`release`] gives it back to the guest's game.
 //!
-//! Every function is called between two of the game's frames, as the live ladder's are.
+//! - Hits: a wrap of `Actor::HitMe` (`0089a760`), as [`Owner::Coop`], decides whose game applies
+//!   a weapon hit ([`hit_me`]). The host's game applies every hit it makes, except one on a
+//!   player's avatar, which belongs to that player's own game. A guest's game applies none on an
+//!   actor the host runs: its player's hit is kept for the host as a claim, and what the held
+//!   actors do to each other or to the guest's player is the host's to decide. With no session
+//!   ([`Role::Off`]) every hit goes to the game as before.
+//! - Damage the session decides: [`hurt_actor`] and [`kill_by`] on the host, [`hurt_player`] on
+//!   the machine of the player who was hurt.
+//!
+//! Except for the wrap, every function is called between two of the game's frames, as the live
+//! ladder's are.
 
+use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::{Mutex, PoisonError, RwLock};
+
+use engine_core::extend::{Owner, WrapSlot};
 use engine_core::prelude::*;
 
-use crate::{actors, addr, live};
+use crate::{actors, addr, forms, live};
+
+/// Co-op's place in front of `Actor::HitMe`.
+pub(crate) const HIT_ME: WrapSlot = WrapSlot::new(Owner::Coop, addr::ACTOR_HIT_ME);
+
+/// What this machine is in a session, for the hit wrap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    /// No session, or fights not shared: every hit goes to the game.
+    Off,
+    /// The host: its game applies its hits, except those on a player's avatar.
+    Host,
+    /// A guest: hits on actors the host runs are the host's.
+    Guest,
+}
+
+/// A weapon hit the wrap kept from the game.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hit {
+    /// The form id of the actor that was hit.
+    pub target: u32,
+    /// The form id of the aggressor (`HitData::pAggressor`), 0 for none.
+    pub aggressor: u32,
+    /// `HitData::fHealthDamage`.
+    pub amount: f32,
+    /// `HitData::eDamageLimb` (-1 for none).
+    pub limb: i32,
+}
+
+/// Most hits kept between two drains.
+const HITS_MAX: usize = 256;
+
+/// The fights' game-wide state (a lock-free shared slot, as the journal's): the wrap runs on
+/// whatever thread the game hits on, the session reads between frames.
+#[derive(Debug, Default)]
+pub struct Fights {
+    /// 0 off, 1 host, 2 guest.
+    role: AtomicU8,
+    /// `Actor::HitMe` is wrapped on this game.
+    wrapped: AtomicU8,
+    /// The form ids of the other players' avatars in this game.
+    avatars: RwLock<BTreeSet<u32>>,
+    /// Guest: the form ids of the actors held at the host's state.
+    held: RwLock<BTreeSet<u32>>,
+    /// Hits kept from the game since the last drain.
+    hits: Mutex<Vec<Hit>>,
+    /// Hits kept from the game, ever.
+    kept: AtomicU64,
+}
+
+/// Installs the hit wrap when the game has `Actor::HitMe` (the translation, or a test's
+/// stand-in); called by [`crate::install`], before the game's threads start.
+pub(crate) fn install(e: &mut Engine) {
+    let wrapped = e.is_registered(addr::ACTOR_HIT_ME);
+    if wrapped {
+        e.wrap(HIT_ME, hit_me);
+    }
+    e.ext_free::<Fights>()
+        .wrapped
+        .store(u8::from(wrapped), Ordering::SeqCst);
+}
+
+/// Whether `Actor::HitMe` is wrapped on this game (hits can be shared).
+pub fn hits_wrapped(e: &mut Engine) -> bool {
+    e.ext_free::<Fights>().wrapped.load(Ordering::SeqCst) != 0
+}
+
+/// Sets what this machine is for the hit wrap.
+pub fn set_role(e: &mut Engine, role: Role) {
+    e.ext_free::<Fights>().role.store(
+        match role {
+            Role::Off => 0,
+            Role::Host => 1,
+            Role::Guest => 2,
+        },
+        Ordering::SeqCst,
+    );
+}
+
+fn put(set: &RwLock<BTreeSet<u32>>, ids: impl IntoIterator<Item = u32>) {
+    *set.write().unwrap_or_else(PoisonError::into_inner) = ids.into_iter().collect();
+}
+
+fn has(set: &RwLock<BTreeSet<u32>>, id: u32) -> bool {
+    set.read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .contains(&id)
+}
+
+/// Names the other players' avatars in this game (their form ids).
+pub fn set_avatars(e: &mut Engine, ids: impl IntoIterator<Item = u32>) {
+    put(&e.ext_free::<Fights>().avatars, ids);
+}
+
+/// Names the actors a guest holds at the host's state (their form ids).
+pub fn set_held(e: &mut Engine, ids: impl IntoIterator<Item = u32>) {
+    put(&e.ext_free::<Fights>().held, ids);
+}
+
+/// The hits kept from the game since the last call, oldest first.
+pub fn take_hits(e: &mut Engine) -> Vec<Hit> {
+    std::mem::take(
+        &mut *e
+            .ext_free::<Fights>()
+            .hits
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner),
+    )
+}
+
+/// How many hits the wrap kept from the game, ever.
+pub fn hits_kept(e: &mut Engine) -> u64 {
+    e.ext_free::<Fights>().kept.load(Ordering::SeqCst)
+}
+
+/// The wrap at `0089a760`. Its words are the call's: the actor that is hit, the `HitData` and
+/// the kind byte. A hit it keeps from the game answers as the game's own call does for an actor
+/// without a process: nothing happened.
+pub(crate) fn hit_me(e: &mut Engine, a: &[u32]) -> Ret {
+    let word = |i: usize| a.get(i).copied().unwrap_or(0);
+    let (target, hit) = (word(0), word(1));
+    let role = e.ext_free::<Fights>().role.load(Ordering::SeqCst);
+    if role == 0 || target == 0 || hit == 0 {
+        return e.call_next(addr::ACTOR_HIT_ME, a);
+    }
+    let id_of = |e: &mut Engine, r: u32| match r {
+        0 => 0,
+        r => e.mem.u32(r.wrapping_add(addr::FORM_ID_OFFSET)),
+    };
+    let tid = id_of(e, target);
+    let aggressor = e.mem.u32(hit.wrapping_add(addr::HIT_AGGRESSOR_OFFSET));
+    let aid = id_of(e, aggressor);
+    let f = e.ext_free::<Fights>();
+    // (keep the hit from the game, hand it to the session)
+    let (keep, tell) = if has(&f.avatars, tid) {
+        // A player's avatar: that player's own game takes the damage, if the host says so.
+        (true, true)
+    } else if role == 2 && tid == actors::PLAYER_REF_ID {
+        // This guest's player: what the host's actors and the other players do to it comes
+        // from the host.
+        (has(&f.held, aid) || has(&f.avatars, aid), false)
+    } else if role == 2 && has(&f.held, tid) {
+        // An actor the host runs: this player's hit is a claim for the host; anything else
+        // that hits it here is for the host's game to decide.
+        (true, aid == actors::PLAYER_REF_ID)
+    } else {
+        (false, false)
+    };
+    if !keep {
+        return e.call_next(addr::ACTOR_HIT_ME, a);
+    }
+    let kept = Hit {
+        target: tid,
+        aggressor: aid,
+        amount: e.mem.f32(hit.wrapping_add(addr::HIT_HEALTH_DAMAGE_OFFSET)),
+        limb: e.mem.u32(hit.wrapping_add(addr::HIT_LIMB_OFFSET)) as i32,
+    };
+    let f = e.ext_free::<Fights>();
+    f.kept.fetch_add(1, Ordering::SeqCst);
+    if tell {
+        let mut hits = f.hits.lock().unwrap_or_else(PoisonError::into_inner);
+        if hits.len() < HITS_MAX {
+            hits.push(kept);
+        }
+    }
+    Ret::default()
+}
 
 /// One actor as the game has it now.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -35,6 +216,8 @@ pub struct Snap {
     pub target: u32,
     /// Whether it has its 3D.
     pub loaded: bool,
+    /// `Actor::GetEssential`: the game does not let it die.
+    pub essential: bool,
 }
 
 impl Snap {
@@ -108,6 +291,7 @@ pub fn snap(e: &mut Engine, actor: u32) -> Snap {
         in_combat,
         target,
         loaded: e.mem.u32(actor.wrapping_add(addr::REF_LOADED_OFFSET)) != 0,
+        essential: e.call(addr::ACTOR_GET_ESSENTIAL, &args![actor]).bool(),
     }
 }
 
@@ -186,6 +370,106 @@ pub fn release(e: &mut Engine, id: u32) -> bool {
     }
 }
 
+/// The host's game takes a guest's hit on an actor: `amount` points of health through the
+/// game's own damage applier (virtual `0x338`), from `attacker` (a form id, the guest's avatar
+/// here, or 0), so the difficulty's adjustment and the combat controllers' notes happen as for
+/// any hit. Answers the actor's health afterwards; `None` when it is not in this game now. The
+/// applier does not kill: see [`kill_by`].
+pub fn hurt_actor(e: &mut Engine, id: u32, amount: f32, attacker: u32) -> Option<f32> {
+    let a = actors::actor(e, id)?;
+    let by = forms::form(e, attacker).unwrap_or(0);
+    e.vcall(
+        a,
+        addr::ACTOR_APPLY_DAMAGE_SLOT,
+        &args![amount.to_bits(), 0.0f32.to_bits(), by],
+    );
+    Some(health(e, a))
+}
+
+/// Kills actor `id` through the game's `Actor::Kill`, credited to `attacker` (a form id, or 0).
+/// False when the actor is not in this game now. The game keeps an essential actor alive.
+pub fn kill_by(e: &mut Engine, id: u32, attacker: u32) -> bool {
+    let Some(a) = actors::actor(e, id) else {
+        return false;
+    };
+    let by = forms::form(e, attacker).unwrap_or(0);
+    e.call(addr::ACTOR_KILL, &args![a, by, 0.0f32.to_bits()]);
+    true
+}
+
+/// This game's player takes `amount` points of health damage the host decided, from `attacker`
+/// (a form id, or 0), through the game's own damage applier. Answers the player's health
+/// afterwards; `None` before the game has a player.
+pub fn hurt_player(e: &mut Engine, amount: f32, attacker: u32) -> Option<f32> {
+    let p = live::player(e)?;
+    let by = forms::form(e, attacker).unwrap_or(0);
+    e.vcall(
+        p,
+        addr::ACTOR_APPLY_DAMAGE_SLOT,
+        &args![amount.to_bits(), 0.0f32.to_bits(), by],
+    );
+    Some(health(e, p))
+}
+
+/// Kills this game's player through the game's `Actor::Kill`, as a lethal hit does (the game's
+/// own death follows). False before the game has a player.
+pub fn kill_player(e: &mut Engine) -> bool {
+    match live::player(e) {
+        Some(p) => {
+            e.call(addr::ACTOR_KILL, &args![p, 0u32, 0.0f32.to_bits()]);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Makes actor `id` fight `target` (form ids; the target is a player's avatar, or this game's
+/// player, `0x14`) the way the `StartCombat` command does: the actor's process starts the
+/// combat (virtual `0x33c`, with the command's own words). False, and nothing done, when either
+/// is not in this game now or has no process, as the command checks.
+pub fn start_combat(e: &mut Engine, id: u32, target: u32) -> bool {
+    let (Some(a), Some(t)) = (actors::actor(e, id), forms::form(e, target)) else {
+        return false;
+    };
+    let process = e.mem.u32(a.wrapping_add(addr::ACTOR_PROCESS_OFFSET));
+    if process == 0 || e.mem.u32(t.wrapping_add(addr::ACTOR_PROCESS_OFFSET)) == 0 {
+        return false;
+    }
+    let not_alarmed = !e.vcall(a, addr::ACTOR_ALARMED_SLOT, &args![]).bool();
+    e.vcall(
+        process,
+        addr::PROCESS_START_COMBAT_SLOT,
+        &args![
+            a,
+            t,
+            1u32,
+            1u32,
+            0u32,
+            0u32,
+            0u32,
+            u32::from(not_alarmed),
+            0u32,
+            1u32,
+            0u32,
+            1u32,
+            0u32
+        ],
+    );
+    true
+}
+
+/// Sets or clears an avatar's ghost flag (`Actor::SetGhost`). An avatar is placed as a ghost;
+/// one the host's actors are to fight is not one. False when it is not in this game now.
+pub fn set_ghost(e: &mut Engine, id: u32, on: bool) -> bool {
+    match forms::form(e, id) {
+        Some(r) => {
+            e.call(addr::ACTOR_SET_GHOST, &args![r, u32::from(on)]);
+            true
+        }
+        None => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,5 +540,141 @@ mod tests {
         assert_eq!(hold(&mut s.e, RAIDER, [0.0; 3], 0.0, 50.0), None);
         assert_eq!(s.actor_view(RAIDER).pos, [10.0, 20.0, 30.0]);
         assert!(!release(&mut s.e, 0x9999));
+    }
+}
+
+#[cfg(test)]
+mod hit_tests {
+    use super::*;
+    use crate::testkit::{Story, StorySpec};
+
+    const HOUSE: u32 = 0x0010_5a00;
+    const RAIDER: u32 = 0x0010_4f25;
+    const GECKO: u32 = 0x0010_4f26;
+    const PLAYER: u32 = actors::PLAYER_REF_ID;
+
+    fn story() -> Story {
+        let mut s = Story::new(&StorySpec {
+            cells: vec![HOUSE],
+            actors: vec![RAIDER, GECKO],
+            ..StorySpec::default()
+        });
+        s.move_player(HOUSE, [0.0; 3], 0.0);
+        s.place_actor(RAIDER, HOUSE, [1.0, 2.0, 3.0], 0.5);
+        s.place_actor(GECKO, HOUSE, [4.0, 5.0, 6.0], 0.5);
+        s
+    }
+
+    #[test]
+    fn with_no_session_every_hit_is_the_games() {
+        let mut s = story();
+        assert!(hits_wrapped(&mut s.e));
+        set_held(&mut s.e, [RAIDER]);
+        s.hit(RAIDER, PLAYER, 30.0);
+        s.hit(PLAYER, RAIDER, 10.0);
+        assert_eq!(s.hits_run(), 2);
+        assert_eq!(s.actor_view(RAIDER).health, 70.0);
+        assert_eq!(s.actor_view(PLAYER).health, 90.0);
+        assert_eq!((hits_kept(&mut s.e), take_hits(&mut s.e)), (0, vec![]));
+    }
+
+    #[test]
+    fn a_guest_keeps_hits_on_held_actors_and_from_them() {
+        let mut s = story();
+        let avatar = live::avatar_create(&mut s.e, 7).unwrap().id;
+        set_role(&mut s.e, Role::Guest);
+        set_held(&mut s.e, [RAIDER]);
+        set_avatars(&mut s.e, [avatar]);
+        // The player's hit on a held actor: kept, and handed over as a claim.
+        s.hit(RAIDER, PLAYER, 30.0);
+        // Someone else's hit on it, its hit on the player, an avatar's hit on the player: kept,
+        // and nobody's claim.
+        s.hit(RAIDER, GECKO, 20.0);
+        s.hit(PLAYER, RAIDER, 10.0);
+        s.hit(PLAYER, avatar, 10.0);
+        // The player's hit on an avatar: kept, and handed over (the friendly-fire rule).
+        s.hit(avatar, PLAYER, 15.0);
+        assert_eq!(s.hits_run(), 0);
+        assert_eq!(hits_kept(&mut s.e), 5);
+        assert_eq!(
+            take_hits(&mut s.e),
+            vec![
+                Hit {
+                    target: RAIDER,
+                    aggressor: PLAYER,
+                    amount: 30.0,
+                    limb: -1
+                },
+                Hit {
+                    target: avatar,
+                    aggressor: PLAYER,
+                    amount: 15.0,
+                    limb: -1
+                }
+            ]
+        );
+        assert_eq!(take_hits(&mut s.e), vec![]);
+        // An actor this game runs itself, and the world's own harm to the player: the game's.
+        s.hit(GECKO, PLAYER, 40.0);
+        s.hit(PLAYER, GECKO, 5.0);
+        s.hit(PLAYER, 0, 5.0);
+        assert_eq!(s.hits_run(), 3);
+        assert_eq!(s.actor_view(GECKO).health, 60.0);
+        assert_eq!(s.actor_view(PLAYER).health, 90.0);
+    }
+
+    #[test]
+    fn a_host_keeps_only_hits_on_avatars() {
+        let mut s = story();
+        let avatar = live::avatar_create(&mut s.e, 7).unwrap().id;
+        set_role(&mut s.e, Role::Host);
+        set_avatars(&mut s.e, [avatar]);
+        s.hit(avatar, RAIDER, 25.0);
+        assert_eq!(s.hits_run(), 0);
+        assert_eq!(
+            take_hits(&mut s.e),
+            vec![Hit {
+                target: avatar,
+                aggressor: RAIDER,
+                amount: 25.0,
+                limb: -1
+            }]
+        );
+        s.hit(RAIDER, PLAYER, 30.0);
+        s.hit(PLAYER, RAIDER, 10.0);
+        s.hit(GECKO, RAIDER, 10.0);
+        assert_eq!(s.hits_run(), 3);
+        // Back to no session: the avatar's hits are the game's again.
+        set_role(&mut s.e, Role::Off);
+        s.hit(RAIDER, PLAYER, 30.0);
+        assert_eq!(s.hits_run(), 4);
+    }
+
+    #[test]
+    fn the_session_s_damage_goes_through_the_game() {
+        let mut s = story();
+        let avatar = live::avatar_create(&mut s.e, 7).unwrap().id;
+        assert_eq!(hurt_actor(&mut s.e, RAIDER, 30.0, avatar), Some(70.0));
+        assert_eq!(s.actor_view(RAIDER).attacker, avatar);
+        assert_eq!(hurt_actor(&mut s.e, 0x9999, 30.0, 0), None);
+        // The applier does not kill; the kill is the game's own.
+        assert_eq!(hurt_actor(&mut s.e, RAIDER, 100.0, 0), Some(-30.0));
+        assert_eq!(s.dead(RAIDER), Some(false));
+        assert!(kill_by(&mut s.e, RAIDER, avatar));
+        assert_eq!(s.dead(RAIDER), Some(true));
+        assert!(!kill_by(&mut s.e, 0x9999, 0));
+        assert_eq!(hurt_player(&mut s.e, 12.0, GECKO), Some(88.0));
+        assert_eq!(s.actor_view(PLAYER).attacker, GECKO);
+        // An enemy is set on a player's avatar the way StartCombat does it; an avatar can stop
+        // being a ghost.
+        assert!(s.ghost(avatar));
+        assert!(set_ghost(&mut s.e, avatar, false));
+        assert!(!s.ghost(avatar));
+        assert!(start_combat(&mut s.e, GECKO, avatar));
+        let g = snap_of(&mut s.e, GECKO).unwrap();
+        assert_eq!((g.in_combat, g.target), (true, avatar));
+        assert!(!start_combat(&mut s.e, GECKO, 0x9999));
+        assert!(!start_combat(&mut s.e, 0x9999, avatar));
+        assert_eq!(s.combats_started(), 1);
     }
 }

@@ -542,7 +542,12 @@ impl GuestDriver {
         }
         // fights
         if let Some(f) = self.fight.as_mut() {
-            for msg in f.guest_step(e, &mut self.sync, now_ms) {
+            let avatars = self
+                .ladder
+                .as_ref()
+                .map(ladder::Ladder::avatar_ids)
+                .unwrap_or_default();
+            for msg in f.guest_step(e, &mut self.sync, &avatars, now_ms) {
                 send(net, PlayerId::HOST, &msg, &mut self.send_failures);
             }
         }

@@ -162,6 +162,13 @@ pub const WRAPS: &[Entry] = &[
         owners: COOP,
         step: "C-1",
     },
+    // Actor::HitMe (this, hit data, kind): every weapon hit on an actor. Co-op decides whose
+    // game applies it in a shared fight (docs/coop/SPECS.md S12).
+    Entry {
+        addr: 0x0089_a760,
+        owners: COOP,
+        step: "C-2",
+    },
     // DINPUT8 DirectInput8Create, its import slot: the keyboard and mouse devices put behind
     // xNVSE's (`Hook_DirectInput8Create_Init` writes this slot).
     Entry {

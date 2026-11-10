@@ -59,6 +59,8 @@ pub fn install(e: &mut Engine) {
     e.wrap(gate::RUN, gate::run);
     // The gate's slot too, before the threads start.
     let _ = e.ext_free::<gate::Gate>();
+    // fights: the hit wrap and its slot.
+    fight::install(e);
 }
 
 // The unit tests' own program: no other crate's functions are linked in.
