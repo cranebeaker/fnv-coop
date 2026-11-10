@@ -15,6 +15,7 @@
 //! - [`addr`]: every exe address and offset used, in one place.
 //! - [`diag`]: `NV_COOP=journal`, the change journal printed on a PC run.
 
+pub mod actors;
 pub mod addr;
 pub mod diag;
 pub mod forms;

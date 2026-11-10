@@ -87,6 +87,8 @@ struct GameData {
     /// The quests each player runs for themself (the rules' per-player rows, by this load
     /// order): the opening and character creation among them.
     own_quests: Vec<u32>,
+    /// Scripts a guest runs itself whatever their quest (the rules' guest-local scripts).
+    own_scripts: Vec<u32>,
     globals: Vec<u32>,
     /// The game clock's globals: shared as the clock (the host's, about once a second).
     clock: Vec<u32>,
@@ -111,6 +113,27 @@ fn own_quest_ids(plugins: &[String]) -> Vec<u32> {
         .collect()
 }
 
+/// The form ids, in the load order `plugins`, of the scripts the rules let a guest run itself
+/// (`guest_local`, written `plugin:hex id`). An entry whose plugin is not loaded is skipped.
+fn own_script_ids(plugins: &[String]) -> Vec<u32> {
+    let Ok(table) = coop_policy::PolicyTable::bundled() else {
+        return Vec::new();
+    };
+    table
+        .rows()
+        .iter()
+        .flat_map(|r| r.guest_local.iter())
+        .filter_map(|s| {
+            let (plugin, local) = s.rsplit_once(':')?;
+            let index = plugins
+                .iter()
+                .position(|p| p.eq_ignore_ascii_case(plugin))?;
+            let local = u32::from_str_radix(local, 16).ok()?;
+            Some(((index as u32) << 24) | (local & 0x00ff_ffff))
+        })
+        .collect()
+}
+
 fn game_data(data: &Path) -> Result<GameData, String> {
     let active = match esm::load_order::default_plugins_txt().and_then(|p| std::fs::read(p).ok()) {
         Some(bytes) => esm::ActivePlugins::List(esm::load_order::parse_plugins_txt(&bytes)),
@@ -120,6 +143,7 @@ fn game_data(data: &Path) -> Result<GameData, String> {
         .map_err(|e| format!("co-op: reading the load order: {e}"))?;
     let plugins: Vec<String> = order.plugins().iter().map(|p| p.name.clone()).collect();
     let own_quests = own_quest_ids(&plugins);
+    let own_scripts = own_script_ids(&plugins);
     let quests = order
         .records_of_type(esm::FourCC::new(b"QUST"))
         .map(|r| r.form_id.0)
@@ -142,6 +166,7 @@ fn game_data(data: &Path) -> Result<GameData, String> {
         plugins,
         quests,
         own_quests,
+        own_scripts,
         globals,
         clock,
     })
@@ -173,6 +198,7 @@ pub struct Coop {
     role: Role,
     plugins: Vec<String>,
     own_quests: Vec<u32>,
+    own_scripts: Vec<u32>,
     started: Instant,
     last_status: Option<Instant>,
     /// The skipped story scripts already named in the log.
@@ -205,6 +231,7 @@ impl Coop {
             plugins,
             quests,
             own_quests,
+            own_scripts,
             globals,
             clock,
         } = game_data(data)?;
@@ -259,6 +286,7 @@ impl Coop {
                 role,
                 plugins,
                 own_quests,
+                own_scripts,
                 started: Instant::now(),
                 last_status: None,
                 gate_named: Default::default(),
@@ -322,6 +350,7 @@ impl Coop {
             // opening, character creation) run.
             if !self.own_quests.is_empty() {
                 coop_engine::gate::set_own_quests(e, std::mem::take(&mut self.own_quests));
+                coop_engine::gate::set_own_scripts(e, std::mem::take(&mut self.own_scripts));
             }
             session::gate_guest(e);
         }
@@ -332,6 +361,9 @@ impl Coop {
                 }
                 h.step(e, &mut self.ep, now_ms);
                 for note in h.unencodable_notes.drain(..) {
+                    lines.push(format!("co-op host: {note}"));
+                }
+                for note in h.claim_notes.drain(..) {
                     lines.push(format!("co-op host: {note}"));
                 }
             }
@@ -371,10 +403,12 @@ impl Coop {
     fn status(&self, e: &mut Engine) -> String {
         match &self.role {
             Role::Host(h) => format!(
-                "co-op host: {} guest(s), story revision {}, not sendable {}; {}",
+                "co-op host: {} guest(s), story revision {}, not sendable {}, guests' deaths enacted {} (left {}); {}",
                 h.sync.players().len(),
                 h.sync.store.rev().0,
                 h.unencodable,
+                h.claims_enacted,
+                h.claims_dropped,
                 h.ladder.as_ref().map_or("live: off".into(), Ladder::status)
             ),
             Role::Guest(Some(g)) => {
@@ -389,9 +423,10 @@ impl Coop {
                     g.refused,
                     g.heal_refused,
                 ) + &format!(
-                    ", own quest scripts run {}, objectives put back in the Pip-Boy {}",
+                    ", own quest scripts run {}, objectives put back in the Pip-Boy {}, deaths told to the host {}",
                     coop_engine::gate::ran_own(e),
-                    g.relisted
+                    g.relisted,
+                    g.claims_sent
                 )
                     + "; "
                     + &g.ladder.as_ref().map_or("live: off".into(), Ladder::status)
@@ -426,6 +461,31 @@ mod tests {
         assert!(with_dlc.len() > plain.len());
         assert!(with_dlc.iter().any(|id| id >> 24 == 2));
         assert!(with_dlc.iter().all(|id| id >> 24 <= 2));
+    }
+
+    /// PC run 4, 2026-11-10: the guest got none of the pre-order packs' items and its opening
+    /// quest never completed. The quests that hand out the packs and the generic timer that ends
+    /// the opening act on the player whose game runs them.
+    #[test]
+    fn the_pack_quests_and_the_timer_are_each_player_s_own() {
+        let own = own_quest_ids(&["FalloutNV.esm".into()]);
+        // VDLCPackQuest, VPreorderMercenary, Caravan, Tribal, Classic, VGenericTimer.
+        for id in [
+            0x0017_912d,
+            0x0017_2a1d,
+            0x0017_2a1e,
+            0x0017_2a1f,
+            0x0016_74d4,
+            0x0016_8a86,
+        ] {
+            assert!(own.contains(&id), "{id:08x}");
+        }
+        let scripts = own_script_ids(&["FalloutNV.esm".into(), "DeadMoney.esm".into()]);
+        // The packs' scripts, and a DLC's by its place in the load order.
+        for id in [0x0017_2a24, 0x0017_2a27, 0x0017_912e, 0x0100_62b1] {
+            assert!(scripts.contains(&id), "{id:08x}");
+        }
+        assert!(scripts.iter().all(|id| id >> 24 <= 1));
     }
 
     #[test]

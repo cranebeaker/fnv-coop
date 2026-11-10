@@ -267,3 +267,16 @@ DLCs. **Not verified here:** that the guest's opening then plays through in the 
   cell. The ladder records each avatar's space and places it anew when the player it stands for is in
   another one, including when this game's player followed in the same frame.
 
+## S11: deaths, guest-local scripts, per-player helpers (implemented; docs/coop/DECISIONS.md D4)
+
+- `coop_engine::actors`: `actor`, `dead` (life state 1 or 2 at +0x108), `kill` (`Actor::Kill`, `0089d900`,
+  no attacker), `shareable` (a placed actor's id, not the player's).
+- `coop_engine::gate::set_own_scripts`: story scripts a guest runs itself whatever their quest (the rules'
+  `guest_local`), next to `set_own_quests`.
+- Session: `LIFE_TAG` (`Field::Custom`, one byte). The host writes a death from its journal and enacts
+  guests' claims (`claims_enacted`, `claims_dropped`, `claim_notes`). The guest arms its own journal, sends
+  a claim for each actor that died in its game and is not dead in the replica (`claims_sent`), applies a
+  death inside the apply scope, and its heal kills an actor that was not in the game when the death came.
+  `echo` reports only a death the guest's game lacks.
+- Rules: `VPreorder*` and `VGenericTimer` are per-player rows (491 rows).
+

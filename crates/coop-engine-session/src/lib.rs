@@ -26,14 +26,14 @@ use std::collections::BTreeSet;
 use coop_core::avatar::{AvatarMsg, AvatarSender, Sample};
 use coop_core::compat;
 use coop_core::delta::StateStore;
-use coop_core::ids::{FormId, PlayerId, Rev, Tick};
+use coop_core::ids::{Epoch, FormId, PlayerId, Rev, Tick};
 use coop_core::proto::{self, Hello, Msg};
 use coop_core::schema::Field;
-use coop_core::sync::GuestSync;
 use coop_core::sync::{GuestLive, HostConfig, HostSync};
+use coop_core::sync::{GuestPhase, GuestSync};
 use coop_core::transport::Transport;
 use coop_engine::forms::{self, GlobalWatch};
-use coop_engine::{addr, gate, quest, vars};
+use coop_engine::{actors, addr, gate, quest, vars};
 use engine_core::Engine;
 
 /// The tag of a clock global's `Field::Custom` (its value's bits, little-endian). The game's clock
@@ -43,6 +43,40 @@ use engine_core::Engine;
 pub const CLOCK_TAG: u16 = 0x434b;
 /// The host writes its clock, and a guest sets its own to the last one it has, this often.
 pub const CLOCK_EVERY_MS: u64 = 1000;
+
+/// The tag of a placed actor's life (`Field::Custom`, one byte: 1 dead, 0 alive again), on the
+/// actor's reference id. The host writes it when an actor of its game dies; a guest kills its own
+/// copy through the game. A guest whose own copy died sends the same field as a claim, and the
+/// host's game does the kill (so the death's scripts and the story's reactions run there, once).
+pub const LIFE_TAG: u16 = 0x4c46;
+
+fn life_field(dead: bool) -> Field {
+    Field::Custom {
+        tag: LIFE_TAG,
+        data: vec![u8::from(dead)],
+    }
+}
+
+/// `Some(dead)` for a well-formed life field.
+fn life_value(field: &Field) -> Option<bool> {
+    match field {
+        Field::Custom { tag, data } if *tag == LIFE_TAG && data.len() == 1 => Some(data[0] != 0),
+        _ => None,
+    }
+}
+
+/// The placed actors among `changes` whose life state changed and that both games know by id.
+fn life_changes(changes: &[coop_engine::Change]) -> Vec<u32> {
+    changes
+        .iter()
+        .filter(|c| {
+            actors::is_actor_type(c.kind)
+                && c.flags & addr::CHANGE_ACTOR_LIFESTATE != 0
+                && actors::shareable(c.form)
+        })
+        .map(|c| c.form)
+        .collect()
+}
 
 fn clock_field(v: f32) -> Field {
     Field::Custom {
@@ -68,11 +102,12 @@ fn clock_value(field: &Field) -> Option<f32> {
 pub fn hello(plugins: Vec<String>) -> Hello {
     let build = format!("coop-engine-session {}", env!("CARGO_PKG_VERSION"));
     let rules = format!(
-        "quest-record {:04x} v{} {} clock {:04x}",
+        "quest-record {:04x} v{} {} clock {:04x} life {:04x}",
         record::QUEST_RECORD_TAG,
         record::VERSION,
         record::LEN,
-        CLOCK_TAG
+        CLOCK_TAG,
+        LIFE_TAG
     );
     Hello {
         proto: proto::PROTOCOL_VERSION,
@@ -121,6 +156,12 @@ pub struct HostDriver {
     /// story globals.
     clock: Vec<u32>,
     clock_sent_ms: Option<u64>,
+    /// Guests' death claims the host's game enacted.
+    pub claims_enacted: u32,
+    /// Guests' claims left alone: the actor is not in the host's game now, or is dead already.
+    pub claims_dropped: u32,
+    /// What happened to each claim, for the log (taken by the caller).
+    pub claim_notes: Vec<String>,
     /// Quest records or variables that could not be carried exactly (see [`record::encode`]; a
     /// variable id above 65535): not sent.
     pub unencodable: u32,
@@ -153,12 +194,17 @@ impl HostDriver {
         quest_ids: impl IntoIterator<Item = u32>,
         global_ids: impl IntoIterator<Item = u32>,
     ) -> HostDriver {
+        let mut sync = HostSync::new(cfg);
+        sync.claim_tags.insert(LIFE_TAG);
         HostDriver {
-            sync: HostSync::new(cfg),
+            sync,
             quests: quest_ids.into_iter().collect(),
             globals: GlobalWatch::new(global_ids),
             clock: Vec::new(),
             clock_sent_ms: None,
+            claims_enacted: 0,
+            claims_dropped: 0,
+            claim_notes: Vec::new(),
             unencodable: 0,
             ladder: None,
             sender: AvatarSender::new(PlayerId::HOST),
@@ -176,6 +222,37 @@ impl HostDriver {
     /// once a second, so day and night are the same for everyone.
     pub fn set_clock(&mut self, ids: impl IntoIterator<Item = u32>) {
         self.clock = ids.into_iter().collect();
+    }
+
+    /// Enacts the guests' claims in the host's game: an actor a guest's game saw die is killed
+    /// here through the game, outside any gate, so its death runs as any death on the host does
+    /// (and reaches every guest through the journal).
+    fn enact_claims(&mut self, e: &mut Engine) {
+        for (from, form, field) in std::mem::take(&mut self.sync.claims) {
+            let id = form.0;
+            if life_value(&field) != Some(true) || !actors::shareable(id) {
+                self.claims_dropped += 1;
+                continue;
+            }
+            match actors::dead(e, id) {
+                Some(false) => {
+                    actors::kill(e, id);
+                    self.claims_enacted += 1;
+                    self.claim_notes.push(format!(
+                        "actor {id:08x} died in player {}'s game: killed here",
+                        from.0
+                    ));
+                }
+                Some(true) => self.claims_dropped += 1,
+                None => {
+                    self.claims_dropped += 1;
+                    self.claim_notes.push(format!(
+                        "actor {id:08x} died in player {}'s game, but is not in this game now",
+                        from.0
+                    ));
+                }
+            }
+        }
     }
 
     /// Writes the clock into the replica when it is due.
@@ -249,13 +326,24 @@ impl HostDriver {
     pub fn collect(&mut self, e: &mut Engine) {
         // Only the quests this session replicates: a player's own quests (the opening, character
         // creation, ...) change on the host too and are not the shared story.
-        let quests: BTreeSet<u32> = coop_engine::drain(e)
-            .into_iter()
+        let changes = coop_engine::drain(e);
+        let quests: BTreeSet<u32> = changes
+            .iter()
             .filter(|c| c.kind == addr::FORM_TYPE_QUEST && self.quests.contains(&c.form))
             .map(|c| c.form)
             .collect();
         for id in quests {
             self.write_quest(e, id);
+        }
+        // A placed actor that died (or, once it has an entry, lives again).
+        for id in life_changes(&changes) {
+            let Some(dead) = actors::dead(e, id) else {
+                continue;
+            };
+            let field = life_field(dead);
+            if dead || self.sync.store.get(FormId(id), &field).is_some() {
+                self.sync.write(FormId(id), field);
+            }
         }
         for (id, v) in self.globals.diff(e) {
             self.sync
@@ -272,6 +360,7 @@ impl HostDriver {
                 send(net, to, &reply, &mut self.send_failures);
             }
         }
+        self.enact_claims(e);
         self.collect(e);
         self.write_clock(e, now_ms);
         let mut out = self.sync.tick();
@@ -342,6 +431,12 @@ pub struct GuestDriver {
     repairs_applied: u32,
     steps: u64,
     clock_set_ms: Option<u64>,
+    /// Actors this guest has told the host died in its game.
+    claimed: BTreeSet<u32>,
+    /// Actors whose life changed in this game before the host could be told.
+    life_pending: BTreeSet<u32>,
+    /// How many such claims were sent.
+    pub claims_sent: u32,
     /// Every this many steps the guest's game is read back ([`echo`]) and whatever drifted from the
     /// replica is applied again (a guest's own script writing a story global, a rejoin's snapshot
     /// whose revisions do not pass the applied mark). Replica hashes compare replicas only; this
@@ -380,6 +475,9 @@ impl GuestDriver {
             repairs_applied: 0,
             steps: 0,
             clock_set_ms: None,
+            claimed: BTreeSet::new(),
+            life_pending: BTreeSet::new(),
+            claims_sent: 0,
             heal_every: 20,
             healed: 0,
             relisted: 0,
@@ -399,6 +497,8 @@ impl GuestDriver {
         self.sync.set_time_ms(now_ms);
         if !self.started {
             gate_guest(e);
+            // The guest's own journal: what dies in this game is reported to the host.
+            coop_engine::arm(e, true);
             for msg in self.sync.start() {
                 send(net, PlayerId::HOST, &msg, &mut self.send_failures);
             }
@@ -424,11 +524,41 @@ impl GuestDriver {
         for msg in self.sync.tick(Tick(0)) {
             send(net, PlayerId::HOST, &msg, &mut self.send_failures);
         }
+        self.claim_deaths(e, net);
         self.apply(e);
         self.keep_clock(e, now_ms);
         self.steps += 1;
         if self.steps % self.heal_every.max(1) == 0 {
             self.heal(e);
+        }
+    }
+
+    /// Tells the host of every placed actor that died in this game and is not dead in the host's
+    /// story (a death applied from the host is in the replica by then, so it is not sent back).
+    fn claim_deaths(&mut self, e: &mut Engine, net: &mut dyn Transport) {
+        let changes = coop_engine::drain(e);
+        self.life_pending.extend(life_changes(&changes));
+        if self.sync.phase() != GuestPhase::Active || self.life_pending.is_empty() {
+            return;
+        }
+        let dead = life_field(true);
+        let mut claims = Vec::new();
+        for id in std::mem::take(&mut self.life_pending) {
+            let known = self
+                .sync
+                .store
+                .get(FormId(id), &dead)
+                .is_some_and(|en| life_value(&en.field) == Some(true));
+            if actors::dead(e, id) == Some(true) && !known && self.claimed.insert(id) {
+                claims.push((FormId(id), dead.clone()));
+            }
+        }
+        if claims.is_empty() {
+            return;
+        }
+        self.claims_sent += claims.len() as u32;
+        for msg in self.sync.send_intent(Epoch(0), claims) {
+            send(net, PlayerId::HOST, &msg, &mut self.send_failures);
         }
     }
 
@@ -534,6 +664,19 @@ fn apply_field(e: &mut Engine, form: u32, field: &Field) -> bool {
             Some(v) => gate::applying(e, |e| forms::set_global_value(e, form, v)),
             None => false,
         },
+        // A death: this game's copy is killed through the game, its scripts held back (they ran on
+        // the host). An actor that is not here now is killed when it is (the heal). An actor alive
+        // again on the host is left as it is here: nothing here can raise it yet.
+        Field::Custom { tag, .. } if *tag == LIFE_TAG => match life_value(field) {
+            Some(true) => {
+                if actors::dead(e, form) == Some(false) {
+                    gate::applying(e, |e| actors::kill(e, form));
+                }
+                true
+            }
+            Some(false) => true,
+            None => false,
+        },
         Field::Global { bits } => gate::applying(e, |e| {
             forms::set_global_value(e, form, f32::from_bits(*bits))
         }),
@@ -575,6 +718,15 @@ pub fn echo(e: &mut Engine, store: &StateStore) -> Vec<Mismatch> {
             }),
             Field::Global { .. } => {
                 forms::global_value(e, form).map(|v| Field::Global { bits: v.to_bits() })
+            }
+            // Only a death this game does not have yet is a difference: an actor that is not
+            // here now waits, and one alive again on the host is left.
+            Field::Custom { tag, .. } if *tag == LIFE_TAG => {
+                if life_value(&en.field) == Some(true) && actors::dead(e, form) == Some(false) {
+                    Some(life_field(false))
+                } else {
+                    continue;
+                }
             }
             _ => continue,
         };

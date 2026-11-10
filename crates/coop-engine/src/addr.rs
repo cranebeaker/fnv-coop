@@ -193,3 +193,19 @@ pub const ACTOR_SET_GHOST: u32 = 0x008a_cf10;
 
 /// `TESObjectREFR::Disable(this)` (`00574400`).
 pub const REF_DISABLE: u32 = 0x0057_4400;
+
+/// The form types of a placed NPC (`ACHR`) and a placed creature (`ACRE`); `REFR` is 0x3a, after
+/// [`FORM_TYPE_CELL`].
+pub const FORM_TYPE_ACHR: u8 = 0x3b;
+/// See [`FORM_TYPE_ACHR`].
+pub const FORM_TYPE_ACRE: u8 = 0x3c;
+/// `Actor::eLifeState` at +0x108 (`actor.rs`): 0 alive, 1 dying, 2 dead, 6 an essential actor
+/// down. `Actor::SetLifeState` (`008a1800`) flags the actor's change with
+/// [`CHANGE_ACTOR_LIFESTATE`] whenever the state changes, so a death is in the change journal.
+pub const ACTOR_LIFE_STATE_OFFSET: u32 = 0x108;
+/// See [`ACTOR_LIFE_STATE_OFFSET`].
+pub const CHANGE_ACTOR_LIFESTATE: u32 = 0x400;
+/// `Actor::Kill` (`thiscall`, actor, attacker or 0, damage as `f32`; `actor_p3.rs`, `actor_kill`):
+/// what the `KillActor` script command and a lethal hit call. An essential or protected actor
+/// stays alive; with the task queue in use the kill is queued and done within the frame.
+pub const ACTOR_KILL: u32 = 0x0089_d900;

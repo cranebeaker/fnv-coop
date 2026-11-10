@@ -30,6 +30,10 @@ const SAVE_LOAD: u32 = 0x0160_0000;
 /// The quest script every quest has and the result script every stage has.
 const QUEST_SCRIPT: u32 = 0x0150_0000;
 const RESULT_SCRIPT: u32 = 0x0150_0100;
+/// The object script an actor's death runs (no quest: only the apply scope holds it back).
+const DEATH_SCRIPT: u32 = 0x0150_0200;
+/// Set on a form table entry's id while the form is not in the game (its cell is not loaded).
+const AWAY: u32 = 0x4000_0000;
 /// The player, and the arena placed references come from (0x100 bytes each; the count of placed
 /// references is the word at `PLACED`).
 const PLAYER: u32 = 0x0140_0000;
@@ -83,6 +87,8 @@ pub struct StorySpec {
     pub cells: Vec<u32>,
     /// Exterior cells: (cell form id, its world space's form id).
     pub exteriors: Vec<(u32, u32)>,
+    /// Placed NPCs' reference ids: alive, each with a script that runs when it dies.
+    pub actors: Vec<u32>,
 }
 
 /// One machine's engine holding a [`StorySpec`].
@@ -193,6 +199,23 @@ fn objective_set_state(e: &mut Engine, a: &[u32]) -> Ret {
         e.call(addr::PLAYER_UPDATE_OBJECTIVE, &args![PLAYER, o]);
     }
     e.mem.set_u32(at, state);
+    Ret::default()
+}
+
+/// The game's `Actor::Kill` as far as co-op needs it: a living actor's life state becomes dead,
+/// its change is flagged, and its death script runs.
+fn actor_kill(e: &mut Engine, a: &[u32]) -> Ret {
+    let actor = a[0];
+    let at = actor + addr::ACTOR_LIFE_STATE_OFFSET;
+    if actor == 0 || e.mem.u32(at) != 0 {
+        return Ret::default();
+    }
+    e.mem.set_u32(at, 2);
+    e.call(
+        addr::SAVE_LOAD_ADD_CHANGE,
+        &args![SAVE_LOAD, actor, addr::CHANGE_ACTOR_LIFESTATE, 0u32],
+    );
+    run(e, DEATH_SCRIPT);
     Ret::default()
 }
 
@@ -317,6 +340,14 @@ impl Story {
             entries.push((*id, g));
             slot += SLOT;
         }
+        for id in &spec.actors {
+            let a = slot;
+            e.mem
+                .set_u8(a + addr::FORM_TYPE_OFFSET, addr::FORM_TYPE_ACHR);
+            e.mem.set_u32(a + addr::FORM_ID_OFFSET, *id);
+            entries.push((*id, a));
+            slot += SLOT;
+        }
         for id in &spec.cells {
             let c = slot;
             e.mem.set_u8(c + addr::FORM_TYPE_OFFSET, FORM_TYPE_CELL);
@@ -362,6 +393,7 @@ impl Story {
         e.register(addr::LOOKUP_FORM, lookup);
         e.register(addr::QUEST_SET_STAGE_DONE, set_stage_done);
         e.register(addr::OBJECTIVE_SET_STATE, objective_set_state);
+        e.register(addr::ACTOR_KILL, actor_kill);
         e.register(addr::PLAYER_UPDATE_OBJECTIVE, player_update_objective);
         e.register(addr::QUEST_GET_CURRENT_STAGE, |e, a| {
             eax(u32::from(e.mem.u8(a[0] + addr::QUEST_CURRENT_STAGE_OFFSET)))
@@ -584,6 +616,33 @@ impl Story {
         run(&mut self.e, script);
     }
 
+    /// Kills a placed actor as a lethal hit by this game's player does.
+    pub fn kill(&mut self, actor: u32) {
+        let a = crate::actors::actor(&mut self.e, actor).expect("an actor of the story");
+        self.e
+            .call(addr::ACTOR_KILL, &args![a, PLAYER, 0.0f32.to_bits()]);
+    }
+
+    /// Whether a placed actor is dead (`None`: not in this game now).
+    pub fn dead(&mut self, actor: u32) -> Option<bool> {
+        crate::actors::dead(&mut self.e, actor)
+    }
+
+    /// Takes a form out of the game (its cell is not loaded) or puts it back.
+    pub fn set_present(&mut self, form: u32, present: bool) {
+        let (from, to) = if present {
+            (form | AWAY, form)
+        } else {
+            (form, form | AWAY)
+        };
+        for i in 0..self.e.mem.u32(TABLE) {
+            let at = TABLE + 4 + 8 * i;
+            if self.e.mem.u32(at) == from {
+                self.e.mem.set_u32(at, to);
+            }
+        }
+    }
+
     /// How many scripts really ran on this machine.
     pub fn scripts_run(&self) -> u32 {
         self.e.mem.u32(RAN)
@@ -602,6 +661,7 @@ mod tests {
             vars: vec![(0x0010_4c0c, vec![1, 2, 7])],
             cells: vec![0x0010_5a00, 0x0010_5a01],
             exteriors: vec![(0x0010_5b00, 0x0000_da7e)],
+            actors: vec![0x0010_4f25],
         }
     }
 

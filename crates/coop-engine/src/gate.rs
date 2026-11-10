@@ -41,6 +41,9 @@ pub struct Gate {
     ran_own: AtomicU64,
     /// The form ids of the quests this player runs for themself.
     own: RwLock<BTreeSet<u32>>,
+    /// The form ids of story scripts a guest runs itself whatever their quest (the rules'
+    /// guest-local scripts).
+    own_scripts: RwLock<BTreeSet<u32>>,
     /// The distinct story scripts skipped (at most [`SEEN_MAX`]): the script's form id to whether
     /// it is a quest script, its owner quest's form id (0 for none) and how often it was skipped.
     seen: Mutex<BTreeMap<u32, SkippedScript>>,
@@ -83,6 +86,15 @@ pub fn is_guest(e: &mut Engine) -> bool {
 pub fn set_own_quests(e: &mut Engine, ids: impl IntoIterator<Item = u32>) {
     let g = e.ext_free::<Gate>();
     *g.own.write().unwrap_or_else(PoisonError::into_inner) = ids.into_iter().collect();
+}
+
+/// Names story scripts (form ids) a guest runs itself whatever quest owns them: the rules'
+/// guest-local scripts, which act on the player whose game runs them.
+pub fn set_own_scripts(e: &mut Engine, ids: impl IntoIterator<Item = u32>) {
+    let g = e.ext_free::<Gate>();
+    *g.own_scripts
+        .write()
+        .unwrap_or_else(PoisonError::into_inner) = ids.into_iter().collect();
 }
 
 /// How many runs of the player's own quests' scripts went ahead on this guest.
@@ -142,11 +154,15 @@ pub(crate) fn run(e: &mut Engine, a: &[u32]) -> Ret {
                 q => e.mem.u32(q.wrapping_add(addr::FORM_ID_OFFSET)),
             };
             let g = e.ext_free::<Gate>();
-            let own = owner_quest != 0
+            let own = (owner_quest != 0
                 && g.own
                     .read()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .contains(&owner_quest);
+                    .contains(&owner_quest))
+                || g.own_scripts
+                    .read()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .contains(&id);
             if own {
                 g.ran_own.fetch_add(1, Ordering::SeqCst);
                 return e.call_next(addr::SCRIPT_RUNNER_RUN, a);
@@ -302,6 +318,18 @@ mod tests {
         // No longer the player's own: held back again.
         set_own_quests(&mut e, []);
         assert_eq!(run_script(&mut e, RESULT), 0);
+    }
+
+    #[test]
+    fn a_guest_runs_a_script_named_guest_local_whatever_its_quest() {
+        let mut e = engine();
+        set_guest(&mut e, true);
+        e.mem.set_u32(QUEST + addr::FORM_ID_OFFSET, 0x55);
+        assert_eq!(run_script(&mut e, QUEST), 0);
+        set_own_scripts(&mut e, [0x55]);
+        assert_eq!(run_script(&mut e, QUEST), 1);
+        assert_eq!(run_script(&mut e, RESULT), 0);
+        assert_eq!(applying(&mut e, |e| run_script(e, QUEST)), 0);
     }
 
     /// The twin: without co-op installed a guest's story scripts run, so the skips come from the

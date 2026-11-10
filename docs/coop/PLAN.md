@@ -54,7 +54,9 @@ machine with FNV 1.4.0.525. "Headless" means `cargo test` with no game files.
 | M5 | First version confirmed on a PC (2026-11-10): both players made their own characters, all five rungs passed on both games, each saw the other move (20002 avatar moves, AI woke 0, 0 desyncs, 0 healed). Not yet exercised: the move of a guest to a host in another space (they started in the same cell). Next: animation, the other player's looks, leaving the house together |
 | M7 | First step confirmed on a PC (2026-11-10): a guest played its own opening and character creation while the shared story stayed in step. Next: party saves, rejoin into a running game |
 | PC run 3 | 2026-11-10, both players outdoors after the opening. Worked: the guest was moved to the host in another space (`warps 1`). Three faults, fixed with tests: the guest kept the avatar it had placed indoors (now placed anew when its player's space changes); day on the host and night on the guest (the clock is now shared, the host's about once a second); the guest's Pip-Boy lacked the shared quests (objectives now go through the game's own `SetState`, which is what lists them). Awaiting the retest |
-| M6, M8, M9 | Not started |
+| PC run 4 | 2026-11-10. Confirmed on a PC: the same quest list in both Pip-Boys, the same clock, each player seeing the other across four moves between spaces (`warps 4`, avatars placed 5 times), 10217 hash checks with 0 desyncs. Three faults, fixed with tests (D4): no pre-order pack items on the guest, the guest's opening quest never completed, an NPC dead on the host alive on the guest. Awaiting the retest |
+| M6 | Started: deaths of placed actors are shared both ways (D4). Not started: the fight itself (NPC positions and damage), loot, dialogue, barter |
+| M8, M9 | Not started |
 
 ## Ownership and order
 

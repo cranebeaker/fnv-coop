@@ -129,3 +129,43 @@ MoveTo arrival and full transform apply follow once the ladder passes.
    refused.
 3. The avatar's reference never enters the story channel (a headless test asserts the replica is unchanged
    by creating, moving and removing it), and it is disabled when its player leaves or the session ends.
+
+## D4: deaths, the generic timer and guest-local scripts (PC run 4, 2026-11-10)
+
+**Question.** After the opening, a guest lacked the pre-order packs' items, its opening quest never
+completed, and an NPC the host had killed was alive and trading in the guest's game.
+
+**How it was decided.** From the game's own data (the user's `FalloutNV.esm` and pack plugins, read for
+this), not by the three-planner committee: each cause is one script, and the fix follows from what that
+script does. The claim path below is the first guest-to-host action and is to be reviewed by the committee
+when combat authority (M6) is designed.
+
+**Findings.**
+- The packs' items come from four quests (`VPreorderMercenary`, `-Caravan`, `-Tribal`, `-Classic`), whose
+  scripts add the items to `Player` once, guarded by `VDLCPackQuest`'s variables. The rules had
+  `VDLCPackQuest` as per-player but not the four quests, so their scripts were gated on a guest.
+- The opening ends in `VGenericTimer`'s script (event 3: `SetStage VCG01 200`, `SetStage VCG02 5`), started
+  by Doc Mitchell's last line. The timer was a shared quest: gated on a guest, and the variables the
+  guest's dialogue set on it were put back to the host's.
+- Nothing carried an actor's death.
+
+**Decisions.**
+1. The four pack quests are per-player rows. The gate also runs the rules' `guest_local` scripts on a guest
+   whatever their quest.
+2. `VGenericTimer` is per-player: a timer belongs to the player whose script started it. Its events act on
+   that player (controls, fades, the end of the player's own opening). What an event writes to a shared
+   quest on a guest is put back by the heal, as for any script a guest runs; the host's own timer does the
+   shared part.
+3. A placed actor's death is shared both ways. `Actor::SetLifeState` flags the actor's change (0x400), so
+   the journal has it. Host to guest: a `Field::Custom` (`LIFE_TAG`) on the actor's reference id; the guest
+   kills its copy with `Actor::Kill` inside the apply scope (the death's scripts ran on the host). Guest to
+   host: the same field as a *claim* in an intent; the host's game does the kill, ungated, and the death
+   then reaches every guest through the journal. coop-core's host keeps claims apart from the store
+   (`claim_tags`, `claims`): a claim is a report for the host's game to judge, never a write.
+
+**Limits, stated.** Only placed actors (ids below `ff000000`) are shared, not ones made while playing. A
+death before the session started is not sent. Where the body lies, what it carries, and the fight itself
+(each game still runs its own NPCs) are not shared yet. A guest's game can kill an actor the host's game
+would not have (its own NPCs' fights); the host accepts it. An actor alive again on the host is not raised
+on a guest.
+

@@ -25,6 +25,9 @@ const LONG: u32 = 0x0010_4c0e;
 const GLOBALS: [u32; 3] = [0x39, 0x3a, 0x3b];
 /// The game clock's hour: shared as the clock, not as a story global.
 const HOUR: u32 = 0x38;
+/// Two placed NPCs.
+const CHET: u32 = 0x0010_4f25;
+const SUNNY: u32 = 0x0010_4e85;
 
 fn spec() -> StorySpec {
     StorySpec {
@@ -36,6 +39,7 @@ fn spec() -> StorySpec {
         globals: vec![(0x39, 0.0), (0x3a, 1.0), (0x3b, 0.0), (HOUR, 8.0)],
         objectives: vec![(MQ, vec![10, 20, 30]), (SIDE, vec![1])],
         vars: vec![(MQ, vec![1, 2, 3]), (SIDE, vec![4])],
+        actors: vec![CHET, SUNNY],
         ..StorySpec::default()
     }
 }
@@ -735,4 +739,145 @@ fn the_guests_clock_is_kept_on_the_hosts() {
     );
     assert_eq!(hour(&mut guest), 13.75);
     assert_eq!((gd.healed, gd.refused, gd.sync.desyncs_detected), (0, 0, 0));
+}
+
+/// PC run 4, 2026-11-10: an NPC the host had killed was alive, and trading, in the guest's game.
+/// A death in the host's game is the guest's too, through the game's own kill, and the death's
+/// scripts do not run a second time there.
+#[test]
+fn an_actor_the_host_kills_dies_in_the_guests_game() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    // Sunny is not in the guest's game now (her cell is not loaded there).
+    guest.set_present(SUNNY, false);
+    let before = host.scripts_run();
+    host.kill(CHET);
+    host.kill(SUNNY);
+    assert_eq!(
+        host.scripts_run(),
+        before + 2,
+        "the deaths' scripts on the host"
+    );
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.dead(CHET), Some(true));
+    assert_eq!(
+        guest.scripts_run(),
+        0,
+        "no death script runs again on the guest"
+    );
+    // Nothing is refused or counted as a difference for the actor that is not there, and the
+    // death is not sent back to the host as the guest's own.
+    assert_eq!((gd.refused, gd.heal_refused, gd.claims_sent), (0, 0, 0));
+    assert!(echo(&mut guest.e, &gd.sync.store).is_empty());
+    assert_eq!((hd.claims_enacted, hd.claims_dropped), (0, 0));
+    // Her cell loads on the guest: she is alive there until the next check, then dead.
+    guest.set_present(SUNNY, true);
+    assert_eq!(guest.dead(SUNNY), Some(false));
+    frames(
+        25,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.dead(SUNNY), Some(true));
+    assert_eq!(guest.scripts_run(), 0);
+    assert_eq!(gd.sync.desyncs_detected, 0);
+}
+
+/// The other way: what dies in a guest's game dies in the host's, where the death's scripts run
+/// once, as for any death there.
+#[test]
+fn an_actor_a_guest_kills_dies_in_the_hosts_game() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    let before = host.scripts_run();
+    guest.kill(CHET);
+    assert_eq!(host.dead(CHET), Some(false));
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(host.dead(CHET), Some(true));
+    assert_eq!(
+        host.scripts_run(),
+        before + 1,
+        "the death's script on the host, once"
+    );
+    assert_eq!(
+        (gd.claims_sent, hd.claims_enacted, hd.claims_dropped),
+        (1, 1, 0)
+    );
+    assert_eq!(gd.sync.unacked_intents(), 0);
+    assert_eq!(hd.claim_notes.len(), 1);
+    // The host's story now holds the death; the guest's game agrees and claims nothing more.
+    assert!(echo(&mut guest.e, &gd.sync.store).is_empty());
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!((gd.claims_sent, hd.claims_enacted), (1, 1));
+    // An actor that is not in the host's game now cannot be killed there: said, not enacted.
+    host.set_present(SUNNY, false);
+    guest.kill(SUNNY);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!((hd.claims_enacted, hd.claims_dropped), (1, 1));
+    assert!(
+        hd.claim_notes[1].contains("not in this game now"),
+        "{:?}",
+        hd.claim_notes
+    );
 }

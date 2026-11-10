@@ -114,6 +114,11 @@ pub struct HostSync {
     refused_full: std::collections::BTreeSet<PlayerId>,
     /// The last store writes, oldest first (see [`HostSync::recent_roots`]).
     undo: VecDeque<Undo>,
+    /// `Field::Custom` tags a guest may send as a claim: a report of something that happened in
+    /// its game, for the host's game to judge and enact. A claim is not written to the store.
+    pub claim_tags: std::collections::BTreeSet<u16>,
+    /// Claims received and not yet taken, in order (each intent is taken once).
+    pub claims: Vec<(PlayerId, FormId, Field)>,
 }
 
 impl HostSync {
@@ -140,6 +145,8 @@ impl HostSync {
             full_refusals: 0,
             refused_full: std::collections::BTreeSet::new(),
             undo: VecDeque::new(),
+            claim_tags: std::collections::BTreeSet::new(),
+            claims: Vec::new(),
         }
     }
 
@@ -406,7 +413,11 @@ impl HostSync {
         }
         let mut rejected = 0u16;
         for (form, field) in changes {
-            if self.auth.check_write(from, epoch, form, &field).is_ok() {
+            if matches!(&field, Field::Custom { tag, .. } if self.claim_tags.contains(tag))
+                && field.is_sane()
+            {
+                self.claims.push((from, form, field));
+            } else if self.auth.check_write(from, epoch, form, &field).is_ok() {
                 self.write_logged(form, field);
             } else {
                 rejected += 1;

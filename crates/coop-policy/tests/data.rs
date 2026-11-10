@@ -9,7 +9,7 @@ fn table() -> PolicyTable {
 #[test]
 fn every_quest_row_loads() {
     let t = table();
-    assert_eq!(t.rows().len(), 487);
+    assert_eq!(t.rows().len(), 491);
     for r in t.rows() {
         assert!(t.row(r.id).is_some(), "{} not found by id", r.edid);
         assert_eq!(t.row_by_edid(&r.edid).unwrap().id, r.id);
@@ -21,7 +21,7 @@ fn status_counts_are_visible() {
     let t = table();
     let (confirmed, default) = t.counts();
     assert_eq!(confirmed + default, t.rows().len());
-    assert_eq!(confirmed, 468);
+    assert_eq!(confirmed, 472);
     assert_eq!(default, 19);
     assert_eq!(t.unreviewed().count(), 19);
 }
