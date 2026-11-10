@@ -340,6 +340,7 @@ name = "coop-engine"
 version = "0.1.0"
 dependencies = [
  "engine-core",
+ "fos",
 ]
 
 [[package]]

@@ -11,6 +11,10 @@ rust-version.workspace = true
 # wrap of ADR-0016's table.
 engine-core = { path = "../engine-core" }
 
+[dev-dependencies]
+# world: the save decoder, for the changed-form stream's round-trip tests.
+fos = { path = "../fos" }
+
 [features]
 # A small story in engine memory with stand-ins for the game functions co-op calls, for other
 # crates' tests (coop-engine-session's loopback tests).

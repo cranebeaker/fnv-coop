@@ -209,3 +209,200 @@ pub const CHANGE_ACTOR_LIFESTATE: u32 = 0x400;
 /// what the `KillActor` script command and a lethal hit call. An essential or protected actor
 /// stays alive; with the task queue in use the kill is queued and done within the frame.
 pub const ACTOR_KILL: u32 = 0x0089_d900;
+
+// world: the changed-form stream, doors and locks (docs/coop/SPECS.md S12). Everything below is
+// named by the translation of `fallout/misc/saveload` (`engine-fallout-misc`) or of the reference
+// and open-close code (`engine-fallout-cell`, `engine-fallout-forms`), as each comment says.
+
+/// The pointer to the game's one `BGSSaveLoadGame` (`011ddf38`, `bgssaveloadgame.rs`,
+/// `SAVE_LOAD_GAME`); 0 before the game has made it.
+pub const SAVE_LOAD_GAME: u32 = 0x011d_df38;
+/// `BGSSaveLoadGame::pChangesMap` at +0x00, `pFormIDMap` at +0x08 and the embedded
+/// `FormBufferArray` at +0x24 (`bgssaveloadgame.rs`, the `BGSSaveLoadGame` layout).
+pub const GAME_CHANGES_MAP_OFFSET: u32 = 0x00;
+/// See [`GAME_CHANGES_MAP_OFFSET`].
+pub const GAME_FORM_ID_MAP_OFFSET: u32 = 0x08;
+/// See [`GAME_CHANGES_MAP_OFFSET`].
+pub const GAME_FORM_BUFFER_ARRAY_OFFSET: u32 = 0x24;
+/// Whether a load is running: mask 2 of the game object's word at +0x244 (`0042ce10`,
+/// `thiscall`; `bgssaveloadgame.rs`, `GAME_LOADING_FLAG_TEST`). `BGSSaveLoadGame::LoadForm` does
+/// nothing while it is set.
+pub const GAME_LOADING_FLAG_TEST: u32 = 0x0042_ce10;
+/// `BGSSaveLoadChangesMap`'s "get flags" `(map, &out, id)` (`008456e0`, `bgssaveloadgame.rs`,
+/// `CHANGES_MAP_GET_FLAGS`): the change flags the save holds for a form id, 0 for none.
+pub const CHANGES_MAP_GET_FLAGS: u32 = 0x0084_56e0;
+/// The pointer to the `BGSSaveLoadManager` (`011de134`, `MANAGER_INSTANCE`) and its "minor
+/// version" getter (`00851110`, `thiscall`, `MANAGER_GET_MINOR_VERSION`), the version byte every
+/// form record's header carries (`bgssaveloadgame.rs`).
+pub const SAVE_LOAD_MANAGER: u32 = 0x011d_e134;
+/// See [`SAVE_LOAD_MANAGER`].
+pub const MANAGER_GET_MINOR_VERSION: u32 = 0x0085_1110;
+
+/// `BGSSaveFormBuffer` (0x24 bytes, `bgssaveformbuffer.rs`): its constructor `(this)`
+/// (`008659c0`), the header setter `(this, form id, change flags, form type, minor version)`
+/// (`00865ad0`), the form setter `(this, form)` (`0050f9c0`) and its destructor `(this)`
+/// (`00847dd0`), used as `BGSSaveLoadGame::SaveGame` and `UnloadForm` use them
+/// (`bgssaveloadgame.rs`).
+pub const SAVE_FORM_BUFFER_SIZE: u32 = 0x24;
+/// See [`SAVE_FORM_BUFFER_SIZE`].
+pub const SAVE_FORM_BUFFER_CONSTRUCT: u32 = 0x0086_59c0;
+/// See [`SAVE_FORM_BUFFER_SIZE`].
+pub const SAVE_FORM_BUFFER_SET_HEADER: u32 = 0x0086_5ad0;
+/// See [`SAVE_FORM_BUFFER_SIZE`].
+pub const SAVE_FORM_BUFFER_SET_FORM: u32 = 0x0050_f9c0;
+/// See [`SAVE_FORM_BUFFER_SIZE`].
+pub const SAVE_FORM_BUFFER_DESTRUCT: u32 = 0x0084_7dd0;
+/// A save or load buffer's bytes: `pBuffer` at +0x04, `iBufferSize` at +0x08 and
+/// `iBufferPosition` at +0x0c (`bgssavegamebuffer.rs` and `bgsloadgamebuffer.rs`, the
+/// `BGSSaveGameBuffer` and `BGSLoadGameBuffer` layouts).
+pub const BUFFER_DATA_OFFSET: u32 = 0x04;
+/// See [`BUFFER_DATA_OFFSET`].
+pub const BUFFER_SIZE_OFFSET: u32 = 0x08;
+/// See [`BUFFER_DATA_OFFSET`].
+pub const BUFFER_POSITION_OFFSET: u32 = 0x0c;
+/// A form buffer's nine-byte `BGSSaveLoadFormHeader` at +0x14, in a save and a load form buffer
+/// alike: the form's three-byte index, the change flags at +3, the form info (its save type) at
+/// +7 and the version at +8 (`bgssaveformbuffer.rs`, `bgsloadformbuffer.rs`).
+pub const FORM_BUFFER_HEADER_OFFSET: u32 = 0x14;
+/// See [`FORM_BUFFER_HEADER_OFFSET`].
+pub const FORM_HEADER_LEN: usize = 9;
+
+/// `TESForm::SaveGame` (slot 0x54), `LoadGame` (0x5c) and `CheckSaveGame` (0x80), each called
+/// with a form buffer (`bgssaveloadgame.rs`, `FORM_SLOT_SAVE`, `FORM_SLOT_LOAD`,
+/// `FORM_SLOT_CHECK_SAVE_GAME`).
+pub const FORM_SLOT_SAVE_GAME: u32 = 0x54;
+/// See [`FORM_SLOT_SAVE_GAME`].
+pub const FORM_SLOT_LOAD_GAME: u32 = 0x5c;
+/// See [`FORM_SLOT_SAVE_GAME`].
+pub const FORM_SLOT_CHECK_SAVE_GAME: u32 = 0x80;
+/// The initial data written before a reference's or cell's own data: saved by `(save buffer,
+/// form, change flags)` (`0084eb80`) and loaded by `(load buffer, form, change flags)`
+/// (`0084f330`), both cdecl (`bgssaveloadgame.rs`, `SAVE_INITIAL_DATA`, `LOAD_INITIAL_DATA`).
+pub const SAVE_INITIAL_DATA: u32 = 0x0084_eb80;
+/// See [`SAVE_INITIAL_DATA`].
+pub const LOAD_INITIAL_DATA: u32 = 0x0084_f330;
+
+/// `BGSLoadFormBuffer` (0x30 bytes, `bgsloadformbuffer.rs`): its constructor `(this)`
+/// (`008643b0`), `iFormID` at +0x10 and `iSize` at +0x20, the form setter `(this, form)`
+/// (`007037c0`) and the header's change flags setter `(this, flags)` (`00428130`), used as
+/// `BGSSaveLoadGame::LoadForm` uses them (`bgssaveloadgame.rs`).
+pub const LOAD_FORM_BUFFER_SIZE: u32 = 0x30;
+/// See [`LOAD_FORM_BUFFER_SIZE`].
+pub const LOAD_FORM_BUFFER_CONSTRUCT: u32 = 0x0086_43b0;
+/// See [`LOAD_FORM_BUFFER_SIZE`].
+pub const LOAD_FORM_BUFFER_FORM_ID_OFFSET: u32 = 0x10;
+/// See [`LOAD_FORM_BUFFER_SIZE`].
+pub const LOAD_FORM_BUFFER_DATA_SIZE_OFFSET: u32 = 0x20;
+/// See [`LOAD_FORM_BUFFER_SIZE`].
+pub const LOAD_FORM_BUFFER_SET_FORM: u32 = 0x0070_37c0;
+/// See [`LOAD_FORM_BUFFER_SIZE`].
+pub const LOAD_FORM_BUFFER_SET_HEADER_FLAGS: u32 = 0x0042_8130;
+/// `(form, on)`: called on a form around the application of its load data (`0046a010`,
+/// `bgssaveloadgame.rs`, `FORM_MARK_LOADED`); `LoadForm` sets it, the unload pass clears it.
+pub const FORM_MARK_LOADED: u32 = 0x0046_a010;
+/// `operator delete(block)` (`00401030`, `bgssaveloadgame.rs`, `OPERATOR_DELETE`):
+/// `BGSLoadGameBuffer::DeleteBuffer` frees a load buffer's data with it.
+pub const OPERATOR_DELETE: u32 = 0x0040_1030;
+/// Adds a word to a `BSSimpleArray` `(array, &word)` (`007cb2e0`, `bgssaveloadgame.rs`,
+/// `ARRAY_ADD`): `LoadForm` hands each load buffer to the game's form buffer array with it.
+pub const ARRAY_ADD: u32 = 0x007c_b2e0;
+/// The unload pass `(game, full)` (`008492b0`, `bgssaveloadgame.rs`, `fn_008492b0`): every
+/// buffer in the form buffer array gets `InitLoadGame` and `FinishLoadGame` and is deleted. The
+/// game runs it with `full` 0 after cells were attached (`tes.rs`).
+pub const GAME_UNLOAD_PASS: u32 = 0x0084_92b0;
+
+/// `BGSSaveLoadFormIDMap` (0x24 bytes; `run_00846b60.rs`, `bgssaveloadformidmap.rs`): the
+/// numbering of form ids every record's references use. Its constructor `(this, buckets)`
+/// (`00846b60`; the game passes 0x13af), "get or add the index of a form id" `(map, id)`
+/// (`00846c90`: index 0 is the null id, a created form's id is answered as it is), "the form id
+/// of an index" `(map, index)` (`00846d20`), and the next index at +0x20. A record's three-byte
+/// indices are made and resolved through the map the game object points at
+/// (`bgssaveloadstructs.rs`, `BGSNumericIDIndex`).
+pub const FORM_ID_MAP_SIZE: u32 = 0x24;
+/// See [`FORM_ID_MAP_SIZE`].
+pub const FORM_ID_MAP_CONSTRUCT: u32 = 0x0084_6b60;
+/// See [`FORM_ID_MAP_SIZE`].
+pub const FORM_ID_MAP_BUCKETS: u32 = 0x13af;
+/// See [`FORM_ID_MAP_SIZE`].
+pub const FORM_ID_MAP_GET_OR_ADD: u32 = 0x0084_6c90;
+/// See [`FORM_ID_MAP_SIZE`].
+pub const FORM_ID_MAP_RESOLVE: u32 = 0x0084_6d20;
+/// See [`FORM_ID_MAP_SIZE`].
+pub const FORM_ID_MAP_NEXT_INDEX_OFFSET: u32 = 0x20;
+/// Empties a `BGSSaveLoadFormIDMap` `(map)` and reserves index 0 for the null id again
+/// (`00846c50`, `thiscall`; `bgssaveloadformidmap.rs`, `fn_00846c50`).
+pub const FORM_ID_MAP_RESET: u32 = 0x0084_6c50;
+/// `(game, on)` on the per-thread flag `LoadForm` lowers while it loads a form; answers the
+/// flag as it was, which is passed back to restore it (`004623f0`, `bgssaveloadgame.rs`,
+/// `SET_THREAD_FLAG`).
+pub const SET_THREAD_FLAG: u32 = 0x0046_23f0;
+
+/// Form types of the forms the changed-form stream carries: a placed object `REFR` (0x3a, after
+/// [`FORM_TYPE_CELL`]), a faction `FACT` (8), a note `NOTE` (0x31), a dialogue response `INFO`
+/// (0x46, one below [`FORM_TYPE_QUEST`]) and a reputation `REPU` (0x68): the form types of the
+/// game's own save type table as `crates/fos` lists it (`SAVE_TYPES`, docs/FOS_SAVES.md).
+pub const FORM_TYPE_REFR: u8 = 0x3a;
+/// See [`FORM_TYPE_REFR`].
+pub const FORM_TYPE_FACTION: u8 = 8;
+/// See [`FORM_TYPE_REFR`].
+pub const FORM_TYPE_NOTE: u8 = 0x31;
+/// See [`FORM_TYPE_REFR`].
+pub const FORM_TYPE_INFO: u8 = 0x46;
+/// See [`FORM_TYPE_REFR`].
+pub const FORM_TYPE_REPUTATION: u8 = 0x68;
+
+/// Change flags of a reference (`crates/fos`, `change_flag_name`, docs/FOS_SAVES.md; the open
+/// state's flag also in `tesobjectrefr_p4.rs`, `fn_00572d50`): the form flags (enabled or not
+/// among them), moved, moved by physics, moved to another cell, the inventory, the lock, an
+/// emptied container, and an open state other than the default.
+pub const CHANGE_FORM_FLAGS: u32 = 0x1;
+/// See [`CHANGE_FORM_FLAGS`].
+pub const CHANGE_REFR_MOVE: u32 = 0x2;
+/// See [`CHANGE_FORM_FLAGS`].
+pub const CHANGE_REFR_HAVOK_MOVE: u32 = 0x4;
+/// See [`CHANGE_FORM_FLAGS`].
+pub const CHANGE_REFR_CELL_CHANGED: u32 = 0x8;
+/// See [`CHANGE_FORM_FLAGS`].
+pub const CHANGE_REFR_INVENTORY: u32 = 0x20;
+/// See [`CHANGE_FORM_FLAGS`].
+pub const CHANGE_OBJECT_EXTRA_LOCK: u32 = 0x1000;
+/// See [`CHANGE_FORM_FLAGS`].
+pub const CHANGE_OBJECT_EMPTY: u32 = 0x20_0000;
+/// See [`CHANGE_FORM_FLAGS`].
+pub const CHANGE_OBJECT_OPEN_STATE: u32 = 0x80_0000;
+/// See [`CHANGE_FORM_FLAGS`].
+pub const CHANGE_REFR_LEVELED_INVENTORY: u32 = 0x800_0000;
+
+/// `BGSOpenCloseForm::GetOpenState(reference)` (`0047b250`, cdecl; `bgsopencloseform.rs`): 0 for
+/// a reference that does not open, 1 open, 2 opening, 3 closed, 4 closing.
+pub const GET_OPEN_STATE: u32 = 0x0047_b250;
+/// `BGSOpenCloseForm::SetOpenState(reference, open, immediate)` (`0047aec0`, cdecl;
+/// `bgsopencloseform.rs`): sets or clears the reference's "open" action, which adds or removes
+/// its open state's change flag (`tesobjectrefr_p4.rs`, `fn_00572d50` and `ClearAction`), and
+/// plays the open or close sequence. A door closed again loses its change flag through
+/// `RemoveChange`, which the change journal does not see.
+pub const SET_OPEN_STATE: u32 = 0x0047_aec0;
+
+/// A reference's own lock `(reference)` (`00569140`, `thiscall`; `tesobjectrefr_p2.rs`,
+/// `LOCK_OF_REFERENCE`): its `REFR_LOCK`, or 0 without one.
+pub const REF_OWN_LOCK: u32 = 0x0056_9140;
+/// `REFR_LOCK` (`extradataobjects.rs`, `RefrLock`): `cBaseLevel` at +0x00, `cFlags` at +0x08
+/// (bit 0 locked) and `uiNumTries` at +0x0c (a lock is broken once the tries reach the game's
+/// limit, `REFR_LOCK::IsBroken`).
+pub const LOCK_LEVEL_OFFSET: u32 = 0x00;
+/// See [`LOCK_LEVEL_OFFSET`].
+pub const LOCK_FLAGS_OFFSET: u32 = 0x08;
+/// See [`LOCK_LEVEL_OFFSET`].
+pub const LOCK_TRIES_OFFSET: u32 = 0x0c;
+/// See [`LOCK_LEVEL_OFFSET`].
+pub const LOCK_FLAG_LOCKED: u8 = 1;
+/// `TESObjectREFR::Lock(this)` (`00569250`) and `UnLock(this)` (`005692a0`): they lock or
+/// unlock the reference's lock and record the change; nothing without a lock
+/// (`tesobjectrefr_p2.rs`).
+pub const REF_LOCK: u32 = 0x0056_9250;
+/// See [`REF_LOCK`].
+pub const REF_UNLOCK: u32 = 0x0056_92a0;
+/// `TESObjectREFR::AddLockChange(this)` (`005789b0`, `tesobjectrefr_p2.rs`, `ADD_LOCK_CHANGE`):
+/// records that the reference's lock changed, as `Lock` and `UnLock` do.
+pub const REF_ADD_LOCK_CHANGE: u32 = 0x0057_89b0;
+// world: end
