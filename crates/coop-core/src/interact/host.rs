@@ -100,6 +100,10 @@ pub struct InteractHost {
     pub transit: Transit,
     /// Counters.
     pub stats: InteractStats,
+    /// Players whose request the host executed with a destination (a door
+    /// transit), with the door: the requester warps too
+    /// (`crate::avatar::AvatarHub::open_warp`).
+    pub transits: Vec<(PlayerId, FormId)>,
 }
 
 impl Default for InteractHost {
@@ -113,6 +117,7 @@ impl Default for InteractHost {
             next_drop: 1,
             transit: Transit::default(),
             stats: InteractStats::default(),
+            transits: Vec::new(),
         }
     }
 }
@@ -176,6 +181,7 @@ impl InteractHost {
         let mut v = vec![out(Audience::To(from), verdict)];
         v.extend(self.publish(o.shared));
         if let Some((f, who)) = o.follow {
+            self.transits.push((from, f.door));
             v.extend(self.follow(f, &who));
         }
         v

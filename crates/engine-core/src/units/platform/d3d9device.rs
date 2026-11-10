@@ -30,6 +30,30 @@ pub const SURFACE_CODE: u32 = CODE_BASE + 0x0400;
 pub const TEXTURE_CODE: u32 = CODE_BASE + 0x0500;
 /// `IDirect3DCubeTexture9`'s slots (the texture's names, with `GetCubeMapSurface` at 18).
 pub const CUBE_CODE: u32 = CODE_BASE + 0x0900;
+/// Where `IDirect3DDevice9Ex`'s own slots ([`DEVICE_EX_SLOTS`]) sit. The device's 119 slots
+/// come first in its table, so these cannot follow [`DEVICE_CODE`] without reaching
+/// [`SURFACE_CODE`].
+pub const DEVICE_EX_CODE: u32 = CODE_BASE + 0x0b00;
+
+/// `IDirect3DDevice9Ex`'s slots after `IDirect3DDevice9`'s (d3d9.h order, from slot 119). Only
+/// `CheckDeviceState` is provided: the others stop the run when called.
+pub const DEVICE_EX_SLOTS: [&str; 15] = [
+    "SetConvolutionMonoKernel",
+    "ComposeRects",
+    "PresentEx",
+    "GetGPUThreadPriority",
+    "SetGPUThreadPriority",
+    "WaitForVBlank",
+    "CheckResourceResidency",
+    "SetMaximumFrameLatency",
+    "GetMaximumFrameLatency",
+    "CheckDeviceState",
+    "CreateRenderTargetEx",
+    "CreateOffscreenPlainSurfaceEx",
+    "CreateDepthStencilSurfaceEx",
+    "ResetEx",
+    "GetDisplayModeEx",
+];
 
 /// `D3DERR_NOTFOUND` (d3d9.h).
 pub const D3DERR_NOTFOUND: u32 = 0x8876_0866;
@@ -230,6 +254,28 @@ const PP_AUTO_DEPTH: u32 = 0x24;
 const PP_DEPTH_FORMAT: u32 = 0x28;
 const PP_REFRESH: u32 = 0x30;
 const PRESENT_SIZE: u32 = 0x38;
+const D3DFMT_X8R8G8B8: u32 = 22;
+
+/// A window's styles with a full-screen device and after it, by its styles before (`GWL_STYLE`,
+/// `GWL_EXSTYLE`), as the retail runtime set them (`d3d9-capture fullscreen W H 200 100`,
+/// 2026-11-06, a window made as WinMain makes the game's): `WS_CAPTION` and `WS_EX_WINDOWEDGE`
+/// go and `WS_EX_TOPMOST` comes; after `Release` the style is back and `WS_EX_TOPMOST` stays.
+const FULL_SCREEN_STYLES: [[(u32, u32); 3]; 1] = [[
+    (0x14c0_0000, 0x100),
+    (0x1400_0000, 0x8),
+    (0x14c0_0000, 0x108),
+]];
+
+/// A full-screen device's display mode and window.
+#[derive(Debug, Clone, Copy)]
+struct FullScreen {
+    /// `D3DDISPLAYMODE`: width, height, refresh rate, format.
+    mode: [u32; 4],
+    /// The device window (the focus window when the parameters name none) and its styles after
+    /// the device ([`FULL_SCREEN_STYLES`]).
+    window: u32,
+    after: (u32, u32),
+}
 /// `D3DCAPS9::NumSimultaneousRTs`.
 const CAPS_SIMULTANEOUS_RTS: usize = 0xf0;
 /// The render target slots a device keeps (`D3D_MAX_SIMULTANEOUS_RENDERTARGETS`).
@@ -284,6 +330,8 @@ const IID_SURFACE9: [u8; 16] = guid(
 struct Device {
     references: u32,
     direct3d: u32,
+    /// Made by `IDirect3D9Ex::CreateDeviceEx`: an `IDirect3DDevice9Ex`.
+    ex: bool,
     /// `D3DDEVICE_CREATION_PARAMETERS`: adapter, device type, focus window, behaviour flags.
     creation: [u32; 4],
     /// The present parameters as the device took them (after filling in the defaults).
@@ -316,6 +364,8 @@ struct Device {
     /// After a `Reset` that failed: the device needs a successful `Reset` (`TestCooperativeLevel`
     /// answers `D3DERR_DEVICENOTRESET`; scenes and `Present` are refused).
     lost: bool,
+    /// A full-screen device's display mode and window.
+    full_screen: Option<FullScreen>,
 }
 
 /// The render states kept (numbers 0 to 255), the texture stage states (8 stages of types 1 to
@@ -392,6 +442,7 @@ struct Surface {
 #[derive(Debug, Default)]
 pub struct Objects {
     device_vtable: u32,
+    device_ex_vtable: u32,
     surface_vtable: u32,
     texture_vtable: u32,
     cube_vtable: u32,
@@ -1010,6 +1061,10 @@ fn register_code(e: &mut Engine) {
     for (slot, f) in cube {
         e.register(CUBE_CODE + 4 * slot, f);
     }
+    e.register(
+        DEVICE_EX_CODE + 4 * 9,
+        crate::entry!(0, check_device_state(Ptr, u32) -> u32).1,
+    );
     if e.kernel.graphics.device_objects.device_vtable == 0 {
         let device = vtable(e, DEVICE_CODE, DEVICE_SLOTS.len());
         let surface = vtable(e, SURFACE_CODE, SURFACE_SLOTS.len());
@@ -1055,14 +1110,14 @@ fn new_surface(e: &mut Engine, device: u32, implicit: bool, desc: [u32; 8]) -> u
 /// device with neither a device window nor a focus window, or with a full-screen refresh rate,
 /// and a back buffer count above `D3DPRESENT_BACK_BUFFERS_MAX` (3; the count is set to 3, so a
 /// second call can succeed). A count of 0 becomes 1 and the format `D3DFMT_UNKNOWN` the
-/// display mode's format, written back into the caller's parameters as Direct3D does. The
-/// device gets its back buffers (render-target surfaces of the parameters' size and format;
+/// display mode's format, written back into the caller's parameters as Direct3D does. A
+/// full-screen device is as [`full_screen_request`] says. The device gets its back buffers (render-target surfaces of the parameters' size and format;
 /// the first is render target 0), the automatic depth-stencil surface when asked for, the
 /// viewport of the whole back buffer (depth 0 to 1), a reference to this `IDirect3D9`, and its
 /// creation runs [`crate::units::platform::direct3d_device_created`] (the calling thread's
 /// x87 precision). Not provided (the run stops): other device types, software vertex
-/// processing, full-screen devices, a zero width or height (the window's client area),
-/// multisampling, and a back buffer format the table's `CheckDeviceType` refuses.
+/// processing, a zero width or height (the window's client area), multisampling, and a
+/// windowed back buffer format the table's `CheckDeviceType` refuses.
 #[allow(clippy::too_many_arguments)]
 pub fn create_device(
     e: &mut Engine,
@@ -1073,6 +1128,68 @@ pub fn create_device(
     behavior: u32,
     present: Ptr,
     out: Ptr,
+) -> u32 {
+    create(
+        e,
+        this,
+        adapter,
+        device_type,
+        focus,
+        behavior,
+        present,
+        out,
+        false,
+    )
+}
+
+// Platform: replaces D3D9.DLL IDirect3D9Ex::CreateDeviceEx (vtable +0x50)
+/// `CreateDeviceEx(adapter, device type, focus window, behaviour flags, present parameters,
+/// full-screen display mode, device out)`: as [`create_device`], and the device is an
+/// `IDirect3DDevice9Ex` (its slots [`DEVICE_SLOTS`], then [`DEVICE_EX_SLOTS`]). The display
+/// mode must be null for a windowed device and given for a full-screen one (d3d9.h), else
+/// `D3DERR_INVALIDCALL`.
+#[allow(clippy::too_many_arguments)]
+pub fn create_device_ex(
+    e: &mut Engine,
+    this: Ptr,
+    adapter: u32,
+    device_type: u32,
+    focus: u32,
+    behavior: u32,
+    present: Ptr,
+    mode: Ptr,
+    out: Ptr,
+) -> u32 {
+    if !present.is_null() {
+        let windowed = e.mem.u32(present.addr() + PP_WINDOWED) != 0;
+        if windowed != mode.is_null() {
+            return D3DERR_INVALIDCALL;
+        }
+    }
+    create(
+        e,
+        this,
+        adapter,
+        device_type,
+        focus,
+        behavior,
+        present,
+        out,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create(
+    e: &mut Engine,
+    this: Ptr,
+    adapter: u32,
+    device_type: u32,
+    focus: u32,
+    behavior: u32,
+    present: Ptr,
+    out: Ptr,
+    ex: bool,
 ) -> u32 {
     if present.is_null() || out.is_null() || adapter != 0 {
         return D3DERR_INVALIDCALL;
@@ -1090,53 +1207,73 @@ pub fn create_device(
     }
     let p = present.addr();
     let field = |e: &Engine, offset: u32| e.mem.u32(p + offset);
-    if field(e, PP_WINDOWED) == 0 {
-        not_provided("a full-screen device");
-    }
-    if field(e, PP_WINDOW) == 0 && focus == 0 {
-        return D3DERR_INVALIDCALL;
-    }
-    if field(e, PP_REFRESH) != 0 {
-        return D3DERR_INVALIDCALL;
-    }
-    if field(e, PP_COUNT) > BACK_BUFFERS_MAX {
-        e.mem.set_u32(p + PP_COUNT, BACK_BUFFERS_MAX);
-        return D3DERR_INVALIDCALL;
-    }
-    if field(e, PP_WIDTH) == 0 || field(e, PP_HEIGHT) == 0 {
-        not_provided("a back buffer size taken from the window");
-    }
-    if field(e, PP_MULTISAMPLE) != 0 {
-        not_provided("multisampling");
-    }
-    // The display mode's format (`D3DDISPLAYMODE` +0xC).
-    let display_format = e.with_stack(0x10, |e, mode| {
-        let hr = e.vcall(this.addr(), 4 * 8, &[0, mode.addr()]).u32();
-        assert_eq!(hr, D3D_OK, "GetAdapterDisplayMode for CreateDevice");
-        e.mem.u32(mode.addr() + 0xc)
-    });
-    if field(e, PP_COUNT) == 0 {
-        e.mem.set_u32(p + PP_COUNT, 1);
-    }
-    if field(e, PP_FORMAT) == D3DFMT_UNKNOWN {
-        e.mem.set_u32(p + PP_FORMAT, display_format);
-    }
+    let full_screen = if field(e, PP_WINDOWED) == 0 {
+        match full_screen_request(e, this, p, focus) {
+            Ok(full_screen) => Some(full_screen),
+            Err(hr) => return hr,
+        }
+    } else {
+        if field(e, PP_WINDOW) == 0 && focus == 0 {
+            return D3DERR_INVALIDCALL;
+        }
+        if field(e, PP_REFRESH) != 0 {
+            return D3DERR_INVALIDCALL;
+        }
+        if field(e, PP_COUNT) > BACK_BUFFERS_MAX {
+            e.mem.set_u32(p + PP_COUNT, BACK_BUFFERS_MAX);
+            return D3DERR_INVALIDCALL;
+        }
+        if field(e, PP_WIDTH) == 0 || field(e, PP_HEIGHT) == 0 {
+            not_provided("a back buffer size taken from the window");
+        }
+        if field(e, PP_MULTISAMPLE) != 0 {
+            not_provided("multisampling");
+        }
+        // The display mode's format (`D3DDISPLAYMODE` +0xC).
+        let display_format = e.with_stack(0x10, |e, mode| {
+            let hr = e.vcall(this.addr(), 4 * 8, &[0, mode.addr()]).u32();
+            assert_eq!(hr, D3D_OK, "GetAdapterDisplayMode for CreateDevice");
+            e.mem.u32(mode.addr() + 0xc)
+        });
+        if field(e, PP_COUNT) == 0 {
+            e.mem.set_u32(p + PP_COUNT, 1);
+        }
+        if field(e, PP_FORMAT) == D3DFMT_UNKNOWN {
+            e.mem.set_u32(p + PP_FORMAT, display_format);
+        }
+        let format = field(e, PP_FORMAT);
+        let check = e
+            .vcall(
+                this.addr(),
+                4 * 9,
+                &[adapter, device_type, display_format, format, 1],
+            )
+            .u32();
+        if check != D3D_OK {
+            not_provided(&format!(
+                "a windowed back buffer of format {format} (CheckDeviceType answers {check:#x})"
+            ));
+        }
+        None
+    };
     let format = field(e, PP_FORMAT);
-    let check = e
-        .vcall(
-            this.addr(),
-            4 * 9,
-            &[adapter, device_type, display_format, format, 1],
-        )
-        .u32();
-    if check != D3D_OK {
-        not_provided(&format!(
-            "a windowed back buffer of format {format} (CheckDeviceType answers {check:#x})"
-        ));
-    }
     register_code(e);
+    // Made on the first `IDirect3DDevice9Ex` only, so a run without one keeps its heap layout.
+    if ex && e.kernel.graphics.device_objects.device_ex_vtable == 0 {
+        let device_ex = vtable(e, DEVICE_CODE, DEVICE_SLOTS.len() + DEVICE_EX_SLOTS.len());
+        for i in 0..DEVICE_EX_SLOTS.len() as u32 {
+            let slot = DEVICE_SLOTS.len() as u32 + i;
+            e.mem.set_u32(device_ex + 4 * slot, DEVICE_EX_CODE + 4 * i);
+        }
+        e.kernel.graphics.device_objects.device_ex_vtable = device_ex;
+    }
     let object = e.mem.alloc(8);
-    let table = e.kernel.graphics.device_objects.device_vtable;
+    let objects = &e.kernel.graphics.device_objects;
+    let table = if ex {
+        objects.device_ex_vtable
+    } else {
+        objects.device_vtable
+    };
     e.mem.set_u32(object, table);
     let (width, height) = (field(e, PP_WIDTH), field(e, PP_HEIGHT));
     let quality = field(e, PP_QUALITY);
@@ -1183,6 +1320,7 @@ pub fn create_device(
     let device = Device {
         references: 1,
         direct3d: this.addr(),
+        ex,
         creation: [adapter, device_type, focus, behavior],
         present: e.mem.bytes(p, PRESENT_SIZE),
         back_buffers,
@@ -1203,12 +1341,28 @@ pub fn create_device(
         enabled_lights: std::collections::BTreeSet::new(),
         software_vertex_processing: false,
         lost: false,
+        full_screen,
     };
     e.kernel
         .graphics
         .device_objects
         .devices
         .insert(object, device);
+    if let Some(full_screen) = full_screen {
+        let [width, height, ..] = full_screen.mode;
+        let w = e
+            .kernel
+            .windows
+            .windows
+            .get_mut(&full_screen.window)
+            .expect("the device window");
+        let with = FULL_SCREEN_STYLES
+            .iter()
+            .find(|s| s[0] == (w.style, w.ex_style))
+            .expect("styles checked by full_screen_request")[1];
+        (w.style, w.ex_style) = with;
+        w.rect = [0, 0, width as i32, height as i32];
+    }
     crate::units::platform::direct3d_device_created(e, behavior);
     #[cfg(windows)]
     {
@@ -1217,8 +1371,128 @@ pub fn create_device(
             (d.present.clone(), d.back_buffers.clone(), d.depth_stencil);
         super::d3d9real::device_created(e, object, focus, behavior, &present, &back_buffers, depth);
     }
+    if let Some(full_screen) = full_screen {
+        swap_chain_refresh(e, object, full_screen.mode[2]);
+    }
     e.mem.set_u32(out.addr(), object);
     D3D_OK
+}
+
+/// A full-screen `CreateDevice`, as the retail runtime answered the game's parameters and one
+/// change of them at a time (`d3d9-capture fullscreen`, 2026-11-06; the caller's parameters
+/// unchanged in each case):
+/// - a back buffer count above 3 (left as given), the format `D3DFMT_UNKNOWN`, or a size the
+///   adapter lists no mode of (a width one less) answer `D3DERR_INVALIDCALL`;
+/// - a null device window takes the focus window;
+/// - the refresh rate 0 takes the desktop's rate: the swap chain's parameters report it, the
+///   caller's keep 0;
+/// - while the device lives, the adapter's display mode is the device's (`GetAdapterDisplayMode`,
+///   the screen metrics), and the window covers the mode from 0,0 with the styles
+///   [`FULL_SCREEN_STYLES`] gives; `Release` gives the desktop mode back and the window its
+///   style, and leaves its rectangle (two of three runs; the run with the window at 0,0 found
+///   the window over the whole desktop instead).
+///
+/// Not provided (the run stops): a second full-screen device, no device window and no focus
+/// window, a window of other styles, a count of 0, a format other than `D3DFMT_X8R8G8B8`, a
+/// refresh rate other than 0 (1 was taken, at a rate not measured), a desktop rate the size does
+/// not list, a size of 0, multisampling.
+fn full_screen_request(e: &mut Engine, this: Ptr, p: u32, focus: u32) -> Result<FullScreen, u32> {
+    let field = |e: &Engine, offset: u32| e.mem.u32(p + offset);
+    if full_screen_mode(e).is_some() {
+        not_provided("a second full-screen device");
+    }
+    let window = match field(e, PP_WINDOW) {
+        0 => focus,
+        w => w,
+    };
+    let (width, height) = (field(e, PP_WIDTH), field(e, PP_HEIGHT));
+    if width == 0 || height == 0 {
+        not_provided("a full-screen back buffer size of 0");
+    }
+    if field(e, PP_MULTISAMPLE) != 0 {
+        not_provided("multisampling");
+    }
+    if field(e, PP_COUNT) > BACK_BUFFERS_MAX || field(e, PP_FORMAT) == D3DFMT_UNKNOWN {
+        return Err(D3DERR_INVALIDCALL);
+    }
+    if field(e, PP_COUNT) == 0 {
+        not_provided("a full-screen back buffer count of 0");
+    }
+    let format = field(e, PP_FORMAT);
+    if format != D3DFMT_X8R8G8B8 {
+        not_provided(&format!("a full-screen back buffer of format {format}"));
+    }
+    let refresh = field(e, PP_REFRESH);
+    if refresh != 0 {
+        not_provided(&format!("the full-screen refresh rate {refresh}"));
+    }
+    // The refresh rates the adapter lists for the size (`EnumAdapterModes`).
+    let count = e.vcall(this.addr(), 4 * 6, &[0, format]).u32();
+    let (rates, desktop) = e.with_stack(0x10, |e, mode| {
+        let m = mode.addr();
+        let rates: Vec<u32> = (0..count)
+            .filter_map(|i| {
+                let hr = e.vcall(this.addr(), 4 * 7, &[0, format, i, m]).u32();
+                assert_eq!(hr, D3D_OK, "EnumAdapterModes for CreateDevice");
+                (e.mem.u32(m) == width && e.mem.u32(m + 4) == height).then(|| e.mem.u32(m + 8))
+            })
+            .collect();
+        let hr = e.vcall(this.addr(), 4 * 8, &[0, m]).u32();
+        assert_eq!(hr, D3D_OK, "GetAdapterDisplayMode for CreateDevice");
+        (rates, e.mem.u32(m + 8))
+    });
+    if rates.is_empty() {
+        return Err(D3DERR_INVALIDCALL);
+    }
+    if !rates.contains(&desktop) {
+        not_provided(&format!(
+            "a full-screen mode {width}x{height} without the desktop's refresh rate {desktop} (rates {rates:?})"
+        ));
+    }
+    // The refusals above were also measured on a window a device had left (extended style
+    // 0x108): the window's styles count only for a device made.
+    let Some(w) = e.kernel.windows.windows.get(&window) else {
+        not_provided(&format!("a full-screen device for the window {window:#x}"));
+    };
+    let styles = (w.style, w.ex_style);
+    let Some(after) = FULL_SCREEN_STYLES
+        .iter()
+        .find(|s| s[0] == styles)
+        .map(|s| s[2])
+    else {
+        not_provided(&format!(
+            "a full-screen device for a window of styles {:#x} {:#x}",
+            styles.0, styles.1
+        ));
+    };
+    Ok(FullScreen {
+        mode: [width, height, desktop, format],
+        window,
+        after,
+    })
+}
+
+/// The display mode of the full-screen device alive, if one is (`D3DDISPLAYMODE` words).
+pub(super) fn full_screen_mode(e: &Engine) -> Option<[u32; 4]> {
+    e.kernel
+        .graphics
+        .device_objects
+        .devices
+        .values()
+        .find_map(|d| d.full_screen.map(|f| f.mode))
+}
+
+/// A full-screen device's swap chain reports the mode's refresh rate.
+fn swap_chain_refresh(e: &mut Engine, object: u32, refresh: u32) {
+    let at = PP_REFRESH as usize;
+    let d = &mut e
+        .kernel
+        .graphics
+        .device_objects
+        .devices
+        .get_mut(&object)
+        .expect("the device");
+    d.present[at..at + 4].copy_from_slice(&refresh.to_le_bytes());
 }
 
 fn device(e: &mut Engine, this: Ptr) -> &mut Device {
@@ -1279,6 +1553,11 @@ pub(super) fn device_release(e: &mut Engine, this: Ptr) -> u32 {
             .devices
             .remove(&this.addr())
             .expect("the device");
+        if let Some(full_screen) = d.full_screen {
+            if let Some(w) = e.kernel.windows.windows.get_mut(&full_screen.window) {
+                (w.style, w.ex_style) = full_screen.after;
+            }
+        }
         for held in d.render_targets.iter().chain([&d.depth_stencil]) {
             if *held != 0 {
                 surface_release(e, Ptr::new(*held));
@@ -1810,6 +2089,20 @@ fn present(e: &mut Engine, this: Ptr, source: u32, dest: u32, window: u32, dirty
 /// `TestCooperativeLevel()`: a windowed device is not lost here: `D3D_OK`, or
 /// `D3DERR_DEVICENOTRESET` after a `Reset` that failed until one succeeds (measured, 2026-10-27).
 const D3DERR_DEVICENOTRESET: u32 = 0x8876_0869;
+
+/// `IDirect3DDevice9Ex::CheckDeviceState(window)` for the device's own windows (null): `S_OK`.
+/// The model has no other display state: it never changes the display mode, minimises or
+/// covers a window, or removes the adapter, which are the documented other answers. Not
+/// provided (the run stops): a window given.
+fn check_device_state(e: &mut Engine, this: Ptr, window: u32) -> u32 {
+    assert!(
+        window == 0,
+        "IDirect3DDevice9Ex::CheckDeviceState for window {window:#x} is not provided"
+    );
+    debug_assert!(device(e, this).ex && !device(e, this).lost);
+    D3D_OK
+}
+
 fn test_cooperative_level(e: &mut Engine, this: Ptr) -> u32 {
     if device(e, this).lost {
         return D3DERR_DEVICENOTRESET;
@@ -2712,17 +3005,39 @@ fn default_pool_alive(e: &Engine, device: u32) -> bool {
 ///   streams, indices, declaration, FVF, shaders, constants), the viewport and scissor the whole
 ///   back buffer.
 ///
-/// Not provided (the run stops): a full-screen device, a size taken from the window (0),
-/// multisampling.
+/// A full-screen device reset to its own parameters answers `D3D_OK` with the caller's
+/// parameters unchanged: the window, the display mode and the swap chain's refresh rate stay
+/// (`d3d9-capture fullscreen`, 2026-11-06).
+///
+/// Not provided (the run stops): a change between windowed and full-screen, another full-screen
+/// mode, a size taken from the window (0), multisampling.
 fn reset(e: &mut Engine, this: Ptr, present: Ptr) -> u32 {
     if present.is_null() {
         return D3DERR_INVALIDCALL;
     }
     let p = present.addr();
     let field = |e: &Engine, offset: u32| e.mem.u32(p + offset);
-    if field(e, PP_WINDOWED) == 0 {
-        panic!("IDirect3DDevice9::Reset to a full-screen device is not provided");
+    let full_screen = device(e, this).full_screen;
+    match (full_screen, field(e, PP_WINDOWED) == 0) {
+        (None, false) => {}
+        (Some(f), true)
+            if [
+                field(e, PP_WIDTH),
+                field(e, PP_HEIGHT),
+                field(e, PP_FORMAT),
+                field(e, PP_REFRESH),
+            ] == [f.mode[0], f.mode[1], f.mode[3], 0]
+                && (1..=BACK_BUFFERS_MAX).contains(&field(e, PP_COUNT)) => {}
+        _ => panic!(
+            "IDirect3DDevice9::Reset to another full-screen mode, or between windowed and full-screen, is not provided"
+        ),
     }
+    // Direct3D 9Ex keeps default-pool resources over a Reset: the measured answers below are
+    // the plain device's.
+    assert!(
+        !device(e, this).ex,
+        "IDirect3DDevice9Ex::Reset is not provided"
+    );
     if default_pool_alive(e, this.addr()) || field(e, PP_COUNT) > BACK_BUFFERS_MAX {
         device(e, this).lost = true;
         return D3DERR_INVALIDCALL;
@@ -2851,6 +3166,9 @@ fn reset(e: &mut Engine, this: Ptr, present: Ptr) -> u32 {
     }
     #[cfg(windows)]
     super::d3d9real::device_reset(e, this.addr(), &bytes, &back_buffers, depth_stencil);
+    if let Some(full_screen) = full_screen {
+        swap_chain_refresh(e, this.addr(), full_screen.mode[2]);
+    }
     D3D_OK
 }
 
@@ -4192,9 +4510,216 @@ mod tests {
         &e.kernel.graphics.device_objects.devices[&device]
     }
 
+    /// TEST DATA, not a capture: the test table on an 800x600 60 Hz desktop, with X8R8G8B8 modes
+    /// 640x480 at 75 and 60 Hz, 800x600 at 60 Hz and 1024x768 at 75 Hz only; and an engine
+    /// with the table, a window record 0x11c of the styles WinMain's window reads back (measured,
+    /// `FULL_SCREEN_STYLES`) at 200,100, and the game's full-screen parameters for 640x480
+    /// (`00e6bf50`: count 1, discard, no device window, no automatic depth, refresh 0).
+    fn full_screen() -> (Engine, u32, u32) {
+        let hex = |b: &[u32]| -> String {
+            b.iter()
+                .flat_map(|w| w.to_le_bytes())
+                .map(|x| format!("{x:02x}"))
+                .collect()
+        };
+        let modes = [
+            [640, 480, 75],
+            [640, 480, 60],
+            [800, 600, 60],
+            [1024, 768, 75],
+        ];
+        let mut table = vec![
+            test_table(),
+            format!(
+                "GetAdapterDisplayMode\t0\t0\t{}",
+                hex(&[800, 600, 60, 0x16])
+            ),
+            "GetSystemMetrics\t0\t320".to_string(),
+            "GetSystemMetrics\t1\t258".to_string(),
+            format!("GetAdapterModeCount\t0 16\t{:x}", modes.len()),
+        ];
+        for (i, [w, h, r]) in modes.iter().enumerate() {
+            table.push(format!(
+                "EnumAdapterModes\t0 16 {i:x}\t0\t{}",
+                hex(&[*w, *h, *r, 0x16])
+            ));
+        }
+        let mut e = Engine::new();
+        d3d9::load_adapter_table(&mut e, &table.join("\n"));
+        let create = d3d9::proc_address(&mut e, b"Direct3DCreate9").unwrap();
+        let d3d = e.call(create, &[d3d9::D3D_SDK_VERSION]).u32();
+        e.kernel.windows.windows.insert(
+            0x11c,
+            super::super::window::Window {
+                class: 0,
+                title: Vec::new(),
+                style: 0x14c0_0000,
+                ex_style: 0x100,
+                parent: 0,
+                rect: [200, 100, 1328, 734],
+            },
+        );
+        let present = e.mem.alloc(PRESENT_SIZE);
+        game_full_screen(&mut e, present);
+        (e, d3d, present)
+    }
+
+    fn game_full_screen(e: &mut Engine, present: u32) {
+        let words = [640, 480, 0x16, 1, 0, 0, 1, 0, 0, 0, 0x4b, 1, 0, 1];
+        for (i, w) in words.iter().enumerate() {
+            e.mem.set_u32(present + 4 * i as u32, *w);
+        }
+    }
+
+    fn present_words(e: &Engine, present: u32) -> Vec<u32> {
+        (0..PRESENT_SIZE / 4)
+            .map(|i| e.mem.u32(present + 4 * i))
+            .collect()
+    }
+
+    fn adapter_mode(e: &mut Engine, d3d: u32) -> [u32; 4] {
+        let mode = e.mem.alloc(0x10);
+        assert_eq!(e.vcall(d3d, 4 * 8, &[0, mode]).u32(), D3D_OK);
+        [0, 4, 8, 12].map(|o| e.mem.u32(mode + o))
+    }
+
+    /// The retail runtime with the game's full-screen parameters (`d3d9-capture fullscreen W H
+    /// 200 100`, 2026-11-06; W, H a listed mode, R the desktop's refresh rate): "CreateDevice
+    /// game 0", "parameters after" as given, "adapter mode with the device W H R 16", "window
+    /// with the device rect 0 0 W H ... style 14000000 exstyle 8 ... screen WxH", "swap chain
+    /// parameters ... R", "GetDepthStencilSurface 88760866", "Reset to the same parameters 0",
+    /// "window after Reset" as with the device, "adapter mode after" the desktop's, "window
+    /// after rect 0 0 W H ... style 14c00000 exstyle 108 ... screen" the desktop's; refused with
+    /// the parameters as given: "width one less 8876086c", "format unknown 8876086c", "4 back
+    /// buffers 8876086c"; "no device window 0".
+    #[test]
+    fn a_full_screen_device_takes_the_display_as_measured() {
+        let (mut e, d3d, present) = full_screen();
+        let out = e.mem.alloc(4);
+        let given = present_words(&e, present);
+        let hr = e
+            .vcall(d3d, CREATE_DEVICE, &[0, 1, 0x11c, 0x54, present, out])
+            .u32();
+        assert_eq!(hr, D3D_OK);
+        let device = e.mem.u32(out);
+        assert_eq!(present_words(&e, present), given);
+        assert_eq!(adapter_mode(&mut e, d3d), [640, 480, 60, 0x16]);
+        assert_eq!(d3d9::system_metric(&mut e, 0), Some(640));
+        assert_eq!(d3d9::system_metric(&mut e, 1), Some(480));
+        let window = |e: &Engine| {
+            let w = &e.kernel.windows.windows[&0x11c];
+            (w.rect, w.style, w.ex_style)
+        };
+        assert_eq!(window(&e), ([0, 0, 640, 480], 0x1400_0000, 0x8));
+        let d = device_state(&e, device);
+        assert_eq!(d.present[PP_REFRESH as usize], 60);
+        assert_eq!(d.creation[2], 0x11c);
+        let slot = e.mem.alloc(4);
+        assert_eq!(e.vcall(device, 4 * 40, &[slot]).u32(), D3DERR_NOTFOUND);
+        assert_eq!(e.vcall(device, 4 * 3, &[]).u32(), D3D_OK);
+        // Reset to the same parameters: the display, the window and the refresh rate stay.
+        assert_eq!(e.vcall(device, 0x40, &[present]).u32(), D3D_OK);
+        assert_eq!(present_words(&e, present), given);
+        assert_eq!(adapter_mode(&mut e, d3d), [640, 480, 60, 0x16]);
+        assert_eq!(window(&e), ([0, 0, 640, 480], 0x1400_0000, 0x8));
+        assert_eq!(device_state(&e, device).present[PP_REFRESH as usize], 60);
+        // Release: the desktop mode comes back, the window keeps its place and WS_EX_TOPMOST.
+        assert_eq!(e.vcall(device, 8, &[]).u32(), 0);
+        assert_eq!(adapter_mode(&mut e, d3d), [800, 600, 60, 0x16]);
+        assert_eq!(d3d9::system_metric(&mut e, 0), Some(0x320));
+        assert_eq!(window(&e), ([0, 0, 640, 480], 0x14c0_0000, 0x108));
+        // Refusals leave the parameters as given.
+        for (field, value) in [(PP_WIDTH, 639), (PP_FORMAT, 0), (PP_COUNT, 4)] {
+            game_full_screen(&mut e, present);
+            e.mem.set_u32(present + field, value);
+            let given = present_words(&e, present);
+            let hr = e
+                .vcall(d3d, CREATE_DEVICE, &[0, 1, 0x11c, 0x54, present, out])
+                .u32();
+            assert_eq!(hr, D3DERR_INVALIDCALL, "field {field:#x} {value}");
+            assert_eq!(present_words(&e, present), given);
+        }
+        assert_eq!(adapter_mode(&mut e, d3d), [800, 600, 60, 0x16]);
+    }
+
+    /// The runtime took the refresh rate 1 at a rate not measured.
+    #[test]
+    #[should_panic(expected = "the full-screen refresh rate 1")]
+    fn a_full_screen_refresh_rate_is_not_provided() {
+        let (mut e, d3d, present) = full_screen();
+        e.mem.set_u32(present + PP_REFRESH, 1);
+        let out = e.mem.alloc(4);
+        e.vcall(d3d, CREATE_DEVICE, &[0, 1, 0x11c, 0x54, present, out]);
+    }
+
+    /// A mode without the desktop's rate: which rate the runtime takes is not measured.
+    #[test]
+    #[should_panic(expected = "without the desktop's refresh rate 60")]
+    fn a_full_screen_mode_without_the_desktop_rate_is_not_provided() {
+        let (mut e, d3d, present) = full_screen();
+        e.mem.set_u32(present + PP_WIDTH, 1024);
+        e.mem.set_u32(present + PP_HEIGHT, 768);
+        let out = e.mem.alloc(4);
+        e.vcall(d3d, CREATE_DEVICE, &[0, 1, 0x11c, 0x54, present, out]);
+    }
+
     /// The test table with what the offscreen, fill and query calls ask: `CheckDeviceFormat` of
     /// an X8R8G8B8 plain surface (usage 0, `D3DRTYPE_SURFACE`) and the query types this machine's
     /// device took (`d3d9-capture device queries`, 2026-10-27: event, occlusion and a few more).
+    /// `IDirect3D9Ex::CreateDeviceEx` (+0x50) and `IDirect3DDevice9Ex::CheckDeviceState`.
+    #[test]
+    fn create_device_ex_makes_an_ex_device() {
+        let mut e = Engine::new();
+        d3d9::load_adapter_table(&mut e, &test_table());
+        let create = d3d9::proc_address(&mut e, b"Direct3DCreate9Ex").unwrap();
+        let out = e.mem.alloc(4);
+        assert_eq!(e.call(create, &[d3d9::D3D_SDK_VERSION, out]).u32(), D3D_OK);
+        let d3d = e.mem.u32(out);
+        let present = e.mem.alloc(PRESENT_SIZE);
+        e.mem.set_u32(present + PP_WIDTH, 640);
+        e.mem.set_u32(present + PP_HEIGHT, 480);
+        e.mem.set_u32(present + PP_WINDOW, 0x11c);
+        e.mem.set_u32(present + PP_WINDOWED, 1);
+        let mode = e.mem.alloc(0x18);
+        let call = |e: &mut Engine, mode: u32| {
+            e.vcall(d3d, 0x50, &[0, 1, 0x11c, 0x40, present, mode, out])
+                .u32()
+        };
+        assert_eq!(
+            call(&mut e, mode),
+            D3DERR_INVALIDCALL,
+            "windowed with a mode"
+        );
+        e.mem.set_u32(present + PP_WINDOWED, 0);
+        assert_eq!(
+            call(&mut e, 0),
+            D3DERR_INVALIDCALL,
+            "full screen without one"
+        );
+        e.mem.set_u32(present + PP_WINDOWED, 1);
+        assert_eq!(call(&mut e, 0), D3D_OK);
+        let device = e.mem.u32(out);
+        assert!(device_state(&e, device).ex);
+        let table = e.mem.u32(device);
+        assert_eq!(e.mem.u32(table + 4 * 118), DEVICE_CODE + 4 * 118);
+        assert_eq!(e.mem.u32(table + 4 * 119), DEVICE_EX_CODE);
+        assert_eq!(e.mem.u32(table + 4 * 128), DEVICE_EX_CODE + 4 * 9);
+        assert_eq!(
+            e.vcall(device, 4 * 128, &[0]).u32(),
+            D3D_OK,
+            "CheckDeviceState"
+        );
+        assert!(!e.is_translated(DEVICE_EX_CODE + 4 * 2), "PresentEx");
+        assert_eq!(
+            e.vcall(device, 0xc, &[]).u32(),
+            D3D_OK,
+            "TestCooperativeLevel"
+        );
+        // A plain device keeps its 119 slots.
+        let (e2, plain) = extra_device();
+        assert!(!device_state(&e2, plain).ex);
+    }
+
     fn extra_device() -> (Engine, u32) {
         let mut e = Engine::new();
         let table = test_table()

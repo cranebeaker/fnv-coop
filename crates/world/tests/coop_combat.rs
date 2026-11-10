@@ -336,6 +336,41 @@ fn a_players_killing_blow_after_an_npcs_blow_in_one_frame_gets_the_kill() {
     );
 }
 
+/// A script changes who is essential (`SetEssential`, `SetActorRefEssential`):
+/// the ledger's protection follows. Before, the host set it only when it
+/// started to track the actor. A quest that made an NPC killable left it
+/// protected in the ledger, and players could not kill it.
+#[test]
+fn the_ledgers_protection_follows_a_script_that_changes_essential() {
+    let (_d, order) = order("cc-essential");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, "perfect", 6);
+    r.settled();
+    let gecko = FormId(GECKO_REF);
+    let protected = |r: &Rig| {
+        r.sim
+            .host
+            .live
+            .actors
+            .is_protected(coop_core::ids::FormId(GECKO_REF))
+    };
+    assert!(!protected(&r), "a plain gecko");
+    // SetEssential on the gecko's base
+    r.host.more.essential_bases.insert(FormId(GECKO), true);
+    r.run_ms(200);
+    assert!(protected(&r), "SetEssential 1");
+    r.host.more.essential_bases.insert(FormId(GECKO), false);
+    r.run_ms(200);
+    assert!(!protected(&r), "SetEssential 0");
+    // SetActorRefEssential on the gecko itself
+    r.host.more.essential_refs.insert(gecko);
+    r.run_ms(200);
+    assert!(protected(&r), "SetActorRefEssential 1");
+    r.host.more.essential_refs.remove(&gecko);
+    r.run_ms(200);
+    assert!(!protected(&r), "SetActorRefEssential 0");
+}
+
 #[test]
 fn a_flood_of_npc_blows_is_coalesced_and_bounded() {
     let (_d, order) = order("cc-flood");
@@ -776,7 +811,14 @@ fn vats_is_real_time_for_everyone_else_and_resolves_on_the_host() {
     );
     let (_, results, spent) = r.guests[0].coop.live.combat.vats_results[0].clone();
     assert_eq!(results.len(), 2);
-    assert_eq!(spent, 40);
+    // two attacks at the cost the guest's world gives its attack (#74: the
+    // harness claims `vats::attack_cost`, and the host holds it to its own
+    // price of the same attack)
+    let settings = world::vats::Settings::load(&order);
+    let hand = world::combat::weapon_in_hand(&order, &r.guests[0], PLAYER_REF);
+    let cost = world::vats::attack_cost(&order, &r.guests[0], &settings, hand.as_ref());
+    assert!(cost >= 1.0, "{cost}");
+    assert_eq!(spent, 2 * cost.round() as u16);
     assert!(
         r.until(30_000, |r| world::combat::health(&order, &r.host, gecko)
             .unwrap()
@@ -882,8 +924,19 @@ fn bigger_parties_bring_extras_to_dynamic_encounters_and_clear_them_when_left() 
         .map(|s| s.id)
         .collect();
     assert!(spawned.len() as u32 >= made);
-    // replicated: a guest hears about every extra
+    // the host's own world has every extra (it fights them too)
     let extras = r.host.coop.live.combat.extras.clone();
+    for e in &extras {
+        assert!(
+            r.host.more.placed.refs.contains_key(e),
+            "the host made extra {e}"
+        );
+        assert!(
+            r.host.place(&order, *e).is_some(),
+            "extra {e} has a place on the host"
+        );
+    }
+    // replicated: a guest hears about every extra
     assert!(r.until(30_000, |r| extras.iter().all(|e| r.sim.guests[1]
         .sync
         .live
@@ -902,6 +955,18 @@ fn bigger_parties_bring_extras_to_dynamic_encounters_and_clear_them_when_left() 
         r.until(60_000, |r| r.host.coop.live.combat.stats.extras_cleared
             >= 1)
     );
+    let cleared: Vec<FormId> = extras
+        .iter()
+        .copied()
+        .filter(|e| !r.host.coop.live.combat.extras.contains(e))
+        .collect();
+    assert!(!cleared.is_empty());
+    for e in &cleared {
+        assert!(
+            !r.host.more.placed.refs.contains_key(e),
+            "the host removed cleared extra {e}"
+        );
+    }
     // solo: no extras at all
     let mut solo = coop_core::rules::Scaling::for_party(1, Mode::CoopBalanced);
     solo.extras = 0.0;

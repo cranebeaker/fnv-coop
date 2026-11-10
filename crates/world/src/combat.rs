@@ -1859,14 +1859,18 @@ pub fn fired_projectile(
 ) -> Option<FormId> {
     let from_ammo = weapon
         .ammo_in_use(order, state, shooter)
-        .and_then(|a| order.get(a))
-        .and_then(|rr| {
-            let d = rr.record().ok()?.get(FourCC::new(b"DAT2"))?.data.clone();
-            (d.len() >= 8)
-                .then(|| rr.plugin.to_global(FormId(le_u32(&d, 4))))
-                .filter(|f| f.0 != 0)
-        });
+        .and_then(|a| ammo_projectile(order, a));
     from_ammo.or(weapon.projectile)
+}
+
+/// The projectile an ammunition fires instead of its weapon's (`AMMO`
+/// `DAT2` bytes 4..8), if it names one.
+pub fn ammo_projectile(order: &LoadOrder, ammo: FormId) -> Option<FormId> {
+    let rr = order.get(ammo)?;
+    let d = rr.record().ok()?.get(FourCC::new(b"DAT2"))?.data.clone();
+    (d.len() >= 8)
+        .then(|| rr.plugin.to_global(FormId(le_u32(&d, 4))))
+        .filter(|f| f.0 != 0)
 }
 
 /// A creature's attack reach and type (`CREA` `RNAM` u8, `DATA` byte 0;

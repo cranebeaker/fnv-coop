@@ -151,7 +151,8 @@ OPTIONS:
     --background            a test run out of the way: the window opens
                             behind the others without the focus, and the
                             mouse is never held in it (with --screen-size,
-                            at that size)
+                            at that size). The game's own window also
+                            opens without the focus (NV_D3D9_BACKGROUND).
     --help-overlay          show the key help at the top of the screen in a
                             co-op session too (hidden there by default;
                             F4 turns it on and off)
@@ -204,7 +205,8 @@ OPTIONS:
                             mouse-left, mouse-right, escape, tab, mouse-x=COUNTS: the
                             mouse moving sideways each frame, or
                             wheel=NOTCHES, negative out) that
-                            many seconds after you're placed, held HOLD
+                            many seconds after you're placed (with
+                            --coop-go-file, after the go file), held HOLD
                             seconds (0.1): F third person, R:1 put the
                             weapon away, F:9 with mouse-x=20:1 turn the
                             third-person camera around you; can be given

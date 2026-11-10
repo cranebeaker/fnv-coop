@@ -13,7 +13,7 @@ mod live;
 pub use glive::{ChatLine, GuestLive, RemoteAvatar, CHAT_LOG_CAP};
 pub use guest::{GuestPhase, GuestSync};
 pub use host::{CompatNote, HostConfig, HostSync};
-pub use live::HostLive;
+pub use live::{HostLive, WarpSent};
 
 /// Ticks of silence before the guest restarts a handshake. Hello and Join
 /// travel on the reliable channel, so this only covers a dead connection.

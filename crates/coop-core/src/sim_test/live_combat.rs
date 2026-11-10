@@ -133,6 +133,7 @@ fn vats_queue_resolves_on_the_host_and_hits_the_actor_ledger() {
             cost: 20,
             chance: 1000,
             damage: 30,
+            blow: None,
         };
         let (id, m) = r.g(0).live.combat.vats(90, vec![shot; 4]);
         r.guest_send(0, Msg::Combat(m));

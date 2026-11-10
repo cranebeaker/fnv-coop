@@ -66,6 +66,11 @@ impl ActorHost {
         }
     }
 
+    /// True when players cannot kill the actor (see [`set_protected`](Self::set_protected)).
+    pub fn is_protected(&self, actor: FormId) -> bool {
+        self.protected.contains(&actor)
+    }
+
     /// True once the actor died.
     pub fn is_dead(&self, actor: FormId) -> bool {
         self.dead.contains(&actor)
@@ -108,6 +113,7 @@ impl ActorHost {
                 hit,
                 amount,
                 npc,
+                ..
             } => self.on_hit(from, actor, hit, amount, now_ms, attacker_cell, npc),
             ActorMsg::SpawnReq {
                 req,
@@ -324,6 +330,18 @@ impl ActorHost {
         self.apply_damage(actor, npc.is_none().then_some(from), amount, floor, true)
     }
 
+    /// The host's world dealt `amount` to `actor` for player `by`: an effect
+    /// that a blow of that player started in the host's world (#74, an
+    /// explosion's fire). The host's world applied it already, so no request
+    /// check runs. The ledger credits `by`, as for that player's own blow.
+    pub fn hit_for(&mut self, by: PlayerId, actor: FormId, amount: u16) -> Vec<Out> {
+        if amount == 0 || self.dead.contains(&actor) || self.own.get(actor).is_none() {
+            return vec![];
+        }
+        let floor = u16::from(self.protected.contains(&actor));
+        self.apply_damage(actor, Some(by), amount, floor, true)
+    }
+
     /// The host's world raised an actor's health by `amount` (a script's
     /// `ForceActorValue Health`, a heal). The ledger takes the raise and
     /// tells the cell. A guest cannot ask for this: `on_msg` drops `Healed`.
@@ -496,6 +514,7 @@ mod tests {
                 hit: id,
                 amount: amt,
                 npc: None,
+                blows: Vec::new(),
             },
             now,
             Some(C),
@@ -593,6 +612,7 @@ mod tests {
                     hit: id,
                     amount: 5,
                     npc,
+                    blows: Vec::new(),
                 },
                 0,
                 Some(CellId(2)),
@@ -633,6 +653,7 @@ mod tests {
                     hit: id,
                     amount,
                     npc: Some(FormId(0x200)),
+                    blows: Vec::new(),
                 },
                 0,
                 Some(C),
@@ -726,6 +747,7 @@ mod tests {
                 hit: 1,
                 amount: 5,
                 npc: None,
+                blows: Vec::new(),
             },
             0,
             Some(CellId(2)),
@@ -759,6 +781,7 @@ mod tests {
                 hit: id,
                 amount: 1,
                 npc: from.is_host().then_some(FormId(0x200)),
+                blows: Vec::new(),
             };
             h.on_msg(from, m, 10, cell, auth)
         };
@@ -807,6 +830,7 @@ mod tests {
                 hit: id,
                 amount: 5,
                 npc: Some(by),
+                blows: Vec::new(),
             };
             h.on_msg(PlayerId(from), m, 10, Some(C), auth)
         };
@@ -955,6 +979,7 @@ mod tests {
                     hit: n,
                     amount: 100,
                     npc: None,
+                    blows: Vec::new(),
                 },
                 0,
                 Some(C),
@@ -1040,6 +1065,7 @@ mod tests {
                 hit: id,
                 amount: 5,
                 npc: None,
+                blows: Vec::new(),
             };
             h.on_msg(PlayerId(1), m, 0, Some(world), &mut auth).len()
         };

@@ -1205,3 +1205,777 @@ fn attribution_slots_for_combat_forms() {
     );
     assert_eq!(attribution::slot_of(FormId(0x1234), 0), None);
 }
+
+/// #74: the host counts a guest's named blows from its own copy of that guest.
+mod named_blows {
+    use super::*;
+    use coop_core::actors::{BlastBlow, Blow};
+    use coop_core::ids::FormId as CForm;
+    use world::coop::facts::PendingHit;
+
+    /// Guest 1's copy on the host holds `weapon`; guest hits go through the
+    /// host's hold, as in a session. Returns the gecko's host health.
+    fn rig<'a>(
+        order: &'a LoadOrder,
+        scripts: &'a ScriptCache,
+        seed: u64,
+        weapon: u32,
+    ) -> (Rig<'a>, f64) {
+        let mut r = Rig::new(order, scripts, table(""), "perfect", seed);
+        r.hold_hits = true;
+        // single-player numbers: the party scaling moves as the party forms
+        r.sim
+            .host
+            .live
+            .rules
+            .set_mode(coop_core::rules::Mode::Normal);
+        r.host.with_player(1, |g| {
+            g.equipped.insert(PLAYER_REF, vec![FormId(weapon)]);
+        });
+        r.run_ms(1_000);
+        let before = world::combat::health(order, &r.host, FormId(GECKO_REF)).unwrap();
+        (r, before)
+    }
+
+    fn named(weapon: u32, flags: u8) -> Blow {
+        Blow {
+            by: None,
+            weapon: Some(CForm(weapon)),
+            part: None,
+            flags,
+            vats: None,
+            blast: None,
+        }
+    }
+
+    /// The host's own count of one blow of guest 1 with the weapon in its
+    /// hand, before the party scaling.
+    fn host_count(r: &mut Rig, order: &LoadOrder, power: bool) -> f64 {
+        let gecko = FormId(GECKO_REF);
+        r.host.with_player(1, |g| {
+            let w = world::combat::weapon_in_hand(order, g, PLAYER_REF).unwrap();
+            let inputs = world::blow::BlowInputs {
+                attacker: PLAYER_REF,
+                target: gecko,
+                weapon: Some(&w),
+                part: None,
+                power,
+                sneak: false,
+                critical: false,
+            };
+            f64::from(world::blow::blow_damage(order, g, inputs).dealt)
+        })
+    }
+
+    /// The whole points of the host's count `raw` (Normal rules: no scaling).
+    fn assert_points(r: &Rig, lost: f64, raw: f64, what: &str) {
+        let t = r
+            .host
+            .coop
+            .live
+            .scaling
+            .map_or(1.0, |s| f64::from(s.toughness));
+        assert_eq!(t, 1.0, "Normal rules");
+        assert_eq!(lost, raw.floor(), "{what}");
+    }
+
+    /// The guest's 4000 points are not used: the gecko loses the host's count.
+    #[test]
+    fn the_host_counts_a_guests_named_blow() {
+        let (_d, order) = order("blow-count");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 31, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        let expected = host_count(&mut r, &order, false);
+        assert!(
+            expected >= 1.0 && expected < before,
+            "a machete blow ({expected} of {before})"
+        );
+        r.guests[0].coop.live.pending_hits.push(PendingHit {
+            who: gecko,
+            amount: 4000.0,
+            by: PLAYER_REF,
+            blow: Some(named(MACHETE, 0)),
+            effect: false,
+        });
+        r.run_ms(3_000);
+        let after = world::combat::health(&order, &r.host, gecko).unwrap();
+        assert!(after > 0.0, "not the guest's 4000 points");
+        assert_points(&r, before - after, expected, "the host's count");
+        assert_eq!(r.ha.stats.blows_refused, 0);
+    }
+
+    /// A blow with a weapon that the host's copy does not hold deals nothing.
+    #[test]
+    fn the_host_refuses_a_blow_with_a_weapon_not_in_hand() {
+        let (_d, order) = order("blow-refuse");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 32, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        r.guests[0].coop.live.pending_hits.push(PendingHit {
+            who: gecko,
+            amount: 30.0,
+            by: PLAYER_REF,
+            blow: Some(named(PISTOL, 0)),
+            effect: false,
+        });
+        r.run_ms(3_000);
+        assert_eq!(world::combat::health(&order, &r.host, gecko), Some(before));
+        assert_eq!(r.ha.stats.blows_refused, 1);
+    }
+
+    /// A sneak attack needs the guest sneaking: the host drops that part of
+    /// the blow and counts it without the sneak multiplier.
+    #[test]
+    fn the_host_drops_a_sneak_attack_the_guest_was_not_in() {
+        let (_d, order) = order("blow-sneak");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 33, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        let expected = host_count(&mut r, &order, false);
+        r.guests[0].coop.live.pending_hits.push(PendingHit {
+            who: gecko,
+            amount: 50.0,
+            by: PLAYER_REF,
+            blow: Some(named(MACHETE, Blow::SNEAK)),
+            effect: false,
+        });
+        r.run_ms(3_000);
+        let after = world::combat::health(&order, &r.host, gecko).unwrap();
+        assert!(expected * 2.0 >= before, "a sneak attack would kill it");
+        assert!(after > 0.0, "no sneak multiplier");
+        assert_points(&r, before - after, expected, "sneak dropped");
+        assert_eq!(r.ha.stats.blow_parts_dropped, 1);
+    }
+
+    /// #74: a queued V.A.T.S. shot (the harness's `coop vats`) names its
+    /// blow: the weapon in hand, the body part and the attack kind of the
+    /// weapon. The host counts each hit from its own copy of the guest, as a
+    /// V.A.T.S. attack, and not the guest's 4000 points.
+    #[test]
+    fn the_host_counts_a_queued_vats_shot() {
+        let (_d, order) = order("blow-vats");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 35, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        let part = 0u8;
+        let expected = r.host.with_player(1, |g| {
+            let w = world::combat::weapon_in_hand(&order, g, PLAYER_REF).unwrap();
+            let saved = (g.vats.mode, g.vats.attack.take());
+            g.vats.mode = world::vats::mode::PLAYBACK;
+            g.vats.attack = Some(world::vats::AttackFacts {
+                weapon: Some(w.form_id),
+                target: gecko,
+                part_av: -1,
+                kind: world::vats::attack_kind(Some(w.animation)),
+                hit: true,
+                distance: 0.0,
+                paralyzing_palm: false,
+            });
+            let inputs = world::blow::BlowInputs {
+                attacker: PLAYER_REF,
+                target: gecko,
+                weapon: Some(&w),
+                part: Some(part),
+                power: false,
+                sneak: false,
+                critical: false,
+            };
+            let d = f64::from(world::blow::blow_damage(&order, g, inputs).dealt);
+            (g.vats.mode, g.vats.attack) = saved;
+            d
+        });
+        assert!(
+            expected >= 1.0 && expected < before,
+            "{expected} of {before}"
+        );
+        // the guest's own world holds the machete too
+        r.guests[0]
+            .equipped
+            .insert(PLAYER_REF, vec![FormId(MACHETE)]);
+        let words = ["coop", "vats", "gecko", "0", "1000", "4000"];
+        assert!(world::coop::combat_live::bot_line(
+            &order,
+            &mut r.guests[0],
+            &words,
+            &|_| Some(gecko)
+        ));
+        let ask = r.guests[0].coop.live.combat.vats[0];
+        let blow = ask.blow.expect("a named shot");
+        assert_eq!(blow.weapon, Some(CForm(MACHETE)));
+        assert_eq!(blow.part, Some(part));
+        r.run_ms(5_000);
+        let results = &r.guests[0].coop.live.combat.vats_results;
+        assert_eq!(results.len(), 1, "the host answered the queue");
+        let hits = results[0].1.iter().filter(|x| x.hit).count();
+        assert_eq!(hits, 1, "seed 35 rolls a hit");
+        let after = world::combat::health(&order, &r.host, gecko).unwrap();
+        assert!(after > 0.0, "not the guest's 4000 points");
+        assert_points(&r, before - after, expected, "the host's count of the shot");
+        assert_eq!(r.ha.stats.blows_refused, 0);
+    }
+
+    /// Guest 1's copy on the host: the price of its machete's V.A.T.S.
+    /// attack and that attack's kind. The copy has 80 action points at most
+    /// and keeps `left` prices of them.
+    fn vats_points(r: &mut Rig, order: &LoadOrder, left: f32) -> (f32, u8) {
+        let s = world::vats::Settings::load(order);
+        r.host.with_player(1, |g| {
+            let w = world::combat::weapon_in_hand(order, g, PLAYER_REF);
+            let kind = world::vats::attack_kind(w.as_ref().map(|w| w.animation));
+            let price = world::vats::attack_cost(order, g, &s, w.as_ref());
+            // the copy's most action points (Agility 5 in the game's formula)
+            g.actor_values
+                .insert((PLAYER_REF, world::vats::ACTION_POINTS), 80.0);
+            let most = world::vats::max_action_points(order, g);
+            assert!(price >= 1.0 && most > left * price, "{price} of {most}");
+            let key = (PLAYER_REF, world::vats::ACTION_POINTS);
+            g.value_damage.insert(key, f64::from(most - left * price));
+            (price, kind)
+        })
+    }
+
+    /// Guest 1's action points in the host's copy.
+    fn copy_points(r: &mut Rig, order: &LoadOrder) -> f32 {
+        r.host
+            .with_player(1, |g| world::vats::action_points(order, g))
+    }
+
+    /// Guest 1 enters (`true`) or leaves V.A.T.S.
+    fn vats_mark(r: &mut Rig, order: &LoadOrder, on: bool) {
+        let words = ["coop", "vatsmark", if on { "1" } else { "0" }];
+        assert!(world::coop::combat_live::bot_line(
+            order,
+            &mut r.guests[0],
+            &words,
+            &|_| None
+        ));
+    }
+
+    /// #74: the host prices a guest's queued V.A.T.S. shots from its copy of
+    /// the guest (`vats::prices`), not from the guest's claim of 0 points a
+    /// shot, and holds the queue to the copy's action points. The copy pays
+    /// what the queue spent: a second queue finds only what is left. Out of
+    /// V.A.T.S., the copy gets its points back at the game's rate. Mutation
+    /// twin: in V.A.T.S., it does not.
+    #[test]
+    fn the_host_holds_a_guests_vats_queue_to_its_copy() {
+        let (_d, order) = order("blow-vats-ap");
+        let scripts = ScriptCache::default();
+        let (mut r, _) = rig(&order, &scripts, 36, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        r.guests[0]
+            .equipped
+            .insert(PLAYER_REF, vec![FormId(MACHETE)]);
+        vats_mark(&mut r, &order, true);
+        r.run_ms(600);
+        let (price, kind) = vats_points(&mut r, &order, 2.5);
+        r.run_ms(600);
+        let before = copy_points(&mut r, &order);
+        assert!(
+            (before - 2.5 * price).abs() < 0.01,
+            "no points back in V.A.T.S."
+        );
+        let ask = world::coop::combat_live::VatsAsk {
+            target: gecko,
+            limb: 0,
+            cost: 0,
+            chance: 0,
+            damage: 1,
+            blow: Some(named_vats(kind)),
+        };
+        r.guests[0].coop.live.combat.vats.extend([ask; 4]);
+        r.run_ms(600);
+        let results = r.guests[0].coop.live.combat.vats_results.clone();
+        assert_eq!(results.len(), 1, "the host answered the queue");
+        let fired = results[0].1.iter().filter(|x| x.fired).count();
+        assert_eq!(fired, 2, "two shots at the host's price");
+        assert_eq!(f32::from(results[0].2), 2.0 * price.round());
+        let left = copy_points(&mut r, &order);
+        assert!(
+            (left - (before - 2.0 * price.round())).abs() < 0.01,
+            "{left}"
+        );
+        r.guests[0].coop.live.combat.vats.extend([ask; 4]);
+        r.run_ms(600);
+        let results = r.guests[0].coop.live.combat.vats_results.clone();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[1].2, 0, "the second queue: nothing left");
+        assert_eq!(
+            copy_points(&mut r, &order),
+            left,
+            "no points back in V.A.T.S."
+        );
+        vats_mark(&mut r, &order, false);
+        r.run_ms(2_000);
+        let back = copy_points(&mut r, &order);
+        assert!(back > left + 1.0, "out of V.A.T.S.: {left} to {back}");
+    }
+
+    fn named_vats(kind: u8) -> Blow {
+        Blow {
+            part: Some(0),
+            vats: Some(kind),
+            ..named(MACHETE, 0)
+        }
+    }
+
+    /// #74: a guest's own V.A.T.S. attack (a blow that names its attack
+    /// kind) pays its price from the host's copy of the guest. The first
+    /// blow pays and counts as a V.A.T.S. attack. The second finds no
+    /// points in the copy: the host drops the V.A.T.S. part and counts a
+    /// plain attack.
+    #[test]
+    fn a_vats_blow_pays_from_the_copy_or_counts_as_a_plain_attack() {
+        let (_d, order) = order("blow-vats-pay");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 37, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        vats_mark(&mut r, &order, true);
+        r.run_ms(600);
+        let (price, kind) = vats_points(&mut r, &order, 1.5);
+        r.run_ms(600);
+        let plain = host_count(&mut r, &order, false);
+        let hit = |r: &mut Rig| {
+            r.guests[0].coop.live.pending_hits.push(PendingHit {
+                who: gecko,
+                amount: 4000.0,
+                by: PLAYER_REF,
+                blow: Some(named_vats(kind)),
+                effect: false,
+            });
+            r.run_ms(600);
+        };
+        hit(&mut r);
+        let left = copy_points(&mut r, &order);
+        assert!((left - 0.5 * price).abs() < 0.01, "paid one price: {left}");
+        assert_eq!(r.ha.stats.blow_parts_dropped, 0);
+        let first = before - world::combat::health(&order, &r.host, gecko).unwrap();
+        hit(&mut r);
+        assert_eq!(copy_points(&mut r, &order), left, "nothing to pay with");
+        assert_eq!(r.ha.stats.blow_parts_dropped, 1, "the V.A.T.S. part");
+        // the second blow counts as the plain attack, to the health left (the
+        // test world's V.A.T.S. adds nothing to the machete's damage)
+        let after = world::combat::health(&order, &r.host, gecko).unwrap();
+        assert!((first - plain).abs() <= 1.0, "{first} of {before}, {plain}");
+        let second = before - after - first;
+        let rest = before - first;
+        assert!(
+            (second - plain.min(rest)).abs() <= 1.0,
+            "a plain attack: {second} {plain}"
+        );
+        assert_eq!(r.ha.stats.blows_refused, 0);
+    }
+
+    /// The gecko's place in the host's world, moved by `dx` units on x.
+    fn beside_gecko(r: &Rig, order: &LoadOrder, dx: f32) -> [f32; 3] {
+        let p = r.host.place(order, FormId(GECKO_REF)).expect("the gecko").2;
+        [p[0] + dx, p[1], p[2]]
+    }
+
+    /// The host's own count of guest 1's frag at `at` on the gecko.
+    fn host_blast(r: &mut Rig, order: &LoadOrder, at: [f32; 3]) -> f64 {
+        let gecko = FormId(GECKO_REF);
+        let place = r.host.place(order, gecko).unwrap().2;
+        r.host.with_player(1, |g| {
+            use world::explosions as x;
+            let w = world::combat::Weapon::load(order, FormId(FRAG)).unwrap();
+            let e = x::ExplosionRecord::load(order, FormId(FRAG_EXPLOSION)).unwrap();
+            let radius = x::blast_radius(order, g, Some(PLAYER_REF), Some(w.form_id), &e);
+            let d = [0, 1, 2].map(|k| at[k] - place[k]);
+            let share = x::falloff(radius, (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt());
+            let base = x::base_damage(order, g, Some(PLAYER_REF), Some(&w), &e);
+            f64::from(x::hit_damage(
+                order,
+                g,
+                base * share,
+                Some(PLAYER_REF),
+                Some(&w),
+                gecko,
+                false,
+            ))
+        })
+    }
+
+    /// The guest's world sets off its frag at `at` with `damage` on the gecko
+    /// (`Runner::explosion_hit`, as the viewer's explosion does).
+    fn guest_blast(
+        r: &mut Rig,
+        order: &LoadOrder,
+        scripts: &ScriptCache,
+        at: [f32; 3],
+        damage: f32,
+    ) {
+        let frag = world::combat::Weapon::load(order, FormId(FRAG)).unwrap();
+        world::scripting::Runner::new(order, scripts, &mut r.guests[0]).explosion_hit(
+            Some(PLAYER_REF),
+            FormId(GECKO_REF),
+            Some(&frag),
+            damage,
+            Some((FormId(FRAG_EXPLOSION), at)),
+        );
+    }
+
+    /// #74: a guest's explosion names its blow (the frag, the explosion and
+    /// its centre). The host counts the damage from its own copy of the
+    /// guest and its own gecko's place, not the guest's 4000 points.
+    #[test]
+    fn the_host_counts_a_guests_explosion() {
+        let (_d, order) = order("blow-blast");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 36, FRAG);
+        let gecko = FormId(GECKO_REF);
+        let at = beside_gecko(&r, &order, 200.0);
+        let expected = host_blast(&mut r, &order, at);
+        assert!(
+            expected >= 1.0 && expected < before,
+            "a frag at 200 units ({expected} of {before})"
+        );
+        guest_blast(&mut r, &order, &scripts, at, 4000.0);
+        let hit = r.guests[0].coop.live.pending_hits[0];
+        let blast = hit.blow.and_then(|b| b.blast).expect("a named explosion");
+        assert_eq!(blast.explosion, CForm(FRAG_EXPLOSION));
+        r.run_ms(3_000);
+        let after = world::combat::health(&order, &r.host, gecko).unwrap();
+        assert!(after > 0.0, "not the guest's 4000 points");
+        assert_points(
+            &r,
+            before - after,
+            expected,
+            "the host's count of the explosion",
+        );
+        assert_eq!(r.ha.stats.blows_refused, 0);
+    }
+
+    /// The gecko outside the radius at the host's place takes nothing.
+    #[test]
+    fn the_host_refuses_an_explosion_outside_its_radius() {
+        let (_d, order) = order("blow-blast-far");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 37, FRAG);
+        let at = beside_gecko(&r, &order, 450.0);
+        guest_blast(&mut r, &order, &scripts, at, 30.0);
+        r.run_ms(3_000);
+        let gecko = FormId(GECKO_REF);
+        assert_eq!(world::combat::health(&order, &r.host, gecko), Some(before));
+        assert_eq!(r.ha.stats.blows_refused, 1);
+    }
+
+    /// The explosion must be one that the weapon makes: a machete makes none.
+    #[test]
+    fn the_host_refuses_an_explosion_the_weapon_does_not_make() {
+        let (_d, order) = order("blow-blast-machete");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 38, MACHETE);
+        let at = beside_gecko(&r, &order, 100.0);
+        let gecko = FormId(GECKO_REF);
+        let mut blow = named(MACHETE, 0);
+        blow.blast = Some(BlastBlow {
+            explosion: CForm(FRAG_EXPLOSION),
+            at: at.map(coop_core::avatar::quant_pos),
+        });
+        r.guests[0].coop.live.pending_hits.push(PendingHit {
+            who: gecko,
+            amount: 30.0,
+            by: PLAYER_REF,
+            blow: Some(blow),
+            effect: false,
+        });
+        r.run_ms(3_000);
+        assert_eq!(world::combat::health(&order, &r.host, gecko), Some(before));
+        assert_eq!(r.ha.stats.blows_refused, 1);
+    }
+
+    /// A thrown frag leaves the hand before it goes off. The host's copy held
+    /// it in hand earlier, so the host still counts it. Mutation twin: a guest
+    /// whose copy never held a frag has its frag explosion refused.
+    #[test]
+    fn a_frag_that_left_the_hand_counts_only_when_the_copy_held_it() {
+        let (_d, order) = order("blow-blast-thrown");
+        let scripts = ScriptCache::default();
+        for (held, seed) in [(true, 39), (false, 40)] {
+            let weapon = if held { FRAG } else { MACHETE };
+            let (mut r, before) = rig(&order, &scripts, seed, weapon);
+            let at = beside_gecko(&r, &order, 200.0);
+            let expected = host_blast(&mut r, &order, at);
+            // the last frag went: the copy's hand is empty and it carries none
+            r.host.with_player(1, |g| {
+                g.equipped.insert(PLAYER_REF, vec![]);
+                assert_eq!(g.item_count(&order, PLAYER_REF, FormId(FRAG)), 0);
+            });
+            guest_blast(&mut r, &order, &scripts, at, 4000.0);
+            r.run_ms(3_000);
+            let gecko = FormId(GECKO_REF);
+            let after = world::combat::health(&order, &r.host, gecko).unwrap();
+            if held {
+                assert_points(&r, before - after, expected, "the frag held earlier");
+                assert_eq!(r.ha.stats.blows_refused, 0);
+            } else {
+                assert_eq!(after, before, "never held: refused");
+                assert_eq!(r.ha.stats.blows_refused, 1);
+            }
+        }
+    }
+
+    /// #74: the damage of an effect or a script in a guest's world
+    /// (`magic::change`) on an actor that the host owns is not sent: the
+    /// host's world deals effects and scripts itself. Mutation twin: damage
+    /// with no blow from elsewhere (the bot's `coop hit`, `combat::hurt`) is
+    /// sent, and the guest's number lands.
+    #[test]
+    fn a_guests_effect_damage_stays_in_its_world() {
+        let (_d, order) = order("blow-effect");
+        let scripts = ScriptCache::default();
+        let (mut r, before) = rig(&order, &scripts, 34, MACHETE);
+        let gecko = FormId(GECKO_REF);
+        let health = |r: &Rig| world::combat::health(&order, &r.host, gecko).unwrap();
+        let hp = world::combat::av::HEALTH;
+        world::magic::change(&order, &mut r.guests[0], gecko, hp, -3.0, PLAYER_REF);
+        let hit = r.guests[0].coop.live.pending_hits[0];
+        assert!(hit.effect && hit.blow.is_none(), "{hit:?}");
+        assert!(
+            !r.guests[0].coop.live.effect,
+            "the mark ends with the damage"
+        );
+        r.run_ms(3_000);
+        assert_eq!(health(&r), before, "not sent");
+        world::combat::hurt(&order, &mut r.guests[0], gecko, 3.0, PLAYER_REF);
+        assert!(!r.guests[0].coop.live.pending_hits[0].effect);
+        r.run_ms(3_000);
+        assert_eq!(before - health(&r), 3.0, "the guest's number");
+    }
+
+    /// The guest's world sets off `explosion` of `weapon` at `at` on the
+    /// gecko (`Runner::explosion_hit`).
+    fn guest_blast_of(
+        r: &mut Rig,
+        order: &LoadOrder,
+        scripts: &ScriptCache,
+        weapon: u32,
+        explosion: u32,
+        at: [f32; 3],
+    ) {
+        let w = world::combat::Weapon::load(order, FormId(weapon)).unwrap();
+        world::scripting::Runner::new(order, scripts, &mut r.guests[0]).explosion_hit(
+            Some(PLAYER_REF),
+            FormId(GECKO_REF),
+            Some(&w),
+            4000.0,
+            Some((FormId(explosion), at)),
+        );
+    }
+
+    /// #74: a guest's explosion with an object effect (the fire grenade's
+    /// burn: 5 points at once, then 2 points a second for 3 seconds) burns
+    /// the gecko in the host's world, cast by the guest's puppet. The host's
+    /// world deals the burn. The ledger credits the guest with the part at
+    /// once, by its caster. The part over time, as the engine ticks it
+    /// (`magic::tick`), is struck by the victim itself and credits nobody.
+    /// Mutation twin: the frag's explosion has no object effect, and no burn
+    /// follows its blast.
+    #[test]
+    fn a_guests_fire_burns_in_the_hosts_world() {
+        let (_d, order) = order("blow-fire");
+        let scripts = ScriptCache::default();
+        let gecko = FormId(GECKO_REF);
+        for fire in [true, false] {
+            let (weapon, explosion) = if fire {
+                (FIRE, FIRE_EXPLOSION)
+            } else {
+                (FRAG, FRAG_EXPLOSION)
+            };
+            let (mut r, before) = rig(&order, &scripts, 38, weapon);
+            let at = beside_gecko(&r, &order, 350.0);
+            let blast = host_blast(&mut r, &order, at);
+            assert!(blast >= 1.0 && blast + 11.0 < before, "{blast} of {before}");
+            guest_blast_of(&mut r, &order, &scripts, weapon, explosion, at);
+            r.run_ms(500);
+            let burning = world::magic::is_target_of(&r.host, gecko, FormId(BURN));
+            assert_eq!(burning, fire, "the burn in the host's world");
+            let caster = r
+                .host
+                .active_effects
+                .iter()
+                .find(|e| e.target == gecko && e.source == FormId(BURN))
+                .and_then(|e| e.caster);
+            if fire {
+                assert_eq!(caster, Some(world::coop::facts::puppet_of(PlayerId(1))));
+            }
+            // the host's world ticks its effects, as the engine's frame does
+            for _ in 0..50 {
+                r.run_ms(100);
+                let mut run = world::scripting::Runner::new(&order, &scripts, &mut r.host);
+                world::magic::tick(&mut run, 0.1);
+            }
+            let lost = before - world::combat::health(&order, &r.host, gecko).unwrap();
+            let (at_once, over_time) = if fire { (5.0, 6.0) } else { (0.0, 0.0) };
+            let burn = at_once + over_time;
+            assert!(
+                (lost - (blast + burn)).abs() <= 1.0,
+                "{lost}: {blast} + {burn}"
+            );
+            assert_eq!(r.ha.stats.effect_points, at_once as u32, "the part at once");
+            let tally = r.host.coop.campaign.tally.get(&gecko);
+            let credit = tally.and_then(|t| t.get(&1)).copied().unwrap_or(0.0);
+            let owed = blast.floor() + at_once;
+            assert!((credit - owed).abs() <= 1.0, "credit {credit} of {owed}");
+            assert_eq!(r.ha.stats.blows_refused, 0);
+        }
+    }
+}
+
+mod pace {
+    use super::*;
+    use coop_core::avatar::dequant_pos;
+    use coop_core::proto::Msg;
+    use coop_core::roam::RoamMsg;
+
+    fn host_x(r: &Rig) -> Option<f32> {
+        let s = r.sim.host.live.avatars.state(PlayerId(1));
+        s.map(|s| dequant_pos(s.pos[0]))
+    }
+
+    fn rig<'a>(order: &'a LoadOrder, scripts: &'a ScriptCache, test_warps: bool) -> Rig<'a> {
+        let mut r = Rig::new(order, scripts, table(""), "perfect", 41);
+        r.sim.host.live.test_warps = test_warps;
+        r.run_ms(1_500);
+        r
+    }
+
+    /// #74: the host follows a guest that walks. When the guest jumps with
+    /// no warp, the host keeps the last place, and after the wait it sends
+    /// the guest back there.
+    #[test]
+    fn the_host_bounds_a_guests_movement() {
+        let (_d, order) = order("pace");
+        let scripts = ScriptCache::default();
+        let mut r = rig(&order, &scripts, false);
+        assert_eq!(host_x(&r), Some(900.0));
+        // a walk: 100 units in a second
+        for i in 1..=10 {
+            r.guests[0].player_position = Some([900.0 + 10.0 * i as f32, 1000.0, 5000.0]);
+            r.run_ms(100);
+        }
+        r.run_ms(300);
+        assert_eq!(host_x(&r), Some(1000.0));
+        assert_eq!(r.sim.host.live.avatars.too_far, 0);
+        // 20000 units in one sample, no warp
+        r.guests[0].player_position = Some([21_000.0, 1000.0, 5000.0]);
+        r.run_ms(500);
+        assert_eq!(host_x(&r), Some(1000.0), "the host keeps the last place");
+        assert!(r.sim.host.live.avatars.too_far > 0);
+        let back = r.until(2_000, |r| r.sim.guests[0].sync.live.roam.place.is_some());
+        assert!(back, "the host sends the guest back");
+        let place = r.sim.guests[0].sync.live.roam.place.unwrap();
+        assert_eq!(place.pos[0], 1000.0);
+    }
+
+    /// #74: a tether warp lands on the ring around the anchor, which the
+    /// host finds in its own world. The host takes the guest's jump there.
+    /// A second jump elsewhere in the warp's window is dropped. Mutation
+    /// twin: a window with no landing (the harness's teleport) takes the
+    /// same second jump.
+    #[test]
+    fn a_tether_warp_lands_only_at_the_anchor() {
+        use coop_core::interest::Audience;
+        use coop_core::rules::RulesMsg;
+        let (_d, order) = order("pace-tether");
+        let scripts = ScriptCache::default();
+        for tether in [true, false] {
+            let mut r = rig(&order, &scripts, !tether);
+            let anchor = FormId(GUARD_REF);
+            let place = r.host.place(&order, anchor).expect("the anchor").2;
+            if tether {
+                let warp = Msg::Rules(RulesMsg::TetherWarp { anchor: anchor.0 });
+                let outs = r
+                    .sim
+                    .host
+                    .live
+                    .route_extern(Audience::To(PlayerId(1)), warp);
+                r.sim.host_emit(outs);
+                assert!(
+                    r.until(2_000, |r| !r.gas[0].rules.warps.is_empty()),
+                    "the guest warps"
+                );
+            } else {
+                r.sim.guest_emit(0, vec![Msg::Roam(RoamMsg::TestWarp)]);
+                let ring = [place[0] + 96.0, place[1], place[2]];
+                r.guests[0].player_position = Some(ring);
+            }
+            r.run_ms(300);
+            let landed = r.guests[0].player_position.unwrap()[0];
+            assert!((landed - place[0]).abs() <= 96.5, "on the ring: {landed}");
+            let near = |x: Option<f32>, want: f32| x.is_some_and(|x| (x - want).abs() < 0.1);
+            assert!(near(host_x(&r), landed), "the host takes the landing");
+            // a second jump within the window
+            r.guests[0].player_position = Some([21_000.0, 1000.0, 5000.0]);
+            r.run_ms(300);
+            if tether {
+                assert!(near(host_x(&r), landed), "not where the warp lands");
+                assert!(r.sim.host.live.avatars.off_landing > 0);
+            } else {
+                assert!(near(host_x(&r), 21_000.0), "no landing: any jump");
+            }
+        }
+    }
+
+    /// #74: an approved fast travel lands where the marker sends travellers
+    /// (`map::travel`: the outdoors world's "Test Well" sends them to its
+    /// linked rock). The host takes the guest's jump there and drops a jump
+    /// elsewhere in the same worldspace.
+    #[test]
+    fn a_fast_travel_lands_only_where_the_marker_sends() {
+        use coop_core::interest::Audience;
+        use coop_core::rules::{RulesMsg, VoteKind};
+        let data = testdata::outdoors("pace-travel");
+        let order = LoadOrder::from_data_dir(data.path(), &ActivePlugins::OfficialOnly).unwrap();
+        let scripts = ScriptCache::default();
+        let mut r = rig(&order, &scripts, false);
+        let marker = world::map::marker(&order, FormId(testdata::MAP_MARKER)).expect("the well");
+        let to = marker.arrival.expect("a linked rock");
+        let (space, cell, at, _) = r.host.place(&order, to).expect("the rock");
+        let vote = Msg::Rules(RulesMsg::VoteResult {
+            id: 1,
+            kind: VoteKind::FastTravel,
+            param: testdata::MAP_MARKER,
+            approved: true,
+        });
+        let outs = r
+            .sim
+            .host
+            .live
+            .route_extern(Audience::To(PlayerId(1)), vote);
+        r.sim.host_emit(outs);
+        r.run_ms(300);
+        let missed = r.sim.host.live.avatars.off_landing;
+        r.guests[0].player_world = (space != cell).then_some(space);
+        r.guests[0].player_cell = Some(cell);
+        r.guests[0].player_position = Some([at[0] + 3000.0, at[1], at[2]]);
+        r.run_ms(300);
+        assert!(
+            r.sim.host.live.avatars.off_landing > missed,
+            "not the marker's place"
+        );
+        assert_eq!(host_x(&r), Some(900.0), "the host keeps the last place");
+        r.guests[0].player_position = Some(at);
+        r.run_ms(300);
+        let x = host_x(&r).unwrap();
+        assert!((x - at[0]).abs() < 0.1, "at the marker's place: {x}");
+    }
+
+    /// The harness's teleport is a warp the host knows in a test session.
+    /// Mutation twin: a host not in a test session refuses the jump.
+    #[test]
+    fn a_test_warp_lets_the_jump_through_only_in_a_test_session() {
+        let (_d, order) = order("pace-warp");
+        let scripts = ScriptCache::default();
+        for test in [true, false] {
+            let mut r = rig(&order, &scripts, test);
+            r.sim.guest_emit(0, vec![Msg::Roam(RoamMsg::TestWarp)]);
+            r.guests[0].player_position = Some([21_000.0, 1000.0, 5000.0]);
+            r.run_ms(500);
+            let want = if test { 21_000.0 } else { 900.0 };
+            assert_eq!(host_x(&r), Some(want), "test session {test}");
+        }
+    }
+}

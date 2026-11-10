@@ -14,6 +14,29 @@ pub use interp::{InterpBuffer, Sample};
 
 /// Milliseconds between avatar state sends (20 Hz).
 pub const SEND_INTERVAL_MS: u64 = 50;
+
+/// The host's bound on a guest's movement (#74). A sample may move as far as
+/// the guest's run speed ([`AvatarHub::set_speed`]) × this covers in the time
+/// since the last sample, from a credit that keeps at most
+/// [`MOVE_CREDIT_MS`] of time (samples that arrive together after a stall).
+pub const MOVE_SLACK: f32 = 1.5;
+/// Units the credit holds on top of the speed (steps, slopes, pushes).
+pub const MOVE_GRACE: f32 = 128.0;
+/// The most time a guest's movement credit keeps.
+pub const MOVE_CREDIT_MS: u64 = 2_000;
+/// Samples within which a player may jump after a warp the host sent (the
+/// load before the first sample from the new place).
+pub const WARP_SAMPLES: u32 = 1_200;
+/// Samples after a warp's jump that may still jump (the party ring's spread).
+pub const WARP_AFTER: u32 = 40;
+/// Units around a warp's landing within which its jump may land: the party
+/// ring ([`crate::roam::model::WARP_SPREAD`]) and a step ([`MOVE_GRACE`]).
+pub const LANDING_REACH: f32 = crate::roam::model::WARP_SPREAD + MOVE_GRACE;
+/// How long a guest's samples may move too far before the host sends the
+/// guest back to its last accepted place. The wait lets a harness warp
+/// (`crate::roam::RoamMsg::TestWarp`) that arrives after its first samples
+/// still open the window.
+pub const CORRECT_AFTER_MS: u64 = 1_000;
 /// Position fixed point: 16 steps per world unit.
 pub const POS_Q: f32 = 16.0;
 /// Velocity fixed point: 4 steps per unit per second.
@@ -316,12 +339,51 @@ pub struct Relay {
     pub cell: Option<CellId>,
 }
 
+/// A guest's run speed and movement credit, both in game units.
+#[derive(Clone, Copy, Debug)]
+struct Pace {
+    speed: f32,
+    credit: f32,
+    at_ms: u64,
+}
+
+impl Pace {
+    fn cap(speed: f32) -> f32 {
+        speed * MOVE_SLACK * MOVE_CREDIT_MS as f32 / 1000.0 + MOVE_GRACE
+    }
+}
+
+/// Where a warp that the host sent lands (#74), as the host finds it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Landing {
+    /// The space that a sample there names: an interior cell, or the
+    /// worldspace outdoors.
+    pub space: CellId,
+    /// The place (feet).
+    pub at: [f32; 3],
+}
+
 /// Host-side table of every avatar's newest state and parts.
 #[derive(Clone, Debug, Default)]
 pub struct AvatarHub {
     states: BTreeMap<PlayerId, (Seq, AvatarState)>,
     parts: BTreeMap<PlayerId, AvatarParts>,
     actions: BTreeMap<PlayerId, Seq>,
+    paces: BTreeMap<PlayerId, Pace>,
+    warps: BTreeMap<PlayerId, u32>,
+    /// Per player: where its open warp lands, when the host knows it.
+    landings: BTreeMap<PlayerId, Landing>,
+    /// Per player: when its samples started to move too far (none accepted since).
+    refused_since: BTreeMap<PlayerId, u64>,
+    /// Per player: its last accepted sample with a place. The movement check
+    /// starts there, and a correction sends the player back there.
+    anchors: BTreeMap<PlayerId, AvatarState>,
+    /// Samples dropped because they moved farther than the sender's speed
+    /// allows, with no warp from the host (#74).
+    pub too_far: u32,
+    /// Of those, jumps in a warp's window that did not land where the warp
+    /// lands.
+    pub off_landing: u32,
     /// Messages dropped because the claimed player was not the sender.
     pub forged: u32,
     /// Stale or duplicate messages dropped.
@@ -334,8 +396,117 @@ impl AvatarHub {
         Self::default()
     }
 
-    /// Validates a message from `from`; returns the relay to perform.
-    pub fn on_msg(&mut self, from: PlayerId, msg: AvatarMsg) -> Option<Relay> {
+    /// Sets the run speed of player `p` in game units a second (the host's
+    /// copy of that player). Without one, the player's movement is not bound.
+    pub fn set_speed(&mut self, p: PlayerId, speed: f32, now_ms: u64) {
+        let pace = self.paces.entry(p).or_insert(Pace {
+            speed,
+            credit: Pace::cap(speed),
+            at_ms: now_ms,
+        });
+        pace.speed = speed;
+    }
+
+    /// The host sent `p` a warp (a door, the tether, a placement, a fast
+    /// travel): its next samples may jump. Until [`Self::land_at`] says
+    /// where the warp lands, a jump may land anywhere.
+    pub fn open_warp(&mut self, p: PlayerId) {
+        self.warps.insert(p, WARP_SAMPLES);
+        self.landings.remove(&p);
+    }
+
+    /// The open warp of `p` lands at `landing`: its jumps must land within
+    /// [`LANDING_REACH`] of it, in its space.
+    pub fn land_at(&mut self, p: PlayerId, landing: Landing) {
+        if self.warps.contains_key(&p) {
+            self.landings.insert(p, landing);
+        }
+    }
+
+    /// Whether `state` is where the open warp of `from` lands (true when the
+    /// host does not know where it lands).
+    fn on_landing(&self, from: PlayerId, state: &AvatarState) -> bool {
+        self.landings.get(&from).map_or(true, |l| {
+            let d = (0..2)
+                .map(|i| dequant_pos(state.pos[i]) - l.at[i])
+                .map(|v| v * v)
+                .sum::<f32>()
+                .sqrt();
+            state.cell == l.space && d <= LANDING_REACH
+        })
+    }
+
+    /// Whether `state` moves within the pace of `from` since its last
+    /// accepted sample with a place (horizontal distance). A jump or a change
+    /// of space needs a warp.
+    fn within_pace(&mut self, from: PlayerId, state: &AvatarState, now_ms: u64) -> bool {
+        // no place (cell 0): the player loads. Not checked, and not the anchor.
+        if state.cell == CellId(0) {
+            return true;
+        }
+        let ok = self.paced(from, state, now_ms);
+        if ok {
+            self.anchors.insert(from, *state);
+        }
+        ok
+    }
+
+    /// [`Self::within_pace`] for a sample with a place.
+    fn paced(&mut self, from: PlayerId, state: &AvatarState, now_ms: u64) -> bool {
+        let warp = self.warps.get(&from).copied().unwrap_or(0);
+        if warp > 1 {
+            self.warps.insert(from, warp - 1);
+        } else {
+            self.warps.remove(&from);
+            self.landings.remove(&from);
+        }
+        let (Some(old), Some(pace)) = (self.anchors.get(&from), self.paces.get_mut(&from)) else {
+            return true;
+        };
+        let dt = now_ms.saturating_sub(pace.at_ms).min(MOVE_CREDIT_MS) as f32 / 1000.0;
+        pace.at_ms = now_ms;
+        let cap = Pace::cap(pace.speed);
+        pace.credit = (pace.credit + pace.speed * MOVE_SLACK * dt).min(cap);
+        let d = (0..2)
+            .map(|i| dequant_pos(state.pos[i]) - dequant_pos(old.pos[i]))
+            .map(|v| v * v)
+            .sum::<f32>()
+            .sqrt();
+        // a sample's cell is its space: the interior cell or the worldspace.
+        // Walking does not change it. A door, a fast travel or a warp does.
+        if state.cell == old.cell && d <= pace.credit {
+            pace.credit -= d;
+            return true;
+        }
+        if warp > 0 {
+            if !self.on_landing(from, state) {
+                self.off_landing += 1;
+                return false;
+            }
+            if let Some(pace) = self.paces.get_mut(&from) {
+                pace.credit = cap;
+            }
+            self.warps.insert(from, (warp - 1).min(WARP_AFTER));
+            return true;
+        }
+        false
+    }
+
+    /// The place to send `p` back to (its last accepted sample) when its
+    /// samples moved too far for [`CORRECT_AFTER_MS`] with no warp. After a
+    /// correction, the next one comes no sooner than the same wait.
+    pub fn take_correction(&mut self, p: PlayerId, now_ms: u64) -> Option<AvatarState> {
+        let since = self.refused_since.get_mut(&p)?;
+        if now_ms < *since + CORRECT_AFTER_MS {
+            return None;
+        }
+        *since = now_ms;
+        self.anchors.get(&p).copied()
+    }
+
+    /// Validates a message from `from` at host time `now_ms`; returns the
+    /// relay to perform.
+    pub fn on_msg(&mut self, now_ms: u64, from: PlayerId, msg: AvatarMsg) -> Option<Relay> {
         match &msg {
             AvatarMsg::State { player, seq, state } => {
                 if *player != from {
@@ -350,6 +521,12 @@ impl AvatarHub {
                         return None;
                     }
                 }
+                if !self.within_pace(from, state, now_ms) {
+                    self.too_far += 1;
+                    self.refused_since.entry(from).or_insert(now_ms);
+                    return None;
+                }
+                self.refused_since.remove(&from);
                 self.states.insert(from, (*seq, *state));
                 Some(Relay {
                     cell: Some(state.cell),
@@ -412,6 +589,7 @@ impl AvatarHub {
         self.states.remove(&p);
         self.parts.remove(&p);
         self.actions.remove(&p);
+        self.landings.remove(&p);
     }
 
     /// Distance between two avatars; `None` when either is unknown or they
@@ -494,14 +672,14 @@ mod tests {
             seq: Seq(q),
             state: st(c, 1.0),
         };
-        assert!(h.on_msg(PlayerId(1), m(2, 1, 5)).is_none());
+        assert!(h.on_msg(0, PlayerId(1), m(2, 1, 5)).is_none());
         assert_eq!(h.forged, 1);
-        let r = h.on_msg(PlayerId(1), m(1, 3, 5)).unwrap();
+        let r = h.on_msg(0, PlayerId(1), m(1, 3, 5)).unwrap();
         assert_eq!(r.cell, Some(CellId(5)));
-        assert!(h.on_msg(PlayerId(1), m(1, 3, 5)).is_none());
-        assert!(h.on_msg(PlayerId(1), m(1, 2, 5)).is_none());
+        assert!(h.on_msg(0, PlayerId(1), m(1, 3, 5)).is_none());
+        assert!(h.on_msg(0, PlayerId(1), m(1, 2, 5)).is_none());
         assert_eq!(h.stale, 2);
-        assert!(h.on_msg(PlayerId(1), m(1, 4, 6)).is_some());
+        assert!(h.on_msg(0, PlayerId(1), m(1, 4, 6)).is_some());
     }
 
     #[test]
@@ -512,9 +690,9 @@ mod tests {
             seq: Seq(q),
             state: st(1, 0.0),
         };
-        assert!(h.on_msg(PlayerId(1), m(50_000)).is_some());
-        assert!(h.on_msg(PlayerId(1), m(1)).is_some());
-        assert!(h.on_msg(PlayerId(1), m(2)).is_some());
+        assert!(h.on_msg(0, PlayerId(1), m(50_000)).is_some());
+        assert!(h.on_msg(0, PlayerId(1), m(1)).is_some());
+        assert!(h.on_msg(0, PlayerId(1), m(2)).is_some());
     }
 
     #[test]
@@ -523,12 +701,12 @@ mod tests {
         let mut h = AvatarHub::new();
         let a = s.set_parts(vec![(0, FormId(5))], vec![1, 2]);
         let b = s.set_parts(vec![(0, FormId(6))], vec![1, 2]);
-        assert!(h.on_msg(PlayerId(1), b.clone()).is_some());
+        assert!(h.on_msg(0, PlayerId(1), b.clone()).is_some());
         assert!(
-            h.on_msg(PlayerId(1), a).is_none(),
+            h.on_msg(0, PlayerId(1), a).is_none(),
             "older revision after newer"
         );
-        assert!(h.on_msg(PlayerId(1), b).is_none(), "duplicate");
+        assert!(h.on_msg(0, PlayerId(1), b).is_none(), "duplicate");
         assert_eq!(h.parts_snapshot().len(), 1);
     }
 
@@ -577,6 +755,7 @@ mod tests {
         let mut h = AvatarHub::new();
         let mut s = AvatarSender::new(PlayerId(1));
         h.on_msg(
+            0,
             PlayerId(1),
             AvatarMsg::State {
                 player: PlayerId(1),
@@ -586,14 +765,14 @@ mod tests {
         );
         let a = s.action(ActionKind::Shoot, 7);
         assert!(a.is_sane() && !a.is_stream());
-        let r = h.on_msg(PlayerId(1), a.clone()).unwrap();
+        let r = h.on_msg(0, PlayerId(1), a.clone()).unwrap();
         assert_eq!(r.cell, Some(CellId(5)));
-        assert!(h.on_msg(PlayerId(1), a.clone()).is_none(), "duplicate");
-        assert!(h.on_msg(PlayerId(2), a).is_none(), "forged");
+        assert!(h.on_msg(0, PlayerId(1), a.clone()).is_none(), "duplicate");
+        assert!(h.on_msg(0, PlayerId(2), a).is_none(), "forged");
         assert_eq!(h.forged, 1);
         let b = s.action(ActionKind::Death, 0);
         assert!(matches!(&b, AvatarMsg::Action { action, .. } if action.n == Seq(2)));
-        assert!(h.on_msg(PlayerId(1), b).is_some());
+        assert!(h.on_msg(0, PlayerId(1), b).is_some());
     }
 
     #[test]
@@ -608,6 +787,7 @@ mod tests {
         let mut h = AvatarHub::new();
         for (p, c, x) in [(1u8, 1u32, 0.0f32), (2, 1, 30.0), (3, 2, 30.0)] {
             h.on_msg(
+                0,
                 PlayerId(p),
                 AvatarMsg::State {
                     player: PlayerId(p),
@@ -632,5 +812,198 @@ mod tests {
             },
         };
         assert!(!big.is_sane());
+    }
+
+    fn at(q: u32, x: f32) -> AvatarMsg {
+        AvatarMsg::State {
+            player: PlayerId(1),
+            seq: Seq(q),
+            state: st(1, x),
+        }
+    }
+
+    /// #74: a guest moves as far as its speed covers; a jump needs a warp
+    /// that the host sent, and the warp's window closes after the jump.
+    #[test]
+    fn hub_bounds_movement_by_speed_and_lets_warps_jump() {
+        let mut h = AvatarHub::new();
+        h.set_speed(PlayerId(1), 400.0, 0);
+        assert!(h.on_msg(0, PlayerId(1), at(1, 0.0)).is_some());
+        // a second at 400 units a second
+        for i in 1..=20u32 {
+            let x = 20.0 * i as f32;
+            assert!(h
+                .on_msg(50 * u64::from(i), PlayerId(1), at(1 + i, x))
+                .is_some());
+        }
+        // 5000 units in 50 ms: dropped, the old place stays
+        assert!(h.on_msg(1050, PlayerId(1), at(30, 5400.0)).is_none());
+        assert_eq!(h.too_far, 1);
+        assert_eq!(
+            h.state(PlayerId(1)).map(|s| dequant_pos(s.pos[0])),
+            Some(400.0)
+        );
+        // the host sends a warp: the jump goes through
+        h.open_warp(PlayerId(1));
+        assert!(h.on_msg(1100, PlayerId(1), at(31, 5400.0)).is_some());
+        // the ring's spread may still jump for a short time
+        assert!(h.on_msg(1150, PlayerId(1), at(32, 5900.0)).is_some());
+        for i in 0..WARP_AFTER {
+            let _ = h.on_msg(1200 + 50 * u64::from(i), PlayerId(1), at(33 + i, 5900.0));
+        }
+        let q = 33 + WARP_AFTER;
+        assert!(
+            h.on_msg(5000, PlayerId(1), at(q, 9900.0)).is_none(),
+            "the window closed"
+        );
+        assert_eq!(h.too_far, 2);
+    }
+
+    /// #74: a warp whose landing the host knows lets the jump land only
+    /// there (within the ring and a step), in the landing's space. A jump to
+    /// another place or space is dropped, and the window stays open for the
+    /// right one. Mutation twin: with no landing, the same wrong jump goes
+    /// through.
+    #[test]
+    fn hub_lets_a_warp_land_only_where_it_lands() {
+        let mut h = AvatarHub::new();
+        h.set_speed(PlayerId(1), 400.0, 0);
+        assert!(h.on_msg(0, PlayerId(1), at(1, 0.0)).is_some());
+        h.open_warp(PlayerId(1));
+        h.land_at(
+            PlayerId(1),
+            Landing {
+                space: CellId(1),
+                at: [5000.0, 0.0, 0.0],
+            },
+        );
+        // another place in the same space
+        assert!(h.on_msg(50, PlayerId(1), at(2, 9000.0)).is_none());
+        // the landing's place in another space
+        let elsewhere = AvatarMsg::State {
+            player: PlayerId(1),
+            seq: Seq(3),
+            state: st(2, 5000.0),
+        };
+        assert!(h.on_msg(100, PlayerId(1), elsewhere).is_none());
+        assert_eq!(h.off_landing, 2);
+        // on the ring around the landing
+        let x = 5000.0 + LANDING_REACH - 1.0;
+        assert!(h.on_msg(150, PlayerId(1), at(4, x)).is_some());
+        // a later jump in the window must land there too
+        assert!(h.on_msg(200, PlayerId(1), at(5, 9000.0)).is_none());
+        assert_eq!(h.off_landing, 3);
+        // mutation twin: the window with no landing takes the wrong jump
+        let mut free = AvatarHub::new();
+        free.set_speed(PlayerId(1), 400.0, 0);
+        assert!(free.on_msg(0, PlayerId(1), at(1, 0.0)).is_some());
+        free.open_warp(PlayerId(1));
+        assert!(free.on_msg(50, PlayerId(1), at(2, 9000.0)).is_some());
+        // a landing for a closed window is not kept
+        let mut closed = AvatarHub::new();
+        closed.land_at(
+            PlayerId(1),
+            Landing {
+                space: CellId(1),
+                at: [0.0; 3],
+            },
+        );
+        assert!(closed.landings.is_empty());
+    }
+
+    /// The credit keeps two seconds of movement: samples that arrive
+    /// together after a stall go through, a longer run in one sample does not.
+    #[test]
+    fn hub_credit_covers_a_stall_and_no_more() {
+        let mut h = AvatarHub::new();
+        h.set_speed(PlayerId(1), 400.0, 0);
+        assert!(h.on_msg(0, PlayerId(1), at(1, 0.0)).is_some());
+        // 1.5 s of samples arrive at once
+        for i in 1..=30u32 {
+            assert!(h
+                .on_msg(1500, PlayerId(1), at(1 + i, 20.0 * i as f32))
+                .is_some());
+        }
+        // ten seconds later, one sample 8000 units on: more than two seconds' credit
+        assert!(h.on_msg(11_500, PlayerId(1), at(40, 8600.0)).is_none());
+        // mutation twin: no speed set, no bound
+        let mut free = AvatarHub::new();
+        assert!(free.on_msg(0, PlayerId(1), at(1, 0.0)).is_some());
+        assert!(free.on_msg(50, PlayerId(1), at(2, 9000.0)).is_some());
+    }
+
+    /// A guest whose samples keep moving too far goes back to its last
+    /// accepted place after the wait. A warp that arrives within the wait
+    /// lets the jump through, and no correction follows.
+    #[test]
+    fn hub_sends_a_far_guest_back_after_the_wait() {
+        let mut h = AvatarHub::new();
+        h.set_speed(PlayerId(1), 400.0, 0);
+        assert!(h.on_msg(0, PlayerId(1), at(1, 0.0)).is_some());
+        assert!(h.on_msg(50, PlayerId(1), at(2, 8000.0)).is_none());
+        assert_eq!(
+            h.take_correction(PlayerId(1), 50),
+            None,
+            "a late warp may come"
+        );
+        assert!(h.on_msg(1050, PlayerId(1), at(3, 8000.0)).is_none());
+        let back = h.take_correction(PlayerId(1), 1050);
+        assert_eq!(back.map(|s| dequant_pos(s.pos[0])), Some(0.0));
+        assert_eq!(h.take_correction(PlayerId(1), 1100), None, "one per wait");
+        // the guest is back: its samples go through, and no correction waits
+        assert!(h.on_msg(1150, PlayerId(1), at(4, 10.0)).is_some());
+        assert_eq!(h.take_correction(PlayerId(1), 9000), None);
+        // a warp within the wait: the jump goes through, no correction
+        assert!(h.on_msg(1200, PlayerId(1), at(5, 9000.0)).is_none());
+        h.open_warp(PlayerId(1));
+        assert!(h.on_msg(1250, PlayerId(1), at(6, 9000.0)).is_some());
+        assert_eq!(h.take_correction(PlayerId(1), 5000), None);
+    }
+
+    /// A sample with no place (cell 0, the guest loads) passes and is not
+    /// the anchor: the first place after it is checked against the last
+    /// place, and the load does not use up a warp's window.
+    #[test]
+    fn hub_skips_samples_with_no_place() {
+        let mut h = AvatarHub::new();
+        h.set_speed(PlayerId(1), 400.0, 0);
+        let nowhere = |q: u32| AvatarMsg::State {
+            player: PlayerId(1),
+            seq: Seq(q),
+            state: st(0, 0.0),
+        };
+        // the first samples while loading, then the first place: no anchor yet
+        assert!(h.on_msg(0, PlayerId(1), nowhere(1)).is_some());
+        assert!(h.on_msg(50, PlayerId(1), at(2, 7000.0)).is_some());
+        // a load with no warp: the place after it is checked against 7000
+        assert!(h.on_msg(100, PlayerId(1), nowhere(3)).is_some());
+        assert!(h.on_msg(150, PlayerId(1), at(4, 20.0)).is_none());
+        let back = h.take_correction(PlayerId(1), 5000);
+        assert_eq!(back.map(|s| dequant_pos(s.pos[0])), Some(7000.0));
+        // a door: the warp outlasts a long load
+        h.open_warp(PlayerId(1));
+        for q in 0..2 * WARP_SAMPLES {
+            let _ = h.on_msg(5050 + 50 * u64::from(q), PlayerId(1), nowhere(5 + q));
+        }
+        let q = 5 + 2 * WARP_SAMPLES;
+        assert!(h.on_msg(200_000, PlayerId(1), at(q, 20.0)).is_some());
+    }
+
+    /// A change of space (another interior cell or worldspace) needs a warp
+    /// that the host sent, also at the same position.
+    #[test]
+    fn hub_needs_a_warp_for_another_space() {
+        let mut h = AvatarHub::new();
+        h.set_speed(PlayerId(1), 400.0, 0);
+        let in_cell = |q: u32, cell: u32| AvatarMsg::State {
+            player: PlayerId(1),
+            seq: Seq(q),
+            state: st(cell, 10.0),
+        };
+        assert!(h.on_msg(0, PlayerId(1), in_cell(1, 1)).is_some());
+        assert!(h.on_msg(50, PlayerId(1), in_cell(2, 2)).is_none());
+        assert_eq!(h.too_far, 1);
+        h.open_warp(PlayerId(1));
+        assert!(h.on_msg(100, PlayerId(1), in_cell(3, 2)).is_some());
     }
 }

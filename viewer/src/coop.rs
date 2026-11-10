@@ -36,6 +36,19 @@ use crate::GameFiles;
 
 /// How long a guest waits for the host before giving up.
 const JOIN_WAIT: Duration = Duration::from_secs(90);
+/// How long a guest that knows the host's place waits for the join snapshot
+/// before it loads the place anyway.
+const SNAPSHOT_WAIT: Duration = Duration::from_secs(10);
+
+/// True when a guest may load the host's place: it knows the place, and it
+/// has the host's state (the join snapshot) or waited [`SNAPSHOT_WAIT`] for it.
+/// The snapshot comes after the place on the same reliable lane, so on a lossy
+/// link it can come later. A cell loaded before it sets its people up from the
+/// guest's own new game: Doc Mitchell then had only his "We can chat later"
+/// line, and the guest's talk got no menu.
+fn may_load_place(place_known: bool, has_state: bool, waited: Duration) -> bool {
+    place_known && (has_state || waited > SNAPSHOT_WAIT)
+}
 /// Seconds between state dumps.
 const DUMP_EVERY: f32 = 1.0;
 
@@ -234,6 +247,11 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
         e.to_string()
     })?;
     crate::coop_link::log_notices(&mut session, &notices);
+    // the harness's fixed token marks a test session: the bot's teleports
+    // are warps the host knows (#74)
+    if c.test_token {
+        session.live_test_warps(true);
+    }
     // How this process starts (docs/COOP.md, "The start of a game"): a host's --new-game runs the
     // opening for the host player; a guest makes its own character unless it brings one.
     let own = if c.no_chargen {
@@ -269,11 +287,15 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
     }
     if role == Role::Guest {
         let begun = Instant::now();
+        let mut place_since: Option<Instant> = None;
         let place = loop {
             session.poll(0.016);
             // the host's place and how far its own opening is both arrive right after the join
             if let (Some(p), Some(_)) = (session.host_place(), session.host_opening()) {
-                break p;
+                let since = *place_since.get_or_insert_with(Instant::now);
+                if may_load_place(true, session.is_connected(), since.elapsed()) {
+                    break p;
+                }
             }
             if let Some(why) = session.last_error().map(str::to_string) {
                 session.log_event(
@@ -607,9 +629,12 @@ pub(crate) fn send(
         ResMut<LaterCommands>,
     ),
     (mut messages, mut notices): (ResMut<HudMessages>, ResMut<Notices>),
-    mut exit: EventWriter<AppExit>,
     mut texts: Query<(&mut Text, &mut Visibility), With<CoopText>>,
-    (mut bot, live): (ResMut<coop_live::Bot>, Res<LiveNow>),
+    (mut bot, live, test_keys): (
+        ResMut<coop_live::Bot>,
+        Res<LiveNow>,
+        Option<ResMut<crate::test_keys::TestKeys>>,
+    ),
     scripts: Res<Scripts>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
@@ -647,6 +672,9 @@ pub(crate) fn send(
     if run.ready_seen && run.ready_at.is_none() && go {
         run.ready_at = Some(now);
         held.released = Some(now);
+        if let Some(mut k) = test_keys {
+            k.open_gate(now);
+        }
         split_special(&mut held, &mut bot, now);
         start_commands.0.extend(std::mem::take(&mut held.local));
         later.lines.extend(std::mem::take(&mut held.local_at));
@@ -716,7 +744,7 @@ pub(crate) fn send(
     };
     if let Some(reason) = quit {
         finish(s, &mut run, &state.0, &game, now, reason, &live);
-        exit.write(AppExit::Success);
+        end_now();
     }
     let line = s.status().compact();
     for (mut text, mut vis) in &mut texts {
@@ -729,6 +757,36 @@ pub(crate) fn send(
             Visibility::Hidden
         };
     }
+}
+
+#[cfg(windows)]
+mod win {
+    #[link(name = "kernel32")]
+    extern "system" {
+        pub fn GetCurrentProcess() -> isize;
+        pub fn TerminateProcess(process: isize, code: u32) -> i32;
+    }
+}
+
+/// Ends the process after a harness quit (`--coop-quit-file`, `--coop-quit-after`), with code 0
+/// and without the app's teardown. [`finish`] has the run's last words on disk: the event log
+/// flushes each line and the dump file is written whole. The teardown is where the one exit
+/// crash came: in `twin_live_control_lock_per_player` (2026-11-03) both viewers logged their
+/// clean `shutdown` line and then ended with `0xC0000409` (a fast-fail), with no panic text,
+/// once in 4513 viewer exits. `TerminateProcess` runs no destructor, no Bevy or wgpu teardown
+/// and no DLL detach code, so none of them can end the process with another code.
+fn end_now() -> ! {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    #[cfg(windows)]
+    {
+        // SAFETY: the pseudo handle of this process; the call does not return on success.
+        unsafe {
+            win::TerminateProcess(win::GetCurrentProcess(), 0);
+        }
+    }
+    std::process::exit(0)
 }
 
 /// Any other way out (Esc, the window closing): the final dump and the
@@ -754,4 +812,25 @@ fn at_exit(
         "exit",
         &live,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_guest_loads_the_place_after_the_hosts_state() {
+        let short = Duration::from_millis(300);
+        assert!(!may_load_place(false, true, short), "no place yet");
+        assert!(
+            !may_load_place(true, false, short),
+            "the place, not the state yet"
+        );
+        assert!(may_load_place(true, true, short), "the place and the state");
+        let long = SNAPSHOT_WAIT + Duration::from_millis(1);
+        assert!(
+            may_load_place(true, false, long),
+            "no state after the wait: load anyway"
+        );
+    }
 }

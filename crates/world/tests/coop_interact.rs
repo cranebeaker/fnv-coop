@@ -32,10 +32,18 @@ mod ids {
     pub const CELL: u32 = 0xD00;
     pub const SWING: u32 = 0xD10;
     pub const LOCKED: u32 = 0xD11;
+    pub const KEYED: u32 = 0xD12;
     pub const PILE: u32 = 0xD20;
     pub const MINE: u32 = 0xD30;
     pub const TERMINAL: u32 = 0xD40;
     pub const CELL2: u32 = 0xD01;
+    pub const CELL3: u32 = 0xD02;
+    /// Load doors in IxRoom (`XTEL`): into IxRoom2 and into IxRoom3.
+    pub const TO_ROOM2: u32 = 0xD51;
+    pub const TO_ROOM3: u32 = 0xD52;
+    /// Where those doors arrive (plain references).
+    pub const IN_ROOM2: u32 = 0xD71;
+    pub const IN_ROOM3: u32 = 0xD72;
     pub const MARKER: u32 = 0xD60;
     pub const VENDOR: u32 = 0x7000;
     pub const BODY: u32 = 0x7001;
@@ -75,8 +83,38 @@ fn world(tag: &str) -> TempData {
     misc.extend(named(b"MISC", CAPS, "Caps001", &[]));
     plugin.extend(group(*b"MISC", 0, &misc));
     plugin.extend(group(*b"STAT", 0, &stat(0xA20, "IxStat", "")));
+    // a load door's destination (`XTEL`): the reference it arrives at
+    let xtel = |to: u32| {
+        let mut d = to.to_le_bytes().to_vec();
+        for v in [0.0f32; 6] {
+            d.extend(v.to_le_bytes());
+        }
+        d.extend(0u32.to_le_bytes());
+        sub(b"XTEL", &d)
+    };
     let mut refs = placed(SWING, DOOR, [0.0, 0.0, 0.0], [0.0; 3], &[]);
     refs.extend(placed(LOCKED, DOOR, [100.0, 0.0, 0.0], [0.0; 3], &[]));
+    // placed locked (level 50) with its key, as `XLOC` says
+    let mut xloc = vec![50u8, 0, 0, 0];
+    xloc.extend(KEY.to_le_bytes());
+    xloc.extend([0u8; 12]);
+    let mut keyed = sub(b"XLOC", &xloc);
+    keyed.extend(xtel(IN_ROOM2));
+    refs.extend(placed(KEYED, DOOR, [100.0, 50.0, 0.0], [0.0; 3], &keyed));
+    refs.extend(placed(
+        TO_ROOM2,
+        DOOR,
+        [200.0, 0.0, 0.0],
+        [0.0; 3],
+        &xtel(IN_ROOM2),
+    ));
+    refs.extend(placed(
+        TO_ROOM3,
+        DOOR,
+        [300.0, 0.0, 0.0],
+        [0.0; 3],
+        &xtel(IN_ROOM3),
+    ));
     refs.extend(placed(PILE, ITEM_A, [0.0, 100.0, 0.0], [0.0; 3], &[]));
     refs.extend(placed(MINE, 0xA20, [0.0, 200.0, 0.0], [0.0; 3], &[]));
     refs.extend(placed(TERMINAL, 0xA20, [0.0, 300.0, 0.0], [0.0; 3], &[]));
@@ -86,21 +124,30 @@ fn world(tag: &str) -> TempData {
         6,
         &group(CELL.to_le_bytes(), 8, &refs),
     ));
-    let marker = placed(
+    let mut marker = placed(
         MARKER,
         0xA20,
         [700.0, 0.0, 0.0],
         [0.0; 3],
         &sub(b"EDID", &zstr("IxMarker")),
     );
+    marker.extend(placed(IN_ROOM2, 0xA20, [0.0, 0.0, 0.0], [0.0; 3], &[]));
     let mut cell2 = named(b"CELL", CELL2, "IxRoom2", &sub(b"DATA", &[1]));
     cell2.extend(group(
         CELL2.to_le_bytes(),
         6,
         &group(CELL2.to_le_bytes(), 8, &marker),
     ));
+    let mut cell3 = named(b"CELL", CELL3, "IxRoom3", &sub(b"DATA", &[1]));
+    let in_room3 = placed(IN_ROOM3, 0xA20, [0.0, 0.0, 0.0], [0.0; 3], &[]);
+    cell3.extend(group(
+        CELL3.to_le_bytes(),
+        6,
+        &group(CELL3.to_le_bytes(), 8, &in_room3),
+    ));
     let mut cells = cell;
     cells.extend(cell2);
+    cells.extend(cell3);
     plugin.extend(group(
         *b"CELL",
         0,
@@ -174,7 +221,9 @@ impl<'a> Rig<'a> {
         }
     }
 
-    /// Everyone stands in `cell` at the given x positions (host, g1, g2).
+    /// Everyone stands in `cell` at the given x positions (host, g1, g2). This
+    /// is a harness move, as `coop cell`: each guest sends a test warp, and
+    /// the host's movement check lets it through in this test session (#74).
     fn stand(&mut self, cell: u32, xs: [f32; 3]) {
         for (i, g) in std::iter::once(&mut self.host)
             .chain(self.guests.iter_mut())
@@ -182,6 +231,10 @@ impl<'a> Rig<'a> {
         {
             g.player_cell = Some(f(cell));
             g.player_position = Some([xs[i], 1000.0, 0.0]);
+        }
+        for i in 0..self.guests.len() {
+            let warp = Msg::Roam(coop_core::roam::RoamMsg::TestWarp);
+            self.sim.guest_emit(i, vec![warp]);
         }
     }
 
@@ -289,6 +342,7 @@ impl<'a> Rig<'a> {
 
 fn setup<'a>(order: &'a LoadOrder, scripts: &'a ScriptCache, profile: &str, seed: u64) -> Rig<'a> {
     let mut r = Rig::new(order, scripts, profile, seed);
+    r.sim.host.live.test_warps = true;
     r.stand(CELL, [0.0, 10.0, 20.0]);
     r.run_ms(500);
     r
@@ -703,9 +757,9 @@ fn the_party_follows_the_leader_through_a_load_door_and_non_leaders_are_kept_in_
     let (_d, order) = load("ix-transit");
     let scripts = ScriptCache::default();
     let mut r = setup(&order, &scripts, "good_wifi", 71);
-    // everyone is in cell 1; cell 2 is linked to it; cell 9 is elsewhere
+    // everyone is in cell 1; IxRoom2 is linked to it; IxRoom3 is elsewhere
     r.stand(1, [0.0, 10.0, 20.0]);
-    r.sim.host.live.interest.link(CellId(1), CellId(2));
+    r.sim.host.live.interest.link(CellId(1), CellId(CELL2));
     r.run_ms(1_000);
     // the host (leader) walks through a door: both guests load the destination
     r.host.coop_route(Act::Transition {
@@ -728,9 +782,9 @@ fn the_party_follows_the_leader_through_a_load_door_and_non_leaders_are_kept_in_
     }
     // a guest takes a door into the leader's group: allowed, alone
     r.guests[0].coop_route(Act::Transition {
-        door: c(0xD51),
+        door: c(TO_ROOM2),
         from: CellId(1),
-        to: CellId(2),
+        to: CellId(CELL2),
         one_way: false,
     });
     assert!(r.until(60_000, |r| r.guests[0].coop.interact.follow.is_some()));
@@ -741,9 +795,9 @@ fn the_party_follows_the_leader_through_a_load_door_and_non_leaders_are_kept_in_
     );
     // and into a different part of the world: refused
     r.guests[1].coop_route(Act::Transition {
-        door: c(0xD52),
+        door: c(TO_ROOM3),
         from: CellId(1),
-        to: CellId(9),
+        to: CellId(CELL3),
         one_way: false,
     });
     assert!(r.until(60_000, |r| r
@@ -751,6 +805,128 @@ fn the_party_follows_the_leader_through_a_load_door_and_non_leaders_are_kept_in_
         .iter()
         .any(|x| x.0 == "transition" && !x.1 && x.2 == Why::Policy)));
     assert!(r.guests[1].coop.interact.follow.is_none());
+}
+
+/// A guest asks to go through a load door that is locked on the host's
+/// world: the host refuses it unless the guest carries the key. Before, the
+/// host checked only the party rules, and the party followed the guest
+/// through a locked door.
+#[test]
+fn a_guest_goes_through_a_locked_load_door_only_with_its_key() {
+    let (_d, order) = load("ix-transit-lock");
+    let scripts = ScriptCache::default();
+    let mut r = setup(&order, &scripts, "good_wifi", 73);
+    r.stand(1, [0.0, 10.0, 20.0]);
+    r.sim.host.live.interest.link(CellId(1), CellId(CELL2));
+    r.run_ms(1_000);
+    // the guest's world takes the door as open (a `coop enter` skips the
+    // local check): only the host's lock decides
+    r.guests[0].locks.insert(f(KEYED), None);
+    let through = |r: &mut Rig| {
+        r.guests[0].coop_route(Act::Transition {
+            door: c(KEYED),
+            from: CellId(1),
+            to: CellId(CELL2),
+            one_way: false,
+        });
+    };
+    through(&mut r);
+    assert!(
+        r.until(60_000, |r| r
+            .results(0)
+            .iter()
+            .any(|x| x.0 == "transition" && !x.1 && x.2 == Why::Locked)),
+        "a locked door without the key"
+    );
+    assert!(r.guests[0].coop.interact.follow.is_none());
+    // with the key the door opens, and it stays open for everyone
+    r.give(1, KEY, 1);
+    through(&mut r);
+    assert!(
+        r.until(60_000, |r| r.guests[0].coop.interact.follow.is_some()),
+        "the key opens the door: {:?}",
+        r.results(0)
+    );
+    assert_eq!(r.host.locks.get(&f(KEYED)), Some(&None));
+}
+
+/// #74: the host takes a guest's transition from its own copy, not from
+/// the cells the guest names. A door that leads away from the leader is
+/// refused even when the guest names the leader's linked cell. A door that
+/// leads nowhere on the host (no `XTEL`) is not a transition.
+#[test]
+fn the_host_takes_a_guests_door_to_where_the_door_leads() {
+    let (_d, order) = load("ix-transit-own");
+    let scripts = ScriptCache::default();
+    let mut r = setup(&order, &scripts, "good_wifi", 74);
+    r.stand(1, [0.0, 10.0, 20.0]);
+    r.sim.host.live.interest.link(CellId(1), CellId(CELL2));
+    r.run_ms(1_000);
+    let refused = |r: &Rig, why: Why| {
+        r.results(0)
+            .iter()
+            .any(|x| x.0 == "transition" && !x.1 && x.2 == why)
+    };
+    // the guest names IxRoom2 (next to the leader): the door leads to IxRoom3
+    r.guests[0].coop_route(Act::Transition {
+        door: c(TO_ROOM3),
+        from: CellId(1),
+        to: CellId(CELL2),
+        one_way: false,
+    });
+    assert!(
+        r.until(60_000, |r| refused(r, Why::Policy)),
+        "the door leads away from the leader: {:?}",
+        r.results(0)
+    );
+    assert!(r.guests[0].coop.interact.follow.is_none());
+    // a swing door leads nowhere
+    r.guests[0].coop_route(Act::Transition {
+        door: c(SWING),
+        from: CellId(1),
+        to: CellId(CELL2),
+        one_way: false,
+    });
+    assert!(
+        r.until(60_000, |r| refused(r, Why::Invalid)),
+        "not a load door: {:?}",
+        r.results(0)
+    );
+    assert!(r.guests[0].coop.interact.follow.is_none());
+    // the door into IxRoom2 does lead next to the leader
+    r.guests[0].coop_route(Act::Transition {
+        door: c(TO_ROOM2),
+        from: CellId(1),
+        to: CellId(CELL3),
+        one_way: false,
+    });
+    assert!(
+        r.until(60_000, |r| r.guests[0].coop.interact.follow.is_some()),
+        "{:?}",
+        r.results(0)
+    );
+    // #74: the guest's jump must land where the door leads, in the host's world
+    let a = world::coop::interact::door_arrival(&order, f(TO_ROOM2)).expect("the door leads");
+    let missed = r.sim.host.live.avatars.off_landing;
+    r.guests[0].player_cell = Some(a.cell);
+    r.guests[0].player_position = Some([a.pos[0] + 5000.0, a.pos[1], a.pos[2]]);
+    r.run_ms(500);
+    assert!(
+        r.sim.host.live.avatars.off_landing > missed,
+        "not where the door leads"
+    );
+    r.guests[0].player_position = Some(a.pos);
+    r.run_ms(500);
+    let s = *r
+        .sim
+        .host
+        .live
+        .avatars
+        .state(PlayerId(1))
+        .expect("the guest");
+    assert_eq!(s.cell, CellId(a.space.0), "the door's space");
+    let x = coop_core::avatar::dequant_pos(s.pos[0]);
+    assert!((x - a.pos[0]).abs() < 0.1, "at the door's arrival: {x}");
 }
 
 #[test]
@@ -761,9 +937,9 @@ fn a_one_way_transition_waits_for_the_whole_party() {
     r.stand(1, [0.0, 10.0, 20.0]);
     r.run_ms(1_000);
     r.guests[0].coop_route(Act::Transition {
-        door: c(0xD60),
+        door: c(TO_ROOM2),
         from: CellId(1),
-        to: CellId(5),
+        to: CellId(CELL2),
         one_way: true,
     });
     // everyone is asked; nothing moves until all agree
@@ -809,9 +985,9 @@ fn a_one_way_transition_waits_for_the_whole_party() {
         g.coop.interact.follow = None;
     }
     r.guests[1].coop_route(Act::Transition {
-        door: c(0xD61),
+        door: c(TO_ROOM3),
         from: CellId(1),
-        to: CellId(6),
+        to: CellId(CELL3),
         one_way: true,
     });
     assert!(r.until(30_000, |r| matches!(r.sim.guests[0].sync.live.rules.prompt, Some(Prompt::Barrier { id: i, .. }) if i != id)));

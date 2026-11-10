@@ -80,6 +80,8 @@ struct Guest {
     active: bool,
     last_intent: u32,
     last_rejected: u16,
+    /// The guest still loads (see [`HostSync::hold`]).
+    held: bool,
 }
 
 /// The authoritative side.
@@ -231,6 +233,18 @@ impl HostSync {
     /// before feeding messages and ticking.
     pub fn set_time_ms(&mut self, ms: u64) {
         self.now_ms = ms;
+    }
+
+    /// Holds (`on`) or resumes the state sends to guest `p`. A guest's viewer
+    /// loads its first cell without reading the link. Each send window that
+    /// the guest did not ack made the host queue a new full snapshot (7 in one
+    /// 60 s load), and the guest's receive buffer overflowed. A held guest gets
+    /// its join snapshot, then nothing until it resumes: then the deltas start
+    /// at the snapshot's revision.
+    pub fn hold(&mut self, p: PlayerId, on: bool) {
+        if let Some(g) = self.guests.get_mut(&p) {
+            g.held = on;
+        }
     }
 
     /// Removes a guest; its actors go back to the host. Messages the live
@@ -450,6 +464,10 @@ impl HostSync {
             .map(|(p, _)| *p)
             .collect();
         for p in active {
+            // a held guest has its snapshot: the rest waits until it plays
+            if self.guests[&p].held && self.ring.acked_rev(p).is_some() {
+                continue;
+            }
             match self.ring.plan(p, self.store.rev()) {
                 SendPlan::Nothing => {}
                 SendPlan::Delta { base } => {

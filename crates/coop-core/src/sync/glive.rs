@@ -83,6 +83,11 @@ pub struct GuestLive {
 }
 
 impl GuestLive {
+    /// The slot this state belongs to.
+    pub fn me(&self) -> PlayerId {
+        self.me
+    }
+
     /// A live layer for player `me`.
     pub fn new(me: PlayerId) -> Self {
         GuestLive {

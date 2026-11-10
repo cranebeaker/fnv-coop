@@ -29,6 +29,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use coop_core::ids::PlayerId;
+use coop_core::scene::SceneKind;
 use esm::FormId;
 use world::dialogue::PLAYER_REF;
 use world::scripting::GameState;
@@ -629,12 +630,19 @@ impl Session {
     }
 
     /// Guest: false while it should still watch the host's opening instead of making its
-    /// character: a scene or movie is running here (the intro, `FNVIntro`), or the host's opening
-    /// has not reached its own name box ([`NAME_STAGE`]). An opening whose stages this machine
-    /// cannot see (no quest rows at all) never holds the guest back.
+    /// character: a scene with something to watch or a movie is running here (the intro,
+    /// `FNVIntro`), or the host's opening has not reached its own name box ([`NAME_STAGE`]). An
+    /// opening whose stages this machine cannot see (no quest rows at all) never holds the guest
+    /// back. A control lock alone (no camera) does not hold the menus back: the host's opening
+    /// locks the controls of the whole party (the `VCG00` and `VCG01` policy rows) for up to
+    /// 120 s, and the character menus are local.
     fn host_opening_ready(&self, gs: &GameState) -> bool {
         let sc = &gs.coop.live.scene;
-        if sc.view.is_some() || sc.movie_start.is_some() || sc.movie_busy {
+        let watching = sc
+            .view
+            .as_ref()
+            .is_some_and(|v| v.kind != SceneKind::Control);
+        if watching || sc.movie_start.is_some() || sc.movie_busy {
             return false;
         }
         let f = &self.start.flow;

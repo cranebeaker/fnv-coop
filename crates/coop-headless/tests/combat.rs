@@ -42,10 +42,16 @@ const DOWNED_REVIVE: &str = r#""name":"live_downed_revive_from_npc","network":"g
     {"id":"downed-hit-ignored-later-hit-lands","path":"combat.hurts_applied","op":"eq","value":2,"on":"guest"},
     {"id":"h","path":"hash.shared","on":"equal"}]"#;
 
+/// The guest holds a pistol in both worlds (`coop give`, `coop equip`) before
+/// it queues: the host counts each V.A.T.S. shot from its own copy of the
+/// guest (#74), 5.5 points against the gecko's 20 with the party scaling.
+/// So four shots, and the queue waits until the guest's own world has the
+/// pistol in hand on a slow link.
 const VATS: &str = r#""name":"live_vats_no_freeze","network":"good_wifi","seed":13,
-  "host":{"script":[{"at":1,"run":"coop teleport 100 200 0"},{"at":4,"key":"w:5"}],"extra_args":["--walk"]},
-  "guest":{"script":[{"at":3,"run":"coop vatsmark 1"},{"at":4,"run":"coop vats TestGeckoRef 0 1000 4000"},
-    {"at":4,"run":"coop vats TestGeckoRef 0 1000 4000"},{"at":4,"run":"coop vats TestGeckoRef 0 1000 4000"},{"at":9,"run":"coop vatsmark 0"}]},
+  "host":{"script":[{"at":0.5,"run":"coop give 1 TestCombatPistol 1"},{"at":1,"run":"coop teleport 100 200 0"},{"at":8,"key":"w:5"}],"extra_args":["--walk"]},
+  "guest":{"script":[{"at":2,"run":"coop equip TestCombatPistol"},{"at":7,"run":"coop vatsmark 1"},{"at":8,"run":"coop vats TestGeckoRef 0 1000 4000"},
+    {"at":8,"run":"coop vats TestGeckoRef 0 1000 4000"},{"at":8,"run":"coop vats TestGeckoRef 0 1000 4000"},
+    {"at":8,"run":"coop vats TestGeckoRef 0 1000 4000"},{"at":13,"run":"coop vatsmark 0"}]},
   "expect":[
     {"id":"one-queue","path":"combat.vats_sent","op":"eq","value":1,"on":"guest"},
     {"id":"hits","path":"combat.vats_hits","op":"ge","value":1,"on":"guest"},
@@ -86,7 +92,7 @@ fn all() -> Vec<(&'static str, u32, String)> {
     vec![
         (NPC_ATTACKS, 9, NPC_ATTACKS.replace(r#""script":[{"at":3,"run":"coop npchit TestGeckoRef 1 10"},{"at":4,"run":"coop npchit TestGeckoRef 1 10"}]"#, r#""script":[]"#)),
         (DOWNED_REVIVE, 20, DOWNED_REVIVE.replace(r#"{"at":6,"run":"coop revive 1"},"#, "")),
-        (VATS, 12, VATS.replace(r#"{"at":4,"run":"coop vats TestGeckoRef 0 1000 4000"},"#, "")),
+        (VATS, 16, VATS.replace(r#"{"at":8,"run":"coop vats TestGeckoRef 0 1000 4000"},"#, "")),
         (EXPLOSION, 9, EXPLOSION.replace(r#"{"at":2.5,"run":"coop ff 1"},"#, "")),
         (STEALTH, 13, STEALTH.replace(r#"{"at":5,"run":"coop sneak 1"}"#, "")),
         (EXTRAS, 9, EXTRAS.replace(r#"{"at":3,"run":"coop spawnenc TestGeckoRef 40"}"#, "")),

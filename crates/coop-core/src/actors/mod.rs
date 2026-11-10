@@ -87,6 +87,11 @@ pub enum ActorMsg {
         /// tracks that NPC alive near the victim, and the guest owns that NPC
         /// or the victim. `None`: a blow of the sender's player or follower.
         npc: Option<FormId>,
+        /// What the sender's player or followers did in each blow of this
+        /// hit. The host computes the damage of these blows from its own copy
+        /// of the sender and does not use `amount` for them. Empty: damage
+        /// with no blow (an explosion, an effect), or an NPC's blow.
+        blows: Vec<Blow>,
     },
     /// Host: damage applied.
     Damaged {
@@ -194,6 +199,50 @@ pub enum ActorMsg {
     },
 }
 
+/// The most blows one hit message names (a frame's pellets on one victim).
+pub const MAX_BLOWS: usize = 64;
+
+/// What a player or a follower did in one blow. The host computes the blow's
+/// damage from this and from its own copy of the striking player.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Blow {
+    /// The follower that struck. `None`: the player.
+    pub by: Option<FormId>,
+    /// The weapon in hand. `None`: fists, or the creature's own attack.
+    pub weapon: Option<FormId>,
+    /// The body part type hit. `None`: no part found.
+    pub part: Option<u8>,
+    /// [`Blow::POWER`], [`Blow::SNEAK`] and [`Blow::CRITICAL`].
+    pub flags: u8,
+    /// The V.A.T.S. attack kind, when a queued V.A.T.S. hit made the blow.
+    pub vats: Option<u8>,
+    /// The explosion, when the weapon's explosion made the blow.
+    pub blast: Option<BlastBlow>,
+}
+
+/// The explosion of a [`Blow`]: which explosion went off, and where.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlastBlow {
+    /// The explosion (`EXPL`).
+    pub explosion: FormId,
+    /// Its centre, quantized ([`crate::avatar::quant_pos`]).
+    pub at: [i32; 3],
+}
+
+impl Blow {
+    /// A power attack.
+    pub const POWER: u8 = 1;
+    /// A sneak attack (the target did not detect the striker).
+    pub const SNEAK: u8 = 2;
+    /// A critical hit (the striker's roll).
+    pub const CRITICAL: u8 = 4;
+
+    /// Whether the blow has `flag`.
+    pub fn has(&self, flag: u8) -> bool {
+        self.flags & flag != 0
+    }
+}
+
 impl ActorMsg {
     /// True for the unreliable stream message.
     pub fn is_stream(&self) -> bool {
@@ -203,7 +252,7 @@ impl ActorMsg {
     /// Structural bounds.
     pub fn is_sane(&self) -> bool {
         match self {
-            ActorMsg::Hit { amount, .. } => *amount <= MAX_HIT,
+            ActorMsg::Hit { amount, blows, .. } => *amount <= MAX_HIT && blows.len() <= MAX_BLOWS,
             ActorMsg::Track { actors } => actors.len() <= MAX_TRACK,
             _ => true,
         }

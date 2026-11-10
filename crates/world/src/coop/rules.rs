@@ -55,14 +55,12 @@ pub fn warp_player(cx: Ctx, gs: &mut GameState, place: FormId) -> bool {
     true
 }
 
-/// The party slots a warp spreads over (the host and up to three guests).
-const PARTY_SLOTS: u8 = 4;
-
 /// After a party warp the local player `me` moves from the anchor to its own
 /// spot on the ring around it (`SceneModel::party_warp`). Warped players then
 /// stand neither on the anchor (where the player who set it stands) nor on
 /// each other.
 fn spread_on_ring(gs: &mut GameState, me: PlayerId) {
+    use coop_core::roam::model::PARTY_SLOTS;
     use coop_core::roam::{Placement, SceneModel};
     let (Some(cell), Some(pos)) = (gs.player_cell, gs.player_position) else {
         return;
@@ -72,14 +70,10 @@ fn spread_on_ring(gs: &mut GameState, me: PlayerId) {
         pos,
         heading: gs.player_heading,
     };
-    let party: Vec<PlayerId> = (0..PARTY_SLOTS).map(PlayerId).collect();
-    let spot = SceneModel::default()
-        .party_warp(&party, to)
-        .into_iter()
-        .find(|(p, _)| *p == me);
-    let Some((_, p)) = spot else {
+    if me.0 >= PARTY_SLOTS {
         return;
-    };
+    }
+    let p = SceneModel::ring_spot(to, me);
     gs.player_position = Some(p.pos);
     // the viewer moves the player on the warp's `MoveTo`: give it the spot
     for e in gs.events.iter_mut().rev() {

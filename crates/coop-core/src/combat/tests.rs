@@ -506,6 +506,7 @@ fn shot(cost: u16, chance: u16, damage: u16) -> VatsShot {
         cost,
         chance,
         damage,
+        blow: None,
     }
 }
 
@@ -567,6 +568,74 @@ fn vats_queue_message_produces_actor_hits_and_a_verdict() {
     assert_eq!(h.vats_hits.len(), results.iter().filter(|r| r.hit).count());
     let ids: std::collections::BTreeSet<u32> = h.vats_hits.iter().map(|x| x.hit).collect();
     assert_eq!(ids.len(), h.vats_hits.len(), "unique ledger ids");
+}
+
+/// #74: a named shot's hit carries its blow to the actor ledger, where the
+/// host counts it (`world::coop::blow_check`).
+#[test]
+fn a_named_vats_shot_carries_its_blow_to_the_ledger() {
+    let mut h = host();
+    h.vats.known_ap.insert(A, 100);
+    let blow = crate::actors::Blow {
+        by: None,
+        weapon: Some(FormId(0x0001_2345)),
+        part: Some(0),
+        flags: 0,
+        vats: Some(1),
+        blast: None,
+    };
+    let mut s = shot(10, 1000, 30);
+    s.blow = Some(blow);
+    let msg = CombatMsg::VatsQueue {
+        id: 6,
+        ap: 100,
+        shots: vec![s; 4],
+    };
+    h.on_msg(A, msg, 0, None, None, &party(2));
+    assert!(!h.vats_hits.is_empty());
+    assert!(h.vats_hits.iter().all(|x| x.blow == Some(blow)));
+}
+
+/// #74: a queued shot costs the host's price for its attack kind, not the
+/// guest's claim. A shot of a kind the host does not price is not fired.
+/// The host's world takes the spent points from its copy of the guest.
+/// Mutation twin: with no price known, the claim of 1 point is paid.
+#[test]
+fn a_vats_shot_costs_the_hosts_price() {
+    let s = Scaling::NEUTRAL;
+    let named = |kind: u8| {
+        let mut x = shot(1, 0, 10);
+        x.blow = Some(crate::actors::Blow {
+            by: None,
+            weapon: None,
+            part: Some(0),
+            flags: 0,
+            vats: Some(kind),
+            blast: None,
+        });
+        x
+    };
+    for priced in [true, false] {
+        let mut v = VatsHost::new();
+        v.known_ap.insert(A, 60);
+        if priced {
+            v.prices.insert(A, [(3u8, 25u16)].into_iter().collect());
+        }
+        let (r, spent) = v.resolve(A, 1, 255, &vec![named(3); 4], &s);
+        let fired = r.iter().filter(|x| x.fired).count();
+        if priced {
+            assert_eq!((fired, spent), (2, 50), "two shots at 25 points");
+            assert_eq!(v.broke, 2);
+            assert_eq!(v.known_ap[&A], 10);
+            assert_eq!(v.take_spent(), [(A, 50u16)].into_iter().collect());
+            assert!(v.take_spent().is_empty(), "taken once");
+            let (r, spent) = v.resolve(A, 2, 255, &[named(0x10)], &s);
+            assert!(!r[0].fired && spent == 0, "a kind the host does not price");
+            assert_eq!(v.not_offered, 1);
+        } else {
+            assert_eq!((fired, spent), (4, 4), "the claim of 1 point a shot");
+        }
+    }
 }
 
 #[test]

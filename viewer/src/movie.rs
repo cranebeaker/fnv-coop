@@ -32,7 +32,7 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bevy::asset::RenderAssetUsages;
 use bevy::audio::{AudioPlayer, AudioSink, AudioSinkPlayback, PlaybackSettings};
@@ -68,7 +68,16 @@ pub struct Movies {
     /// Co-op: scene time already played when the next movie starts (a late
     /// joiner or a merge starts that far into the file).
     pub offset_ms: u32,
+    /// `--no-movies`: when the skipped movie's stand-in ends ([`STAND_IN`]).
+    stand_in: Option<Instant>,
 }
+
+/// How long a movie that `--no-movies` skips stays busy for the co-op scene
+/// layer: a stand-in for the Bink player, as the simulator's timer
+/// (`coop-headless` `MOVIE_SECONDS`). The scene layer ends a movie scene when
+/// its movie stops being busy. A skipped movie that never counted as busy kept
+/// its scene open for good, and a guest that joined then waited in it.
+const STAND_IN: Duration = Duration::from_secs(6);
 
 impl Movies {
     pub fn new(folder: PathBuf, play: bool) -> Self {
@@ -79,12 +88,28 @@ impl Movies {
             playing: None,
             skip_pressed: false,
             offset_ms: 0,
+            stand_in: None,
         }
     }
 
     /// A movie is on screen or about to be (co-op: the scene layer asks).
+    /// A movie that `--no-movies` skips counts too: while it waits, and then
+    /// for its stand-in time.
     pub fn busy(&self) -> bool {
-        self.playing.is_some() || (self.play && !self.queue.is_empty())
+        self.busy_at(Instant::now())
+    }
+
+    fn busy_at(&self, now: Instant) -> bool {
+        self.playing.is_some()
+            || !self.queue.is_empty()
+            || self.stand_in.is_some_and(|end| now < end)
+    }
+
+    /// `--no-movies`: the movie taken from the queue is skipped. Its stand-in
+    /// runs for [`STAND_IN`] less the scene time already played.
+    fn skip(&mut self, offset_ms: u32, now: Instant) {
+        let left = STAND_IN.saturating_sub(Duration::from_millis(u64::from(offset_ms)));
+        self.stand_in = Some(now + left);
     }
 
     /// Ends the movie on screen and drops the ones waiting (co-op: the
@@ -94,6 +119,7 @@ impl Movies {
             p.decoded = usize::MAX;
         }
         self.queue.clear();
+        self.stand_in = None;
     }
 }
 
@@ -247,6 +273,7 @@ pub fn start_movies(
             "Movie {}: skipped (--no-movies, or a screenshot).",
             video.file
         );
+        movies.skip(offset_ms, Instant::now());
         return;
     }
     let path = movies.folder.join("Video").join(&video.file);
@@ -585,6 +612,32 @@ mod tests {
                 0.0
             )
         );
+    }
+
+    #[test]
+    fn a_skipped_movie_is_busy_for_its_stand_in_time() {
+        let t0 = Instant::now();
+        let mut movies = Movies::new(PathBuf::new(), false);
+        assert!(!movies.busy_at(t0));
+        movies.queue.push_back(world::scripting::Video {
+            file: "FNVIntro.bik".into(),
+            interruptable: true,
+            mute_audio: false,
+            pause_music: true,
+            letterbox: true,
+        });
+        assert!(movies.busy_at(t0), "queued");
+        movies.queue.pop_front();
+        movies.skip(0, t0);
+        assert!(movies.busy_at(t0 + STAND_IN / 2), "the stand-in runs");
+        assert!(!movies.busy_at(t0 + STAND_IN), "the stand-in is over");
+        // a late joiner's scene time shortens it
+        movies.skip(4000, t0);
+        assert!(!movies.busy_at(t0 + Duration::from_secs(2)));
+        // a stop (the scene ended or was skipped) ends it
+        movies.skip(0, t0);
+        movies.stop();
+        assert!(!movies.busy_at(t0));
     }
 
     #[test]

@@ -115,6 +115,9 @@ pub struct ActorView {
     pub target: u32,
     /// Dead per the host.
     pub dead: bool,
+    /// The owner's own last state says dead: its place is where the actor
+    /// died there (the host's death can come first).
+    pub owner_dead: bool,
 }
 
 /// One row of the actor table this machine knows (for the dump and tests).
@@ -300,6 +303,10 @@ pub enum Intent {
     Voice(Vec<u8>),
     /// A marker or ping to set or clear (`SocialMsg::MarkerSet` / `MarkerClear`).
     Social(coop_core::social::SocialMsg),
+    /// The test harness put this player somewhere else (`coop teleport`).
+    /// Only a host in a test session ([`crate::Session::live_test_warps`])
+    /// lets the next samples jump (#74).
+    TestWarp,
 }
 
 /// The live layer's own state, inside the session.
@@ -385,6 +392,23 @@ impl Session {
         self.live.is_some()
     }
 
+    /// Host: lets the test harness's teleports ([`Intent::TestWarp`] from a
+    /// guest) through the movement check (#74). Call it only in a test
+    /// session. A guest ignores it.
+    pub fn live_test_warps(&mut self, on: bool) {
+        if let Some(h) = self.host.as_mut() {
+            h.sync.live.test_warps = on;
+        }
+    }
+
+    /// Host: guest avatar samples refused because they moved farther than
+    /// the guest's speed allows with no warp (#74). 0 on a guest.
+    pub fn live_moves_refused(&self) -> u32 {
+        self.host
+            .as_ref()
+            .map_or(0, |h| h.sync.live.avatars.too_far)
+    }
+
     /// Hit requests sent so far (diagnostics and tests).
     pub fn live_hits_sent(&self) -> u32 {
         let Some(l) = &self.live else { return 0 };
@@ -408,7 +432,11 @@ impl Session {
                 return;
             }
             if l.guest.as_ref().map(|x| x.0) != Some(me) && !me.is_host() {
-                g.sync.live = GuestLive::new(me);
+                // the Welcome made the live state for this slot: keep what
+                // arrived while the viewer loaded the cell
+                if g.sync.live.me() != me {
+                    g.sync.live = GuestLive::new(me);
+                }
                 l.guest = Some((me, LiveGuestAdapter::new(me)));
             }
         }
@@ -624,6 +652,8 @@ impl Session {
                 Intent::ReviveBegin(p) => msgs.push(ad.rules.revive_begin(p)),
                 Intent::ReviveCancel => msgs.push(ad.rules.revive_cancel()),
                 Intent::Answer(y) => msgs.extend(ad.own.rules.answer(y).map(Msg::Rules)),
+                // the host's own movement is not checked
+                Intent::TestWarp => {}
                 other => msgs.extend(crate::live_extra::social_msg(other, PlayerId::HOST)),
             }
             for m in msgs {
@@ -653,6 +683,7 @@ impl Session {
                 Intent::ReviveBegin(p) => msgs.push(ad.rules.revive_begin(p)),
                 Intent::ReviveCancel => msgs.push(ad.rules.revive_cancel()),
                 Intent::Answer(y) => msgs.extend(live.rules.answer(y).map(Msg::Rules)),
+                Intent::TestWarp => msgs.push(Msg::Roam(coop_core::roam::RoamMsg::TestWarp)),
                 other => msgs.extend(crate::live_extra::social_msg(other, g.sync.player)),
             }
             for m in msgs {
@@ -880,6 +911,7 @@ fn collect_remote(
             health: st.health,
             target: st.target,
             dead: !rec.alive || st.flags & 1 != 0,
+            owner_dead: st.flags & 1 != 0,
         });
     }
     view.owned_actors = live.actors.owned().into_iter().map(wf).collect();

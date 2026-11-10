@@ -215,7 +215,8 @@ pub fn kind_of(addr: u32) -> Option<String> {
         0x7e00_0800..=0x7e00_ffff => "DirectShow platform object",
         0x7e01_0000..=0x7e01_ffff => "loader platform procedure",
         0x7e04_0000..=0x7e04_ffff => "NVAPI platform object",
-        0x7e05_0000..=0x7fff_ffff => "other platform object",
+        0x7e05_0000 => "ATIMGPUD platform procedure",
+        0x7e05_0001..=0x7fff_ffff => "other platform object",
         _ => {
             return import_names()
                 .lock()

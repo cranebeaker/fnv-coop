@@ -111,13 +111,15 @@ impl Peer {
     /// A peer standing at the cell's arrival point with `side`'s script.
     pub fn new(
         role: Role,
-        sess: Session,
+        mut sess: Session,
         d: &Data,
         place: &Place,
         side: &Side,
         early_talk: bool,
         fixed_glue: bool,
     ) -> Peer {
+        // every headless session is a test: the bot's teleports are warps the host knows (#74)
+        sess.live_test_warps(true);
         let mut gs = GameState::new(&d.order);
         gs.player_cell = Some(place.cell);
         // an exterior cell starts in its worldspace, as the viewer starts it
@@ -471,6 +473,7 @@ impl Peer {
         }
         self.counters.glitch = self.glitch.counts;
         self.counters.full_refused = u64::from(self.sess.full_refusals());
+        self.counters.moves_refused = u64::from(self.sess.live_moves_refused());
         // the viewer moves the player to a placement the host asked for (late join, party warp)
         if let Some(pl) = view.as_ref().and_then(|v| v.roam.place) {
             // a placement outdoors names the worldspace: the grid cell at the spot

@@ -83,6 +83,7 @@ pub fn run(
     let counts = now.glitch.counts;
     now.counters.glitch = counts;
     now.counters.full_refused = u64::from(link.0.full_refusals());
+    now.counters.moves_refused = u64::from(link.0.live_moves_refused());
     // scenes: the movie the scene layer starts (at its scene time), stops, and reports done
     if let Some(m) = gs.coop.live.scene.movie_start.take() {
         movies.offset_ms = m.offset_ms;

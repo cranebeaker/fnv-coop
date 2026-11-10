@@ -1,0 +1,64 @@
+{
+  "name": "bench_party_fight",
+  "description": "The sync benchmark's long mixed scene in Doc Mitchell's house (bench.py measures it; the checks here only judge the end state). Two geckos with 3000 health fight the party. Both players walk with real keys (--walk) and swing (coop attack), so their avatars and the geckos move and animate on both machines. The guest hits gecko 1 at 11 s and gecko 2 at 19 s, so the nearest-player and threat rules move them. At 20 s the host sets VCG01 10 (the host player's own row, mirrored to the guest). From 28 s to 38 s the guest talks to Doc Mitchell. At 44 s and 47 s the guest kills gecko 2, at 54 s and 57 s gecko 1. Both deaths, the player quest row and the shared hash must agree at the end.",
+  "cell": "GSDocMitchellHouse",
+  "network": "good_wifi",
+  "seed": 404,
+  "duration_s": 64,
+  "settle_s": 8,
+  "timeout_s": 300,
+  "host": {
+    "script": [
+      {"at": 2, "run": "VCG02Gecko1REF.Enable"},
+      {"at": 2, "run": "VCG02Gecko2REF.Enable"},
+      {"at": 2.5, "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"},
+      {"at": 3, "run": "coop teleport 2178 2300 7360.0"},
+      {"at": 4, "run": "VCG02Gecko2REF.MoveTo player"},
+      {"at": 4.5, "run": "VCG02Gecko1REF.ForceActorValue Health 3000"},
+      {"at": 4.5, "run": "VCG02Gecko2REF.ForceActorValue Health 3000"},
+      {"at": 5, "run": "VCG02Gecko1REF.StartCombat player"},
+      {"at": 5, "run": "VCG02Gecko2REF.StartCombat player"},
+      {"at": 8, "key": "a:1.5"},
+      {"at": 10, "run": "coop attack swing"},
+      {"at": 12, "key": "d:1.5"},
+      {"at": 14, "run": "coop attack swing"},
+      {"at": 16, "key": "a:1.5"},
+      {"at": 18, "run": "coop attack swing"},
+      {"at": 20, "stage": "VCG01 10"},
+      {"at": 24, "key": "d:2"},
+      {"at": 30, "key": "a:2"},
+      {"at": 36, "run": "coop attack swing"},
+      {"at": 40, "key": "d:2"},
+      {"at": 50, "key": "a:2"},
+      {"at": 52, "run": "coop attack swing"}
+    ],
+    "extra_args": ["--walk"]
+  },
+  "guest": {
+    "script": [
+      {"at": 3, "run": "coop teleport 2289 1700 7360.0"},
+      {"at": 9, "key": "w:1.5"},
+      {"at": 11, "run": "coop hit VCG02Gecko1REF 40"},
+      {"at": 13, "key": "s:1.5"},
+      {"at": 15, "run": "coop attack swing"},
+      {"at": 17, "key": "w:1.5"},
+      {"at": 19, "run": "coop hit VCG02Gecko2REF 40"},
+      {"at": 22, "key": "s:2"},
+      {"at": 28, "run": "coop talk DocMitchellREF"},
+      {"at": 38, "run": "coop topic Goodbye."},
+      {"at": 41, "key": "w:2"},
+      {"at": 44, "run": "coop hit VCG02Gecko2REF 100000"},
+      {"at": 47, "run": "coop hit VCG02Gecko2REF 100000"},
+      {"at": 49, "key": "s:2"},
+      {"at": 54, "run": "coop hit VCG02Gecko1REF 100000"},
+      {"at": 57, "run": "coop hit VCG02Gecko1REF 100000"}
+    ],
+    "extra_args": ["--walk"]
+  },
+  "expect": [
+    {"id": "gecko2-dead", "path": "dead.VCG02Gecko2REF", "op": "eq", "value": true, "on": "both"},
+    {"id": "gecko1-dead", "path": "dead.VCG02Gecko1REF", "op": "eq", "value": true, "on": "both"},
+    {"id": "player-stage", "path": "player_quests.host.VCG01.stage", "op": "ge", "value": 10, "on": "both"},
+    {"id": "shared-hash", "path": "hash.shared", "on": "equal"}
+  ]
+}
