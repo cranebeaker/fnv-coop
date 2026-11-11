@@ -299,9 +299,14 @@ impl Coop {
             return (None, "co-op fights: off".into());
         }
         let cap = session::fight::Cap::parse(&ask);
+        let mut fight = session::fight::Fight::new(guest, cap);
+        // vats: `NV_COOP_VATS=off` leaves V.A.T.S. as the game has it, `slow` only keeps it
+        // from slowing the game (docs/coop/SPECS.md S20).
+        let vats = session::vats::Mode::parse(&std::env::var("NV_COOP_VATS").unwrap_or_default());
+        fight.vats = session::vats::Share::new(vats);
         (
-            Some(session::fight::Fight::new(guest, cap)),
-            format!("co-op fights: shared up to {cap:?}"),
+            Some(fight),
+            format!("co-op fights: shared up to {cap:?}, V.A.T.S. {vats:?}"),
         )
     }
 

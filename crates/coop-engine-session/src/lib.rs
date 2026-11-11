@@ -31,6 +31,12 @@ pub mod rest;
 pub mod social;
 pub mod talk;
 
+// vats: V.A.T.S. with several players (docs/coop/SPECS.md S20); actors the host's game does
+// not run, and held actors moved in steps (S21).
+pub mod far;
+pub mod smooth;
+pub mod vats;
+
 use std::collections::BTreeSet;
 
 use coop_core::avatar::{AvatarMsg, AvatarSender, Sample};
@@ -393,6 +399,16 @@ impl HostDriver {
     pub fn step(&mut self, e: &mut Engine, net: &mut dyn Transport, now_ms: u64) {
         self.sync.set_time_ms(now_ms);
         for (from, msg) in receive(net, &mut self.bad_packets) {
+            // vats: the actors a guest's game runs and the host's does not. A guest's report
+            // of them is the fights' to judge, not coop-core's to enter as it comes.
+            if let Some(f) = self.fight.as_mut() {
+                for (to, m) in f.host_pre(&mut self.sync, from, &msg) {
+                    send(net, to, &m, &mut self.send_failures);
+                }
+                if matches!(msg, Msg::Actor(coop_core::actors::ActorMsg::Track { .. })) {
+                    continue;
+                }
+            }
             for (to, reply) in self.sync.on_msg(from, msg) {
                 send(net, to, &reply, &mut self.send_failures);
             }

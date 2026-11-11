@@ -49,6 +49,11 @@ pub mod social;
 pub mod social_kit;
 pub mod talk;
 
+// vats: V.A.T.S. with several players, and damage outside `Actor::HitMe` (docs/coop/SPECS.md
+// S20, S21).
+pub mod harm;
+pub mod vats;
+
 use std::sync::atomic::Ordering;
 
 use engine_core::prelude::*;
@@ -81,6 +86,9 @@ pub fn install(e: &mut Engine) {
     fight::install(e);
     // social
     social::install(e);
+    // vats: the menu-mode, time multiplier and value-change wraps.
+    vats::install(e);
+    harm::install(e);
 }
 
 // The unit tests' own program: no other crate's functions are linked in.
