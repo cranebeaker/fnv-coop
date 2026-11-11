@@ -4,9 +4,9 @@
 //! more:
 //!
 //! - the `ActorValueOwner`'s current value answers the actor's health; the actor's value change
-//!   (virtual `0x3ac`) adds to it;
-//! - the damage applier (virtual `0x338`) lowers health by the loss, notes the attacker, and
-//!   does nothing for an essential actor;
+//!   (virtual `0x3ac`, the function at `00881130`) adds to it;
+//! - the damage applier (virtual `0x338`) lowers health by the loss through the value change,
+//!   which notes the attacker, and does nothing for an essential actor;
 //! - `Actor::HitMe` applies the hit's health damage through the applier and kills at 0;
 //! - the process's start of combat (virtual `0x33c`) sets the combat flag and the target.
 
@@ -31,7 +31,6 @@ const OWNER_VTABLE: u32 = PLAYER_VTABLE + 0x800;
 const PROCESS_VTABLE: u32 = PLAYER_VTABLE + 0x900;
 /// The addresses of the stand-ins.
 const OWNER_VALUE_FN: u32 = 0x0130_0010;
-const MODIFY_VALUE_FN: u32 = 0x0130_0020;
 const APPLY_DAMAGE_FN: u32 = 0x0130_0030;
 const COMBAT_TARGET_FN: u32 = 0x0130_0040;
 const ALARMED_FN: u32 = 0x0130_0050;
@@ -60,6 +59,10 @@ fn modify_value(e: &mut Engine, a: &[u32]) -> Ret {
     if a[1] == addr::ACTOR_VALUE_HEALTH {
         let h = e.mem.f32(a[0] + HEALTH) + f32::from_bits(a[2]);
         e.mem.set_f32(a[0] + HEALTH, h);
+        // vats: the game counts a loss for its source.
+        if f32::from_bits(a[2]) < 0.0 && a[3] != 0 {
+            e.mem.set_u32(a[0] + ATTACKER, a[3]);
+        }
     }
     Ret::default()
 }
@@ -70,9 +73,13 @@ fn apply_damage(e: &mut Engine, a: &[u32]) -> Ret {
         return Ret::default();
     }
     if loss > 0.0 {
-        let h = e.mem.f32(actor + HEALTH) - loss;
-        e.mem.set_f32(actor + HEALTH, h);
-        e.mem.set_u32(actor + ATTACKER, attacker);
+        // vats: health is lowered through the actor's value change (slot `0x3ac`), as the
+        // game's applier does.
+        e.vcall(
+            actor,
+            addr::ACTOR_MODIFY_VALUE_SLOT,
+            &args![addr::ACTOR_VALUE_HEALTH, (-loss).to_bits(), attacker],
+        );
     }
     Ret::default()
 }
@@ -126,7 +133,7 @@ fn dress(e: &mut Engine, actor: u32) {
 pub(super) fn register(e: &mut Engine) {
     e.map(addr::PROCESS_LISTS & !0xfff, 0x1000);
     for (slot, f) in [
-        (addr::ACTOR_MODIFY_VALUE_SLOT, MODIFY_VALUE_FN),
+        (addr::ACTOR_MODIFY_VALUE_SLOT, addr::ACTOR_MODIFY_VALUE),
         (addr::ACTOR_APPLY_DAMAGE_SLOT, APPLY_DAMAGE_FN),
         (addr::ACTOR_COMBAT_TARGET_SLOT, COMBAT_TARGET_FN),
         (addr::ACTOR_ALARMED_SLOT, ALARMED_FN),
@@ -152,7 +159,7 @@ pub(super) fn register(e: &mut Engine) {
         }
     }
     e.register(OWNER_VALUE_FN, owner_value);
-    e.register(MODIFY_VALUE_FN, modify_value);
+    e.register(addr::ACTOR_MODIFY_VALUE, modify_value);
     e.register(APPLY_DAMAGE_FN, apply_damage);
     e.register(COMBAT_TARGET_FN, |e, a| eax(e.mem.u32(a[0] + TARGET)));
     e.register(ALARMED_FN, |_, _| eax(0));
@@ -335,5 +342,35 @@ impl Story {
         self.e
             .mem
             .u8(PLAYER + addr::PLAYER_DISABLED_CONTROLS_OFFSET)
+    }
+}
+
+// vats: damage that does not pass `Actor::HitMe` (docs/coop/SPECS.md S21).
+impl Story {
+    /// An actor (or the player) loses `loss` points of health as from a fall, a trap or
+    /// drowning: the damage applier, called straight, with no attacker.
+    pub fn fall(&mut self, id: u32, loss: f32) {
+        let a = self.actor_ptr(id);
+        self.e.vcall(
+            a,
+            addr::ACTOR_APPLY_DAMAGE_SLOT,
+            &args![loss.to_bits(), 0.0f32.to_bits(), 0u32],
+        );
+    }
+
+    /// An actor (or the player) loses `loss` points of health as from an effect that `source`
+    /// (a form id; 0 for none) put on it: the value change, called straight. A negative loss
+    /// is a gain.
+    pub fn burn(&mut self, id: u32, source: u32, loss: f32) {
+        let a = self.actor_ptr(id);
+        let by = match source {
+            0 => 0,
+            s => self.actor_ptr(s),
+        };
+        self.e.vcall(
+            a,
+            addr::ACTOR_MODIFY_VALUE_SLOT,
+            &args![addr::ACTOR_VALUE_HEALTH, (-loss).to_bits(), by],
+        );
     }
 }

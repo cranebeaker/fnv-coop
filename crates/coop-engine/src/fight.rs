@@ -29,7 +29,7 @@ use std::sync::{Mutex, PoisonError, RwLock};
 use engine_core::extend::{Owner, WrapSlot};
 use engine_core::prelude::*;
 
-use crate::{actors, addr, forms, live};
+use crate::{actors, addr, forms, harm, live};
 
 /// Co-op's place in front of `Actor::Kill`.
 pub(crate) const KILL: WrapSlot = WrapSlot::new(Owner::Coop, addr::ACTOR_KILL);
@@ -178,6 +178,55 @@ pub fn hits_kept(e: &mut Engine) -> u64 {
     e.ext_free::<Fights>().kept.load(Ordering::SeqCst)
 }
 
+// vats: one decision for the hit wrap and the value-change wrap (harm.rs).
+/// Whose game applies damage to an actor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Verdict {
+    /// The form id of the actor that is damaged.
+    pub target: u32,
+    /// The form id of whoever does it, 0 for nobody.
+    pub aggressor: u32,
+    /// Keep the damage from this game.
+    pub keep: bool,
+    /// Hand it to the session.
+    pub tell: bool,
+}
+
+/// Decides for damage to the actor at `target` by the actor at `aggressor` (pointers; 0 for
+/// nobody). With no session nothing is kept.
+pub(crate) fn verdict(e: &mut Engine, target: u32, aggressor: u32) -> Verdict {
+    let id_of = |e: &mut Engine, r: u32| match r {
+        0 => 0,
+        r => e.mem.u32(r.wrapping_add(addr::FORM_ID_OFFSET)),
+    };
+    let (tid, aid) = (id_of(e, target), id_of(e, aggressor));
+    let f = e.ext_free::<Fights>();
+    let role = f.role.load(Ordering::SeqCst);
+    let (keep, tell) = if role == 0 {
+        (false, false)
+    } else if has(&f.avatars, tid) {
+        // A player's avatar: that player's own game takes the damage, if the host says so.
+        (true, true)
+    } else if role == 2 && tid == actors::PLAYER_REF_ID {
+        // This guest's player: what the host's actors and the other players do to it comes
+        // from the host.
+        (has(&f.held, aid) || has(&f.avatars, aid), false)
+    } else if role == 2 && has(&f.held, tid) {
+        // An actor the host runs: this player's damage is a claim for the host; anything else
+        // that damages it here is for the host's game to decide.
+        (true, aid == actors::PLAYER_REF_ID)
+    } else {
+        (false, false)
+    };
+    Verdict {
+        target: tid,
+        aggressor: aid,
+        keep,
+        tell,
+    }
+}
+// vats: end
+
 /// The wrap at `0089a760`. Its words are the call's: the actor that is hit, the `HitData` and
 /// the kind byte. A hit it keeps from the game answers as the game's own call does for an actor
 /// without a process: nothing happened.
@@ -188,29 +237,14 @@ pub(crate) fn hit_me(e: &mut Engine, a: &[u32]) -> Ret {
     if role == 0 || target == 0 || hit == 0 {
         return e.call_next(addr::ACTOR_HIT_ME, a);
     }
-    let id_of = |e: &mut Engine, r: u32| match r {
-        0 => 0,
-        r => e.mem.u32(r.wrapping_add(addr::FORM_ID_OFFSET)),
-    };
-    let tid = id_of(e, target);
+    // vats: the decision is shared with the value-change wrap (harm.rs).
     let aggressor = e.mem.u32(hit.wrapping_add(addr::HIT_AGGRESSOR_OFFSET));
-    let aid = id_of(e, aggressor);
-    let f = e.ext_free::<Fights>();
-    // (keep the hit from the game, hand it to the session)
-    let (keep, tell) = if has(&f.avatars, tid) {
-        // A player's avatar: that player's own game takes the damage, if the host says so.
-        (true, true)
-    } else if role == 2 && tid == actors::PLAYER_REF_ID {
-        // This guest's player: what the host's actors and the other players do to it comes
-        // from the host.
-        (has(&f.held, aid) || has(&f.avatars, aid), false)
-    } else if role == 2 && has(&f.held, tid) {
-        // An actor the host runs: this player's hit is a claim for the host; anything else
-        // that hits it here is for the host's game to decide.
-        (true, aid == actors::PLAYER_REF_ID)
-    } else {
-        (false, false)
-    };
+    let Verdict {
+        target: tid,
+        aggressor: aid,
+        keep,
+        tell,
+    } = verdict(e, target, aggressor);
     if !keep {
         return e.call_next(addr::ACTOR_HIT_ME, a);
     }
@@ -349,11 +383,14 @@ pub fn player_health(e: &mut Engine) -> Option<f32> {
 fn set_health(e: &mut Engine, actor: u32, want: f32) {
     let change = want - health(e, actor);
     if change.abs() >= 0.5 {
-        e.vcall(
-            actor,
-            addr::ACTOR_MODIFY_VALUE_SLOT,
-            &args![addr::ACTOR_VALUE_HEALTH, change.to_bits(), 0u32],
-        );
+        // vats: co-op's own change passes the value-change wrap.
+        harm::own(e, |e| {
+            e.vcall(
+                actor,
+                addr::ACTOR_MODIFY_VALUE_SLOT,
+                &args![addr::ACTOR_VALUE_HEALTH, change.to_bits(), 0u32],
+            )
+        });
     }
 }
 
@@ -415,11 +452,14 @@ pub fn release(e: &mut Engine, id: u32) -> bool {
 pub fn hurt_actor(e: &mut Engine, id: u32, amount: f32, attacker: u32) -> Option<f32> {
     let a = actors::actor(e, id)?;
     let by = forms::form(e, attacker).unwrap_or(0);
-    e.vcall(
-        a,
-        addr::ACTOR_APPLY_DAMAGE_SLOT,
-        &args![amount.to_bits(), 0.0f32.to_bits(), by],
-    );
+    // vats: co-op's own change passes the value-change wrap.
+    harm::own(e, |e| {
+        e.vcall(
+            a,
+            addr::ACTOR_APPLY_DAMAGE_SLOT,
+            &args![amount.to_bits(), 0.0f32.to_bits(), by],
+        )
+    });
     Some(health(e, a))
 }
 
@@ -440,11 +480,14 @@ pub fn kill_by(e: &mut Engine, id: u32, attacker: u32) -> bool {
 pub fn hurt_player(e: &mut Engine, amount: f32, attacker: u32) -> Option<f32> {
     let p = live::player(e)?;
     let by = forms::form(e, attacker).unwrap_or(0);
-    e.vcall(
-        p,
-        addr::ACTOR_APPLY_DAMAGE_SLOT,
-        &args![amount.to_bits(), 0.0f32.to_bits(), by],
-    );
+    // vats: co-op's own change passes the value-change wrap.
+    harm::own(e, |e| {
+        e.vcall(
+            p,
+            addr::ACTOR_APPLY_DAMAGE_SLOT,
+            &args![amount.to_bits(), 0.0f32.to_bits(), by],
+        )
+    });
     Some(health(e, p))
 }
 

@@ -21,6 +21,10 @@ use crate::{addr, forms};
 #[path = "fight_kit.rs"]
 pub mod fight_kit;
 
+// vats: the game's V.A.T.S. mode, menu stack and time multiplier.
+#[path = "vats_kit.rs"]
+pub mod vats_kit;
+
 /// Where the story lives.
 const HEAP: u32 = 0x0200_0000;
 const HEAP_LEN: u32 = 0x0010_0000;
@@ -486,6 +490,8 @@ impl Story {
         fight_kit::register(&mut e);
         // social: the stand-ins of conversations, saves and rests.
         crate::social_kit::register(&mut e);
+        // vats
+        vats_kit::register(&mut e);
         crate::install(&mut e);
         Story { e }
     }

@@ -567,3 +567,39 @@ pub const PLAYER_WAIT_HOUR: u32 = 0x0094_df80;
 pub const TES_SINGLETON: u32 = 0x011d_ea10;
 /// See [`TES_SINGLETON`].
 pub const TES_RUN_SCRIPTS: u32 = 0x0045_5490;
+// vats: V.A.T.S. with several players, damage outside `Actor::HitMe` (docs/coop/SPECS.md S20,
+// S21). Every constant below names the translation it is read from.
+
+/// The game's one `VATS` object (`011f2250`, `vats.rs`, `VATS_SINGLETON`) and its `eMode` at
+/// +0x08 (`vats.rs`, the `Vats` layout; `main.rs` reads it through `0044ddc0`): 0 none, 1 target
+/// select, 2 menu, 3 scan, 4 playback.
+pub const VATS: u32 = 0x011f_2250;
+/// See [`VATS`].
+pub const VATS_MODE_OFFSET: u32 = 0x08;
+/// See [`VATS`]: the queued commands are being played.
+pub const VATS_MODE_PLAYBACK: u32 = 4;
+/// `BSTimer::SetGlobalTimeMultiplier` (`thiscall`: timer, the multiplier's bits, an "immediate"
+/// byte; `RET 8`; `00aa4db0`, `bstimer.rs`). `vats.rs` calls it on the timer at `011f6394` to
+/// slow the game while queued shots play and with 1.0 when V.A.T.S. ends.
+pub const TIMER_SET_GLOBAL_TIME_MULTIPLIER: u32 = 0x00aa_4db0;
+/// `Interface::IsInMenuMode` (no arguments, a byte; `00702360`, `interface.rs`): the menu
+/// manager's menu mode is not 1. The idle update (`main.rs`, `fn_0086e650`) keeps its answer in
+/// the byte at `011dea2b`, and while that byte is set the process lists, the scene and the
+/// calendar do not move: this is what stops the game while a V.A.T.S. target is picked, the
+/// V.A.T.S. menu being a menu like any other (`vatsmenu.rs`, menu class `0x420`).
+pub const INTERFACE_IS_IN_MENU_MODE: u32 = 0x0070_2360;
+/// `Interface::IsTopMenuID` (`cdecl`: menu id, a byte; `00702450`, `interface.rs`; `main.rs`,
+/// `is_top_menu`) and the V.A.T.S. menu's class (`vatsmenu.rs`, `fn_007eb8c0`).
+pub const INTERFACE_IS_TOP_MENU_ID: u32 = 0x0070_2450;
+/// See [`INTERFACE_IS_TOP_MENU_ID`].
+pub const VATS_MENU_CLASS: u32 = 0x420;
+
+/// The function behind `Actor` virtual slot `0x3ac` ([`ACTOR_MODIFY_VALUE_SLOT`]): `thiscall`
+/// (actor, value number, amount as `f32`, source actor or 0) (`00881130`, `actor.rs`,
+/// `fn_00881130`; `actor_p3.rs` names it as the slot's function, and a creature's own slot
+/// ends in it, `creature.rs`). Every loss of health ends here: a hit's and a fall's, a trap's
+/// and drowning's through the damage applier (`actor_p3.rs`, `fn_0089d6f0`; `actor_p4.rs`,
+/// `actor_move`; `actor_p2.rs`, `actor_do_trap`), and an effect's directly
+/// (`valuemodifiereffect.rs`).
+pub const ACTOR_MODIFY_VALUE: u32 = 0x0088_1130;
+// vats: end

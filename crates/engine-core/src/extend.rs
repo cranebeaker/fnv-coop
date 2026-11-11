@@ -163,6 +163,13 @@ pub const WRAPS: &[Entry] = &[
         owners: COOP,
         step: "C-6",
     },
+    // vats: Interface::IsInMenuMode (no arguments). In a co-op session with another player the
+    // V.A.T.S. menu does not stop the game (docs/coop/SPECS.md S20).
+    Entry {
+        addr: 0x0070_2360,
+        owners: COOP,
+        step: "C-7",
+    },
     Entry {
         addr: 0x0076_1a20,
         owners: COOP,
@@ -181,6 +188,14 @@ pub const WRAPS: &[Entry] = &[
         owners: COOP,
         step: "C-1",
     },
+    // vats: the actor's value change behind virtual slot 0x3ac (actor, value, amount, source).
+    // Co-op decides whose game applies a loss of health that did not come through HitMe: a
+    // fall, a trap, an effect (docs/coop/SPECS.md S21).
+    Entry {
+        addr: 0x0088_1130,
+        owners: COOP,
+        step: "C-8",
+    },
     // Actor::HitMe (this, hit data, kind): every weapon hit on an actor. Co-op decides whose
     // game applies it in a shared fight (docs/coop/SPECS.md S13).
     Entry {
@@ -195,6 +210,13 @@ pub const WRAPS: &[Entry] = &[
         addr: 0x0089_d900,
         owners: COOP,
         step: "C-3",
+    },
+    // vats: BSTimer::SetGlobalTimeMultiplier (timer, multiplier, immediate). In a co-op session
+    // with another player V.A.T.S. does not slow the game (docs/coop/SPECS.md S20).
+    Entry {
+        addr: 0x00aa_4db0,
+        owners: COOP,
+        step: "C-7",
     },
     // DINPUT8 DirectInput8Create, its import slot: the keyboard and mouse devices put behind
     // xNVSE's (`Hook_DirectInput8Create_Init` writes this slot).
