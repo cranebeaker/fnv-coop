@@ -260,6 +260,19 @@ impl HostWorld {
     /// [`HostWorld::collect`]. Answers the messages to send. Requests this layer does not carry
     /// out are refused, so a guest is never left waiting.
     pub fn enact(&mut self, e: &mut Engine, sync: &mut HostSync) -> Vec<(PlayerId, Msg)> {
+        self.enact_with(e, sync, None)
+    }
+
+    // items
+    /// [`HostWorld::enact`] as the session's one dispatcher of interaction requests: a request
+    /// the item layer carries out (a take, a trade, a pick-up; docs/coop/SPECS.md S18) goes to
+    /// `items` when the session shares items, and is refused like any other when it does not.
+    pub fn enact_with(
+        &mut self,
+        e: &mut Engine,
+        sync: &mut HostSync,
+        mut items: Option<&mut crate::items::HostItems>,
+    ) -> Vec<(PlayerId, Msg)> {
         let mut out = Vec::new();
         for (from, txn, act) in sync.live.interact.take_queue() {
             let outcome = match act {
@@ -277,6 +290,13 @@ impl HostWorld {
                             door.0, from.0
                         ));
                         Outcome::refused(Why::Unknown)
+                    }
+                }
+                // items
+                act if items.is_some() && crate::items::HostItems::carries(&act) => {
+                    match items.as_deref_mut() {
+                        Some(i) => i.enact(e, sync, from, txn, &act),
+                        None => Outcome::refused(Why::Policy),
                     }
                 }
                 _ => {

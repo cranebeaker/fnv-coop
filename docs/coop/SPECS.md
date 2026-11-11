@@ -495,6 +495,72 @@ players agree and the hours pass in every game, ending on the host's clock; one 
 and nothing passes; a host alone rests as the game does). **Not verified here:** the real menu and
 hour step.
 
+## S18: items, loot and barter (implemented with unit tests; not run on a PC)
+
+Nothing in this section has run in the real game. Its tests use stand-ins for the game's functions
+(`coop_engine::itemkit`).
+
+- **A reference's inventory** (`coop_engine::items`). The items are the base container's objects
+  (at +0x30 of a container's base form, +0x64 of an actor's; leveled items left out) and the entries
+  of the reference's inventory changes (`004bf220`), walked as the built-in script extender walks
+  them; each count is the game's own (`InventoryChanges::GetItemCount`, `004c8f30`). A stack with a
+  health of its own (extra data 0x25) is listed with its condition as a part of the item's full
+  health. Adding is the `AddItem` command's way: a temporary container (`00481610`) with the item
+  (`004818e0`), its health set (`00482090`), given to the reference without the player's message
+  (`004821a0`), destroyed (`00481680`). Removing is the `RemoveItem` command's way: the reference's
+  virtual slot 0x17c with the ten words the command passes. Caps are the item 0xf, read with
+  `InventoryChanges::GetGoldAmount` (`004cb320`).
+- **What the player is about to move.** Co-op wraps `ContainerMenu::Create` (`0075b310`),
+  `BarterMenu::Create` (`0072d250`) and the player's pick-up (`00953ff0`) as owner `Coop` (new rows
+  of the wrap table). With item sharing off they note nothing and pass every call on. With it on
+  they note the reference whose menu opened (for a trader also its merchant container, `00421400`)
+  and what a pick-up gave the player; every call still goes on unchanged.
+- **A guest's take** (`coop_engine_session::items`). The guest's game moves the item at once. The
+  guest reads an opened holder and its own player when its change journal names them, and takes a
+  change of the holder matched by the opposite change of the player as a move. One item taken or put
+  goes to the host as coop-core's `Act::Steal` (`Loot`, `Plant`); items both ways in one step (a
+  purchase or a sale, the caps being an item) as one `Act::Barter`; a placed item picked up as
+  `Act::Pickup`.
+- **The host's game decides.** `HostWorld::enact_with` is the session's one dispatcher of
+  interaction requests: doors as before, the item layer's requests to `HostItems::enact`, anything
+  else refused. The host's game is asked when the request is carried out: the item must be in its
+  holder (the placed item still in its world) and then leaves it. A trade is carried out whole or
+  refused whole, so a sold-out stock or a trader without the caps refuses it. The first request
+  carried out wins; the host's own player always had its item first.
+- **The result.** The asker gets coop-core's verdict. Refused, its game takes the items back from
+  its player and gives back what it put or paid. The host publishes the contents of every holder a
+  guest asked about or its own player opened (`Field::Custom` tags 70 to 73: a generation, the count
+  of pieces, each player's last request handled on the holder, then item and count pairs); a guest
+  sets its own holder to them, less its own requests the contents do not show yet. A picked-up
+  item's reference is published as gone (tag 74) and leaves every world (`TESObjectREFR::Disable`).
+- **Party saves** (S15). A guest's part has a new section (3): the caps and every stack the player
+  carries (item, count, condition). The version stays 1; an older build skips the section. On
+  taking its part back the guest's player carries what it carried then: the caps set, what is too
+  much removed, what is missing added.
+- **Switch.** `NV_COOP_ITEMS=off` runs without any of this section.
+- **Limits, stated.** A container whose contents each game rolled for itself (leveled lists) differs
+  until someone opens or takes from it: a guest's first take of something the host's game does not
+  have there is refused and taken back, and from then on every game shows the host's contents. A
+  holder's condition per stack does not travel (the count per item does); the game chooses which
+  stack a removal takes. A move in the same frame as the menu's opening is not seen. Contents above
+  four pieces (about 250 kinds of item) are not published. A trader's stock in several references
+  is one trade per reference. Items equipped are not put on again after a part is taken back. The
+  character's values (SPECIAL, skills, level, experience, perks) are not in a part: the repository
+  shows an actor value's read and the set command's write by code, but not which codes they are,
+  nor a write for level, experience and perks. A conversation's reward still goes to the host's
+  character (S14).
+
+**Verified here:** 5 tests in the bridge (the listing with base items, changes and conditions; add
+and remove; caps; the wraps with sharing off and on), 2 unit tests of the encodings and 7 two- to
+four-game tests: a guest's take and put reach the host's container and every game's; two guests who
+take the same item in the same moment get it once, and so do the host and a guest (twin: with the
+layer off the item exists twice more); a placed item is picked up by one player and leaves every
+world; a purchase and a sale through the host, the second buyer and the unpaid seller refused whole;
+a party save holds what a guest carries and a load gives it back.
+**Not verified here:** every game function above in the real game; that the game's change journal
+names a holder and the player on every move of an item; what the real pick-up does to a reference
+that persists; two real games.
+
 ## S20: V.A.T.S. with several players (implemented with unit tests; not run on a PC)
 
 coop-core's model (`combat::vats`): the world's clock is shared, so with another player in the session

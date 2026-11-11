@@ -22,6 +22,8 @@
 pub mod fight;
 pub mod ladder;
 pub mod record;
+// items: loot taken once and barter through the host (docs/coop/SPECS.md S18).
+pub mod items;
 // world
 pub mod world;
 
@@ -127,6 +129,8 @@ pub fn hello(plugins: Vec<String>) -> Hello {
     );
     // world
     let rules = format!("{rules} {}", world::rules());
+    // items
+    let rules = format!("{rules} {}", items::rules());
     Hello {
         proto: proto::PROTOCOL_VERSION,
         build_hash: compat::plugin_list_hash(&[build]),
@@ -204,6 +208,9 @@ pub struct HostDriver {
     /// The rest of the world's state (records, doors, locks); `None` leaves it unshared. Set it
     /// with [`HostDriver::share_world`].
     pub world: Option<world::HostWorld>,
+    // items
+    /// Loot and barter through this host's game; `None` leaves every game its own items.
+    pub items: Option<items::HostItems>,
     // social
     /// Conversations, party saves and the rest vote.
     pub social: social::HostSocial,
@@ -252,6 +259,7 @@ impl HostDriver {
             bad_packets: 0,
             send_failures: 0,
             world: None, // world
+            items: None, // items
             // social
             social: social::HostSocial::default(),
         }
@@ -370,6 +378,10 @@ impl HostDriver {
         if let Some(w) = self.world.as_mut() {
             w.collect(e, &mut self.sync, &changes);
         }
+        // items
+        if let Some(i) = self.items.as_mut() {
+            i.collect(e, &mut self.sync, &changes);
+        }
         let quests: BTreeSet<u32> = changes
             .iter()
             .filter(|c| c.kind == addr::FORM_TYPE_QUEST && self.quests.contains(&c.form))
@@ -414,10 +426,14 @@ impl HostDriver {
             }
         }
         // world: doors and locks guests moved, before the other claims are judged.
-        if let Some(w) = self.world.as_mut() {
-            for (to, msg) in w.enact(e, &mut self.sync) {
-                send(net, to, &msg, &mut self.send_failures);
-            }
+        // items: the item layer's requests go through the same dispatcher.
+        let enacted = match (self.world.as_mut(), self.items.as_mut()) {
+            (Some(w), i) => w.enact_with(e, &mut self.sync, i),
+            (None, Some(i)) => i.enact_alone(e, &mut self.sync),
+            (None, None) => Vec::new(),
+        };
+        for (to, msg) in enacted {
+            send(net, to, &msg, &mut self.send_failures);
         }
         // social
         social::host_step(self, e, net, now_ms);
@@ -547,6 +563,9 @@ pub struct GuestDriver {
     // world
     /// The rest of the world's state (records, doors, locks); `None` leaves it unshared.
     pub world: Option<world::GuestWorld>,
+    // items
+    /// Loot and barter through the host's game; `None` leaves this game its own items.
+    pub items: Option<items::GuestItems>,
     // social
     /// Conversations, this player's part of a party save, and the rest vote.
     pub social: social::GuestSocial,
@@ -578,6 +597,7 @@ impl GuestDriver {
             bad_packets: 0,
             send_failures: 0,
             world: None, // world
+            items: None, // items
             // social
             social: social::GuestSocial::default(),
         }
@@ -635,6 +655,10 @@ impl GuestDriver {
         if let Some(w) = self.world.as_mut() {
             w.apply(e, &self.sync.store);
         }
+        // items
+        if let Some(i) = self.items.as_mut() {
+            i.apply(e, &self.sync.store, self.sync.player);
+        }
         self.keep_clock(e, now_ms);
         self.steps += 1;
         if self.steps % self.heal_every.max(1) == 0 {
@@ -650,6 +674,12 @@ impl GuestDriver {
     /// story (a death applied from the host is in the replica by then, so it is not sent back).
     fn claim_deaths(&mut self, e: &mut Engine, net: &mut dyn Transport) {
         let changes = coop_engine::drain(e);
+        // items: this player's takes and trades, before the world layer empties the verdicts.
+        if let Some(i) = self.items.as_mut() {
+            for msg in i.observe(e, &mut self.sync, &changes) {
+                send(net, PlayerId::HOST, &msg, &mut self.send_failures);
+            }
+        }
         // world: this game's own doors and locks, told to the host.
         if let Some(w) = self.world.as_mut() {
             for msg in w.observe(e, &mut self.sync, &changes) {

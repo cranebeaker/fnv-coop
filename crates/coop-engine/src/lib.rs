@@ -53,6 +53,10 @@ pub mod talk;
 // S20, S21).
 pub mod harm;
 pub mod vats;
+// items: a reference's inventory, loot and barter (docs/coop/SPECS.md S18).
+#[cfg(any(test, feature = "testkit"))]
+pub mod itemkit;
+pub mod items;
 
 use std::sync::atomic::Ordering;
 
@@ -89,6 +93,8 @@ pub fn install(e: &mut Engine) {
     // vats: the menu-mode, time multiplier and value-change wraps.
     vats::install(e);
     harm::install(e);
+    // items
+    items::install(e);
 }
 
 // The unit tests' own program: no other crate's functions are linked in.

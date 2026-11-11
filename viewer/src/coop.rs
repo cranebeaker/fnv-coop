@@ -284,6 +284,25 @@ impl Coop {
         }
     }
 
+    // items
+    /// Whether loot and barter go through the host's game (docs/coop/SPECS.md S18): on unless
+    /// `NV_COOP_ITEMS` is `off` or `0`.
+    fn items_on() -> bool {
+        !matches!(
+            std::env::var("NV_COOP_ITEMS").unwrap_or_default().trim(),
+            "off" | "0"
+        )
+    }
+
+    // items
+    fn items_line() -> &'static str {
+        if Self::items_on() {
+            "co-op items: loot, pick-ups and barter through the host's game"
+        } else {
+            "co-op items: off (NV_COOP_ITEMS=off)"
+        }
+    }
+
     // world
     /// What `NV_COOP_WORLD` asks to share of the world beyond the story (everything unless it
     /// says `doors` or `off`).
@@ -359,6 +378,11 @@ impl Coop {
                 if let Some(w) = share.host() {
                     host.share_world(w);
                 }
+                // items
+                lines.push(Self::items_line().into());
+                if Self::items_on() {
+                    host.items = Some(session::items::HostItems::new());
+                }
                 // fights
                 let (fight, line) = Self::fight(false, host.ladder.is_some());
                 host.fight = fight;
@@ -419,6 +443,11 @@ impl Coop {
                             let share = Self::world_share();
                             lines.push(share.line().into());
                             g.world = share.guest();
+                            // items
+                            lines.push(Self::items_line().into());
+                            if Self::items_on() {
+                                g.items = Some(session::items::GuestItems::new());
+                            }
                             // fights
                             let (fight, line) = Self::fight(true, g.ladder.is_some());
                             g.fight = fight;
@@ -485,6 +514,10 @@ impl Coop {
                 for note in h.world.iter_mut().flat_map(|w| w.notes.drain(..)) {
                     lines.push(format!("co-op host world: {note}"));
                 }
+                // items
+                for note in h.items.iter_mut().flat_map(|i| i.notes.drain(..)) {
+                    lines.push(format!("co-op host items: {note}"));
+                }
                 // social
                 for note in (h.social.party.notes.drain(..)).chain(h.social.enactor.notes.drain(..))
                 {
@@ -500,6 +533,10 @@ impl Coop {
                 for note in g.world.iter_mut().flat_map(|w| w.notes.drain(..)) {
                     lines.push(format!("co-op guest world: {note}"));
                 }
+                // items
+                for note in g.items.iter_mut().flat_map(|i| i.notes.drain(..)) {
+                    lines.push(format!("co-op guest items: {note}"));
+                }
                 // social
                 for note in g.social.party.notes.drain(..) {
                     lines.push(format!("co-op guest: {note}"));
@@ -513,6 +550,12 @@ impl Coop {
             for at in coop_engine::social::missing(e) {
                 lines.push(format!(
                     "co-op: no function at {at:08x} to take part in; that part of conversations or rests is off"
+                ));
+            }
+            // items
+            for at in coop_engine::items::missing(e) {
+                lines.push(format!(
+                    "co-op: no function at {at:08x} to take part in; that part of loot or barter is off"
                 ));
             }
         }

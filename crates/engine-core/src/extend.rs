@@ -170,6 +170,19 @@ pub const WRAPS: &[Entry] = &[
         owners: COOP,
         step: "C-7",
     },
+    // items: co-op's loot and barter (docs/coop/SPECS.md S18). BarterMenu::Create (vendor,
+    // discount) and ContainerMenu::Create (reference, mode): which reference's items the player
+    // is about to move.
+    Entry {
+        addr: 0x0072_d250,
+        owners: COOP,
+        step: "C-7",
+    },
+    Entry {
+        addr: 0x0075_b310,
+        owners: COOP,
+        step: "C-7",
+    },
     Entry {
         addr: 0x0076_1a20,
         owners: COOP,
@@ -210,6 +223,13 @@ pub const WRAPS: &[Entry] = &[
         addr: 0x0089_d900,
         owners: COOP,
         step: "C-3",
+    },
+    // items: the player's pick-up of a placed item (player, reference, count, a byte): a guest's
+    // take of a world item is put to the host (docs/coop/SPECS.md S18).
+    Entry {
+        addr: 0x0095_3ff0,
+        owners: COOP,
+        step: "C-7",
     },
     // vats: BSTimer::SetGlobalTimeMultiplier (timer, multiplier, immediate). In a co-op session
     // with another player V.A.T.S. does not slow the game (docs/coop/SPECS.md S20).
