@@ -51,7 +51,7 @@ use coop_engine::addr::PLAYER_ALL_CONTROLS;
 use coop_engine::fight::{self, Role, Snap};
 use coop_engine::{actors, gate, harm, live};
 
-use crate::vats;
+use crate::{far, smooth, vats};
 use engine_core::Engine;
 
 /// How much of the fights a run shares (`NV_COOP_FIGHT`).
@@ -175,6 +175,11 @@ pub struct Fight {
     /// Losses of health outside `Actor::HitMe` sent on: a guest's to the host, the host's to
     /// the guest whose avatar lost it.
     pub harms_sent: u32,
+    /// The actors the host's game does not run (docs/coop/SPECS.md S21).
+    pub far: far::Far,
+    /// Guest: held actors move between two states instead of jumping.
+    pub smooth_on: bool,
+    smooth: smooth::Smooth,
 }
 
 fn print_now(line: &str) {
@@ -237,6 +242,9 @@ impl Fight {
             vats: vats::Share::new(vats::Mode::Live),
             harm_ms: None,
             harms_sent: 0,
+            far: far::Far::default(),
+            smooth_on: true,
+            smooth: smooth::Smooth::default(),
         }
     }
 
@@ -295,7 +303,7 @@ impl Fight {
 
     /// An actor of the host's game as the state the ledger carries. A target that is a player
     /// (the host's own, or a guest's avatar) is named by the player.
-    fn state_of(s: &Snap, avatars: &[(PlayerId, u32)]) -> ActorState {
+    pub(crate) fn state_of(s: &Snap, avatars: &[(PlayerId, u32)]) -> ActorState {
         let target = if s.target == actors::PLAYER_REF_ID {
             PLAYER_TARGET_BASE
         } else if let Some((p, _)) = avatars
@@ -482,6 +490,10 @@ impl Fight {
     ) {
         let avatar_of = |p: PlayerId| avatars.iter().find(|(q, _)| *q == p).map_or(0, |a| a.1);
         for at in std::mem::take(&mut sync.live.combat.attributions) {
+            // vats: an actor a guest's game runs takes its damage there (far.rs).
+            if !self.tracked.contains_key(&at.actor.0) {
+                continue;
+            }
             let by = avatar_of(at.by);
             if at.amount > 0 && fight::hurt_actor(e, at.actor.0, f32::from(at.amount), by).is_some()
             {
@@ -651,7 +663,11 @@ impl Fight {
                 let Some(s) = a.state else {
                     continue;
                 };
-                if a.owner != Some(PlayerId::HOST) || s.cell.0 != me.cell || !actors::shareable(id)
+                // vats: held is every actor another machine runs, the host's or a guest's.
+                if a.owner.is_none()
+                    || a.owner == Some(sync.player)
+                    || s.cell.0 != me.cell
+                    || !actors::shareable(id)
                 {
                     continue;
                 }
@@ -663,13 +679,13 @@ impl Fight {
                     }
                     continue;
                 }
-                if let Some(h) = fight::hold(
-                    e,
-                    id,
-                    s.pos.map(dequant_pos),
-                    dequant_heading(s.heading),
-                    f32::from(s.health),
-                ) {
+                // vats: between two states the actor is moved in steps (smooth.rs).
+                let (pos, heading) = if self.smooth_on {
+                    self.smooth.place(id, &s, now_ms)
+                } else {
+                    (s.pos.map(dequant_pos), dequant_heading(s.heading))
+                };
+                if let Some(h) = fight::hold(e, id, pos, heading, f32::from(s.health)) {
                     self.moves += 1;
                     self.woke += u64::from(h.woke && self.held.contains(&id));
                     holding.insert(id);
@@ -684,6 +700,9 @@ impl Fight {
             fight::set_held(e, holding.iter().copied());
             self.held = holding;
         }
+        // vats: the actors this game runs and the host's does not (far.rs).
+        self.smooth.keep(|id| self.held.contains(&id));
+        out.extend(self.far.guest_step(e, sync, avatars, now_ms));
         if self.cap >= Cap::Damage {
             self.guest_damage(e, sync, avatars, now_ms, &mut out);
         }
@@ -695,6 +714,23 @@ impl Fight {
         }
         self.stamp(e, &mut sync.live.local);
         out
+    }
+
+    // vats
+    /// The host's look at a guest's message before coop-core's sync takes it: the actors a
+    /// guest's game runs and the host's does not (far.rs). Returns the sends.
+    pub fn host_pre(
+        &mut self,
+        sync: &mut HostSync,
+        from: PlayerId,
+        msg: &Msg,
+    ) -> Vec<(PlayerId, Msg)> {
+        if self.guest {
+            return Vec::new();
+        }
+        let tracked = &self.tracked;
+        self.far
+            .host_pre(sync, &|id| tracked.contains_key(&id), from, msg)
     }
 
     /// The host's own player: what the other players' hits and the reviver decided for it.
@@ -929,6 +965,18 @@ impl Fight {
 
     /// One status phrase for the log.
     pub fn status(&self) -> String {
+        // vats
+        format!(
+            "{}; {}; V.A.T.S. {:?}, entered {}; losses outside hits sent {}",
+            self.fights_status(),
+            self.far.status(self.guest),
+            self.vats.mode(),
+            self.vats.entered,
+            self.harms_sent
+        )
+    }
+
+    fn fights_status(&self) -> String {
         if self.guest {
             format!(
                 "fights: holding {} actors, moves {}, AI woke {}, released {}, deaths {}, hits sent {}, hurts taken {}, down {} up {}",

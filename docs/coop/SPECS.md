@@ -371,19 +371,13 @@ it needs the live ladder. With it off, or with co-op off, every game runs its ow
   only where the address is registered, and passes every call on unless a session set its role.
 - No new wire message: coop-core's `Msg::Actor`, `Msg::Combat` and `Msg::Rules` carry everything.
 
-**Limits, stated.** Only placed actors (ids below `ff000000`) among the up to 50 the host's game runs near
-its player; an actor made while playing, or one near a guest who is elsewhere, runs in each game by itself.
-A held actor slides without animation and is not interpolated between states. A hit's kind and limb are not
-read (a direct hit, no limb), so limbs are not crippled through this path. Damage that does not go through
-`Actor::HitMe` (explosions, falls, effects) stays local to the game it happens in. Friendly fire is off
-(coop-core's default). A revive needs no key: standing next to the downed player starts it. A respawn does
-not move the player. Only the controls byte is written for a downed player, not the rest of what
-`DisablePlayerControls` does.
-
-**Not done.** V.A.T.S. for two players (the host's own V.A.T.S. still stops or slows its game, and so the
-actors everyone sees): the time multiplier's setter (`00aa4db0`) and the V.A.T.S. mode (`011f2250` +8) are
-in the translation, but what stops the game while a target is picked was not traced in this work, so
-nothing was wired rather than half of it.
+**Limits, stated.** Only placed actors (ids below `ff000000`); an actor made while playing runs in each
+game by itself. A hit's kind and limb are not read (a direct hit, no limb), so limbs are not crippled
+through this path. Friendly fire is off (coop-core's default). A revive needs no key: standing next to the
+downed player starts it. A respawn does not move the player. Only the controls byte is written for a downed
+player, not the rest of what `DisablePlayerControls` does. A held actor slides without the game's walk or
+run animation. V.A.T.S. for several players, damage outside `Actor::HitMe`, the actors the host's game does
+not run and the steps between two states of a held actor are S20 and S21.
 
 **Verified here:** 7 unit tests in `coop-engine` (`fight.rs`) and 17 two-game tests
 (`coop-engine-session/tests/fights.rs`); in each the story channel's echo, desyncs, refusals and guest script
@@ -501,6 +495,109 @@ players agree and the hours pass in every game, ending on the host's clock; one 
 and nothing passes; a host alone rests as the game does). **Not verified here:** the real menu and
 hour step.
 
+## S20: V.A.T.S. with several players (implemented with unit tests; not run on a PC)
+
+coop-core's model (`combat::vats`): the world's clock is shared, so with another player in the session
+`vats_scales` gives the world speed 1.0 whatever V.A.T.S. wants. Alone, V.A.T.S. is the game's own.
+
+- **What stops the game while a target is picked** is menu mode. The V.A.T.S. menu is a menu like any
+  other (class `0x420`, `vatsmenu.rs`); the idle update (`main.rs`, `fn_0086e650`) keeps the answer of
+  `Interface::IsInMenuMode` (`00702360`) in the byte at `011dea2b`, and while it is set the process lists,
+  the scene and the calendar do not move. Co-op wraps `IsInMenuMode` (`coop_engine::vats`): with a shared
+  world, while the V.A.T.S. mode (`011f2250` +8) is neither 0 nor 4 (playback) and the V.A.T.S. menu is the
+  top menu (`Interface::IsTopMenuID`, `00702450`), the answer is "no menu". Any other menu, and a menu
+  opened over the V.A.T.S. menu, stops the game as before.
+- **What slows the game while the shots play** is `BSTimer::SetGlobalTimeMultiplier` (`00aa4db0`), which
+  `vats.rs` calls with less than 1. Co-op wraps it: with a shared world a multiplier below the world's
+  speed that is asked for while the V.A.T.S. mode is not 0 goes to the game as the world's speed.
+- **On every machine.** The host's game runs the actors everyone sees, and a guest's game runs the ones
+  the host's does not (S21), so neither may stand still. `coop_engine_session::vats::Share` gives the
+  game the world's speed when the first other player is there and takes it back when the last one left
+  or the session ends. `NV_COOP_VATS=slow` shares the speed only (the menu still stops the game), `off`
+  nothing.
+- **The queued shots** are played by the game as attacks. Each lands through `Actor::HitMe`, so a guest's
+  shot at a held actor goes to the host's ledger as any hit does (S13), and the host's own go to its game.
+- **No advantage.** The player who picks targets is hit in real time (the host's actors go on, and their
+  damage reaches the player at once), and the playback gets no slow motion.
+- **Presentation.** Each machine tells the others when its player enters and leaves V.A.T.S.
+  (coop-core's `CombatMsg::VatsMark`; the host's `VatsHost::active`, a guest's `vats_active`). Nothing
+  is drawn from it yet.
+- `engine-core`'s wrap table gets two Coop rows: `00702360` and `00aa4db0` (`C-7`).
+
+**Limits, stated.** The translated game has one clock, so the acting player gets no slow presentation of
+their own: in a session V.A.T.S. plays at full speed. coop-core's host-side resolution of a queue
+(`VatsQueue`, the host's own roll and action point check) is not used: the shooter's game rolls and pays,
+and the host's ledger judges each hit. A shot the game gives to another actor than the player (the
+Mysterious Stranger) on a guest is not sent. `IsInMenuMode` has many callers; what else in the game changes
+when it answers "no menu" under the V.A.T.S. menu (the player's own step runs instead of the menu's) is
+only known from a PC run. What `Actor::HitMe` does for a player who is in V.A.T.S. was not traced.
+
+**Verified here:** 3 tests in the bridge (`vats.rs`: alone, the menu, the multiplier) and 5 two-game tests
+(`tests/vats.rs`: alone; the host's V.A.T.S. with a guest; a guest's V.A.T.S. and its shot through the
+host; twins with V.A.T.S. not shared and with the speed only; the session's end). **Not verified here:**
+every game function above in the real game.
+
+## S21: the rest of shared fights (implemented with unit tests; not run on a PC)
+
+### Damage that does not pass `Actor::HitMe` (`coop_engine::harm`)
+
+- An explosion damages an actor through `Actor::HitMe` (`explosion.rs`), so S13 already has it.
+- A fall (`actor_p4.rs`, `actor_move`), a trap (`actor_p2.rs`, `actor_do_trap`), drowning and dangerous
+  water (`actor_p2.rs`) call the damage applier (virtual `0x338`) straight; an effect
+  (`valuemodifiereffect.rs`) calls the value change (virtual `0x3ac`) straight. All of them, and the
+  applier itself (`fn_0089d6f0`), lower health through the function behind slot `0x3ac`, `00881130`.
+- Co-op wraps `00881130` (wrap row `C-8`). For the health value and a negative amount it asks the
+  question the hit wrap asks (`fight::verdict`, one function for both): a guest's game applies no loss
+  to an actor another machine runs; a loss on a player's avatar belongs to that player's game; what held
+  actors and avatars do to a guest's player comes from the host. Kept losses the session is to hear of
+  (a guest's player's on a held actor or an avatar; anything on an avatar in the host's game) are added
+  up per victim and source and taken every 100 ms as whole points, then go the way a kept hit goes
+  (`ActorMsg::Hit`, `PlayerHit`, the host's vitals). What co-op itself writes passes the wrap.
+- **Limits, stated.** What made the loss is not read; it is carried as coop-core's damage over time, which
+  is neither scaled for the party nor tied to a limb. A held actor does not fall on a guest at all (its AI
+  is off); its fall happens in its owner's game. Gains of health are not routed. Other values than health
+  (limbs, fatigue) are each game's own. If the player's class has its own function in slot `0x3ac` that
+  does not end in `00881130`, the player's losses do not pass the wrap: the repository shows none.
+
+### Actors the host's game does not run (`coop_engine_session::far`)
+
+- The host's game is the authority for every actor it runs (S13). An actor it does not run belongs to the
+  guest whose game runs it in that guest's own space and reported it first (`ActorMsg::Track`, once a
+  second, only actors nobody owns). The host enters it in coop-core's ledger pinned to the reporter
+  (`Ownership::set_follower`), and the ledger's own rules announce the owner. A report is the fights' to
+  judge: it is not passed on to coop-core's own handling, and one for another space than the reporter's,
+  for an actor the host runs, a dead one or an owned one is dropped.
+- The owner's game goes on running the actor and sends its state when it changed (about 20 times a
+  second). The ledger takes the owner's health and death from the state. Every other guest in that space
+  holds the actor as it holds the host's.
+- Another player's hit is judged by the ledger; its verdict (`Damaged`, `Died`) reaches the owner, whose
+  game applies it. The host's game applies damage only to actors it runs. A death in the owner's game also
+  reaches the story as any guest's death does (D4).
+- When the host's game comes to run the actor, the host is pinned as its owner and the ledger hands it
+  over; when it stops, nobody owns it and the guests report it again.
+- **Limits, stated.** An owner who walks away keeps the ledger's entry until the ledger gives the actor
+  to another player in that space or to nobody. Two guests in one space who both run an actor: the first
+  report wins. The host's own copy of a guest's actor is not moved. Threat is not directed for these
+  actors.
+
+### Steps between two states (`coop_engine_session::smooth`)
+
+- A held actor gets coop-core's `avatar::InterpBuffer`: the newest state is fed at the avatars' rate and
+  the actor is put where the buffer says, 100 ms behind and blended between two states. Another space or
+  a long jump is taken at once. `Fight::smooth_on` switches it off.
+- **Not done:** the game's own walk or run animation on a held actor. The avatar code's approach
+  (restrained, moved by the game's own mover) was not examined for held actors.
+
+**Verified here (S21):** 4 tests in the bridge (`harm.rs`), 2 unit tests (`smooth.rs`), 3 two-game tests
+(`tests/vats.rs`: a held actor's loss, an effect on an avatar, the twin with state only) and 7 three-game
+tests (`tests/far.rs`: a guest's actor held by another guest; one owner for two; another player's hit and
+kill through the owner; a death in the owner's game; the host taking over and giving back; a report for
+another space; the steps and their twin). **Not verified here:** every game function above in the real
+game.
+
 ## Not done: followers
 
-A companion that follows the player who hired it, as the host's actor, was not started.
+A companion that follows the player who hired it, as the host's actor, was not started. The translation
+shows the teammate byte (`Actor::bPlayerTeammate`, +0x18d) and `Actor::SetPlayerTeammate` (`actor_p6.rs`),
+but following is a package whose target is the player, and nothing read here shows how a package is made
+to follow another reference (a guest's avatar) without changing the package for every actor that uses it.

@@ -101,13 +101,4 @@ impl Share {
         self.world = 0.0;
         self.told = false;
     }
-
-    /// One status phrase for the log.
-    pub fn status(&self, e: &mut Engine) -> String {
-        let (unpaused, unslowed) = vats::counts(e);
-        format!(
-            "V.A.T.S. {:?}: entered {}, menu kept from stopping the game {} times, slow motion lifted {}",
-            self.mode, self.entered, unpaused, unslowed
-        )
-    }
 }
