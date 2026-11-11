@@ -49,6 +49,11 @@ pub mod social;
 pub mod social_kit;
 pub mod talk;
 
+// items: a reference's inventory, loot and barter (docs/coop/SPECS.md S18).
+#[cfg(any(test, feature = "testkit"))]
+pub mod itemkit;
+pub mod items;
+
 use std::sync::atomic::Ordering;
 
 use engine_core::prelude::*;
@@ -81,6 +86,8 @@ pub fn install(e: &mut Engine) {
     fight::install(e);
     // social
     social::install(e);
+    // items
+    items::install(e);
 }
 
 // The unit tests' own program: no other crate's functions are linked in.

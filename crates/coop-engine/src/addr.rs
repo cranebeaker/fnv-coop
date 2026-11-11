@@ -567,3 +567,108 @@ pub const PLAYER_WAIT_HOUR: u32 = 0x0094_df80;
 pub const TES_SINGLETON: u32 = 0x011d_ea10;
 /// See [`TES_SINGLETON`].
 pub const TES_RUN_SCRIPTS: u32 = 0x0045_5490;
+
+// items: a reference's inventory, item by item (docs/coop/SPECS.md S18).
+
+/// `InventoryChanges::GetInventoryChanges(reference)` (`004bf220`, cdecl, `inventorychanges.rs`):
+/// the `InventoryChanges` kept in the reference's extra data, made and stored when there is
+/// none. `Actor::GetItemCountinContainer` (`actor.rs`) and the barter menu (`bartermenu.rs`) reach
+/// a reference's items through it. Its first word is the list of entries (`invref.rs` of `nvse`,
+/// `entry_list`: `xChanges->data->objList`).
+pub const REF_INVENTORY_CHANGES: u32 = 0x004b_f220;
+/// `InventoryChanges::GetItemCount(this, form)` (`004c8f30`, thiscall; `refs.rs` of
+/// `engine-typed`, `item_count`; `bartermenu.rs`, `GET_OBJECT_COUNT`): the base container's count
+/// of the form plus the changes' entry's.
+pub const CHANGES_ITEM_COUNT: u32 = 0x004c_8f30;
+/// `InventoryChanges::GetGoldAmount(this)` (`004cb320`, `inventorychanges.rs`): the caps the owner
+/// has; the barter menu reads the vendor's caps with it (`bartermenu.rs`).
+pub const CHANGES_GOLD_AMOUNT: u32 = 0x004c_b320;
+/// The form id of the caps item: the barter menu makes its caps entry of `004839c0(0xf)`
+/// (`bartermenu.rs`, `complete_transaction_body`).
+pub const CAPS_FORM_ID: u32 = 0xf;
+/// The temporary `TESContainer` the `AddItem` command fills and hands to a reference
+/// (`tesscriptfunctions.rs`, `fn_005b4be0`; `tescontainer.rs`): 0x10 bytes, its constructor
+/// (`00481610`), an entry added `(container, item, count, 0)` (`004818e0`), every entry's health
+/// set as a part of the item's full health `(container, f32 from 0 to 1)` (`00482090`), the
+/// entries given to a reference `(container, reference, quiet)` (`004821a0`: an actor through its
+/// slot 0x190, another reference through `00574fa0`; no message for the player when quiet), and
+/// its destructor (`00481680`).
+pub const TEMP_CONTAINER_SIZE: u32 = 0x10;
+/// See [`TEMP_CONTAINER_SIZE`].
+pub const TEMP_CONTAINER_CONSTRUCT: u32 = 0x0048_1610;
+/// See [`TEMP_CONTAINER_SIZE`].
+pub const TEMP_CONTAINER_ADD: u32 = 0x0048_18e0;
+/// See [`TEMP_CONTAINER_SIZE`].
+pub const TEMP_CONTAINER_SET_HEALTH: u32 = 0x0048_2090;
+/// See [`TEMP_CONTAINER_SIZE`].
+pub const TEMP_CONTAINER_GIVE: u32 = 0x0048_21a0;
+/// See [`TEMP_CONTAINER_SIZE`].
+pub const TEMP_CONTAINER_DESTRUCT: u32 = 0x0048_1680;
+/// `TESObjectREFR` virtual slot `0x17c`, the removal of an item: `(item, extra data or 0, count,
+/// 0, 0, the reference that gets it or 0, 0, 0, 1, 0)`, as the `RemoveItem` command calls it
+/// (`tesscriptfunctions.rs`, `fn_005b4e90`), the barter menu for a sale (`bartermenu.rs`) and
+/// `nvse` (`invref.rs`, `REFR_REMOVE_ITEM`).
+pub const REF_REMOVE_ITEM_SLOT: u32 = 0x17c;
+/// `TESForm::IsActor`, virtual slot `0x100` (`invref.rs` of `nvse`, `IS_ACTOR`).
+pub const FORM_IS_ACTOR_SLOT: u32 = 0x100;
+/// A form's virtual slot `0xe4`: whether it is something an inventory holds. The `AddItem` and
+/// `RemoveItem` commands add and remove only a form that passes it (`tesscriptfunctions.rs`).
+pub const FORM_IS_ITEM_SLOT: u32 = 0xe4;
+/// `TESObjectREFR::baseForm` (+0x20) and its extra data list (+0x44) (`invref.rs` of `nvse`,
+/// `REFR_BASE_FORM`, `REFR_EXTRA`).
+pub const REF_BASE_FORM_OFFSET: u32 = 0x20;
+/// See [`REF_BASE_FORM_OFFSET`].
+pub const REF_EXTRA_LIST_OFFSET: u32 = 0x44;
+/// A reference's base container (`inventory_ref.rs` of `nvse`, `container_of`): at +0x64 of an
+/// actor's base form, at +0x30 of a container's (form type 0x1b); its list of objects at +4, each
+/// a count (+0) and a form (+4). A leveled item (form type 0x34) in it is not an item held
+/// (`invref.rs`, `inventory_items`).
+pub const ACTOR_BASE_CONTAINER_OFFSET: u32 = 0x64;
+/// See [`ACTOR_BASE_CONTAINER_OFFSET`].
+pub const CONT_CONTAINER_OFFSET: u32 = 0x30;
+/// See [`ACTOR_BASE_CONTAINER_OFFSET`].
+pub const FORM_TYPE_CONTAINER: u8 = 0x1b;
+/// See [`ACTOR_BASE_CONTAINER_OFFSET`].
+pub const FORM_TYPE_LEVELED_ITEM: u8 = 0x34;
+/// See [`ACTOR_BASE_CONTAINER_OFFSET`].
+pub const CONTAINER_LIST_OFFSET: u32 = 4;
+/// See [`ACTOR_BASE_CONTAINER_OFFSET`].
+pub const CONTAINER_OBJECT_COUNT_OFFSET: u32 = 0;
+/// See [`ACTOR_BASE_CONTAINER_OFFSET`].
+pub const CONTAINER_OBJECT_FORM_OFFSET: u32 = 4;
+/// An entry of a reference's inventory changes (`invref.rs` of `nvse`, `EntryData`): its list of
+/// extra data lists, one per stack with data of its own (+0), its count beside the base
+/// container's (+4) and the item (+8).
+pub const ENTRY_EXTEND_OFFSET: u32 = 0;
+/// See [`ENTRY_EXTEND_OFFSET`].
+pub const ENTRY_COUNT_OFFSET: u32 = 4;
+/// See [`ENTRY_EXTEND_OFFSET`].
+pub const ENTRY_FORM_OFFSET: u32 = 8;
+/// `BaseExtraList::GetByType(list, type)` (`00410220`, `invref.rs` of `nvse`) and the types read
+/// here: a stack's count (0x24, a 16-bit count at +0xc; a stack without one counts 1,
+/// `invref.rs`) and its health (0x25, a float at +0xc, `inventory_forms.rs` of `nvse`).
+pub const EXTRA_GET_BY_TYPE: u32 = 0x0041_0220;
+/// See [`EXTRA_GET_BY_TYPE`].
+pub const EXTRA_TYPE_COUNT: u32 = 0x24;
+/// See [`EXTRA_GET_BY_TYPE`].
+pub const EXTRA_TYPE_HEALTH: u32 = 0x25;
+/// See [`EXTRA_GET_BY_TYPE`].
+pub const EXTRA_VALUE_OFFSET: u32 = 0xc;
+/// `TESHealthForm::GetFormAsHealthForm(form)` (`004872e0`, cdecl, `tescontainer.rs`): the form's
+/// health part or 0; the full health is its word at +4 (`inventory.rs` of `nvse`, `HEALTH`).
+pub const FORM_AS_HEALTH_FORM: u32 = 0x0048_72e0;
+/// See [`FORM_AS_HEALTH_FORM`].
+pub const HEALTH_FORM_HEALTH_OFFSET: u32 = 4;
+/// `ContainerMenu::Create(reference, mode)` (`0075b310`, cdecl, `containermenu.rs`): the menu of
+/// a container, a body, a companion's pack or a pocket picked opens on the reference.
+pub const CONTAINER_MENU_CREATE: u32 = 0x0075_b310;
+/// `BarterMenu::Create(vendor, discount)` (`0072d250`, cdecl, `bartermenu.rs`).
+pub const BARTER_MENU_CREATE: u32 = 0x0072_d250;
+/// `ExtraDataList::GetMerchantContainer(list)` (`00421400`, `bartermenu.rs`): the reference that
+/// holds a vendor's stock and takes what the player sells, or 0 (then the vendor does).
+pub const GET_MERCHANT_CONTAINER: u32 = 0x0042_1400;
+/// The player's pick-up of a placed item `(player, reference, count, a byte)` (`00953ff0`,
+/// `playercharacter_p2.rs`): the item goes to the player and a reference taken whole is
+/// destroyed.
+pub const PLAYER_PICK_UP: u32 = 0x0095_3ff0;
+// items: end
