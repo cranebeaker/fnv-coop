@@ -31,6 +31,9 @@ pub mod rest;
 pub mod social;
 pub mod talk;
 
+// vats: V.A.T.S. with several players (docs/coop/SPECS.md S20).
+pub mod vats;
+
 use std::collections::BTreeSet;
 
 use coop_core::avatar::{AvatarMsg, AvatarSender, Sample};

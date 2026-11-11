@@ -40,16 +40,18 @@ use coop_core::avatar::{
     dequant_heading, dequant_pos, quant_heading, quant_pos, AvatarState, FLAG_DEAD as AVATAR_DEAD,
     FLAG_DOWNED as AVATAR_DOWNED,
 };
-use coop_core::combat::{DamageKind, ThreatInput, LIMB_COUNT};
+use coop_core::combat::{CombatMsg, DamageKind, ThreatInput, LIMB_COUNT};
 use coop_core::ids::{CellId, FormId, PlayerId, Seq};
 use coop_core::interest::Audience;
 use coop_core::proto::Msg;
 use coop_core::rules::revive::CLIENT_RANGE;
 use coop_core::rules::{Notice, RulesMsg};
-use coop_core::sync::{GuestLive, GuestSync, HostSync};
+use coop_core::sync::{GuestLive, GuestPhase, GuestSync, HostSync};
 use coop_engine::addr::PLAYER_ALL_CONTROLS;
 use coop_engine::fight::{self, Role, Snap};
-use coop_engine::{actors, gate, live};
+use coop_engine::{actors, gate, harm, live};
+
+use crate::vats;
 use engine_core::Engine;
 
 /// How much of the fights a run shares (`NV_COOP_FIGHT`).
@@ -94,6 +96,10 @@ pub const THREAT_EVERY_MS: u64 = 500;
 pub const REVIVE_ASK_EVERY_MS: u64 = 4000;
 /// After a wipe the player's death is held again this much later (the game was loaded again).
 pub const SPARE_AGAIN_MS: u64 = 10_000;
+// vats
+/// Health lost outside `Actor::HitMe` (a fall, a trap, an effect) is taken from the game and
+/// sent on this often, as whole points (docs/coop/SPECS.md S21).
+pub const HARM_EVERY_MS: u64 = 100;
 
 /// The player `ActorState::target` names, if it names one.
 pub fn target_player(target: u32) -> Option<PlayerId> {
@@ -162,6 +168,13 @@ pub struct Fight {
     pub ups: u32,
     /// Times everyone was down and this game's player died as the game does.
     pub wipes: u32,
+    // vats
+    /// V.A.T.S. with several players (docs/coop/SPECS.md S20).
+    pub vats: vats::Share,
+    harm_ms: Option<u64>,
+    /// Losses of health outside `Actor::HitMe` sent on: a guest's to the host, the host's to
+    /// the guest whose avatar lost it.
+    pub harms_sent: u32,
 }
 
 fn print_now(line: &str) {
@@ -220,6 +233,10 @@ impl Fight {
             downs: 0,
             ups: 0,
             wipes: 0,
+            // vats
+            vats: vats::Share::new(vats::Mode::Live),
+            harm_ms: None,
+            harms_sent: 0,
         }
     }
 
@@ -300,6 +317,38 @@ impl Fight {
         }
     }
 
+    // vats
+    /// What the wraps kept from the game for the session: the weapon hits, and every
+    /// [`HARM_EVERY_MS`] the health lost outside `Actor::HitMe`. The second kind is carried as
+    /// damage over time: what made it is not read from the game, and coop-core neither scales
+    /// that kind for the party nor ties it to a limb.
+    fn blows(&mut self, e: &mut Engine, now_ms: u64) -> Vec<(fight::Hit, DamageKind)> {
+        let mut out: Vec<(fight::Hit, DamageKind)> = fight::take_hits(e)
+            .into_iter()
+            .map(|h| (h, DamageKind::Bullet))
+            .collect();
+        if self
+            .harm_ms
+            .is_some_and(|t| now_ms.saturating_sub(t) < HARM_EVERY_MS)
+        {
+            return out;
+        }
+        self.harm_ms = Some(now_ms);
+        for h in harm::take(e) {
+            self.harms_sent += 1;
+            out.push((
+                fight::Hit {
+                    target: h.target,
+                    aggressor: h.source,
+                    amount: h.amount,
+                    limb: -1,
+                },
+                DamageKind::Poison,
+            ));
+        }
+        out
+    }
+
     /// The host's frame, between two of the game's frames and before coop-core's tick: guests'
     /// hits the ledger accepted are applied, hits on avatars become the guests' damage, the
     /// actors around the host's player go into the ledger and their states out, and the threat
@@ -318,6 +367,13 @@ impl Fight {
         }
         self.start(e);
         self.know_avatars(e, avatars);
+        // vats: this game's V.A.T.S. does not stop or slow a world other players are in.
+        if let Some(active) = self.vats.step(e, !sync.players().is_empty()) {
+            out.extend(sync.on_local(Msg::Combat(CombatMsg::VatsMark {
+                player: PlayerId::HOST,
+                active,
+            })));
+        }
         if self.cap >= Cap::Damage {
             self.host_damage(e, sync, avatars, now_ms, &mut out);
         }
@@ -453,7 +509,8 @@ impl Fight {
                 );
             }
         }
-        for h in fight::take_hits(e) {
+        // vats: also the health an avatar lost outside `Actor::HitMe`.
+        for (h, kind) in self.blows(e, now_ms) {
             let Some((victim, _)) = avatars.iter().find(|(_, a)| *a == h.target) else {
                 continue;
             };
@@ -468,7 +525,7 @@ impl Fight {
                     PlayerId::HOST,
                     *victim,
                     amount,
-                    DamageKind::Bullet,
+                    kind,
                     LIMB_COUNT,
                 )
             } else {
@@ -478,7 +535,7 @@ impl Fight {
                     *victim,
                     FormId(h.aggressor),
                     amount,
-                    DamageKind::Bullet,
+                    kind,
                     LIMB_COUNT,
                     &scaling,
                 )
@@ -581,6 +638,10 @@ impl Fight {
         }
         self.start(e);
         self.know_avatars(e, avatars);
+        // vats: this game's V.A.T.S. does not stop or slow a world other players are in.
+        if let Some(active) = self.vats.step(e, sync.phase() == GuestPhase::Active) {
+            out.push(Msg::Combat(sync.live.combat.vats_mark(active)));
+        }
         let me = live::local(e).filter(|l| l.loaded);
         let mut holding = BTreeSet::new();
         if let Some(me) = me {
@@ -624,7 +685,7 @@ impl Fight {
             self.held = holding;
         }
         if self.cap >= Cap::Damage {
-            self.guest_damage(e, sync, avatars, &mut out);
+            self.guest_damage(e, sync, avatars, now_ms, &mut out);
         }
         if self.cap >= Cap::Revive {
             let me = sync.player;
@@ -814,9 +875,11 @@ impl Fight {
         e: &mut Engine,
         sync: &mut GuestSync,
         avatars: &[(PlayerId, u32)],
+        now_ms: u64,
         out: &mut Vec<Msg>,
     ) {
-        for h in fight::take_hits(e) {
+        // vats: also the health a held actor or an avatar lost outside `Actor::HitMe`.
+        for (h, kind) in self.blows(e, now_ms) {
             let amount = damage16(h.amount);
             if amount == 0 {
                 continue;
@@ -824,12 +887,11 @@ impl Fight {
             if let Some((victim, _)) = avatars.iter().find(|(_, a)| *a == h.target) {
                 // Another player: the host's friendly-fire rule decides.
                 if h.aggressor == actors::PLAYER_REF_ID {
-                    out.push(Msg::Combat(sync.live.combat.player_hit(
-                        *victim,
-                        amount,
-                        DamageKind::Bullet,
-                        LIMB_COUNT,
-                    )));
+                    out.push(Msg::Combat(
+                        sync.live
+                            .combat
+                            .player_hit(*victim, amount, kind, LIMB_COUNT),
+                    ));
                 }
             } else {
                 out.push(Msg::Actor(sync.live.actors.hit(FormId(h.target), amount)));
@@ -855,6 +917,8 @@ impl Fight {
         fight::set_avatars(e, []);
         fight::set_role(e, Role::Off);
         fight::set_spare(e, false);
+        // vats
+        self.vats.close(e);
         if self.down {
             self.down = false;
             fight::set_controls(e, self.saved_controls);
