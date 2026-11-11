@@ -89,6 +89,7 @@ fn machine() -> Story {
             }],
         },
     );
+    s.move_player(CELL, [0.0; 3], 0.0);
     s
 }
 
@@ -368,4 +369,73 @@ fn a_guest_buys_from_the_hosts_stock_and_a_sold_out_trade_is_refused_whole() {
         .collect();
     // Guest 0 (the lower slot) is heard first: paid 100; guest 1 keeps its ammunition.
     assert_eq!(paid, [(520, 0), (500, 10)]);
+}
+
+#[test]
+fn a_party_save_holds_what_a_guest_carries_and_a_load_gives_it_back() {
+    use coop_engine_session::party::{self, Part};
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("party-pack");
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut run = Run::new(1, true);
+    run.hd.social.party.dir = Some(dir.clone());
+    let key = party::key_of("Sunny");
+    run.guests[0].1.social.party.key = key;
+    {
+        let g = &mut run.guests[0].0;
+        let player = items::holder(&mut g.e, PLAYER).unwrap();
+        items::add(&mut g.e, player, STIMPAK, 3, None);
+        items::add(&mut g.e, player, RIFLE, 1, Some(0.25));
+    }
+    run.frames(120);
+    let held = run.hd.social.party.held(key).expect("the host holds it");
+    let pack = held.pack.clone().expect("with what the player carries");
+    assert_eq!(pack.caps, 500);
+    assert_eq!(
+        pack.stacks,
+        [
+            items::Stack {
+                item: STIMPAK,
+                count: 3,
+                condition: None
+            },
+            items::Stack {
+                item: RIFLE,
+                count: 1,
+                condition: Some(0.25)
+            },
+        ]
+    );
+    assert_eq!(run.host.save("Save 7.fos"), None);
+    run.frames(2);
+    let file = dir.join(format!("Save 7.{key:016x}.nvcoop"));
+    assert_eq!(Part::decode(&std::fs::read(&file).unwrap()), Some(held));
+    // The guest plays on: it spends caps, uses the stimpaks, loses the rifle, finds ammunition.
+    {
+        let g = &mut run.guests[0].0;
+        let player = items::holder(&mut g.e, PLAYER).unwrap();
+        items::set_caps(&mut g.e, player, 20);
+        items::remove(&mut g.e, player, STIMPAK, 3);
+        items::remove(&mut g.e, player, RIFLE, 1);
+        items::add(&mut g.e, player, AMMO, 40, None);
+    }
+    run.frames(120);
+    // The host loads the save: the guest carries what it carried then.
+    assert_eq!(run.host.load("Save 7.fos"), None);
+    run.frames(20);
+    assert_eq!(run.guests[0].1.social.party.restored, 1);
+    assert_eq!(run.guests[0].1.social.party.last.items, 4);
+    let g = &mut run.guests[0].0;
+    let player = items::holder(&mut g.e, PLAYER).unwrap();
+    assert_eq!(items::caps(&mut g.e, player), 500);
+    assert_eq!(items::list(&mut g.e, player).len(), 3);
+    assert_eq!(kit::has(g, PLAYER, STIMPAK), 3);
+    assert_eq!(kit::has(g, PLAYER, AMMO), 0);
+    assert!(items::list(&mut g.e, player).contains(&items::Stack {
+        item: RIFLE,
+        count: 1,
+        condition: Some(0.25)
+    }));
+    // Nothing of it was put to the host as a take or a trade.
+    assert_eq!(run.gi(0).asked_host, 0);
+    let _ = std::fs::remove_dir_all(&dir);
 }

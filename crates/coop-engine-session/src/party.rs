@@ -26,6 +26,8 @@ use std::path::PathBuf;
 use coop_core::ids::{FormId, PlayerId};
 use coop_core::schema::Field;
 use coop_engine::{gate, live, quest, vars};
+// items
+use coop_engine::{addr, items};
 use engine_core::Engine;
 
 use crate::record;
@@ -50,6 +52,8 @@ pub const FILE_ENDING: &str = "nvcoop";
 
 const SECTION_PLACE: u8 = 1;
 const SECTION_QUEST: u8 = 2;
+// items: the player's inventory and caps. A build without it skips the section.
+const SECTION_PACK: u8 = 3;
 const CHUNK_HEADER: usize = 8 + 4 + 1 + 1 + 1;
 const CHUNK_PAYLOAD: usize = 480;
 const _: () = assert!(CHUNK_HEADER + CHUNK_PAYLOAD <= coop_core::schema::MAX_CUSTOM_BYTES);
@@ -90,6 +94,81 @@ pub struct OwnQuest {
     pub vars: Vec<(u32, u64)>,
 }
 
+// items
+/// What a player carries: the caps, and every other item stack by stack (docs/coop/SPECS.md
+/// S18).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Pack {
+    /// The player's caps.
+    pub caps: i32,
+    /// The stacks, the caps item left out: an item, a count, and the stack's condition where
+    /// the game keeps one.
+    pub stacks: Vec<items::Stack>,
+}
+
+impl Pack {
+    /// What the player of game `e` carries; `None` with no player, or in a game without the
+    /// inventory functions (a test engine that holds only what its test needs). Items made
+    /// while playing (ids from `ff000000`) are another game's unknowns and are left out.
+    pub fn read(e: &mut Engine) -> Option<Pack> {
+        if !e.is_registered(addr::REF_INVENTORY_CHANGES) {
+            return None;
+        }
+        let player = live::player(e)?;
+        Some(Pack {
+            caps: items::caps(e, player),
+            stacks: items::list(e, player)
+                .into_iter()
+                .filter(|s| s.item != addr::CAPS_FORM_ID && s.item < 0xff00_0000)
+                .collect(),
+        })
+    }
+
+    /// Makes the player of game `e` carry this: the caps set, what is too much removed, what is
+    /// missing added (a stack with a condition at that condition). Answers how many items'
+    /// counts it changed.
+    pub fn apply(&self, e: &mut Engine) -> u32 {
+        if !e.is_registered(addr::REF_INVENTORY_CHANGES) {
+            return 0;
+        }
+        let Some(player) = live::player(e) else {
+            return 0;
+        };
+        let mut changed = 0;
+        if items::caps(e, player) != self.caps && items::set_caps(e, player, self.caps) {
+            changed += 1;
+        }
+        let mut want: BTreeMap<u32, i32> = BTreeMap::new();
+        for s in &self.stacks {
+            *want.entry(s.item).or_insert(0) += s.count;
+        }
+        for (item, have) in items::totals(e, player) {
+            if item == addr::CAPS_FORM_ID || item >= 0xff00_0000 {
+                continue;
+            }
+            let over = have - want.get(&item).copied().unwrap_or(0);
+            if over > 0 && items::remove(e, player, item, over) > 0 {
+                changed += 1;
+            }
+        }
+        for (item, total) in want {
+            let mut missing = total - items::count(e, player, item);
+            if missing <= 0 {
+                continue;
+            }
+            changed += 1;
+            // The stacks with a condition of their own first, as the game lists them.
+            for s in self.stacks.iter().filter(|s| s.item == item) {
+                let n = s.count.min(missing);
+                if n > 0 && items::add(e, player, item, n, s.condition) {
+                    missing -= n;
+                }
+            }
+        }
+        changed
+    }
+}
+
 /// A player's own part of the game.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Part {
@@ -99,6 +178,9 @@ pub struct Part {
     pub place: Option<Place>,
     /// The player's own quests.
     pub quests: Vec<OwnQuest>,
+    // items
+    /// What the player carries (`None`: not read, or a part written before this section).
+    pub pack: Option<Pack>,
 }
 
 /// What applying a part did.
@@ -110,6 +192,9 @@ pub struct Applied {
     pub quests: u32,
     /// Quests or variables the game refused (its data differ).
     pub refused: u32,
+    // items
+    /// Items (and the caps) whose count was set to the saved one.
+    pub items: u32,
 }
 
 fn section(out: &mut Vec<u8>, tag: u8, body: &[u8]) {
@@ -170,6 +255,18 @@ impl Part {
             }
             section(&mut out, SECTION_QUEST, &body);
         }
+        // items
+        if let Some(p) = &self.pack {
+            let mut body = p.caps.to_le_bytes().to_vec();
+            body.extend((p.stacks.len() as u32).to_le_bytes());
+            for s in &p.stacks {
+                body.extend(s.item.to_le_bytes());
+                body.extend(s.count.to_le_bytes());
+                body.push(u8::from(s.condition.is_some()));
+                body.extend(s.condition.unwrap_or(0.0).to_bits().to_le_bytes());
+            }
+            section(&mut out, SECTION_PACK, &body);
+        }
         out
     }
 
@@ -185,6 +282,7 @@ impl Part {
             key: c.u64()?,
             place: None,
             quests: Vec::new(),
+            pack: None, // items
         };
         while !c.0.is_empty() {
             let tag = c.u8()?;
@@ -207,6 +305,21 @@ impl Part {
                         vars.push((body.u32()?, body.u64()?));
                     }
                     part.quests.push(OwnQuest { id, record, vars });
+                }
+                // items
+                SECTION_PACK => {
+                    let caps = body.u32()? as i32;
+                    let mut stacks = Vec::new();
+                    for _ in 0..body.u32()? {
+                        let (item, count) = (body.u32()?, body.u32()? as i32);
+                        let (has, condition) = (body.u8()?, body.f32()?);
+                        stacks.push(items::Stack {
+                            item,
+                            count,
+                            condition: (has != 0).then_some(condition),
+                        });
+                    }
+                    part.pack = Some(Pack { caps, stacks });
                 }
                 _ => {}
             }
@@ -235,7 +348,12 @@ impl Part {
                 vars: vars::quest_vars(e, *id).unwrap_or_default(),
             });
         }
-        Part { key, place, quests }
+        Part {
+            key,
+            place,
+            quests,
+            pack: Pack::read(e), // items
+        }
     }
 
     /// Puts the part back into game `e`: each quest's record and variables as on a load (no
@@ -264,6 +382,10 @@ impl Part {
         }
         if let Some(p) = &self.place {
             out.placed = live::warp(e, p.space, p.pos, p.heading).is_ok();
+        }
+        // items
+        if let Some(p) = &self.pack {
+            out.items = p.apply(e);
         }
         out
     }
@@ -759,6 +881,22 @@ mod tests {
                     vars: vec![],
                 },
             ],
+            // items
+            pack: Some(Pack {
+                caps: 321,
+                stacks: vec![
+                    items::Stack {
+                        item: 0x0001_5169,
+                        count: 3,
+                        condition: None,
+                    },
+                    items::Stack {
+                        item: 0x0000_4333,
+                        count: 1,
+                        condition: Some(0.375),
+                    },
+                ],
+            }),
         }
     }
 
@@ -770,6 +908,7 @@ mod tests {
             key: 5,
             place: None,
             quests: vec![],
+            pack: None,
         };
         assert_eq!(bare.encode().len(), 4 + 1 + 8);
         assert_eq!(Part::decode(&bare.encode()), Some(bare));
