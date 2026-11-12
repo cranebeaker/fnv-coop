@@ -1,4 +1,4 @@
-//! Held actors move between two states instead of jumping (docs/coop/SPECS.md S21).
+//! Held actors move between two states instead of jumping (docs/coop/SPECS.md S22).
 //!
 //! An actor's owner sends its place about 20 times a second, and only when it changed. Set
 //! straight into the game that is a jump per state. This module gives each held actor the

@@ -193,6 +193,14 @@ pub const ACTOR_SET_GHOST: u32 = 0x008a_cf10;
 
 /// `TESObjectREFR::Disable(this)` (`00574400`).
 pub const REF_DISABLE: u32 = 0x0057_4400;
+/// `TESObjectREFR::Enable(this)` (`00573f40`; `tesobjectrefr_p4.rs`, `fn_00573f40`). Both end in
+/// `TESForm::SetDisabled` (`00484af0`), which flags the form's change with [`CHANGE_FORM_FLAGS`]:
+/// a reference a script enables or disables is in the change journal.
+pub const REF_ENABLE: u32 = 0x0057_3f40;
+/// See [`REF_ENABLE`].
+pub const CHANGE_FORM_FLAGS: u32 = 1;
+/// The form type of a placed object (`REFR`).
+pub const FORM_TYPE_REFR: u8 = 0x3a;
 
 /// The form types of a placed NPC (`ACHR`) and a placed creature (`ACRE`); `REFR` is 0x3a, after
 /// [`FORM_TYPE_CELL`].
@@ -210,7 +218,12 @@ pub const CHANGE_ACTOR_LIFESTATE: u32 = 0x400;
 /// stays alive; with the task queue in use the kill is queued and done within the frame.
 pub const ACTOR_KILL: u32 = 0x0089_d900;
 
-// world: the changed-form stream, doors and locks (docs/coop/SPECS.md S12). Everything below is
+/// `Actor::EvaluatePackage` (`thiscall`, actor, now, reset AI; `actor_p4.rs`): what a script's
+/// `evp` ends in (`run_005c8a50.rs`, with `(0, reset)`). With `now` zero the evaluation is
+/// buffered and done by the actor's next AI update.
+pub const ACTOR_EVALUATE_PACKAGE: u32 = 0x008a_6ce0;
+
+// world: the changed-form stream, doors and locks (docs/coop/SPECS.md S14). Everything below is
 // named by the translation of `fallout/misc/saveload` (`engine-fallout-misc`) or of the reference
 // and open-close code (`engine-fallout-cell`, `engine-fallout-forms`), as each comment says.
 
@@ -337,11 +350,6 @@ pub const FORM_ID_MAP_RESET: u32 = 0x0084_6c50;
 /// `SET_THREAD_FLAG`).
 pub const SET_THREAD_FLAG: u32 = 0x0046_23f0;
 
-/// Form types of the forms the changed-form stream carries: a placed object `REFR` (0x3a, after
-/// [`FORM_TYPE_CELL`]), a faction `FACT` (8), a note `NOTE` (0x31), a dialogue response `INFO`
-/// (0x46, one below [`FORM_TYPE_QUEST`]) and a reputation `REPU` (0x68): the form types of the
-/// game's own save type table as `crates/fos` lists it (`SAVE_TYPES`, docs/FOS_SAVES.md).
-pub const FORM_TYPE_REFR: u8 = 0x3a;
 /// See [`FORM_TYPE_REFR`].
 pub const FORM_TYPE_FACTION: u8 = 8;
 /// See [`FORM_TYPE_REFR`].
@@ -351,11 +359,6 @@ pub const FORM_TYPE_INFO: u8 = 0x46;
 /// See [`FORM_TYPE_REFR`].
 pub const FORM_TYPE_REPUTATION: u8 = 0x68;
 
-/// Change flags of a reference (`crates/fos`, `change_flag_name`, docs/FOS_SAVES.md; the open
-/// state's flag also in `tesobjectrefr_p4.rs`, `fn_00572d50`): the form flags (enabled or not
-/// among them), moved, moved by physics, moved to another cell, the inventory, the lock, an
-/// emptied container, and an open state other than the default.
-pub const CHANGE_FORM_FLAGS: u32 = 0x1;
 /// See [`CHANGE_FORM_FLAGS`].
 pub const CHANGE_REFR_MOVE: u32 = 0x2;
 /// See [`CHANGE_FORM_FLAGS`].
@@ -406,7 +409,7 @@ pub const REF_UNLOCK: u32 = 0x0056_92a0;
 /// records that the reference's lock changed, as `Lock` and `UnLock` do.
 pub const REF_ADD_LOCK_CHANGE: u32 = 0x0057_89b0;
 // world: end
-// fights (docs/coop/SPECS.md S12): every constant below names the translation it is read from.
+// fights (docs/coop/SPECS.md S15): every constant below names the translation it is read from.
 
 /// The game's one `ProcessLists` object (`011e0e80`, `processlists.rs`, `PROCESS_LISTS`), its
 /// `pActorsCloseToPlayerA` (50 `Actor *` at +0x88, sorted by distance to the player) and
@@ -419,6 +422,15 @@ pub const CLOSE_ACTORS_OFFSET: u32 = 0x88;
 pub const CLOSE_ACTORS_COUNT_OFFSET: u32 = 0x150;
 /// See [`PROCESS_LISTS`] (`MAX_ACTORS_CLOSE_TO_PLAYER`).
 pub const CLOSE_ACTORS_MAX: u32 = 50;
+/// `ProcessArray` accessors (`processlists.rs`: `array_head`, `array_tail`, `array_object`),
+/// `this` the process array at `PROCESS_LISTS + 4`: the first index of a process level (0 high to
+/// 3 low), the end index of one, and the mobile object at an index. Every actor the game has
+/// loaded is in one of the levels, near its player or not.
+pub const PROCESS_ARRAY_HEAD: u32 = 0x005d_e0f0;
+/// See [`PROCESS_ARRAY_HEAD`].
+pub const PROCESS_ARRAY_TAIL: u32 = 0x005b_e5c0;
+/// See [`PROCESS_ARRAY_HEAD`].
+pub const PROCESS_ARRAY_OBJECT: u32 = 0x0096_8670;
 
 /// The `ActorValueOwner` part of an actor, at +0xa4, and its virtual `+0x0c`, the current value
 /// of an actor value as a float (`tesconditionfunctions.rs`, `fn_0059c4f0`, the `GetActorValue`
@@ -481,7 +493,7 @@ pub const HIT_HEALTH_DAMAGE_OFFSET: u32 = 0x14;
 pub const PLAYER_DISABLED_CONTROLS_OFFSET: u32 = 0x680;
 /// See [`PLAYER_DISABLED_CONTROLS_OFFSET`]: all seven controls.
 pub const PLAYER_ALL_CONTROLS: u8 = 0x7f;
-// social: conversations, party saves, sleep and wait (docs/coop/SPECS.md S12 to S15).
+// social: conversations, party saves, sleep and wait (docs/coop/SPECS.md S16 to S19).
 
 /// `TESTopicInfo::RunResult` (`thiscall`: info, index, reference; `RET 8`; `0061f170`,
 /// `testopicinfo.rs`, `tes_topic_info_run_result`): runs the info's result script at the index
@@ -567,8 +579,8 @@ pub const PLAYER_WAIT_HOUR: u32 = 0x0094_df80;
 pub const TES_SINGLETON: u32 = 0x011d_ea10;
 /// See [`TES_SINGLETON`].
 pub const TES_RUN_SCRIPTS: u32 = 0x0045_5490;
-// vats: V.A.T.S. with several players, damage outside `Actor::HitMe` (docs/coop/SPECS.md S20,
-// S21). Every constant below names the translation it is read from.
+// vats: V.A.T.S. with several players, damage outside `Actor::HitMe` (docs/coop/SPECS.md S21,
+// S22). Every constant below names the translation it is read from.
 
 /// The game's one `VATS` object (`011f2250`, `vats.rs`, `VATS_SINGLETON`) and its `eMode` at
 /// +0x08 (`vats.rs`, the `Vats` layout; `main.rs` reads it through `0044ddc0`): 0 none, 1 target
@@ -604,7 +616,7 @@ pub const VATS_MENU_CLASS: u32 = 0x420;
 pub const ACTOR_MODIFY_VALUE: u32 = 0x0088_1130;
 // vats: end
 
-// items: a reference's inventory, item by item (docs/coop/SPECS.md S18).
+// items: a reference's inventory, item by item (docs/coop/SPECS.md S20).
 
 /// `InventoryChanges::GetInventoryChanges(reference)` (`004bf220`, cdecl, `inventorychanges.rs`):
 /// the `InventoryChanges` kept in the reference's extra data, made and stored when there is
@@ -708,3 +720,107 @@ pub const GET_MERCHANT_CONTAINER: u32 = 0x0042_1400;
 /// destroyed.
 pub const PLAYER_PICK_UP: u32 = 0x0095_3ff0;
 // items: end
+
+// Scenes (docs/coop/SPECS.md S23), from `run_005c8740.rs`.
+
+/// The `StartConversation` script command's body (`cdecl`, the eight script-command words: the
+/// parameter info, the script data, the reference the command runs on, the containing reference,
+/// the script, the event list, the result, and a pointer to the offset into the script data).
+pub const CMD_START_CONVERSATION: u32 = 0x005c_8740;
+/// The `SayTo` script command (`005c9100`, `run_005c8a50.rs`, `say_to`): `thisObj` says the
+/// topic to the target; parameters target, topic, two numbers.
+pub const CMD_SAY_TO: u32 = 0x005c_9100;
+/// `MobileObject::StopCurrentDialogue` (`00934250`, `thiscall`), as `SayTo` calls it first.
+pub const MOBILE_STOP_CURRENT_DIALOGUE: u32 = 0x0093_4250;
+/// `0057bd60` (`thiscall` on an actor, the other actor): `SayTo`'s pairing of speaker and target.
+pub const ACTOR_SAY_PAIR: u32 = 0x0057_bd60;
+/// `MobileObject::GetCurrentProcessType` (`00931850`, `thiscall`): 0 for high process.
+pub const MOBILE_PROCESS_TYPE: u32 = 0x0093_1850;
+/// `SayTo`'s virtual slots on a process: its talking state (`0x648`, a word), whom it talks to
+/// (`0x628`, the other actor), and say the topic (`0x2a4`: speaker, topic, flag, 0, 1, 1).
+pub const PROCESS_TALK_STATE_SLOT: u32 = 0x648;
+/// See [`PROCESS_TALK_STATE_SLOT`].
+pub const PROCESS_TALK_TO_SLOT: u32 = 0x628;
+/// See [`PROCESS_TALK_STATE_SLOT`].
+pub const PROCESS_SAY_TOPIC_SLOT: u32 = 0x2a4;
+/// The actor's "busy" virtual slot `SayTo` asks before (`0x22c`, one word, 1).
+pub const ACTOR_SAY_BUSY_SLOT: u32 = 0x22c;
+/// `Script::ParseParameters` (`cdecl`, varargs: the parameter info, the script data, the offset
+/// pointer, the reference, the container, the script, the event list, then one pointer per
+/// parameter). It moves the offset on past the parameters it read.
+pub const SCRIPT_PARSE_PARAMETERS: u32 = 0x005a_ccb0;
+/// `PackageLocation`: its constructor, `SetLocReference` (one word) and destructor; 12 bytes.
+pub const PACKAGE_LOCATION_CONSTRUCT: u32 = 0x0067_f030;
+/// See [`PACKAGE_LOCATION_CONSTRUCT`].
+pub const PACKAGE_LOCATION_SET_REFERENCE: u32 = 0x0067_f3c0;
+/// See [`PACKAGE_LOCATION_CONSTRUCT`].
+pub const PACKAGE_LOCATION_DESTRUCT: u32 = 0x0067_f110;
+/// See [`PACKAGE_LOCATION_CONSTRUCT`].
+pub const PACKAGE_LOCATION_SIZE: u32 = 12;
+/// A reference's virtual slot that says whether it is a mobile object (an actor).
+pub const REF_IS_MOBILE_SLOT: u32 = 0x100;
+/// An actor's virtual slot that starts a conversation with another (nine words: the other, two
+/// locations or 0, two flags, 0, the topic, 0, 0), as the command's body calls it.
+pub const ACTOR_START_CONVERSATION_SLOT: u32 = 0x280;
+
+/// `Script::MoveToFunctionBase` (`cdecl`: the reference, a target reference, and three offsets as
+/// `f32`; `tesscriptfunctions_p4.rs`): what the `MoveTo` script command ends in. It takes the
+/// reference to the target's cell or world space, at the target's place plus the offsets: the one
+/// function of the game that moves a reference from one space to another.
+pub const MOVE_TO_FUNCTION_BASE: u32 = 0x005c_cb20;
+
+// Packages (docs/coop/SPECS.md S24).
+
+/// `Actor::GetCurrentEditorPackage` (`thiscall`, actor; `actor.rs`): the package the actor runs,
+/// the one of its extra data when an interrupt package (a conversation) is on top; 0 for none.
+pub const ACTOR_GET_CURRENT_EDITOR_PACKAGE: u32 = 0x0088_14b0;
+/// `PackageList::FindCurrentPackage` (`thiscall`, list, reference; `RET 4`; `packagelist.rs`): the
+/// first package of the list whose schedule and conditions hold for the reference now, else its
+/// current one. What an evaluation of an actor's package ends in.
+pub const PACKAGE_LIST_FIND_CURRENT: u32 = 0x0067_e780;
+/// What `FindCurrentPackage` does for the package it picked before returning it: when
+/// `009611e0(package)` is -1 the procedure type is computed, `006777b0(package,
+/// 00569b80(reference))`.
+pub const PACKAGE_PROCEDURE_TYPE: u32 = 0x0096_11e0;
+/// See [`PACKAGE_PROCEDURE_TYPE`].
+pub const PACKAGE_CALCULATE_PROCEDURE: u32 = 0x0067_77b0;
+/// See [`PACKAGE_PROCEDURE_TYPE`].
+pub const REF_PROCEDURE_VALUE: u32 = 0x0056_9b80;
+/// The form type of a package (`PACK`).
+pub const FORM_TYPE_PACKAGE: u8 = 0x49;
+
+// The checks the `StartConversation` body makes before the actor's slot (`run_005c8740.rs`), and
+// what `PackageList::FindCurrentPackage` does for the package it picks (`packagelist.rs`,
+// `picked`): both are repeated where co-op stands in for them (peer review, 2026-11-11).
+
+/// An actor's virtual slot whose answer 9 refuses a conversation.
+pub const ACTOR_SLOT_214: u32 = 0x214;
+/// `cdecl`, a reference: whether it is fading out to be disabled.
+pub const REF_IS_PENDING_FADE_DISABLED: u32 = 0x005a_a6d0;
+/// `MobileObject::GetCurrentPackage` (`thiscall`, reference): the process's package, 0 for none.
+pub const REF_GET_CURRENT_PACKAGE: u32 = 0x0093_44a0;
+/// `cdecl`, a package: its type (1 follow, 2 escort, 7 accompany; 0x1c a dialogue made while
+/// playing).
+pub const PACKAGE_TYPE: u32 = 0x0041_ca90;
+/// `cdecl` (player, package): what the body does for a type-0x1c package after the slot.
+pub const PLAYER_SET_CONVERSATION_PACKAGE: u32 = 0x005c_8a30;
+/// `thiscall`, a reference: its extra-data list.
+pub const REF_EXTRA_LIST: u32 = 0x005d_43c0;
+/// `ExtraDataList::GetPrimitive` (`thiscall`, list; `tesobjectrefr_p4.rs`): the reference's
+/// primitive, the shape of a trigger volume; 0 for a reference without one.
+pub const EXTRA_GET_PRIMITIVE: u32 = 0x0041_fbe0;
+/// `ExtraDataList::RemoveFollower` (`thiscall`, list, follower).
+pub const EXTRA_REMOVE_FOLLOWER: u32 = 0x0042_2690;
+/// `ScriptEventList::SetActionFlag`-style call for a package (`cdecl`: package, list, flag): 0x800
+/// the package ended, 0x200 it began.
+pub const PACKAGE_SET_ACTION_FLAG: u32 = 0x005a_c750;
+/// A process's virtual slots `PackageDone` (reference, package) and `SetPackageDoneOnce` (0), and
+/// the one answering the object it follows.
+pub const PROCESS_PACKAGE_DONE_SLOT: u32 = 0x59c;
+/// See [`PROCESS_PACKAGE_DONE_SLOT`].
+pub const PROCESS_SET_DONE_ONCE_SLOT: u32 = 0x5a8;
+/// See [`PROCESS_PACKAGE_DONE_SLOT`].
+pub const PROCESS_FOLLOWED_SLOT: u32 = 0x128;
+/// `TESPackage::pPackTarg` (+0x30): a `PackageTarget` whose type (+0, 0 = a reference) and
+/// reference (+4) say whom the package is about.
+pub const PACKAGE_TARGET_OFFSET: u32 = 0x30;

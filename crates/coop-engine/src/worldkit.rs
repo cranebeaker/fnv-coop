@@ -1,6 +1,6 @@
 //! Placed objects, factions, reputations, notes and dialogue responses for a [`Story`], with
 //! stand-ins for the game's save and load of one form, for tests of the changed-form stream and
-//! of doors and locks without the game (feature `testkit`; docs/coop/SPECS.md S12).
+//! of doors and locks without the game (feature `testkit`; docs/coop/SPECS.md S14).
 //!
 //! Each stand-in does what co-op relies on the real one to do. The save side writes the game's
 //! own layout where `crates/fos` documents it: every value followed by `|`, references to other

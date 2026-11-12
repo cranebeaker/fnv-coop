@@ -72,7 +72,7 @@ If rung 4 fails, another base form can be tried with `$env:NV_COOP_AVATAR = "<he
 
 ## M4 and M6: the rest of the world (records, doors, locks)
 
-Same two windows as M5. Nothing here has run on a PC yet (docs/coop/SPECS.md S12).
+Same two windows as M5. Nothing here has run on a PC yet (docs/coop/SPECS.md S14).
 
 1. Both in Goodsprings. Host: open and shut a door, pick a lock, take everything from a container,
    read a note. Guest: look at the same door, lock and container.

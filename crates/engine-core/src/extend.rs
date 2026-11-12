@@ -129,6 +129,21 @@ pub const WRAPS: &[Entry] = &[
         owners: NVSE,
         step: "I-4",
     },
+    // The StartConversation script command's body: co-op's host notes a conversation a script
+    // starts between two actors, a guest drops its own and plays the host's
+    // (docs/coop/SPECS.md S23).
+    Entry {
+        addr: 0x005c_8740,
+        owners: COOP,
+        step: "C-5",
+    },
+    // The SayTo command: on a co-op host a line an actor says to the player is noted, so the
+    // guest whose game runs that actor says it there to its own player (docs/coop/SPECS.md S28).
+    Entry {
+        addr: 0x005c_9100,
+        owners: COOP,
+        step: "C-8",
+    },
     // ScriptRunner::Run: the script context pushed and popped; co-op's guest gate (the story's
     // scripts run on the host only, docs/coop/SPECS.md S5).
     Entry {
@@ -154,8 +169,8 @@ pub const WRAPS: &[Entry] = &[
         owners: NVSE,
         step: "I-3",
     },
-    // social: co-op's shared conversations and its sleep and wait vote (docs/coop/SPECS.md S14,
-    // S17). TESTopicInfo::RunResult (info, index, reference): a conversation's results run once,
+    // social: co-op's shared conversations and its sleep and wait vote (docs/coop/SPECS.md S16,
+    // S19). TESTopicInfo::RunResult (info, index, reference): a conversation's results run once,
     // on the host. DialogMenu::Create (speaker, word, target): one conversation per NPC.
     // SleepWaitMenu::DoClick (menu, button, tile): resting is put to the party's vote.
     Entry {
@@ -163,14 +178,22 @@ pub const WRAPS: &[Entry] = &[
         owners: COOP,
         step: "C-6",
     },
+    // PackageList::FindCurrentPackage (list, reference): on a co-op guest an actor of the host's
+    // runs the package the host's copy runs, whatever this game's own conditions would pick
+    // (docs/coop/SPECS.md S24).
+    Entry {
+        addr: 0x0067_e780,
+        owners: COOP,
+        step: "C-7",
+    },
     // vats: Interface::IsInMenuMode (no arguments). In a co-op session with another player the
-    // V.A.T.S. menu does not stop the game (docs/coop/SPECS.md S20).
+    // V.A.T.S. menu does not stop the game (docs/coop/SPECS.md S21).
     Entry {
         addr: 0x0070_2360,
         owners: COOP,
         step: "C-7",
     },
-    // items: co-op's loot and barter (docs/coop/SPECS.md S18). BarterMenu::Create (vendor,
+    // items: co-op's loot and barter (docs/coop/SPECS.md S20). BarterMenu::Create (vendor,
     // discount) and ContainerMenu::Create (reference, mode): which reference's items the player
     // is about to move.
     Entry {
@@ -203,14 +226,14 @@ pub const WRAPS: &[Entry] = &[
     },
     // vats: the actor's value change behind virtual slot 0x3ac (actor, value, amount, source).
     // Co-op decides whose game applies a loss of health that did not come through HitMe: a
-    // fall, a trap, an effect (docs/coop/SPECS.md S21).
+    // fall, a trap, an effect (docs/coop/SPECS.md S22).
     Entry {
         addr: 0x0088_1130,
         owners: COOP,
         step: "C-8",
     },
     // Actor::HitMe (this, hit data, kind): every weapon hit on an actor. Co-op decides whose
-    // game applies it in a shared fight (docs/coop/SPECS.md S13).
+    // game applies it in a shared fight (docs/coop/SPECS.md S15).
     Entry {
         addr: 0x0089_a760,
         owners: COOP,
@@ -218,21 +241,28 @@ pub const WRAPS: &[Entry] = &[
     },
     // Actor::Kill (this, attacker, damage): what a lethal hit and the kill command call. In a
     // co-op session a player's own death is held: the player is down and can be revived
-    // (docs/coop/SPECS.md S13).
+    // (docs/coop/SPECS.md S15).
     Entry {
         addr: 0x0089_d900,
         owners: COOP,
         step: "C-3",
     },
+    // Actor::EvaluatePackage (this, now, reset AI): co-op's host notes the evaluations a story
+    // script asks for, so a guest's actor follows the story's change too (docs/coop/SPECS.md S13).
+    Entry {
+        addr: 0x008a_6ce0,
+        owners: COOP,
+        step: "C-4",
+    },
     // items: the player's pick-up of a placed item (player, reference, count, a byte): a guest's
-    // take of a world item is put to the host (docs/coop/SPECS.md S18).
+    // take of a world item is put to the host (docs/coop/SPECS.md S20).
     Entry {
         addr: 0x0095_3ff0,
         owners: COOP,
         step: "C-7",
     },
     // vats: BSTimer::SetGlobalTimeMultiplier (timer, multiplier, immediate). In a co-op session
-    // with another player V.A.T.S. does not slow the game (docs/coop/SPECS.md S20).
+    // with another player V.A.T.S. does not slow the game (docs/coop/SPECS.md S21).
     Entry {
         addr: 0x00aa_4db0,
         owners: COOP,
@@ -437,7 +467,7 @@ pub const SITES: &[Entry] = &[
         owners: NVSE,
         step: "I-10",
     },
-    // BGSSaveLoadGame::SaveGame: the co-save written; social: co-op's party save (S15).
+    // BGSSaveLoadGame::SaveGame: the co-save written; social: co-op's party save (S17).
     Entry {
         addr: 0x0084_7c45,
         owners: NVSE_COOP,
@@ -449,7 +479,7 @@ pub const SITES: &[Entry] = &[
         owners: NVSE,
         step: "I-10",
     },
-    // social: after the .fos, co-op's party save is read too (S15).
+    // social: after the .fos, co-op's party save is read too (S17).
     Entry {
         addr: 0x0084_8c3c,
         owners: NVSE_COOP,

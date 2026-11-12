@@ -1,4 +1,4 @@
-//! The rest of the world's state on the session (docs/coop/SPECS.md S12): the changed-form
+//! The rest of the world's state on the session (docs/coop/SPECS.md S14): the changed-form
 //! stream from the host to the guests, and doors and locks both ways.
 //!
 //! - **Records.** The host's journal names each changed form. For a change the stream is meant
@@ -265,7 +265,7 @@ impl HostWorld {
 
     // items
     /// [`HostWorld::enact`] as the session's one dispatcher of interaction requests: a request
-    /// the item layer carries out (a take, a trade, a pick-up; docs/coop/SPECS.md S18) goes to
+    /// the item layer carries out (a take, a trade, a pick-up; docs/coop/SPECS.md S20) goes to
     /// `items` when the session shares items, and is refused like any other when it does not.
     pub fn enact_with(
         &mut self,

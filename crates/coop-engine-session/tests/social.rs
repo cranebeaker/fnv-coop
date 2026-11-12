@@ -1,5 +1,5 @@
 //! Conversations, party saves, rejoining and the rest vote between games in one process, joined
-//! over coop-core's loopback transport (docs/coop/SPECS.md S14 to S17). Each game is the story
+//! over coop-core's loopback transport (docs/coop/SPECS.md S16 to S19). Each game is the story
 //! kit's: a small story in engine memory with stand-ins for the game's functions.
 
 use std::path::PathBuf;

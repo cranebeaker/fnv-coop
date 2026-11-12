@@ -1,4 +1,4 @@
-//! Loot taken once and barter through the host (docs/coop/SPECS.md S18).
+//! Loot taken once and barter through the host (docs/coop/SPECS.md S20).
 //!
 //! - **A guest's take.** A guest's game moves the item at once, as the game does. The guest sees
 //!   it as a change of a holder whose menu its player opened (a container, a body, a trader or

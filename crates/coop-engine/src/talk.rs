@@ -1,4 +1,4 @@
-//! Conversations (docs/coop/SPECS.md S14): what the player's own conversation says and does is
+//! Conversations (docs/coop/SPECS.md S16): what the player's own conversation says and does is
 //! seen where the game does it, and its results run once.
 //!
 //! Every result of a line of dialogue goes through `TESTopicInfo::RunResult` (`0061f170`: the

@@ -71,6 +71,7 @@ mod tests {
             kind,
             flags,
             forced: false,
+            cause: None,
         };
         assert!(lines(&[]).is_empty());
         assert_eq!(

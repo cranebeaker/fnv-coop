@@ -1,5 +1,5 @@
 //! Stand-ins for the game's inventories, for tests of [`crate::items`] and of the session's loot
-//! and barter (docs/coop/SPECS.md S18): holders (containers, actors, the story's player) with a
+//! and barter (docs/coop/SPECS.md S20): holders (containers, actors, the story's player) with a
 //! base container and inventory changes laid out in engine memory as the game lays them out,
 //! item forms, placed items, and the functions co-op calls on them. They do only what co-op
 //! relies on; nothing here says how the real functions behave beyond that.

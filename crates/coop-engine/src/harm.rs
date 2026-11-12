@@ -1,4 +1,4 @@
-//! Damage that does not pass `Actor::HitMe`, in the game (docs/coop/SPECS.md S21): a fall, a
+//! Damage that does not pass `Actor::HitMe`, in the game (docs/coop/SPECS.md S22): a fall, a
 //! trap, drowning and dangerous water (the damage applier, called straight) and an effect's
 //! damage over time (the value change, called straight).
 //!

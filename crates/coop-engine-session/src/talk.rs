@@ -1,4 +1,4 @@
-//! Conversations in a session (docs/coop/SPECS.md S14): coop-core's dialogue protocol driven by
+//! Conversations in a session (docs/coop/SPECS.md S16): coop-core's dialogue protocol driven by
 //! the game's own dialogue menu.
 //!
 //! - [`Talker`] runs on every machine. What this game's own conversation says

@@ -22,20 +22,19 @@
 pub mod fight;
 pub mod ladder;
 pub mod record;
-// items: loot taken once and barter through the host (docs/coop/SPECS.md S18).
+// items: loot taken once and barter through the host (docs/coop/SPECS.md S20).
 pub mod items;
 // world
 pub mod world;
 
-// social: conversations, party saves and the rest vote (docs/coop/SPECS.md S12 to S15).
+// social: conversations, party saves and the rest vote (docs/coop/SPECS.md S16 to S19).
 pub mod party;
 pub mod rest;
 pub mod social;
 pub mod talk;
 
-// vats: V.A.T.S. with several players (docs/coop/SPECS.md S20); actors the host's game does
-// not run, and held actors moved in steps (S21).
-pub mod far;
+// vats: V.A.T.S. with several players (docs/coop/SPECS.md S21); held actors moved in steps
+// (S22).
 pub mod smooth;
 pub mod vats;
 
@@ -51,7 +50,7 @@ use coop_core::sync::{GuestLive, HostConfig, HostSync};
 use coop_core::sync::{GuestPhase, GuestSync};
 use coop_core::transport::Transport;
 use coop_engine::forms::{self, GlobalWatch};
-use coop_engine::{actors, addr, gate, quest, vars};
+use coop_engine::{actors, addr, commands, gate, quest, vars};
 use engine_core::Engine;
 
 /// The tag of a clock global's `Field::Custom` (its value's bits, little-endian). The game's clock
@@ -67,6 +66,95 @@ pub const CLOCK_EVERY_MS: u64 = 1000;
 /// copy through the game. A guest whose own copy died sends the same field as a claim, and the
 /// host's game does the kill (so the death's scripts and the story's reactions run there, once).
 pub const LIFE_TAG: u16 = 0x4c46;
+
+/// The tag of a host command to an actor, "evaluate your package again" (`Field::Custom`, one
+/// byte: a count, so each new command is a change). A stage's result script says `evp` to make an
+/// actor act on the new stage at once; it runs on the host only. Not state: [`echo`] and the heal
+/// leave it alone.
+pub const EVALUATE_TAG: u16 = 0x4556;
+
+/// The tag of a host command to an actor, "start this conversation" (`Field::Custom` on the
+/// actor's id: a count, then the scene). A script's `StartConversation` between two actors runs
+/// in the host's game only; a guest's game drops its own and plays the host's. Not state:
+/// [`echo`] and the heal leave it alone, and one that comes with a join or a repair is not
+/// played (it is over).
+pub const SCENE_TAG: u16 = 0x5343;
+/// The tag of a line an actor was made to say to the player (`SayTo`), on the speaker's form:
+/// a count, then the topic. The guest whose player the speaker is near says it there.
+pub const SAY_TAG: u16 = 0x5359;
+/// How far from the host's player a speaker must be (or in another space, or not loaded) for
+/// its line to be said in the guests' games too.
+pub const SAY_FAR: f32 = 1500.0;
+/// How near a guest's player a speaker must be for that guest's game to say the line.
+pub const SAY_NEAR: f32 = 2500.0;
+
+fn say_of(field: &Field) -> Option<(u8, u32)> {
+    match field {
+        Field::Custom { tag, data } if *tag == SAY_TAG && data.len() == 5 => Some((
+            data[0],
+            u32::from_le_bytes([data[1], data[2], data[3], data[4]]),
+        )),
+        _ => None,
+    }
+}
+
+/// The tag of the package the host's copy of an actor runs (`Field::Custom` on the actor's id:
+/// the package's form id, 0 for none both games have). A guest's copy is given the same package
+/// in place of what its own game's conditions would pick. [`echo`] and the heal leave it alone
+/// (the fights' follow step keeps it).
+pub const PACKAGE_TAG: u16 = 0x504b;
+
+/// The field for an actor's package.
+pub fn package_field(package: u32) -> Field {
+    Field::Custom {
+        tag: PACKAGE_TAG,
+        data: package.to_le_bytes().to_vec(),
+    }
+}
+
+fn package_of(field: &Field) -> Option<u32> {
+    match field {
+        Field::Custom { tag, data } if *tag == PACKAGE_TAG => {
+            Some(u32::from_le_bytes(data[..].try_into().ok()?))
+        }
+        _ => None,
+    }
+}
+
+fn scene_field(count: u8, s: &commands::Scene) -> Field {
+    let mut data = vec![count, u8::from(s.flags[0]) | (u8::from(s.flags[1]) << 1)];
+    for w in [s.target, s.topic, s.locations[0], s.locations[1], s.space] {
+        data.extend_from_slice(&w.to_le_bytes());
+    }
+    for v in s.actor_pos.iter().chain(&s.target_pos) {
+        data.extend_from_slice(&v.to_bits().to_le_bytes());
+    }
+    Field::Custom {
+        tag: SCENE_TAG,
+        data,
+    }
+}
+
+fn scene_of(actor: u32, field: &Field) -> Option<commands::Scene> {
+    let Field::Custom { tag, data } = field else {
+        return None;
+    };
+    if *tag != SCENE_TAG || data.len() != 2 + 4 * 11 {
+        return None;
+    }
+    let word = |i: usize| u32::from_le_bytes(data[2 + 4 * i..6 + 4 * i].try_into().unwrap());
+    let real = |i: usize| f32::from_bits(word(i));
+    Some(commands::Scene {
+        actor,
+        target: word(0),
+        topic: word(1),
+        locations: [word(2), word(3)],
+        flags: [data[1] & 1 != 0, data[1] & 2 != 0],
+        space: word(4),
+        actor_pos: [real(5), real(6), real(7)],
+        target_pos: [real(8), real(9), real(10)],
+    })
+}
 
 fn life_field(dead: bool) -> Field {
     Field::Custom {
@@ -120,7 +208,7 @@ fn clock_value(field: &Field) -> Option<f32> {
 pub fn hello(plugins: Vec<String>) -> Hello {
     let build = format!("coop-engine-session {}", env!("CARGO_PKG_VERSION"));
     let rules = format!(
-        "quest-record {:04x} v{} {} clock {:04x} life {:04x}",
+        "quest-record {:04x} v{} {} clock {:04x} life {:04x} refs evp scene package",
         record::QUEST_RECORD_TAG,
         record::VERSION,
         record::LEN,
@@ -178,10 +266,24 @@ pub struct HostDriver {
     /// story globals.
     clock: Vec<u32>,
     clock_sent_ms: Option<u64>,
+    /// How many times each actor was told by a script to evaluate its package.
+    evaluations: std::collections::BTreeMap<u32, u8>,
+    /// How many conversations with another actor a script started for each actor.
+    scenes: std::collections::BTreeMap<u32, u8>,
+    /// The count of the lines forwarded of each speaker.
+    says: std::collections::BTreeMap<u32, u8>,
+    /// Stage changes of shared quests, for the log (taken by the caller).
+    pub stage_notes: Vec<String>,
     /// Guests' death claims the host's game enacted.
     pub claims_enacted: u32,
     /// Guests' claims left alone: the actor is not in the host's game now, or is dead already.
     pub claims_dropped: u32,
+    /// Triggers this game's player spent that were not put into the story (each player's own).
+    pub triggers_kept: u32,
+    /// Guests' proposals this game did for everyone, and those it did not.
+    pub proposals_enacted: u32,
+    /// (see `proposals_enacted`)
+    pub proposals_dropped: u32,
     /// What happened to each claim, for the log (taken by the caller).
     pub claim_notes: Vec<String>,
     /// Quest records or variables that could not be carried exactly (see [`record::encode`]; a
@@ -214,12 +316,15 @@ pub struct HostDriver {
     // social
     /// Conversations, party saves and the rest vote.
     pub social: social::HostSocial,
+    /// Whether conversations, party saves and the rest vote are shared (on unless the caller
+    /// turns it off: none of it has run on a PC yet, and it is switched on by itself).
+    pub social_on: bool,
 }
 
 impl HostDriver {
     // world
     /// Shares the rest of the world's state: changed forms' records to the guests, doors and
-    /// locks both ways (docs/coop/SPECS.md S12).
+    /// locks both ways (docs/coop/SPECS.md S14).
     pub fn share_world(&mut self, w: world::HostWorld) {
         self.sync.claim_tags.insert(world::LOCK_TAG);
         self.world = Some(w);
@@ -238,14 +343,23 @@ impl HostDriver {
     ) -> HostDriver {
         let mut sync = HostSync::new(cfg);
         sync.claim_tags.insert(LIFE_TAG);
+        sync.claim_tags.insert(PROPOSE_TAG);
+        sync.claim_tags.insert(SCENE_TAG);
         HostDriver {
             sync,
             quests: quest_ids.into_iter().collect(),
             globals: GlobalWatch::new(global_ids),
             clock: Vec::new(),
             clock_sent_ms: None,
+            evaluations: std::collections::BTreeMap::new(),
+            scenes: std::collections::BTreeMap::new(),
+            says: std::collections::BTreeMap::new(),
+            stage_notes: Vec::new(),
             claims_enacted: 0,
             claims_dropped: 0,
+            triggers_kept: 0,
+            proposals_enacted: 0,
+            proposals_dropped: 0,
             claim_notes: Vec::new(),
             unencodable: 0,
             ladder: None,
@@ -262,6 +376,7 @@ impl HostDriver {
             items: None, // items
             // social
             social: social::HostSocial::default(),
+            social_on: true,
         }
     }
 
@@ -277,6 +392,33 @@ impl HostDriver {
     fn enact_claims(&mut self, e: &mut Engine) {
         for (from, form, field) in std::mem::take(&mut self.sync.claims) {
             let id = form.0;
+            if let Some(p) = Proposal::read(&field) {
+                self.enact_proposal(e, from, id, p);
+                continue;
+            }
+            // A scene a guest's own script started: played here, and so for everyone.
+            if let Some(scene) = scene_of(id, &field) {
+                let played = commands::play_scene(e, &scene);
+                self.claim_notes.push(format!(
+                    "player {}'s game started a scene: actor {:08x} talks to {:08x} (topic {:08x}): {}",
+                    from.0,
+                    scene.actor,
+                    scene.target,
+                    scene.topic,
+                    match played {
+                        Ok(()) => "played here and for everyone".to_string(),
+                        Err(why) => format!("not played here: {why:?}"),
+                    }
+                ));
+                if played.is_ok() {
+                    commands::played_for_a_guest(e, &scene);
+                    let n = self.scenes.entry(scene.actor).or_insert(0);
+                    *n = n.wrapping_add(1);
+                    let field = scene_field(*n, &scene);
+                    self.sync.write(FormId(scene.actor), field);
+                }
+                continue;
+            }
             if life_value(&field) != Some(true) || !actors::shareable(id) {
                 self.claims_dropped += 1;
                 continue;
@@ -299,6 +441,91 @@ impl HostDriver {
                     ));
                 }
             }
+        }
+    }
+
+    /// Does in this game what a guest's script did in that guest's (D5, rung 2), if it still fits:
+    /// a variable only from the value the guest's script saw (a count that has moved on since
+    /// takes the guest's step instead), a reference only from the state it saw, a stage or an
+    /// objective only when this game has not got there. This game's own scripts run for it (a
+    /// stage's result), and the story carries the outcome to every guest.
+    fn enact_proposal(&mut self, e: &mut Engine, from: PlayerId, id: u32, p: Proposal) {
+        let done = match p {
+            Proposal::Var {
+                index,
+                before,
+                after,
+            } => {
+                let now = vars::quest_vars(e, id)
+                    .and_then(|vs| vs.into_iter().find(|(i, _)| *i == u32::from(index)))
+                    .map(|(_, bits)| bits);
+                let to = match now {
+                    Some(now) if now == before => Some(after),
+                    Some(now) if now == after => None,
+                    Some(now) => {
+                        // Both moved it (two bottles shot at once): the guest's step on top.
+                        let v =
+                            f64::from_bits(now) + f64::from_bits(after) - f64::from_bits(before);
+                        v.is_finite().then_some(v.to_bits())
+                    }
+                    None => None,
+                };
+                match to {
+                    Some(bits) if vars::set_quest_var(e, id, u32::from(index), bits) => {
+                        self.sync
+                            .write(FormId(id), Field::ScriptVar { index, bits });
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            Proposal::Disabled { before, after } => {
+                actors::shareable(id)
+                    && !actors::trigger_volume(e, id)
+                    && actors::disabled(e, id) == Some(before)
+                    && before != after
+                    && actors::set_disabled(e, id, after)
+                    && {
+                        self.sync
+                            .write(FormId(id), Field::RefDisabled { disabled: after });
+                        true
+                    }
+            }
+            Proposal::Stage(n) => match quest::record(e, id) {
+                Some(r) if !r.done.contains(&n) => {
+                    let ran = forms::set_quest_stage(e, id, n);
+                    self.write_quest(e, id);
+                    ran
+                }
+                _ => false,
+            },
+            Proposal::Objective { number, state } => match quest::record(e, id) {
+                Some(mut r) if r.objectives.iter().any(|o| o.0 == number && o.1 != state) => {
+                    for o in r.objectives.iter_mut().filter(|o| o.0 == number) {
+                        o.1 = state;
+                    }
+                    let ok = quest::apply(e, &r);
+                    self.write_quest(e, id);
+                    ok
+                }
+                _ => false,
+            },
+        };
+        if done {
+            self.proposals_enacted += 1;
+        } else {
+            self.proposals_dropped += 1;
+        }
+        if self.proposals_enacted + self.proposals_dropped <= 400 {
+            self.claim_notes.push(format!(
+                "player {}'s game did {p:?} to {id:08x}: {}",
+                from.0,
+                if done {
+                    "done here for everyone"
+                } else {
+                    "not done here (it no longer fits)"
+                }
+            ));
         }
     }
 
@@ -334,6 +561,25 @@ impl HostDriver {
         if let Some(r) = quest::record(e, id) {
             match record::encode(&r) {
                 Some(f) => {
+                    let before = self
+                        .sync
+                        .store
+                        .get(FormId(id), &f)
+                        .and_then(|en| record::decode(id, &en.field));
+                    if before.as_ref().map(|b| (b.stage, b.flags, &b.done))
+                        != Some((r.stage, r.flags, &r.done))
+                    {
+                        self.stage_notes.push(format!(
+                            "quest {id:08x}: stage {} flags {:02x} done {:?} (was {})",
+                            r.stage,
+                            r.flags,
+                            r.done,
+                            before.map_or("not in the story".to_string(), |b| format!(
+                                "stage {} flags {:02x}",
+                                b.stage, b.flags
+                            ))
+                        ));
+                    }
                     self.sync.write(FormId(id), f);
                 }
                 None => {
@@ -390,6 +636,89 @@ impl HostDriver {
         for id in quests {
             self.write_quest(e, id);
         }
+        // A placed reference a script enabled or disabled (its form flags changed): its state as
+        // it is now. Kept in the story from then on, so a later change back is sent too.
+        for c in &changes {
+            if actors::is_ref_type(c.kind)
+                && c.flags & addr::CHANGE_FORM_FLAGS != 0
+                && actors::shareable(c.form)
+            {
+                // A trigger spent by its own script is spent for the host's player only: each
+                // guest's is its own player's to walk into.
+                if actors::own_trigger_change(e, c) {
+                    self.triggers_kept += 1;
+                    if self.triggers_kept <= 40 {
+                        self.stage_notes.push(format!(
+                            "trigger {:08x} was spent by this game's player: not shared (each player has their own)",
+                            c.form
+                        ));
+                    }
+                    continue;
+                }
+                if let Some(disabled) = actors::disabled(e, c.form) {
+                    self.sync
+                        .write(FormId(c.form), Field::RefDisabled { disabled });
+                }
+            }
+        }
+        // An actor a script told to evaluate its package: the guests' copies are told too.
+        for id in commands::drain_evaluations(e) {
+            let n = self.evaluations.entry(id).or_insert(0);
+            *n = n.wrapping_add(1);
+            let data = vec![*n];
+            self.sync.write(
+                FormId(id),
+                Field::Custom {
+                    tag: EVALUATE_TAG,
+                    data,
+                },
+            );
+        }
+        // A line a script had an actor say to the host's player far from it (or one a guest's
+        // game runs): the guest near it says it there.
+        let theirs = self
+            .fight
+            .as_ref()
+            .map(|f| f.theirs().clone())
+            .unwrap_or_default();
+        for (speaker, topic) in commands::drain_says(e) {
+            let far = match (coop_engine::live::local(e), actors::actor(e, speaker)) {
+                (Some(me), Some(a)) if me.loaded => {
+                    let here = coop_engine::fight::place_of_ptr(e, a);
+                    coop_engine::fight::space_of(e, a) != me.cell
+                        || e.mem.u32(a.wrapping_add(addr::ACTOR_PROCESS_OFFSET)) == 0
+                        || (0..3)
+                            .map(|i| (here[i] - me.pos[i]).powi(2))
+                            .sum::<f32>()
+                            .sqrt()
+                            > SAY_FAR
+                }
+                _ => true,
+            };
+            if !(far || theirs.contains(&speaker)) {
+                continue;
+            }
+            let n = self.says.entry(speaker).or_insert(0);
+            *n = n.wrapping_add(1);
+            let mut data = vec![*n];
+            data.extend(topic.to_le_bytes());
+            self.stage_notes.push(format!(
+                "say: actor {speaker:08x} says topic {topic:08x} to the player, away from this game's: the guest near it says it"
+            ));
+            self.sync
+                .write(FormId(speaker), Field::Custom { tag: SAY_TAG, data });
+        }
+        // A conversation a script started between two actors: the guests' games play it too.
+        for scene in commands::drain_scenes(e) {
+            let n = self.scenes.entry(scene.actor).or_insert(0);
+            *n = n.wrapping_add(1);
+            self.stage_notes.push(format!(
+                "scene: actor {:08x} starts a conversation with {:08x} (topic {:08x})",
+                scene.actor, scene.target, scene.topic
+            ));
+            let field = scene_field(*n, &scene);
+            self.sync.write(FormId(scene.actor), field);
+        }
         // A placed actor that died (or, once it has an entry, lives again).
         for id in life_changes(&changes) {
             let Some(dead) = actors::dead(e, id) else {
@@ -397,6 +726,12 @@ impl HostDriver {
             };
             let field = life_field(dead);
             if dead || self.sync.store.get(FormId(id), &field).is_some() {
+                if self.sync.store.get(FormId(id), &field).map(|en| &en.field) != Some(&field) {
+                    self.stage_notes.push(format!(
+                        "actor {id:08x}: {} in this game",
+                        if dead { "died" } else { "alive again" }
+                    ));
+                }
                 self.sync.write(FormId(id), field);
             }
         }
@@ -411,16 +746,6 @@ impl HostDriver {
     pub fn step(&mut self, e: &mut Engine, net: &mut dyn Transport, now_ms: u64) {
         self.sync.set_time_ms(now_ms);
         for (from, msg) in receive(net, &mut self.bad_packets) {
-            // vats: the actors a guest's game runs and the host's does not. A guest's report
-            // of them is the fights' to judge, not coop-core's to enter as it comes.
-            if let Some(f) = self.fight.as_mut() {
-                for (to, m) in f.host_pre(&mut self.sync, from, &msg) {
-                    send(net, to, &m, &mut self.send_failures);
-                }
-                if matches!(msg, Msg::Actor(coop_core::actors::ActorMsg::Track { .. })) {
-                    continue;
-                }
-            }
             for (to, reply) in self.sync.on_msg(from, msg) {
                 send(net, to, &reply, &mut self.send_failures);
             }
@@ -531,6 +856,57 @@ pub struct GuestDriver {
     claimed: BTreeSet<u32>,
     /// Actors whose life changed in this game before the host could be told.
     life_pending: BTreeSet<u32>,
+    /// The script last seen changing each form in this game (the guest's own journal): what a
+    /// drift of that form is put down to.
+    causes: std::collections::BTreeMap<u32, gate::Cause>,
+    /// Triggers this player spent (their own script switched them when the player walked in),
+    /// with what the host's story said of each then: left as this game has them.
+    own_triggers: std::collections::BTreeMap<u32, Option<bool>>,
+    /// The time of the last heal.
+    now_ms: u64,
+    /// Proposals made and not yet answered: what this game held then, and until when it is left.
+    proposed: std::collections::BTreeMap<(u32, u8, u32), (Field, u64)>,
+    /// Proposals to send.
+    proposals_out: Vec<(FormId, Field)>,
+    /// Loads of a save this game made, as last seen.
+    loads_seen: u64,
+    /// Until when nothing is proposed (after a load, or a burst of differences).
+    quiet_until: u64,
+    /// What differed from the story at the last heal.
+    differed: std::collections::BTreeSet<(u32, u8, u32)>,
+    /// Entries of the story this game could not take when they last came.
+    unapplied: std::collections::BTreeSet<(u32, u8, u32)>,
+    /// The quests each object script of the game's data names (from the data files): a change
+    /// to one of them with no cause in the journal is proposed only when such a script ran here
+    /// just before.
+    pub object_script_quests: std::collections::BTreeMap<u32, Vec<u32>>,
+    /// Object scripts naming a quest that ran here lately, and when.
+    recent_object_scripts: std::collections::BTreeMap<(u32, u32), u64>,
+    /// Whether this game's own object scripts' changes are proposed to the host
+    /// (`NV_COOP_PROPOSE=off` turns it off: they are put back as before).
+    pub proposals_on: bool,
+    /// Proposals sent to the host, and those the host let lapse (put back here).
+    pub proposals_sent: u32,
+    /// (see `proposals_sent`)
+    pub proposals_lapsed: u32,
+    /// The count of the last scene seen for each actor, and whether the join's state is in.
+    scene_seen: std::collections::BTreeMap<u32, u8>,
+    /// The count of the last line of each speaker this game has seen.
+    say_seen: std::collections::BTreeMap<u32, u8>,
+    /// The host's lines said here.
+    pub says_said: u32,
+    /// Scenes this game's own scripts started, asked of the host.
+    pub scenes_asked: u32,
+    joined: bool,
+    /// The host's conversations between actors played in this game, and those that could not be.
+    pub scenes_played: u32,
+    /// See [`GuestDriver::scenes_played`].
+    pub scenes_missed: u32,
+    /// Distinct drifts whose cause the journal named, and those it did not (docs/coop/DECISIONS.md
+    /// D5, rung 1: the census of what a guest's own scripts write to the shared story).
+    pub drift_named: u32,
+    /// See [`GuestDriver::drift_named`].
+    pub drift_unnamed: u32,
     /// How many such claims were sent.
     pub claims_sent: u32,
     /// Every this many steps the guest's game is read back ([`echo`]) and whatever drifted from the
@@ -569,6 +945,8 @@ pub struct GuestDriver {
     // social
     /// Conversations, this player's part of a party save, and the rest vote.
     pub social: social::GuestSocial,
+    /// See [`HostDriver::social_on`].
+    pub social_on: bool,
 }
 
 impl GuestDriver {
@@ -584,6 +962,29 @@ impl GuestDriver {
             clock_set_ms: None,
             claimed: BTreeSet::new(),
             life_pending: BTreeSet::new(),
+            causes: std::collections::BTreeMap::new(),
+            own_triggers: std::collections::BTreeMap::new(),
+            now_ms: 0,
+            proposed: std::collections::BTreeMap::new(),
+            proposals_out: Vec::new(),
+            loads_seen: 0,
+            quiet_until: 0,
+            differed: std::collections::BTreeSet::new(),
+            unapplied: std::collections::BTreeSet::new(),
+            proposals_on: true,
+            object_script_quests: std::collections::BTreeMap::new(),
+            recent_object_scripts: std::collections::BTreeMap::new(),
+            proposals_sent: 0,
+            proposals_lapsed: 0,
+            scene_seen: std::collections::BTreeMap::new(),
+            say_seen: std::collections::BTreeMap::new(),
+            says_said: 0,
+            scenes_asked: 0,
+            joined: false,
+            scenes_played: 0,
+            scenes_missed: 0,
+            drift_named: 0,
+            drift_unnamed: 0,
             claims_sent: 0,
             heal_every: 20,
             healed: 0,
@@ -600,6 +1001,7 @@ impl GuestDriver {
             items: None, // items
             // social
             social: social::GuestSocial::default(),
+            social_on: true,
         }
     }
 
@@ -649,6 +1051,7 @@ impl GuestDriver {
         }
         // social
         social::guest_step(self, e, net, now_ms);
+        self.now_ms = now_ms;
         self.claim_deaths(e, net);
         self.apply(e);
         // world
@@ -660,8 +1063,32 @@ impl GuestDriver {
             i.apply(e, &self.sync.store, self.sync.player);
         }
         self.keep_clock(e, now_ms);
+        for (script, reference) in gate::drain_object_scripts(e) {
+            if self.object_script_quests.contains_key(&script) {
+                self.recent_object_scripts
+                    .insert((script, reference), now_ms);
+            }
+        }
+        self.recent_object_scripts
+            .retain(|_, at| now_ms.saturating_sub(*at) <= PROPOSE_RECENT_MS);
+        if self.proposals_on && self.sync.phase() == GuestPhase::Active {
+            for scene in commands::drain_scenes(e) {
+                self.proposals_out
+                    .push((FormId(scene.actor), scene_field(0, &scene)));
+                self.scenes_asked += 1;
+            }
+        } else {
+            let _ = commands::drain_scenes(e);
+        }
+        let claims = std::mem::take(&mut self.proposals_out);
+        if !claims.is_empty() {
+            for msg in self.sync.send_intent(Epoch(0), claims) {
+                send(net, PlayerId::HOST, &msg, &mut self.send_failures);
+            }
+        }
         self.steps += 1;
         if self.steps % self.heal_every.max(1) == 0 {
+            self.now_ms = now_ms;
             self.heal(e);
             // world
             if let Some(w) = self.world.as_mut() {
@@ -673,11 +1100,51 @@ impl GuestDriver {
     /// Tells the host of every placed actor that died in this game and is not dead in the host's
     /// story (a death applied from the host is in the replica by then, so it is not sent back).
     fn claim_deaths(&mut self, e: &mut Engine, net: &mut dyn Transport) {
+        self.note_loads(e);
         let changes = coop_engine::drain(e);
         // items: this player's takes and trades, before the world layer empties the verdicts.
         if let Some(i) = self.items.as_mut() {
             for msg in i.observe(e, &mut self.sync, &changes) {
                 send(net, PlayerId::HOST, &msg, &mut self.send_failures);
+            }
+        }
+        for c in &changes {
+            if let Some(cause) = c.cause {
+                self.causes.insert(c.form, cause);
+            }
+            // A trigger this player walked into and its own script spent: this player's own from
+            // now, whatever the host's story says of it today.
+            // A reference the story says nothing of yet, switched by one of this game's own
+            // object scripts (a target shot, a thing used up): proposed straight from the
+            // journal, since there is nothing in the story to compare it with.
+            if actors::is_ref_type(c.kind)
+                && c.flags & addr::CHANGE_FORM_FLAGS != 0
+                && actors::shareable(c.form)
+                && c.cause
+                    .is_some_and(|k| k.script != 0 && !k.quest_script && k.owner_quest == 0)
+                && self.proposals_on
+                && self.now_ms >= self.quiet_until
+                && self.story_disabled(c.form).is_none()
+                && !actors::trigger_volume(e, c.form)
+                && self.sync.phase() == GuestPhase::Active
+            {
+                if let Some(now) = actors::disabled(e, c.form) {
+                    let p = Proposal::Disabled {
+                        before: !now,
+                        after: now,
+                    };
+                    self.proposals_out.push((FormId(c.form), p.field()));
+                    self.proposals_sent += 1;
+                }
+            }
+            if actors::own_trigger_change(e, c) {
+                let story = self.story_disabled(c.form);
+                if self.own_triggers.insert(c.form, story).is_none() {
+                    self.healed_notes.push(format!(
+                        "co-op guest: trigger {:08x} was spent by this player: kept as this game has it",
+                        c.form
+                    ));
+                }
             }
         }
         // world: this game's own doors and locks, told to the host.
@@ -708,6 +1175,34 @@ impl GuestDriver {
         self.claims_sent += claims.len() as u32;
         for msg in self.sync.send_intent(Epoch(0), claims) {
             send(net, PlayerId::HOST, &msg, &mut self.send_failures);
+        }
+    }
+
+    /// What the host's story says of reference `form` being disabled, if it says anything.
+    fn story_disabled(&self, form: u32) -> Option<bool> {
+        self.sync
+            .store
+            .get(FormId(form), &Field::RefDisabled { disabled: false })
+            .and_then(|en| match en.field {
+                Field::RefDisabled { disabled } => Some(disabled),
+                _ => None,
+            })
+    }
+
+    /// Whether `field` of `form` is left as this game has it: the state of a trigger this player
+    /// spent, for as long as the host's story says of it what it said then. A story that says
+    /// something new (a quest of the host's switched the trigger) is the story's again.
+    fn own_trigger_keeps(&mut self, form: u32, field: &Field) -> bool {
+        let Field::RefDisabled { disabled } = field else {
+            return false;
+        };
+        match self.own_triggers.get(&form) {
+            Some(then) if *then == Some(*disabled) => true,
+            Some(_) => {
+                self.own_triggers.remove(&form);
+                false
+            }
+            None => false,
         }
     }
 
@@ -744,6 +1239,132 @@ impl GuestDriver {
         }
     }
 
+    /// Forgets what the journal said caused each change so far (tests: a change that comes later
+    /// with no cause of its own).
+    pub fn forget_causes(&mut self) {
+        self.causes.clear();
+    }
+
+    /// Notes a load of a save in this game: nothing is proposed for a while.
+    fn note_loads(&mut self, e: &mut Engine) {
+        let loads = coop_engine::saves::loads(e);
+        if loads != self.loads_seen {
+            self.loads_seen = loads;
+            self.quiet_until = self.now_ms + PROPOSE_QUIET_MS;
+            self.proposed.clear();
+            self.causes.clear();
+            self.healed_notes.push(
+                "co-op guest: this game loaded a save: put back to the story, nothing proposed for a while"
+                    .into(),
+            );
+        }
+    }
+
+    /// Whether a difference from the story is left alone for now: it is what one of this game's
+    /// own object scripts did (not a quest's script, which the gate holds; not a line of dialogue,
+    /// which the conversations carry), it has been proposed to the host, and the host has had
+    /// less than [`PROPOSE_HOLD_MS`] to answer. The first time, the proposal is queued. When the
+    /// time is up the difference is put back like any other.
+    fn proposes(&mut self, e: &mut Engine, m: &Mismatch) -> bool {
+        let Some(found) = &m.found else {
+            return false;
+        };
+        let key = (m.form, m.want.kind(), sub_of(&m.want));
+        if let Some((held, until)) = self.proposed.get(&key) {
+            if held == found && self.now_ms < *until {
+                return true;
+            }
+            if held == found {
+                // The host did not take it: put back, and not proposed again from this cause.
+                self.proposed.remove(&key);
+                self.causes.remove(&m.form);
+                self.proposals_lapsed += 1;
+                return false;
+            }
+            self.proposed.remove(&key);
+        }
+        // This game changed it, not the story: the story's entry went into this game when it
+        // last came (an entry this game could not take is this game being behind, and is never
+        // proposed), and this game agreed with the story at the last heal.
+        let stable = self.joined && !self.unapplied.contains(&key);
+        let fresh = !self.differed.contains(&key);
+        let cause = self.causes.get(&m.form);
+        // A quest's variable or stage changed with no cause in the journal (`set Quest.var to`
+        // leaves none) is this player's doing only if an object script that names that quest
+        // ran in this game just before (PC run 19: quests of the pre-order packs changed here on
+        // their own, every few seconds, and were proposed).
+        // Which of them ran on an actor that has died here since: what such a script does to the
+        // quest is its death's doing, and the host runs the death of its own copy (PC run 25:
+        // the third well's geckos were counted in both games, the count passed 3 without being
+        // 3, the well was never cleared, and the settler and Sunny waited for ever).
+        let naming: Vec<u32> = self
+            .recent_object_scripts
+            .keys()
+            .filter(|(script, _)| {
+                self.object_script_quests
+                    .get(script)
+                    .is_some_and(|qs| qs.contains(&m.form))
+            })
+            .map(|(_, reference)| *reference)
+            .collect();
+        let a_death = naming.iter().any(|r| actors::dead(e, *r) == Some(true));
+        let named_by_a_script = !naming.is_empty() && !a_death;
+        // What this game's own doing is: an object script's, or a line of this player's own
+        // dialogue whose result ran here (PC run 20: Sunny's rifle line completed an objective
+        // and showed the next in the guest's game; put back, the guest got no instructions). A
+        // quest's script is the host's (the gate holds those). Everything proposed is done by
+        // the host only if it still fits, so a result the host also runs is not done twice.
+        let cause_dead = match cause {
+            Some(c) => actors::dead(e, c.reference) == Some(true),
+            None => false,
+        };
+        // (a script on an actor that died here: its death, which the host runs for its own copy)
+        let own_doing = |c: &gate::Cause| !c.quest_script && c.owner_quest == 0 && !cause_dead;
+        let allowed = match &m.want {
+            // A reference: only when this game's own doing is known to have done it (lights and
+            // the like differ between two games for reasons of their own).
+            Field::RefDisabled { .. } => cause.is_some_and(own_doing),
+            // A quest's variable or record: a script that names the quest ran here just before,
+            // or the journal's last word on the quest is this game's own doing. (A variable leaves
+            // nothing in the journal, so the journal's word may be older than the change: PC run
+            // 20, the bottles' count was put down to the rifle line.)
+            Field::ScriptVar { .. } => {
+                !a_death && (named_by_a_script || cause.is_some_and(own_doing))
+            }
+            Field::Custom { tag, .. } if *tag == record::QUEST_RECORD_TAG => {
+                !a_death && (named_by_a_script || cause.is_some_and(own_doing))
+            }
+            _ => false,
+        };
+        if !(stable && fresh && allowed)
+            || !self.proposals_on
+            || self.sync.phase() != GuestPhase::Active
+            || self.now_ms < self.quiet_until
+        {
+            return false;
+        }
+        let ps = Proposal::between(m.form, &m.want, found);
+        if ps.is_empty() {
+            return false;
+        }
+        for p in &ps {
+            self.proposals_out.push((FormId(m.form), p.field()));
+        }
+        self.proposals_sent += ps.len() as u32;
+        if self.proposals_sent <= 400 {
+            self.healed_notes.push(format!(
+                "co-op guest: this game's script {:08x} did {ps:?} to {:08x}: proposed to the host",
+                self.causes.get(&m.form).map_or(0, |c| c.script),
+                m.form
+            ));
+        }
+        // The cause has been used: a later difference on this form needs a cause of its own.
+        self.causes.remove(&m.form);
+        self.proposed
+            .insert(key, (found.clone(), self.now_ms + PROPOSE_HOLD_MS));
+        true
+    }
+
     /// Applies again every replica entry the guest's game does not hold ([`echo`]), and puts back
     /// into the player's objective list any shown objective of a shared quest that is not in it.
     pub fn heal(&mut self, e: &mut Engine) {
@@ -759,20 +1380,61 @@ impl GuestDriver {
         for id in quests {
             self.relisted += quest::relist(e, id);
         }
-        for m in echo(e, &self.sync.store) {
+        self.note_loads(e);
+        let mismatches = echo(e, &self.sync.store);
+        // A game that loaded a save, or that differs from the story in many things at once, has
+        // not been played into it: everything is put back, nothing proposed, for a while (PC run
+        // 25: the guest's player died, the game loaded its last save, and the guest proposed the
+        // whole of that save to the host: the tutorial's quests went back, Sunny died).
+        let proposable = mismatches
+            .iter()
+            .filter(|m| {
+                !self
+                    .differed
+                    .contains(&(m.form, m.want.kind(), sub_of(&m.want)))
+            })
+            .count();
+        if proposable > PROPOSE_BURST && self.now_ms >= self.quiet_until {
+            self.quiet_until = self.now_ms + PROPOSE_QUIET_MS;
+            self.healed_notes.push(format!(
+                "co-op guest: {proposable} things differ from the story at once: put back, nothing proposed for a while"
+            ));
+        }
+        let differ: std::collections::BTreeSet<(u32, u8, u32)> = mismatches
+            .iter()
+            .map(|m| (m.form, m.want.kind(), sub_of(&m.want)))
+            .collect();
+        for m in mismatches {
+            if self.own_trigger_keeps(m.form, &m.want) {
+                continue;
+            }
+            if self.proposes(e, &m) {
+                continue;
+            }
             if apply_field(e, m.form, &m.want) {
                 self.healed += 1;
                 let key = (m.form, m.want.kind());
-                if self.healed_seen.len() < 40 && self.healed_seen.insert(key) {
+                if self.healed_seen.len() < 200 && self.healed_seen.insert(key) {
+                    let cause = match self.causes.get(&m.form) {
+                        Some(c) => {
+                            self.drift_named += 1;
+                            format!("changed here by {c}")
+                        }
+                        None => {
+                            self.drift_unnamed += 1;
+                            "cause unknown".into()
+                        }
+                    };
                     self.healed_notes.push(format!(
-                        "form {:08x}: this game had {:?}, the host's story has {:?}",
-                        m.form, m.found, m.want
+                        "COOP-DRIFT form {:08x} kind {}: {cause}; this game had {:?}, the host's story has {:?}; put back",
+                        m.form, key.1, m.found, m.want
                     ));
                 }
             } else {
                 self.heal_refused += 1;
             }
         }
+        self.differed = differ;
     }
 
     /// Applies to the game what changed in the replica since the last call; after a snapshot or a
@@ -789,9 +1451,81 @@ impl GuestDriver {
             .map(|(k, en)| (k.form.0, en.field.clone()))
             .collect();
         for (form, field) in due {
-            if !apply_field(e, form, &field) {
-                self.refused += 1;
+            if let Some((count, topic)) = say_of(&field) {
+                let seen = self.say_seen.insert(form, count);
+                if !self.joined || seen == Some(count) {
+                    continue;
+                }
+                let near = match (coop_engine::live::local(e), actors::actor(e, form)) {
+                    (Some(me), Some(a)) if me.loaded => {
+                        let here = coop_engine::fight::place_of_ptr(e, a);
+                        coop_engine::fight::space_of(e, a) == me.cell
+                            && (0..3)
+                                .map(|i| (here[i] - me.pos[i]).powi(2))
+                                .sum::<f32>()
+                                .sqrt()
+                                <= SAY_NEAR
+                    }
+                    _ => false,
+                };
+                if !near {
+                    continue;
+                }
+                match commands::say_to_player(e, form, topic) {
+                    Ok(()) => {
+                        self.says_said += 1;
+                        self.healed_notes.push(format!(
+                            "co-op guest: the host's line, said here: actor {form:08x} says topic {topic:08x} to this player"
+                        ));
+                    }
+                    Err(why) => self.healed_notes.push(format!(
+                        "co-op guest: the host's line of actor {form:08x} (topic {topic:08x}) was not said here: {why:?}"
+                    )),
+                }
+                continue;
             }
+            if let Some(scene) = scene_of(form, &field) {
+                // One that comes with the join happened before: it is over. After that, one whose
+                // count this game has not played is new, whether it comes alone or with a repair.
+                let count = match &field {
+                    Field::Custom { data, .. } => data.first().copied().unwrap_or(0),
+                    _ => 0,
+                };
+                let seen = self.scene_seen.insert(form, count);
+                if !self.joined || seen == Some(count) {
+                    continue;
+                }
+                match gate::applying(e, |e| commands::play_scene(e, &scene)) {
+                    Ok(()) => {
+                        self.scenes_played += 1;
+                        self.healed_notes.push(format!(
+                            "co-op guest: the host's scene, asked of this game: actor {:08x} talks to {:08x} (topic {:08x})",
+                            scene.actor, scene.target, scene.topic
+                        ));
+                    }
+                    Err(why) => {
+                        self.scenes_missed += 1;
+                        self.healed_notes.push(format!(
+                            "co-op guest: the host's scene of actor {:08x} with {:08x} was not played here: {why:?}",
+                            scene.actor, scene.target
+                        ));
+                    }
+                }
+                continue;
+            }
+            if self.own_trigger_keeps(form, &field) {
+                continue;
+            }
+            let key = (form, field.kind(), sub_of(&field));
+            if apply_field(e, form, &field) {
+                self.unapplied.remove(&key);
+            } else {
+                self.refused += 1;
+                self.unapplied.insert(key);
+            }
+        }
+        if all {
+            self.joined = true;
         }
         self.applied_upto = self.sync.store.rev();
         self.snapshots_applied = self.sync.snapshots_loaded;
@@ -813,6 +1547,25 @@ fn apply_field(e: &mut Engine, form: u32, field: &Field) -> bool {
             Some(v) => gate::applying(e, |e| forms::set_global_value(e, form, v)),
             None => false,
         },
+        // The package the host's copy runs: remembered for the game's own evaluation to be
+        // answered with, and the actor told to evaluate.
+        Field::Custom { tag, .. } if *tag == PACKAGE_TAG => match package_of(field) {
+            // Remembered only: the fights' follow step asks the copy to take it, when this
+            // player's own opening is done and the host runs the actor near this player.
+            Some(package) => {
+                commands::set_wanted_package(e, form, package);
+                true
+            }
+            None => false,
+        },
+        // A host's scene: played by the driver when it comes, never from here.
+        Field::Custom { tag, .. } if *tag == SCENE_TAG || *tag == SAY_TAG => true,
+        // A host command: the actor evaluates its package again, as the host's script told its
+        // own copy. One that is not in this game now picks its package when it loads anyway.
+        Field::Custom { tag, .. } if *tag == EVALUATE_TAG => {
+            gate::applying(e, |e| commands::evaluate_package(e, form));
+            true
+        }
         // A death: this game's copy is killed through the game, its scripts held back (they ran on
         // the host). An actor that is not here now is killed when it is (the heal). An actor alive
         // again on the host is left as it is here: nothing here can raise it yet.
@@ -826,6 +1579,14 @@ fn apply_field(e: &mut Engine, form: u32, field: &Field) -> bool {
             Some(false) => true,
             None => false,
         },
+        // A reference the host's scripts enabled or disabled: the same here, through the game. One
+        // that is not in this game now is set when it is (the heal).
+        Field::RefDisabled { disabled } => {
+            if actors::disabled(e, form).is_some_and(|d| d != *disabled) {
+                gate::applying(e, |e| actors::set_disabled(e, form, *disabled));
+            }
+            true
+        }
         Field::Global { bits } => gate::applying(e, |e| {
             forms::set_global_value(e, form, f32::from_bits(*bits))
         }),
@@ -845,6 +1606,154 @@ pub struct Mismatch {
     pub want: Field,
     /// What the game holds, as the same kind of field (`None`: no such form, or not of that kind).
     pub found: Option<Field>,
+}
+
+/// The tag of a proposal (D5, rung 2): what one of a guest's own object scripts did to the shared
+/// story in that guest's game (a bottle shot, a trap sprung), sent to the host as a claim. The
+/// host's game does it for everyone if it still fits; the guest's game is not put back meanwhile.
+pub const PROPOSE_TAG: u16 = 0x5052;
+/// How long a guest leaves its own change alone while the host decides.
+pub const PROPOSE_HOLD_MS: u64 = 3000;
+
+/// One thing a guest's script did, as the host can do it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Proposal {
+    /// A quest script's variable went from `before` to `after`.
+    Var { index: u16, before: u64, after: u64 },
+    /// A reference was switched off or on.
+    Disabled { before: bool, after: bool },
+    /// A quest's stage was set.
+    Stage(u8),
+    /// A quest's objective was given a state.
+    Objective { number: u32, state: u32 },
+}
+
+impl Proposal {
+    /// As a claim's field.
+    pub fn field(&self) -> Field {
+        let mut data = Vec::new();
+        match *self {
+            Proposal::Var {
+                index,
+                before,
+                after,
+            } => {
+                data.push(1);
+                data.extend(index.to_le_bytes());
+                data.extend(before.to_le_bytes());
+                data.extend(after.to_le_bytes());
+            }
+            Proposal::Disabled { before, after } => data.extend([2, before as u8, after as u8]),
+            Proposal::Stage(n) => data.extend([3, n]),
+            Proposal::Objective { number, state } => {
+                data.push(4);
+                data.extend(number.to_le_bytes());
+                data.extend(state.to_le_bytes());
+            }
+        }
+        Field::Custom {
+            tag: PROPOSE_TAG,
+            data,
+        }
+    }
+
+    /// Reads a claim's field; `None` for anything else or a malformed one.
+    pub fn read(f: &Field) -> Option<Proposal> {
+        let Field::Custom { tag, data } = f else {
+            return None;
+        };
+        if *tag != PROPOSE_TAG {
+            return None;
+        }
+        let u64_at = |i: usize| {
+            data.get(i..i + 8)
+                .map(|b| u64::from_le_bytes(b.try_into().unwrap()))
+        };
+        let u32_at = |i: usize| {
+            data.get(i..i + 4)
+                .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        };
+        match (data.first()?, data.len()) {
+            (1, 19) => Some(Proposal::Var {
+                index: u16::from_le_bytes([data[1], data[2]]),
+                before: u64_at(3)?,
+                after: u64_at(11)?,
+            }),
+            (2, 3) => Some(Proposal::Disabled {
+                before: data[1] != 0,
+                after: data[2] != 0,
+            }),
+            (3, 2) => Some(Proposal::Stage(data[1])),
+            (4, 9) => Some(Proposal::Objective {
+                number: u32_at(1)?,
+                state: u32_at(5)?,
+            }),
+            _ => None,
+        }
+    }
+
+    /// What a guest's game holding `found` where the story has `want` proposes.
+    pub fn between(form: u32, want: &Field, found: &Field) -> Vec<Proposal> {
+        match (want, found) {
+            (
+                Field::ScriptVar {
+                    index,
+                    bits: before,
+                },
+                Field::ScriptVar { bits: after, .. },
+            ) => {
+                vec![Proposal::Var {
+                    index: *index,
+                    before: *before,
+                    after: *after,
+                }]
+            }
+            (Field::RefDisabled { disabled: before }, Field::RefDisabled { disabled: after }) => {
+                vec![Proposal::Disabled {
+                    before: *before,
+                    after: *after,
+                }]
+            }
+            _ => {
+                let (Some(w), Some(f)) = (record::decode(form, want), record::decode(form, found))
+                else {
+                    return Vec::new();
+                };
+                let mut out: Vec<Proposal> = f
+                    .done
+                    .iter()
+                    .filter(|n| !w.done.contains(n))
+                    .map(|n| Proposal::Stage(*n))
+                    .collect();
+                for (n, state) in &f.objectives {
+                    if w.objectives.iter().find(|o| o.0 == *n).map(|o| o.1) != Some(*state) {
+                        out.push(Proposal::Objective {
+                            number: *n,
+                            state: *state,
+                        });
+                    }
+                }
+                out
+            }
+        }
+    }
+}
+
+/// The most differences from the story one heal may find new and still propose: more is a game
+/// that was not played into them (a load, a reset).
+pub const PROPOSE_BURST: usize = 12;
+/// How long nothing is proposed after a load or a burst.
+pub const PROPOSE_QUIET_MS: u64 = 20_000;
+
+/// How long after an object script naming a quest ran a change to that quest is put down to it.
+pub const PROPOSE_RECENT_MS: u64 = 3000;
+
+/// What tells two fields of one kind on one form apart (a variable's index).
+fn sub_of(f: &Field) -> u32 {
+    match f {
+        Field::ScriptVar { index, .. } => u32::from(*index),
+        _ => 0,
+    }
 }
 
 /// Reads the guest's game back for every quest record, quest variable and global in `store` and
@@ -868,6 +1777,11 @@ pub fn echo(e: &mut Engine, store: &StateStore) -> Vec<Mismatch> {
             Field::Global { .. } => {
                 forms::global_value(e, form).map(|v| Field::Global { bits: v.to_bits() })
             }
+            Field::RefDisabled { .. } => match actors::disabled(e, form) {
+                Some(disabled) => Some(Field::RefDisabled { disabled }),
+                // Not in this game now: it waits.
+                None => continue,
+            },
             // Only a death this game does not have yet is a difference: an actor that is not
             // here now waits, and one alive again on the host is left.
             Field::Custom { tag, .. } if *tag == LIFE_TAG => {

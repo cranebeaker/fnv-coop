@@ -1,4 +1,4 @@
-//! V.A.T.S. with several players, in the game (docs/coop/SPECS.md S20).
+//! V.A.T.S. with several players, in the game (docs/coop/SPECS.md S21).
 //!
 //! Alone, V.A.T.S. stops the game while a target is picked and slows it while the queued shots
 //! play. With other players in the session neither may happen: every game runs actors the

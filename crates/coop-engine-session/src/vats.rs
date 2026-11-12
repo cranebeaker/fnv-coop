@@ -1,4 +1,4 @@
-//! V.A.T.S. with several players (docs/coop/SPECS.md S20; coop-core's `combat::vats`).
+//! V.A.T.S. with several players (docs/coop/SPECS.md S21; coop-core's `combat::vats`).
 //!
 //! coop-core's model has two clocks: the world's, which everyone shares, and the acting
 //! player's own presentation. `vats_scales(shared, wanted)` gives the world speed 1.0 in a

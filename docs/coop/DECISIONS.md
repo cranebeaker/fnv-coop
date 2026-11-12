@@ -169,3 +169,45 @@ death before the session started is not sent. Where the body lies, what it carri
 would not have (its own NPCs' fights); the host accepts it. An actor alive again on the host is not raised
 on a guest.
 
+## D5: a guest's actions and the host's world (PC run 5, 2026-11-10)
+
+**Question.** A guest cannot move the shared story: its talk with Sunny Smiles advanced VCG02 in its own
+game and the heal put it back 29,000 times. Scenes (Joe Cobb and Trudy, a trigger's `StartConversation`)
+and NPC behaviour exist in the host's game only. Scripts say `player` and mean the local player.
+
+**Options (three independent planners).** A: the guest's world is a mirror: guest AI off, a host actor
+stream, every guest action forwarded and enacted on the host (`TESTopicInfo::RunResult` `0061f170`,
+`ScriptEventList::SetActionFlag` `005ac750`, `Actor::HitMe` `0089a760`). B: two simulations: a shared write
+made by a guest's script is captured by the guest's own journal at the moment of the write and sent as a
+claim the host enacts; scenes as host-to-guest directives; actors reconciled softly. C: "drift is a
+proposal": the heal's diff is the guest's write-set; tag it with its cause, send it, hold the heal until the
+host's echo; scenes as host commands, the guest dropping its own.
+
+**Factors.** Works in the real game and diagnosable 0.35, whole story and DLCs 0.25, headless
+verifiability 0.15, effort 0.15, safety of the proven story channel 0.10.
+
+| Member | A | B | C | Vote |
+| --- | --- | --- | --- | --- |
+| 1 (sceptic) | 3.50 | 6.25 | 7.15 | C's ladder with B's capture for stages and objectives |
+| 2 (pragmatist) | 4.35 | 6.70 | 7.65 | C first, B's capture where the census shows the need |
+| 3 (correctness) | 4.60 | 6.95 | 6.90 | B's capture, C's ladder and backstop |
+
+**Decision: the hybrid, 3 votes to 0.** C's ladder (census; proposals with a bounded heal hold; host scene
+commands with the guest dropping its own actor-to-actor `StartConversation`), with B's journal capture and
+cause for stages, objectives, enabled state and life, and the heal's diff as the capture for variables and
+globals and as the backstop. A is rejected: on the host `player` is the host's player, and the effects that
+would go to the wrong person are silent. A per-script "host runs it" stays as the fallback both plans share.
+
+**Binding conditions.**
+1. Rung 1 (the census) ships alone and changes no behaviour: one `COOP-DRIFT` line per distinct drift with
+   its cause or "cause unknown". Rung 2 follows a PC run that shows VCG02's drift with its cause.
+2. Every proposal has an id and ends in exactly one logged outcome: confirmed by the host's echo, rejected,
+   or timed out and put back. No heal hold outlives its timeout (headless test with a silent host).
+3. Exactly once: the host ignores a repeated claim (headless test: three sends, one enactment, one result
+   script run).
+4. No lost updates: counters go as deltas or compare-and-set (headless test: both sides increment, both
+   count).
+5. No double scenes: a guest's own `StartConversation` outside a host command is dropped and logged
+   (headless test: a host command and a local trigger together play once).
+6. Proposals and scene commands have separate switches; with both off the story channel behaves as in run 5.
+

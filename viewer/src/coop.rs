@@ -10,9 +10,9 @@
 //! default) also shows the other players; `off` leaves the session story-only.
 //! `NV_COOP_AVATAR=<hex form id>` is the base form of an avatar (default 7, the player's own).
 //! `NV_COOP_WORLD=doors` shares doors and locks but no changed-form records, `off` neither
-//! (docs/coop/SPECS.md S12).
+//! (docs/coop/SPECS.md S14).
 //!
-//! Shared fights (fights; docs/coop/SPECS.md S13) run with the ladder: `NV_COOP_FIGHT=state` shows
+//! Shared fights (fights; docs/coop/SPECS.md S15) run with the ladder: `NV_COOP_FIGHT=state` shows
 //! the host's actors on the guests, `damage` also sends hits through the host, `threat` also lets
 //! the host's actors turn on a guest, `revive` (the default) also holds a player's death for a
 //! revive; `off` leaves every game running its own fights.
@@ -99,6 +99,42 @@ struct GameData {
     globals: Vec<u32>,
     /// The game clock's globals: shared as the clock (the host's, about once a second).
     clock: Vec<u32>,
+    /// The quests each object script names (its `SCRO` references that are quests).
+    object_script_quests: std::collections::BTreeMap<u32, Vec<u32>>,
+}
+
+/// For every object script (`SCHR` type 0) of the load order, the quests it names.
+fn object_script_quests(order: &esm::LoadOrder) -> std::collections::BTreeMap<u32, Vec<u32>> {
+    let quests: std::collections::BTreeSet<u32> = order
+        .records_of_type(esm::FourCC::new(b"QUST"))
+        .map(|r| r.form_id.0)
+        .collect();
+    let mut out = std::collections::BTreeMap::new();
+    for r in order.records_of_type(esm::FourCC::new(b"SCPT")) {
+        let Ok(rec) = r.record() else { continue };
+        let object = rec
+            .get_all(esm::FourCC::new(b"SCHR"))
+            .next()
+            .and_then(|h| h.data.get(16..18).map(|t| u16::from_le_bytes([t[0], t[1]])))
+            == Some(0);
+        if !object {
+            continue;
+        }
+        let named: Vec<u32> = rec
+            .get_all(esm::FourCC::new(b"SCRO"))
+            .filter_map(|s| {
+                s.data
+                    .get(..4)
+                    .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            })
+            .map(|local| r.plugin.to_global(esm::FormId(local)).0)
+            .filter(|id| quests.contains(id))
+            .collect();
+        if !named.is_empty() {
+            out.insert(r.form_id.0, named);
+        }
+    }
+    out
 }
 
 /// The form ids, in the load order `plugins`, of the quests the rules class as per-player. A
@@ -118,6 +154,18 @@ fn own_quest_ids(plugins: &[String]) -> Vec<u32> {
             Some(((index as u32) << 24) | (r.local & 0x00ff_ffff))
         })
         .collect()
+}
+
+/// The quest each player plays as its own opening, and the stage that ends it: VCG01, "Ain't
+/// That a Kick in the Head", stage 200 (set by the generic timer after Doc Mitchell's last line).
+/// Until a guest's own game has done it, that guest holds none of the host's actors.
+fn opening_quest(plugins: &[String]) -> Option<(u32, u8)> {
+    let table = coop_policy::PolicyTable::bundled().ok()?;
+    let row = table.rows().iter().find(|r| r.edid == "VCG01")?;
+    let index = plugins
+        .iter()
+        .position(|p| p.eq_ignore_ascii_case(&row.plugin))?;
+    Some((((index as u32) << 24) | (row.local & 0x00ff_ffff), 200))
 }
 
 /// The form ids, in the load order `plugins`, of the scripts the rules let a guest run itself
@@ -169,7 +217,9 @@ fn game_data(data: &Path) -> Result<GameData, String> {
         .partition(|(clock, _)| *clock);
     let clock = clock.into_iter().map(|(_, id)| id).collect();
     let globals = globals.into_iter().map(|(_, id)| id).collect();
+    let object_script_quests = object_script_quests(&order);
     Ok(GameData {
+        object_script_quests,
         plugins,
         quests,
         own_quests,
@@ -219,6 +269,8 @@ pub struct Coop {
     plugins: Vec<String>,
     own_quests: Vec<u32>,
     own_scripts: Vec<u32>,
+    object_script_quests: std::collections::BTreeMap<u32, Vec<u32>>,
+    scenes_set: bool,
     started: Instant,
     last_status: Option<Instant>,
     /// The skipped story scripts already named in the log.
@@ -285,7 +337,7 @@ impl Coop {
     }
 
     // items
-    /// Whether loot and barter go through the host's game (docs/coop/SPECS.md S18): on unless
+    /// Whether loot and barter go through the host's game (docs/coop/SPECS.md S20): on unless
     /// `NV_COOP_ITEMS` is `off` or `0`.
     fn items_on() -> bool {
         !matches!(
@@ -304,23 +356,94 @@ impl Coop {
     }
 
     // world
-    /// What `NV_COOP_WORLD` asks to share of the world beyond the story (everything unless it
-    /// says `doors` or `off`).
+    /// What `NV_COOP_WORLD` asks to share of the world beyond the story: `all`, `doors`, or
+    /// nothing. Unset is nothing for now: none of it has run on a PC, and the parts are being
+    /// switched on one PC run at a time (docs/coop/PLAN.md).
     fn world_share() -> session::world::Share {
-        session::world::Share::parse(&std::env::var("NV_COOP_WORLD").unwrap_or_default())
+        match std::env::var("NV_COOP_WORLD") {
+            Ok(v) if !v.trim().is_empty() => session::world::Share::parse(&v),
+            _ => session::world::Share::Off,
+        }
+    }
+
+    /// Whether conversations between actors are the host's (`NV_COOP_SCENES=off` gives every
+    /// game its own again). Returns the line that says so.
+    fn scenes_on() -> (bool, String) {
+        let on = std::env::var("NV_COOP_SCENES").map_or(true, |v| v.trim() != "off");
+        let line = if on {
+            "co-op scenes: the host's conversations between actors play on the guests (NV_COOP_SCENES=off: each game its own)"
+        } else {
+            "co-op scenes: off (each game runs its own)"
+        };
+        (on, line.into())
+    }
+
+    /// Whether conversations, party saves and the rest vote are shared: `NV_COOP_TALK=on`. Off
+    /// unless asked for, for the same reason. Returns the line that says so.
+    fn social_on() -> (bool, String) {
+        let on = std::env::var("NV_COOP_TALK").is_ok_and(|v| v.trim() == "on");
+        let line = if on {
+            "co-op talk, party saves, rest vote: shared (NV_COOP_TALK=on)"
+        } else {
+            "co-op talk, party saves, rest vote: off (NV_COOP_TALK=on shares them)"
+        };
+        (on, line.into())
     }
 
     /// fights: the shared fights `NV_COOP_FIGHT` asks for; `None` for `off` or without the ladder.
     /// Returns the line that says so.
     fn fight(guest: bool, ladder: bool) -> (Option<session::fight::Fight>, String) {
-        let ask = std::env::var("NV_COOP_FIGHT").unwrap_or_default();
+        // Unset is `follow`: the host's actors keep their own AI on a guest and are put at the
+        // host's place when they have strayed (PC run 10: held with their AI off they kept the
+        // pose they had, in floors and ceilings). `state` and up hold them as before; `off`.
+        let ask = match std::env::var("NV_COOP_FIGHT") {
+            Ok(v) if !v.trim().is_empty() => v,
+            _ => "follow".into(),
+        };
         if ask.trim() == "off" || !ladder {
             return (None, "co-op fights: off".into());
+        }
+        // `follow`: all of following. `follow-plain`: only putting a strayed actor back (no
+        // leading, no bringing through doors, no packages). `NV_COOP_PACKAGES=off` turns the
+        // packages alone off. Each part has its switch so a fault can be traced to one.
+        // `follow-damage`, `follow-threat`, `follow-full`: following, with the fights shared up
+        // to that level (hits through the host; the host's actors turning on a guest; downed and
+        // revive). Not yet run on a PC, so not the default.
+        let shared = match ask.trim() {
+            "follow-damage" => Some(session::fight::Cap::Damage),
+            "follow-threat" => Some(session::fight::Cap::Threat),
+            "follow-full" => Some(session::fight::Cap::Revive),
+            _ => None,
+        };
+        if ask.trim() == "follow" || ask.trim() == "follow-plain" || shared.is_some() {
+            let plain = ask.trim() == "follow-plain";
+            let packages =
+                !plain && std::env::var("NV_COOP_PACKAGES").map_or(true, |v| v.trim() != "off");
+            let cap = shared.unwrap_or(session::fight::Cap::State);
+            let mut fight = session::fight::Fight::new(guest, cap);
+            fight.follow = true;
+            // Hand-off: the nearest player's game runs an actor (NV_COOP_HANDOFF=off: the
+            // host's game runs every one).
+            let handoff = std::env::var("NV_COOP_HANDOFF").map_or(true, |v| v.trim() != "off");
+            fight.handoff = handoff;
+            fight.lead_on = !plain;
+            fight.bring_on = !plain;
+            fight.packages_on = packages;
+            return (
+                Some(fight),
+                format!(
+                    "co-op fights: the host's actors are followed, fights shared up to {cap:?} (leading {}, through doors {}, the host's packages {}, the nearest player's game runs an actor {}; NV_COOP_FIGHT=off turns it all off)",
+                    if plain { "off" } else { "on" },
+                    if plain { "off" } else { "on" },
+                    if packages { "on" } else { "off" },
+                    if handoff { "on" } else { "off" }
+                ),
+            );
         }
         let cap = session::fight::Cap::parse(&ask);
         let mut fight = session::fight::Fight::new(guest, cap);
         // vats: `NV_COOP_VATS=off` leaves V.A.T.S. as the game has it, `slow` only keeps it
-        // from slowing the game (docs/coop/SPECS.md S20).
+        // from slowing the game (docs/coop/SPECS.md S21).
         let vats = session::vats::Mode::parse(&std::env::var("NV_COOP_VATS").unwrap_or_default());
         fight.vats = session::vats::Share::new(vats);
         (
@@ -339,6 +462,7 @@ impl Coop {
             own_scripts,
             globals,
             clock,
+            object_script_quests,
         } = game_data(data)?;
         let cfg = EndpointConfig {
             name: name.to_string(),
@@ -387,6 +511,9 @@ impl Coop {
                 let (fight, line) = Self::fight(false, host.ladder.is_some());
                 host.fight = fight;
                 lines.push(line);
+                let (on, line) = Self::social_on();
+                host.social_on = on;
+                lines.push(line);
                 (Endpoint::host(b, token, cfg), Role::Host(Box::new(host)))
             }
             Ask::Join(code) => {
@@ -409,6 +536,8 @@ impl Coop {
                 plugins,
                 own_quests: own_quests.clone(),
                 own_scripts,
+                object_script_quests,
+                scenes_set: false,
                 started: Instant::now(),
                 last_status: None,
                 gate_named: Default::default(),
@@ -427,6 +556,13 @@ impl Coop {
     pub fn after_frame(&mut self, e: &mut Engine) -> Vec<String> {
         let now_ms = self.started.elapsed().as_millis() as u64;
         let mut lines = Vec::new();
+        if !self.scenes_set {
+            self.scenes_set = true;
+            let (on, line) = Self::scenes_on();
+            coop_engine::commands::set_scenes_on(e, on);
+            lines.push(line);
+        }
+        lines.extend(coop_engine::commands::drain_notes(e));
         self.ep.pump();
         for ev in self.ep.events() {
             match ev {
@@ -436,7 +572,10 @@ impl Coop {
                         Role::Guest(slot @ None) => {
                             let mut g =
                                 GuestDriver::new(local, session::hello(self.plugins.clone()));
-                            let (ladder, line) = Self::ladder(true);
+                            let (mut ladder, line) = Self::ladder(true);
+                            if let Some(l) = ladder.as_mut() {
+                                l.follow_after = opening_quest(&self.plugins);
+                            }
                             g.ladder = ladder;
                             lines.push(line);
                             // world
@@ -449,8 +588,21 @@ impl Coop {
                                 g.items = Some(session::items::GuestItems::new());
                             }
                             // fights
-                            let (fight, line) = Self::fight(true, g.ladder.is_some());
+                            let (mut fight, line) = Self::fight(true, g.ladder.is_some());
+                            if let Some(f) = fight.as_mut() {
+                                f.hold_after = opening_quest(&self.plugins);
+                            }
                             g.fight = fight;
+                            lines.push(line);
+                            g.proposals_on = std::env::var("NV_COOP_PROPOSE")
+                                .map_or(true, |v| v.trim() != "off");
+                            g.object_script_quests = self.object_script_quests.clone();
+                            lines.push(format!(
+                                "co-op proposals: what this game's own object scripts do to the story is {} (NV_COOP_PROPOSE=off puts it back as before)",
+                                if g.proposals_on { "proposed to the host" } else { "put back" }
+                            ));
+                            let (on, line) = Self::social_on();
+                            g.social_on = on;
                             lines.push(line);
                             // social
                             g.social.party.key = session::party::key_of(&self.social.name);
@@ -510,6 +662,9 @@ impl Coop {
                 for note in h.claim_notes.drain(..) {
                     lines.push(format!("co-op host: {note}"));
                 }
+                for note in h.stage_notes.drain(..) {
+                    lines.push(format!("co-op host: {note}"));
+                }
                 // world
                 for note in h.world.iter_mut().flat_map(|w| w.notes.drain(..)) {
                     lines.push(format!("co-op host world: {note}"));
@@ -527,7 +682,7 @@ impl Coop {
             Role::Guest(Some(g)) => {
                 g.step(e, &mut self.ep, now_ms);
                 for note in g.healed_notes.drain(..) {
-                    lines.push(format!("co-op guest healed: {note}"));
+                    lines.push(note);
                 }
                 // world
                 for note in g.world.iter_mut().flat_map(|w| w.notes.drain(..)) {
@@ -659,10 +814,15 @@ impl Coop {
                     g.refused,
                     g.heal_refused,
                 ) + &format!(
-                    ", own quest scripts run {}, objectives put back in the Pip-Boy {}, deaths told to the host {}",
+                    ", own quest scripts run {}, objectives put back in the Pip-Boy {}, deaths told to the host {}, drifts with a named cause {} (unknown {}), the host's scenes played {} (not played {}), own scenes between actors dropped {}",
                     coop_engine::gate::ran_own(e),
                     g.relisted,
-                    g.claims_sent
+                    g.claims_sent,
+                    g.drift_named,
+                    g.drift_unnamed,
+                    g.scenes_played,
+                    g.scenes_missed,
+                    coop_engine::commands::dropped_scenes(e)
                 )
                     + "; "
                     + &g.ladder.as_ref().map_or("live: off".into(), Ladder::status)
@@ -734,6 +894,15 @@ mod tests {
             assert!(scripts.contains(&id), "{id:08x}");
         }
         assert!(scripts.iter().all(|id| id >> 24 <= 1));
+    }
+
+    #[test]
+    fn the_opening_quest_is_vcg01_to_its_last_stage() {
+        assert_eq!(
+            opening_quest(&["FalloutNV.esm".into()]),
+            Some((0x0010_4c1c, 200))
+        );
+        assert_eq!(opening_quest(&["Other.esm".into()]), None);
     }
 
     #[test]

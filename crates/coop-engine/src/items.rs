@@ -1,4 +1,4 @@
-//! A reference's inventory, item by item (docs/coop/SPECS.md S18): what a container, a body, a
+//! A reference's inventory, item by item (docs/coop/SPECS.md S20): what a container, a body, a
 //! trader or the player holds, read and changed through the game's own functions.
 //!
 //! - **Reading.** The items are the base container's objects and the entries of the reference's

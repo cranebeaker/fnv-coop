@@ -1,5 +1,5 @@
 //! Loot taken once and barter through the host, between games in one process
-//! (docs/coop/SPECS.md S18). The games are test stories with the item kit's stand-ins for the
+//! (docs/coop/SPECS.md S20). The games are test stories with the item kit's stand-ins for the
 //! game's inventory functions; the transport is coop-core's loopback.
 
 use coop_core::compat::plugin_list_hash;
@@ -301,7 +301,9 @@ fn a_placed_item_is_picked_up_by_one_player_and_leaves_every_world() {
     assert!(!items::in_world(&mut run.guests[2].0.e, BOTTLE));
     assert_eq!((run.hi().picked, run.hi().refused), (1, 1));
     assert_eq!(run.gi(1).taken_back, 1);
-    assert_eq!(run.gi(2).removed, 1);
+    // The host's game switched the reference off, so the story carries that too (`RefDisabled`,
+    // S11), and either may take it out of the third world first; never twice.
+    assert!(run.gi(2).removed <= 1);
     assert_eq!(run.gi(0).waiting() + run.gi(1).waiting(), 0);
 }
 

@@ -205,8 +205,48 @@ pub fn full_path(e: &Engine, name: &[u8]) -> Vec<u8> {
     path
 }
 
+#[cfg(windows)]
 fn real_path(path: &[u8]) -> std::path::PathBuf {
     std::path::PathBuf::from(String::from_utf8_lossy(path).into_owned())
+}
+
+/// Off Windows (the headless runs of tests and co-op's two-game harness): the game's Windows path
+/// on this machine's file system. Backslashes are separators; a drive (`C:`) is a folder under
+/// `NV_RS_DRIVES` (`C:\Users` is `$NV_RS_DRIVES/c/Users`); each part of the path is matched
+/// without regard to case, as Windows matches it, when the exact name is not there.
+#[cfg(not(windows))]
+fn real_path(path: &[u8]) -> std::path::PathBuf {
+    let text = String::from_utf8_lossy(path).replace('\\', "/");
+    let (root, rest) = match text.as_bytes() {
+        [d, b':', ..] if d.is_ascii_alphabetic() => {
+            let drives = std::env::var("NV_RS_DRIVES").unwrap_or_else(|_| "/".into());
+            (
+                std::path::PathBuf::from(drives).join((*d as char).to_ascii_lowercase().to_string()),
+                text[2..].to_string(),
+            )
+        }
+        [b'/', ..] => (std::path::PathBuf::from("/"), text.clone()),
+        _ => (std::path::PathBuf::from("."), text.clone()),
+    };
+    let mut at = root;
+    for part in rest.split('/').filter(|p| !p.is_empty() && *p != ".") {
+        let exact = at.join(part);
+        if exact.exists() {
+            at = exact;
+            continue;
+        }
+        let found = std::fs::read_dir(&at).ok().and_then(|entries| {
+            entries
+                .flatten()
+                .map(|en| en.file_name())
+                .find(|n| n.to_string_lossy().eq_ignore_ascii_case(part))
+        });
+        at = match found {
+            Some(name) => at.join(name),
+            None => exact,
+        };
+    }
+    at
 }
 
 /// The bytes of the file at the full path `path`: as the game made it in this run, else the
@@ -611,10 +651,29 @@ fn write_find_data(e: &mut Engine, data: Ptr, meta: &std::fs::Metadata, stored: 
             meta.last_write_time(),
         )
     };
+    // Off Windows (headless runs): the times as Windows counts them (100 ns since 1601) from the
+    // file system's, and the attributes as `attributes` reports them.
     #[cfg(not(windows))]
     let (attributes, created, accessed, written): (u32, u64, u64, u64) = {
-        let _ = &meta;
-        panic!("FindFirstFileA(\"{shown}\"): file times are only provided on Windows");
+        let _ = shown;
+        let ticks = |t: std::io::Result<std::time::SystemTime>| {
+            t.ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(super::zone::UNIX_EPOCH_TICKS, |d| {
+                    super::zone::UNIX_EPOCH_TICKS + (d.as_nanos() / 100) as u64
+                })
+        };
+        let written = ticks(meta.modified());
+        (
+            if meta.is_dir() {
+                FILE_ATTRIBUTE_DIRECTORY
+            } else {
+                FILE_ATTRIBUTE_ARCHIVE
+            },
+            meta.created().map_or(written, |t| ticks(Ok(t))),
+            ticks(meta.accessed()),
+            written,
+        )
     };
     let d = data.addr();
     e.mem.set_u32(d, attributes);

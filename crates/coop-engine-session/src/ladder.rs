@@ -86,6 +86,10 @@ enum Warp {
     Waiting { cell: u32, frames: u32 },
 }
 
+/// How long a player that has walked out of its opening's room is left before it follows the
+/// host (the trigger at the door runs on the next frames).
+pub const OUTSIDE_FIRST_MS: u64 = 2000;
+
 /// The ladder's state on one machine.
 pub struct Ladder {
     guest: bool,
@@ -97,6 +101,15 @@ pub struct Ladder {
     started: bool,
     entered: [bool; 6],
     reported: [bool; 6],
+    /// Guest: a quest of this player's own and one of its stages; until that stage is done in
+    /// this game the player is not moved to the host. A player plays the opening in its own game,
+    /// and a host that leaves the house first would otherwise pull the guest out of it.
+    pub follow_after: Option<(u32, u8)>,
+    /// The room this player's opening was played in, while it has not walked out of it.
+    opening_room: Option<u32>,
+    /// When this player was first seen out of that room.
+    outside_since: Option<u64>,
+    stay_said: bool,
     warp: Warp,
     last_warp_ms: Option<u64>,
     warps: u32,
@@ -128,6 +141,10 @@ impl Ladder {
             started: false,
             entered: [false; 6],
             reported: [false; 6],
+            follow_after: None,
+            opening_room: None,
+            outside_since: None,
+            stay_said: false,
             warp: Warp::Idle,
             last_warp_ms: None,
             warps: 0,
@@ -233,6 +250,42 @@ impl Ladder {
             return;
         };
         self.waiting_since = None;
+        // The opening is this player's own until it has walked out of the room it was played in:
+        // the stage that ends it is set indoors, and the trigger outside the door gives the player
+        // their weapons back (PC run 19: a guest moved to the host as soon as the stage was done
+        // never stepped on it, and could draw no weapon). A player that joins with its opening
+        // long done is not held.
+        let opening_running = self.follow_after.is_some_and(|(quest, stage)| {
+            coop_engine::quest::record(e, quest).is_some_and(|r| !r.done.contains(&stage))
+        });
+        if opening_running {
+            self.opening_room.get_or_insert(me.cell);
+            self.outside_since = None;
+        }
+        let in_opening_room = self.opening_room == Some(me.cell);
+        if !opening_running && !in_opening_room {
+            if let Some(room) = self.opening_room {
+                let since = *self.outside_since.get_or_insert(now_ms);
+                if now_ms.saturating_sub(since) < OUTSIDE_FIRST_MS {
+                    return;
+                }
+                let _ = room;
+                self.opening_room = None;
+            }
+        }
+        if matches!(self.warp, Warp::Idle)
+            && me.cell != host_cell
+            && (opening_running || in_opening_room)
+        {
+            if !self.stay_said {
+                self.stay_said = true;
+                self.say(
+                    "co-op live: the host is elsewhere; this player follows once its own opening is done and it has walked out"
+                        .into(),
+                );
+            }
+            return;
+        }
         match self.warp {
             Warp::Waiting { cell, frames } => {
                 if me.cell == cell {

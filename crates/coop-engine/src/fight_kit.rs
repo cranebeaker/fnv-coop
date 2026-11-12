@@ -1,4 +1,4 @@
-//! The testkit's fights (docs/coop/SPECS.md S12): actors with health, a combat flag, a combat
+//! The testkit's fights (docs/coop/SPECS.md S15): actors with health, a combat flag, a combat
 //! target and a process, the game's list of actors near its player, and stand-ins for the game
 //! functions co-op's fight code calls. Each does what co-op relies on the real one to do, and no
 //! more:
@@ -137,6 +137,12 @@ pub(super) fn register(e: &mut Engine) {
         (addr::ACTOR_APPLY_DAMAGE_SLOT, APPLY_DAMAGE_FN),
         (addr::ACTOR_COMBAT_TARGET_SLOT, COMBAT_TARGET_FN),
         (addr::ACTOR_ALARMED_SLOT, ALARMED_FN),
+        (addr::REF_IS_MOBILE_SLOT, super::IS_MOBILE_FN),
+        (addr::ACTOR_SLOT_214, super::NOTHING_FN),
+        (
+            addr::ACTOR_START_CONVERSATION_SLOT,
+            super::START_CONVERSATION_FN,
+        ),
     ] {
         e.mem.set_u32(PLAYER_VTABLE + slot, f);
     }
@@ -148,6 +154,13 @@ pub(super) fn register(e: &mut Engine) {
         PROCESS_VTABLE + addr::PROCESS_START_COMBAT_SLOT,
         START_COMBAT_FN,
     );
+    for slot in [
+        addr::PROCESS_PACKAGE_DONE_SLOT,
+        addr::PROCESS_SET_DONE_ONCE_SLOT,
+        addr::PROCESS_FOLLOWED_SLOT,
+    ] {
+        e.mem.set_u32(PROCESS_VTABLE + slot, super::NOTHING_FN);
+    }
     for i in 0..e.mem.u32(TABLE) {
         let f = e.mem.u32(TABLE + 8 + 8 * i);
         let kind = e.mem.u8(f + addr::FORM_TYPE_OFFSET);
@@ -345,7 +358,7 @@ impl Story {
     }
 }
 
-// vats: damage that does not pass `Actor::HitMe` (docs/coop/SPECS.md S21).
+// vats: damage that does not pass `Actor::HitMe` (docs/coop/SPECS.md S22).
 impl Story {
     /// An actor (or the player) loses `loss` points of health as from a fall, a trap or
     /// drowning: the damage applier, called straight, with no attacker.

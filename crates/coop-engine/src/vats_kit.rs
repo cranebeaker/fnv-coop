@@ -1,4 +1,4 @@
-//! The testkit's V.A.T.S. (docs/coop/SPECS.md S20): the game's V.A.T.S. mode, a menu stack of
+//! The testkit's V.A.T.S. (docs/coop/SPECS.md S21): the game's V.A.T.S. mode, a menu stack of
 //! one, the game's time multiplier, and stand-ins for the three game functions co-op's V.A.T.S.
 //! code wraps or calls. Each does what co-op relies on the real one to do, and no more:
 //!

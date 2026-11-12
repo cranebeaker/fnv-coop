@@ -35,6 +35,10 @@ Each of these must pass on two real Windows PCs, each with its own copy of FNV 1
 - Work goes from strategic to granular: architecture first, then subsystem specs, then code.
 - When a decision is hard: three independent proposals, a factor-scored comparison, a three-member
   committee where two votes win, and a record of the decision in `DECISIONS.md`.
+- Peer review only when the owner asks for one (the owner's instruction of 2026-11-11, evening; it
+  replaces the same day's rule of a review at every milestone, which cost more than it found). When asked:
+  independent reviewers who did not write the change read it against its need, its tests and the PC
+  evidence; each finding is fixed, or recorded as open with its reason, in the milestone's row of `PLAN.md`.
 - Push at each finished milestone.
 
 ## Prerequisites outside the code (owner action)

@@ -1,5 +1,5 @@
 //! V.A.T.S. with two players and damage outside `Actor::HitMe`, on two games in one process
-//! (docs/coop/SPECS.md S20, S21). The harness is the shared fights' (`tests/fights.rs`).
+//! (docs/coop/SPECS.md S21, S22). The harness is the shared fights' (`tests/fights.rs`).
 
 use coop_core::ids::PlayerId;
 use coop_core::proto::{Hello, PROTOCOL_VERSION};
