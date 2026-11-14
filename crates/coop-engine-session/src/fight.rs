@@ -82,14 +82,6 @@ pub const PACKAGE_ASKS_AT_MOST: u32 = 5;
 /// A copy is brought from another space this many times at most.
 pub const BRING_AT_MOST: u32 = 3;
 
-/// An actor put at the host's place this many times within [`LEAD_WINDOW_MS`] is led every frame
-/// for [`LEAD_MS`], then followed again.
-pub const LEAD_AFTER: u32 = 2;
-/// See [`LEAD_AFTER`].
-pub const LEAD_WINDOW_MS: u64 = 20_000;
-/// See [`LEAD_AFTER`].
-pub const LEAD_MS: u64 = 30_000;
-
 /// How much of the fights a run shares (`NV_COOP_FIGHT`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Cap {
@@ -250,11 +242,6 @@ pub struct Following {
     seen: BTreeSet<u32>,
     /// Copies walking back to where their owner's actor stands.
     gliding: BTreeSet<u32>,
-    /// Each copy's recent walks back: how many, and when the first of them was.
-    walked: BTreeMap<u32, (u32, u64)>,
-    /// Copies kept standing where their owner's actor stands, and until when: their own AI
-    /// kept taking them elsewhere.
-    pinned_until: BTreeMap<u32, u64>,
     /// The frame before this one (ms).
     last_ms: Option<u64>,
     /// This frame's length (ms).
@@ -263,14 +250,16 @@ pub struct Following {
     pub leads: u64,
     /// Copies put where they are to be at once, being too far.
     pub snaps: u32,
+    /// Copies in a cell this game had let go, brought to their place near this player.
+    pub brought: u32,
 }
 
 impl Following {
     /// One phrase for the log.
     pub fn status(&self) -> String {
         format!(
-            "copies shown along their owner's path {} frames, put at once {}",
-            self.leads, self.snaps
+            "copies shown along their owner's path {} frames, put at once {}, brought into this player's cells {}",
+            self.leads, self.snaps, self.brought
         )
     }
 }
@@ -332,10 +321,6 @@ pub struct Fight {
     pub nudges: u32,
     /// Guest: frames a followed actor was left alone because it was in a conversation here.
     pub talks_left: u64,
-    /// How many times a copy began to be kept on its owner's path for a while: one its game
-    /// keeps taking elsewhere (PC run 11: Victor, put back every two seconds; Sunny, walking back
-    /// to this game's own player each time) is kept standing where the owner's is.
-    pub leads: u32,
     /// Host: the package each tracked actor was last seen running.
     packages: BTreeMap<u32, u32>,
     /// Host: actors it ran near its player and no longer does, whose package it still says.
@@ -349,9 +334,10 @@ pub struct Fight {
     package_tries: BTreeMap<u32, (u32, u32)>,
     /// Guest: how many times each actor was brought from another space.
     brought_times: BTreeMap<u32, u32>,
-    /// Guest: the parts of following, each with its own switch so that a fault can be traced to
-    /// one of them (docs/coop/DECISIONS.md D5, condition 6): leading an actor that keeps
-    /// straying, bringing one from another space, giving the host's packages.
+    /// The parts of following, each with its own switch so that a fault can be traced to one of
+    /// them (docs/coop/DECISIONS.md D5, condition 6): keeping a copy where its owner's actor
+    /// stands (D7; off, it is its own AI's and walks back when it strays), bringing one from
+    /// another space, giving the host's packages.
     pub lead_on: bool,
     /// See [`Fight::lead_on`].
     pub bring_on: bool,
@@ -490,7 +476,6 @@ impl Fight {
             talk_since: BTreeMap::new(),
             nudges: 0,
             talks_left: 0,
-            leads: 0,
             packages: BTreeMap::new(),
             watched: BTreeSet::new(),
             package_asked: BTreeMap::new(),
@@ -807,13 +792,14 @@ impl Fight {
     }
 
     /// One frame of copy `id`, to be shown at `place`, as `how` says. While its owner's actor
-    /// fights, moves or has only just stopped ([`SETTLE_MS`]), the copy goes along the owner's
-    /// path with its gait.
-    /// Once that actor has stood a while, the copy is its own AI's again (its package is the
-    /// owner's, so it sits, idles and talks as its game has it), except that one further than
-    /// `room` from that actor for [`FOLLOW_MS`] walks back to it; one that had to walk back
-    /// [`LEAD_AFTER`] times within [`LEAD_WINDOW_MS`] is kept standing there for [`LEAD_MS`]
-    /// (with [`Fight::lead_on`]). Whether it was put on the owner's path this frame.
+    /// fights, moves or crouches, the copy goes along the owner's path with its gait; and,
+    /// with [`Fight::lead_on`], it stands where that actor stands once it has stopped
+    /// (docs/coop/DECISIONS.md D7: PC run 31, Sunny stood by her campfire in the host's game and
+    /// further off in the guest's, where her copy, left to its own AI, had picked its own spot).
+    /// Without it (and for a copy whose package is aimed at the player) the copy is its own AI's
+    /// once that actor has stood [`SETTLE_MS`] (its package is the owner's, so it sits and idles
+    /// as its game has it), and one further than its room from that actor for [`FOLLOW_MS`]
+    /// walks back to it. Whether it was put on the owner's path this frame.
     fn follow_copy(
         &mut self,
         e: &mut Engine,
@@ -822,22 +808,31 @@ impl Fight {
         how: Follow,
         now_ms: u64,
     ) -> bool {
-        let (lead, room) = match how {
-            Follow::Fight | Follow::Path => (true, FOLLOW_DISTANCE),
+        // A copy in a cell this game let go is neither drawn nor moved by `SetPos` (PC run 31: the
+        // host's Sunny, left at the wells as the host stood at the saloon, was "put on her path"
+        // every frame and never moved). It is brought to its place when that is within this
+        // game's loaded cells, and left alone otherwise.
+        if !live::is_loaded(e, id) {
+            if live::bring_into_view(e, id, place.pos) {
+                self.following.brought += 1;
+            }
+            return false;
+        }
+        // (between two states, and past a last state that still moves, `still_ms` is 0)
+        // A crouched one is kept crouched where it is (PC run 31: Sunny crouched at the well in
+        // the guest's game stood up in the host's once she had stood still a moment).
+        let (keep, room) = match how {
+            Follow::Fight => (true, FOLLOW_DISTANCE),
+            Follow::Path => (
+                self.lead_on || place.still_ms < SETTLE_MS || place.sneaking(),
+                FOLLOW_DISTANCE,
+            ),
             Follow::WalkBack => (false, AIMED_DISTANCE),
         };
-        let combat = how == Follow::Fight;
-        let pinned = self
-            .following
-            .pinned_until
-            .get(&id)
-            .is_some_and(|until| now_ms < *until);
-        // (between two states, and past a last state that still moves, `still_ms` is 0)
-        if lead && (combat || place.still_ms < SETTLE_MS || pinned) {
+        if keep {
             self.far_since.remove(&id);
             return self.go_along(e, id, place);
         }
-        self.following.pinned_until.remove(&id);
         let Some(here) = fight::place_of(e, id) else {
             return false;
         };
@@ -861,27 +856,7 @@ impl Fight {
             return false;
         }
         self.far_since.remove(&id);
-        let f = &mut self.following;
-        let (n, first) = f.walked.get(&id).copied().unwrap_or((0, now_ms));
-        let (n, first) = if now_ms.saturating_sub(first) > LEAD_WINDOW_MS {
-            (1, now_ms)
-        } else {
-            (n + 1, first)
-        };
-        if n >= LEAD_AFTER && self.lead_on && lead {
-            f.walked.remove(&id);
-            f.pinned_until.insert(id, now_ms + LEAD_MS);
-            self.leads += 1;
-            if self.leads <= 60 {
-                self.say(format!(
-                    "co-op fights: actor {id:08x} keeps straying from where its owner's game has it: kept standing there for {} s",
-                    LEAD_MS / 1000
-                ));
-            }
-            return self.go_along(e, id, place);
-        }
-        f.walked.insert(id, (n, first));
-        f.gliding.insert(id);
+        self.following.gliding.insert(id);
         self.nudges += 1;
         if self.nudges <= 60 {
             self.say(format!(
@@ -890,6 +865,28 @@ impl Fight {
         }
         self.glide(e, id, place);
         false
+    }
+
+    /// Whether copy `id` may be brought through a door now: not within [`BRING_EVERY_MS`] of the
+    /// last time, nor more than [`BRING_AT_MOST`] times (one that leaves again each time is left
+    /// to its game). Counts it when it may.
+    fn bring_due(&mut self, id: u32, now_ms: u64) -> bool {
+        let due = self
+            .brought
+            .get(&id)
+            .map_or(true, |t| now_ms.saturating_sub(*t) >= BRING_EVERY_MS);
+        let times = self.brought_times.get(&id).copied().unwrap_or(0);
+        if !self.bring_on || !due || times >= BRING_AT_MOST {
+            return false;
+        }
+        self.brought.insert(id, now_ms);
+        self.brought_times.insert(id, times + 1);
+        if times + 1 == BRING_AT_MOST {
+            self.say(format!(
+                "co-op fights: actor {id:08x} has been brought {BRING_AT_MOST} times and leaves again each time: left to this game from now"
+            ));
+        }
+        true
     }
 
     /// Starts a frame of the copies' places.
@@ -920,8 +917,6 @@ impl Fight {
         f.gliding.retain(|id| kept.contains(id));
         let seen = &f.seen;
         f.tracks.retain(|id, _| seen.contains(id));
-        f.walked.retain(|id, _| seen.contains(id));
-        f.pinned_until.retain(|id, _| seen.contains(id));
     }
 
     /// Ends a frame of the copies: the wraps are told which they are (one no longer a copy is its
@@ -1098,6 +1093,16 @@ impl Fight {
             let mut s = fight::snap(e, a);
             if s.space == 0 {
                 s.space = space_here(e, a);
+            }
+            // An actor a guest's game runs is where that game has it: this game's copy may be
+            // elsewhere for a while (another space, a cell let go), and the nearest player is
+            // the one near the guest's actor (PC run 31: Victor's copy here was elsewhere, and
+            // the host's game took him back from the guest he was walking past).
+            if self.theirs.contains(&s.id) {
+                if let Some(r) = sync.live.actors.own.get(FormId(s.id)) {
+                    s.space = r.state.cell.0;
+                    s.pos = r.state.pos.map(dequant_pos);
+                }
             }
             if !actors::shareable(s.id)
                 || s.space == 0
@@ -1359,11 +1364,19 @@ impl Fight {
             .filter(|(_, r)| r.owner.is_some() && r.owner != Some(PlayerId::HOST))
             .map(|(f, r)| (f.0, r.owner, r.state))
             .collect();
+        let guests_run: Vec<u32> = fed.iter().map(|f| f.0).collect();
         for (id, owner, s) in fed {
             self.feed(id, owner, &s, now_ms);
         }
+        // Where this game's player is: a copy of an actor a guest runs in another space here is
+        // brought to it when the guest's actor is in this player's space.
+        let player = e.mem.u32(coop_engine::addr::PLAYER_SINGLETON);
+        let mine =
+            (player != 0).then(|| (fight::space_of(e, player), fight::place_of_ptr(e, player)));
         let mut theirs = BTreeSet::new();
-        for id in self.tracked.keys().copied().collect::<Vec<_>>() {
+        // Every actor a guest runs, near this player or not (PC run 31: Victor walked past the
+        // guest; the host's copy was elsewhere, never seen here, and never brought).
+        for id in guests_run {
             let Some(rec) = sync.live.actors.own.get(FormId(id)).copied() else {
                 continue;
             };
@@ -1380,8 +1393,28 @@ impl Fight {
             // its own AI here takes it through the door after it.
             // In a conversation here (a scene this game plays, PC run 30: Joe Cobb), it is not led:
             // the scene plays out where this game has it.
+            let here = actors::actor(e, id).map(|a| fight::space_of(e, a));
+            let elsewhere = here.is_some() && here != Some(s.cell.0);
+            if let Some((_, at)) = mine.filter(|(space, _)| elsewhere && *space == s.cell.0) {
+                let to = s.pos.map(dequant_pos);
+                if dist(at, to) <= live::LOADED_REACH
+                    && s.flags & FLAG_DEAD == 0
+                    && actors::dead(e, id) == Some(false)
+                    && self.bring_due(id, now_ms)
+                    && fight::bring(e, id, to)
+                {
+                    self.brings += 1;
+                    if self.brings <= 60 {
+                        self.say(format!(
+                            "co-op fights: actor {id:08x} was in {:08x} here and is in {:08x} in its guest's game: brought to ({:.0}, {:.0}, {:.0})",
+                            here.unwrap_or(0), s.cell.0, to[0], to[1], to[2]
+                        ));
+                    }
+                }
+                continue;
+            }
             if fight::place_of(e, id).is_some()
-                && actors::actor(e, id).is_some_and(|a| fight::space_of(e, a) == s.cell.0)
+                && here == Some(s.cell.0)
                 && !self.left_to_talk(e, id, now_ms)
             {
                 // Along the guest's actor's path, a little behind, with its gait (D6).
@@ -2306,9 +2339,8 @@ impl Fight {
     pub fn status(&self) -> String {
         if self.guest {
             format!(
-                "fights: put at the host's place {}, led {}, brought through a door {}, asked to take the host's package {}; holding {} actors, moves {}, AI woke {}, released {}, deaths {}, hits sent {}, hurts taken {}, down {} up {}; {}; {}",
+                "fights: walked back to the host's place {}, brought through a door {}, asked to take the host's package {}; holding {} actors, moves {}, AI woke {}, released {}, deaths {}, hits sent {}, hurts taken {}, down {} up {}; {}; {}",
                 self.nudges,
-                self.leads,
                 self.brings,
                 self.package_asks,
                 self.held.len(),

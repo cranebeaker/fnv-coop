@@ -15,7 +15,12 @@
 //!
 //! `DialogMenu::Create` (`00761a20`) is wrapped too: an NPC another player is talking to
 //! ([`set_busy`]) gets no menu (the answer 0, the game's own for a conversation that could not
-//! start), and the refusal is noted as an [`Event::Blocked`].
+//! start), and the refusal is noted as an [`Event::Blocked`]. Nor does a copy of an actor another
+//! game runs (`puppet`) that comes to this game's player on a Dialogue package of its own (a
+//! force greet): the conversation is the owner's game's, with the player it runs the actor for
+//! (PC run 31: the guest ended Sunny's tutorial, while in the host's game her copy came to the
+//! host, and her first line there started the campfire quest for both). A player who walks up to
+//! a copy and talks to it is never refused. The refusal is noted as an [`Event::NotGreeted`].
 //!
 //! With sharing off, both wraps pass every call on untouched.
 
@@ -53,6 +58,12 @@ pub enum Event {
         end: bool,
         /// The result script did not run here: the host is to run it.
         held: bool,
+    },
+    /// A conversation a copy of an actor another game runs began itself with this game's player
+    /// was refused: the owner's game greets its own player.
+    NotGreeted {
+        /// The speaker's reference id.
+        npc: u32,
     },
     /// A conversation with this reference was refused: another player is talking to it.
     Blocked {
@@ -353,6 +364,21 @@ fn run_result_shared(e: &mut Engine, a: &[u32]) -> Ret {
     }
 }
 
+/// Whether `speaker` (a pointer) runs a Dialogue package of the data files: it came to the
+/// player to talk (a force greet), rather than the player walking up to it.
+fn greets(e: &mut Engine, speaker: u32) -> bool {
+    if !e.is_registered(addr::ACTOR_GET_CURRENT_EDITOR_PACKAGE)
+        || !e.is_registered(addr::PACKAGE_TYPE)
+    {
+        return false;
+    }
+    let package = e
+        .call(addr::ACTOR_GET_CURRENT_EDITOR_PACKAGE, &args![speaker])
+        .u32();
+    package != 0
+        && e.call(addr::PACKAGE_TYPE, &args![package]).u32() & 0xff == addr::PACKAGE_TYPE_DIALOGUE
+}
+
 /// The wrap at `00761a20`. Its words: the speaker, a word for the topic manager, a target.
 pub(crate) fn create(e: &mut Engine, a: &[u32]) -> Ret {
     let speaker = a.first().copied().unwrap_or(0);
@@ -363,6 +389,10 @@ pub(crate) fn create(e: &mut Engine, a: &[u32]) -> Ret {
         && menu_speaker(e).is_none()
     {
         let npc = e.mem.u32(speaker.wrapping_add(addr::FORM_ID_OFFSET));
+        if crate::puppet::is_copy(e, npc) && greets(e, speaker) {
+            e.ext_free::<Talk>().push(Event::NotGreeted { npc });
+            return Ret::default();
+        }
         let t = e.ext_free::<Talk>();
         if t.busy
             .read()
@@ -391,12 +421,16 @@ mod tests {
     const SHARED_LINE: u32 = 0x0010_9001;
     const OWN_LINE: u32 = 0x0010_9002;
     const LOOSE_LINE: u32 = 0x0010_9003;
+    /// A force greet (a Dialogue package) and a package of another type.
+    const GREET: u32 = 0x0010_a219;
+    const WANDER: u32 = 0x0010_a21c;
 
     fn story() -> Story {
         let mut s = Story::new(&StorySpec {
             quests: vec![(MQ, vec![5, 10, 20]), (OWN, vec![5])],
             cells: vec![CELL],
             actors: vec![NPC, OTHER],
+            packages: vec![GREET, WANDER],
             ..StorySpec::default()
         });
         s.add_info(
@@ -586,6 +620,38 @@ mod tests {
         set_sharing(&mut s.e, false);
         set_busy(&mut s.e, [NPC]);
         assert!(s.talk_to(NPC));
+    }
+
+    /// PC run 31: the guest ended Sunny's tutorial; in the host's game her copy (the guest's game
+    /// ran her) came to the host on her Dialogue package, and the first line there started the
+    /// campfire quest for both. A copy's own force greet gets no menu; the player walking up to a
+    /// copy, or an actor this game runs coming to it, does.
+    #[test]
+    fn a_copy_does_not_greet_this_games_player_on_its_own() {
+        let mut s = story();
+        set_sharing(&mut s.e, true);
+        s.set_package_type(GREET, addr::PACKAGE_TYPE_DIALOGUE);
+        s.place(NPC, CELL);
+        s.set_own_package(NPC, GREET);
+        crate::puppet::set_copies(&mut s.e, [(NPC, 0)]);
+        assert!(!s.talk_to(NPC));
+        assert_eq!(menu_npc(&mut s.e), None);
+        assert_eq!(take_events(&mut s.e), [Event::NotGreeted { npc: NPC }]);
+        // On another package it is the player who walked up: the conversation goes on.
+        s.set_own_package(NPC, WANDER);
+        assert!(s.talk_to(NPC));
+        assert!(close_menu(&mut s.e));
+        // This game's own actor greets as ever.
+        s.set_own_package(NPC, GREET);
+        crate::puppet::set_copies(&mut s.e, []);
+        assert!(s.talk_to(NPC));
+        assert!(close_menu(&mut s.e));
+        // Without sharing the game has it as ever.
+        crate::puppet::set_copies(&mut s.e, [(NPC, 0)]);
+        set_sharing(&mut s.e, false);
+        assert!(s.talk_to(NPC));
+        assert!(close_menu(&mut s.e));
+        assert!(take_events(&mut s.e).is_empty());
     }
 
     /// The owner, 2026-11-14: both players sat for Doc Mitchell's questions; he asked the host's

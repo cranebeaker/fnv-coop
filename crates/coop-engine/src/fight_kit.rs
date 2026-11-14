@@ -41,6 +41,9 @@ const FORCED: u32 = 0x120;
 const FORCED_ON: u32 = 0x124;
 /// How often the game was asked to force the actor's movement.
 const FORCES: u32 = 0x128;
+/// The byte that leaves the reference without 3D (not drawn): within the first 0x100 bytes, the
+/// size of an avatar placed in the arena.
+const NO_3D: u32 = 0xfc;
 /// The actor's mover (only its being there is read).
 const MOVER: u32 = 0xd00;
 const ESSENTIAL: u32 = 0x208;
@@ -62,6 +65,7 @@ const ALARMED_FN: u32 = 0x0130_0050;
 const START_COMBAT_FN: u32 = 0x0130_0060;
 const CONTROLLER_FN: u32 = 0x0130_0070;
 const STOP_COMBAT_FN: u32 = 0x0130_0080;
+const NODE_FN: u32 = 0x0130_0090;
 /// Counters: real `HitMe` runs, starts of combat.
 const HITS: u32 = RAN + 32;
 const COMBATS: u32 = RAN + 36;
@@ -208,6 +212,7 @@ pub(super) fn register(e: &mut Engine) {
         (addr::ACTOR_ALARMED_SLOT, ALARMED_FN),
         (addr::ACTOR_COMBAT_CONTROLLER_SLOT, CONTROLLER_FN),
         (addr::ACTOR_STOP_COMBAT_SLOT, STOP_COMBAT_FN),
+        (addr::REF_GET_3D_SLOT, NODE_FN),
         (addr::REF_IS_MOBILE_SLOT, super::IS_MOBILE_FN),
         (addr::ACTOR_SLOT_214, super::NOTHING_FN),
         (
@@ -259,6 +264,10 @@ pub(super) fn register(e: &mut Engine) {
         e.mem.set_u8(a[0] + IN_COMBAT, 0);
         e.mem.set_u32(a[0] + TARGET, 0);
         Ret::default()
+    });
+    // Its 3D: the actor itself stands in for the node, unless the test took it away.
+    e.register(NODE_FN, |e, a| {
+        eax(if e.mem.u8(a[0] + NO_3D) == 0 { a[0] } else { 0 })
     });
     e.register(addr::CONTROLLER_SET_TARGET, |e, a| {
         e.mem.set_u32(a[0] + addr::CONTROLLER_TARGET_OFFSET, a[1]);
@@ -474,6 +483,12 @@ impl Story {
     pub fn forces(&mut self, id: u32) -> u32 {
         let a = self.actor_ptr(id);
         self.e.mem.u32(a + FORCES)
+    }
+
+    /// Reference `id` (an actor or an avatar) has its 3D, or none (it is not drawn).
+    pub fn set_has_3d(&mut self, id: u32, has: bool) {
+        let a = forms::form(&mut self.e, id).expect("a reference of the story");
+        self.e.mem.set_u8(a + NO_3D, u8::from(!has));
     }
 
     /// Actor `id` has no mover.

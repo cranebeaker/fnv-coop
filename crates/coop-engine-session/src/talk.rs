@@ -45,6 +45,9 @@ pub struct Talker {
     pub denied: u32,
     /// Conversations the game did not start here because another player has the NPC.
     pub blocked: u32,
+    /// Conversations a copy of an actor another game runs began itself with this player, left to
+    /// the owner's game (it greets its own player).
+    pub not_greeted: u32,
     /// Lines of this player's conversations sent as picks.
     pub picks: u32,
     /// Other players' lines shown here.
@@ -104,6 +107,7 @@ impl Talker {
                         self.queue.push_back(Said { npc, info, end });
                     }
                 }
+                Event::NotGreeted { .. } => self.not_greeted += 1,
                 Event::Blocked { .. } => {
                     self.blocked += 1;
                     talk::show(e, "Another player is talking to them.");

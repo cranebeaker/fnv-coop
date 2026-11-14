@@ -53,6 +53,10 @@ const WARP_EVERY_MS: u64 = 5000;
 const HINT_AFTER_MS: u64 = 15_000;
 /// Moves of an avatar before rung 5 reports.
 const MOVES_TO_PASS: u64 = 100;
+/// An avatar there and not drawn (no 3D) this long (ms) is placed again ...
+pub const UNSEEN_MS: u64 = 2000;
+/// ... at most this many times for a player in a run.
+pub const REPLACE_AT_MOST: u32 = 10;
 
 /// This game's player as the state sent to the others.
 pub fn state_of(l: &Local) -> AvatarState {
@@ -79,6 +83,10 @@ struct Peer {
     woke: u64,
     /// Times the avatar was in a cell this game let go and was brought into this player's cell.
     rehomed: u32,
+    /// Since when the avatar has been there and not drawn (no 3D), and how many times one was
+    /// placed again for that.
+    unseen_since: Option<u64>,
+    replaced: u32,
     off_by: f32,
 }
 
@@ -230,7 +238,7 @@ impl Ladder {
         }
         // No avatar is placed or moved while this player's own move to another cell is under way.
         if self.cap >= Cap::Avatar && self.warp == Warp::Idle {
-            self.avatars(e, me, peers);
+            self.avatars(e, now_ms, me, peers);
         }
         me
     }
@@ -341,7 +349,13 @@ impl Ladder {
         }
     }
 
-    fn avatars(&mut self, e: &mut Engine, me: Option<Local>, peers: &[(PlayerId, Sample)]) {
+    fn avatars(
+        &mut self,
+        e: &mut Engine,
+        now_ms: u64,
+        me: Option<Local>,
+        peers: &[(PlayerId, Sample)],
+    ) {
         // A player who left, or is not in the world: their avatar goes.
         let gone: Vec<PlayerId> = self
             .peers
@@ -419,6 +433,29 @@ impl Ladder {
                                 a.id
                             ),
                         );
+                    }
+                    // There and not drawn (PC run 31: after a fast travel the guest was invisible
+                    // in the host's game, and the mantises there never went for it): after a
+                    // moment it is taken away and placed afresh, which gives it its 3D.
+                    let peer = self.peers.entry(*p).or_default();
+                    if !h.unseen {
+                        peer.unseen_since = None;
+                    } else if peer.replaced < REPLACE_AT_MOST {
+                        let since = *peer.unseen_since.get_or_insert(now_ms);
+                        if now_ms.saturating_sub(since) >= UNSEEN_MS {
+                            peer.replaced += 1;
+                            peer.unseen_since = None;
+                            let n = peer.replaced;
+                            self.remove(
+                                e,
+                                *p,
+                                &format!(
+                                    "had no 3D for {} s; placing it again ({n} times)",
+                                    UNSEEN_MS / 1000
+                                ),
+                            );
+                            continue;
+                        }
                     }
                     if h.rehomed {
                         let peer = self.peers.entry(*p).or_default();

@@ -93,6 +93,8 @@ const PACKAGE_OFFSET: u32 = 0xea0;
 const PROCEDURE_OFFSET: u32 = 0x100;
 const BEGUN_OFFSET: u32 = 0x104;
 const ENDED_OFFSET: u32 = 0x108;
+/// A package's type, as `PACKAGE_TYPE` answers it (0 unless a test sets it).
+const KIND_OFFSET: u32 = 0x10c;
 /// A stand-in that answers 0, behind virtual slots whose effect no test reads.
 pub(crate) const NOTHING_FN: u32 = 0x0170_0000;
 const SCENE_ARGS: u32 = RAN + 0x60;
@@ -637,7 +639,9 @@ impl Story {
         e.register(addr::REF_GET_CURRENT_PACKAGE, |e, a| {
             eax(e.mem.u32(a[0] + PACKAGE_OFFSET))
         });
-        e.register(addr::PACKAGE_TYPE, |_, _| eax(0));
+        e.register(addr::PACKAGE_TYPE, |e, a| {
+            eax(e.mem.u32(a[0] + KIND_OFFSET))
+        });
         e.register(addr::REF_EXTRA_LIST, |_, a| eax(a[0]));
         e.register(addr::EXTRA_REMOVE_FOLLOWER, |_, _| Ret::default());
         e.register(addr::EXTRA_GET_PRIMITIVE, |e, a| {
@@ -1153,6 +1157,12 @@ impl Story {
         self.e.mem.set_u32(a + PACKAGE_OFFSET + 4, p);
         self.e
             .call(addr::ACTOR_EVALUATE_PACKAGE, &args![a, 1u32, 1u32]);
+    }
+
+    /// Package `package`'s type, as the game's `PACKAGE_TYPE` answers it.
+    pub fn set_package_type(&mut self, package: u32, kind: u32) {
+        let p = forms::form(&mut self.e, package).expect("a package of the story");
+        self.e.mem.set_u32(p + KIND_OFFSET, kind);
     }
 
     /// The form id of the package `actor` runs (0 for none).

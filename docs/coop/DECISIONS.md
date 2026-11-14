@@ -258,3 +258,25 @@ player are kept (the host sends the damage), and the host no longer sends the bl
 fights, moves or has just stopped, with the owner's movement flags forced on it (`008b3a20`), so its
 legs move as the owner's; once the owner's actor has stood 1.5 s it is its own AI's again (condition 3:
 sitting, idling, talking as its package has it), and a stray walks back rather than being put back.
+
+## D7 (2026-11-14): a copy stands where its owner's actor stands
+
+**Question.** PC run 31: at Sunny's campfire she stood by the fire in the host's game and some
+150 to 250 units off in the guest's. Once the owner's actor had stood 1.5 s, its copy was its own
+AI's (D6 batch 2), within 200 units it was left alone, and its sandbox package picked its own spot.
+Options: (A) as it was; (B) a 64-unit room; (C) while the owner's actor stands, its copy stands
+exactly where it is (no own AI but in a conversation), sitting and idles lost until furniture use is
+carried; (D) B now, carrying furniture use later.
+
+**Decision: C, 3 votes to 0.** The owner's priority is the same NPCs in the same places; only C makes
+them so every time. Under B or D the copy's own AI still picks its own spot, chair or idle and is
+walked back over and over (more visible than standing), and it is the root of the gap, not a knob
+on it. Sitting in the same chair and idles come back later by carrying what the owner's actor does
+(its furniture), on top of C's places.
+
+**As built.** With `lead_on` (the default; `NV_COOP_FIGHT=follow-plain` switches it off) a followed copy
+is put on its owner's path every frame, standing (forced move mode 0) where that actor stands. Off,
+the copy is its own AI's after 1.5 s still, a crouched one excepted, and walks back when it strays.
+A copy whose package is aimed at the player is only walked back, as before; a copy in a conversation
+here is left to it (D6, condition 3). The 30 s "kept standing" after repeated strays is gone (C covers
+it).

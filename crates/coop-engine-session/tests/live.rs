@@ -429,3 +429,37 @@ fn a_guest_that_leaves_has_its_avatar_removed_on_the_host() {
         .iter()
         .any(|l| l.contains("removed (player 1 left)")));
 }
+
+/// PC run 31: after a fast travel the guest was invisible in the host's game (and the mantises
+/// there never went for it), its avatar in a loaded cell near the host with no 3D. An avatar there
+/// and not drawn for a moment is taken away and placed again.
+#[test]
+fn an_avatar_there_and_not_drawn_is_placed_again() {
+    let mut p = Pair::new(Cap::Avatar, &spec());
+    p.host.move_player(HOUSE, [100.0, 0.0, 0.0], 0.0);
+    p.guest.move_player(HOUSE, [300.0, 0.0, 0.0], 0.0);
+    p.frames(40);
+    let live = |p: &mut Pair| -> Vec<(u32, u32, [f32; 3], bool, bool)> {
+        p.host.placed().into_iter().filter(|a| !a.4).collect()
+    };
+    let first = live(&mut p)[0].0;
+    p.host.set_has_3d(first, false);
+    p.frames((coop_engine_session::ladder::UNSEEN_MS / 50) as u32 - 5);
+    assert_eq!(live(&mut p)[0].0, first);
+    p.frames(10);
+    let again = live(&mut p);
+    assert_eq!(again.len(), 1, "{again:?}");
+    assert_ne!(again[0].0, first);
+    assert!(close(again[0].2, [300.0, 0.0, 0.0]), "{again:?}");
+    assert!(p.host_lines().iter().any(|l| l.contains("had no 3D")));
+    // Drawn: left as it is.
+    p.frames(60);
+    assert_eq!(live(&mut p)[0].0, again[0].0);
+    // Far from this player (out of the cells its game keeps), not drawn as it should be: left.
+    p.guest.move_player(HOUSE, [40_000.0, 0.0, 0.0], 0.0);
+    p.frames(10);
+    let far = live(&mut p)[0].0;
+    p.host.set_has_3d(far, false);
+    p.frames(3 * (coop_engine_session::ladder::UNSEEN_MS / 50) as u32);
+    assert_eq!(live(&mut p)[0].0, far);
+}

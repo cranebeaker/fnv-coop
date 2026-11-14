@@ -532,6 +532,10 @@ pub const ACTOR_CLEAR_FORCED_MOVE_MODE: u32 = 0x008b_3a50;
 /// `Actor::pActorMover` (`actor.rs`).
 pub const ACTOR_MOVER_OFFSET: u32 = 0x190;
 
+/// A reference's virtual slot `0x1d0`: its 3D (its scene node), 0 while it has none: a
+/// reference without one is not drawn.
+pub const REF_GET_3D_SLOT: u32 = 0x1d0;
+
 /// `Actor::pCurrentProcess`: the word at +0x68 (`leaf::word_at_68`, typed from `008d8520`).
 pub const ACTOR_PROCESS_OFFSET: u32 = 0x68;
 
@@ -737,6 +741,9 @@ pub const REF_GET_CURRENT_PACKAGE: u32 = 0x0093_44a0;
 /// `cdecl`, a package: its type (1 follow, 2 escort, 7 accompany; 0x1c a dialogue made while
 /// playing).
 pub const PACKAGE_TYPE: u32 = 0x0041_ca90;
+/// [`PACKAGE_TYPE`] of a Dialogue package from the data files (`PKDT` type 15): an NPC running
+/// one goes to its target and starts a conversation with it (a force greet).
+pub const PACKAGE_TYPE_DIALOGUE: u32 = 0x0f;
 /// `cdecl` (player, package): what the body does for a type-0x1c package after the slot.
 pub const PLAYER_SET_CONVERSATION_PACKAGE: u32 = 0x005c_8a30;
 /// `thiscall`, a reference: its extra-data list.

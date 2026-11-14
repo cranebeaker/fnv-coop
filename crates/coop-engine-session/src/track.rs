@@ -36,6 +36,8 @@ const DRIFT_PER_S: i64 = 2;
 const MAX: usize = 64;
 /// The owner's movement flags: any of its four directions.
 pub const MOVE_DIRECTIONS: u16 = 0x0f;
+/// The owner's movement flags: sneaking (crouched, moving or not).
+pub const MOVE_SNEAKING: u16 = 0x400;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Point {
@@ -64,6 +66,11 @@ impl Place {
     /// The owner's actor walks or runs at that time.
     pub fn moving(&self) -> bool {
         self.moves & MOVE_DIRECTIONS != 0
+    }
+
+    /// The owner's actor is crouched at that time.
+    pub fn sneaking(&self) -> bool {
+        self.moves & MOVE_SNEAKING != 0
     }
 }
 

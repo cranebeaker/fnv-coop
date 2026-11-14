@@ -101,6 +101,11 @@ pub fn set_copy(e: &mut Engine, id: u32, target: u32) {
         .insert(id, target);
 }
 
+/// Whether actor `id` is a copy here (another game runs it).
+pub fn is_copy(e: &mut Engine, id: u32) -> bool {
+    locked(e, id).is_some()
+}
+
 fn locked(e: &mut Engine, id: u32) -> Option<u32> {
     e.ext_free::<Puppets>()
         .copies

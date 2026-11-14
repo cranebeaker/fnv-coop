@@ -74,6 +74,9 @@ pub const EVALUATE_TAG: u16 = 0x4556;
 /// [`echo`] and the heal leave it alone, and one that comes with a join or a repair is not
 /// played (it is over).
 pub const SCENE_TAG: u16 = 0x5343;
+/// A scene a guest's game asks for that played on the host less than this long ago (ms) is not
+/// played again: the guest came later to what the host had set off.
+pub const SCENE_AGAIN_MS: u64 = 10 * 60_000;
 /// The tag of a line an actor was made to say to the player (`SayTo`), on the speaker's form:
 /// a count, then the topic. The guest whose player the speaker is near says it there.
 pub const SAY_TAG: u16 = 0x5359;
@@ -295,6 +298,13 @@ pub struct HostDriver {
     scene_started: Vec<u32>,
     /// Host: the actors of the scenes this game plays, with when each began.
     scene_actors: BTreeMap<u32, u64>,
+    /// Host: each scene played here (actor, target, topic), with when it last began.
+    scenes_played: BTreeMap<(u32, u32, u32), u64>,
+    /// Host: scenes guests' games asked for that were not played (they had just played, or an
+    /// actor was talking).
+    pub scenes_refused: u32,
+    /// Host: the time of this step.
+    now_ms: u64,
     globals: GlobalWatch,
     /// The game clock's globals (hour, day, month, year, days passed): sent as the clock, not as
     /// story globals.
@@ -387,6 +397,9 @@ impl HostDriver {
             kept_seen: 0,
             scene_started: Vec::new(),
             scene_actors: BTreeMap::new(),
+            scenes_played: BTreeMap::new(),
+            scenes_refused: 0,
+            now_ms: 0,
             globals: GlobalWatch::new(global_ids),
             clock: Vec::new(),
             clock_sent_ms: None,
@@ -435,8 +448,36 @@ impl HostDriver {
                 self.enact_proposal(e, from, id, p);
                 continue;
             }
-            // A scene a guest's own script started: played here, and so for everyone.
+            // A scene a guest's own script started: played here, and so for everyone. Not one
+            // that played here a little while ago (the guest walked up later to the trigger the
+            // host had set it off with: PC run 31, Joe Cobb began his line again as he ran off),
+            // nor one with an actor already in a conversation.
             if let Some(scene) = scene_of(id, &field) {
+                let key = (scene.actor, scene.target, scene.topic);
+                let ago = self
+                    .scenes_played
+                    .get(&key)
+                    .map(|t| self.now_ms.saturating_sub(*t))
+                    .filter(|ago| *ago < SCENE_AGAIN_MS);
+                let talking = [scene.actor, scene.target]
+                    .into_iter()
+                    .find(|a| coop_engine::fight::in_dialogue(e, *a));
+                if ago.is_some() || talking.is_some() {
+                    self.scenes_refused += 1;
+                    self.claim_notes.push(format!(
+                        "player {}'s game started a scene: actor {:08x} talks to {:08x} (topic {:08x}): not played, {}",
+                        from.0,
+                        scene.actor,
+                        scene.target,
+                        scene.topic,
+                        match (ago, talking) {
+                            (Some(ago), _) => format!("it played here {} s ago", ago / 1000),
+                            (None, Some(a)) => format!("actor {a:08x} is in a conversation"),
+                            (None, None) => unreachable!(),
+                        }
+                    ));
+                    continue;
+                }
                 let played = commands::play_scene(e, &scene);
                 self.claim_notes.push(format!(
                     "player {}'s game started a scene: actor {:08x} talks to {:08x} (topic {:08x}): {}",
@@ -450,6 +491,7 @@ impl HostDriver {
                     }
                 ));
                 if played.is_ok() {
+                    self.scenes_played.insert(key, self.now_ms);
                     commands::played_for_a_guest(e, &scene);
                     let n = self.scenes.entry(scene.actor).or_insert(0);
                     *n = n.wrapping_add(1);
@@ -822,6 +864,8 @@ impl HostDriver {
         }
         // A conversation a script started between two actors: the guests' games play it too.
         for scene in commands::drain_scenes(e) {
+            self.scenes_played
+                .insert((scene.actor, scene.target, scene.topic), self.now_ms);
             self.scene_started.extend([scene.actor, scene.target]);
             let n = self.scenes.entry(scene.actor).or_insert(0);
             *n = n.wrapping_add(1);
@@ -857,6 +901,7 @@ impl HostDriver {
     /// One step, between two of the game's frames: the guests' messages, this frame's changes,
     /// the sends, and every [`HostDriver::hash_every`] steps the hashes.
     pub fn step(&mut self, e: &mut Engine, net: &mut dyn Transport, now_ms: u64) {
+        self.now_ms = now_ms;
         let kept = quest::guest_completions_kept(e);
         // Said the first time, then once in 1000 (a quest script tries again every frame).
         if kept / 1000 != self.kept_seen / 1000 || (self.kept_seen == 0 && kept > 0) {

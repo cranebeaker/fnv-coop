@@ -167,6 +167,9 @@ pub struct Held {
     pub rehomed: bool,
     /// Where the avatar is after the move.
     pub pos: [f32; 3],
+    /// It is within [`LOADED_REACH`] of this player and has no 3D: it should be seen and is not
+    /// drawn.
+    pub unseen: bool,
 }
 
 /// One frame of an avatar: its AI kept off, then moved to `pos` and `heading` (radians). `None`
@@ -188,13 +191,36 @@ pub fn avatar_hold(e: &mut Engine, a: Avatar, pos: [f32; 3], heading: f32) -> Op
         e.mem.set_u8(flag, 0);
         e.call(addr::ACTOR_END_MOVEMENT, &args![r]);
     }
-    let rehomed = !in_loaded_cell(e, r) && rehome(e, r, pos);
+    let loaded = in_loaded_cell(e, r);
+    let rehomed = !loaded && rehome(e, r, pos);
     place(e, r, pos, heading);
+    let unseen = near_player(e, pos) && e.vcall(r, addr::REF_GET_3D_SLOT, &args![]).u32() == 0;
     Some(Held {
         woke,
         rehomed,
         pos: pos_of(e, r),
+        unseen,
     })
+}
+
+/// Whether actor `id` is here and in a cell this game has loaded (one in a cell this game let go
+/// is neither drawn nor moved by `SetPos`). True where the program has no such function.
+pub fn is_loaded(e: &mut Engine, id: u32) -> bool {
+    if !e.is_registered(addr::CELL_IS_LOADED) {
+        return true;
+    }
+    forms::form(e, id).is_some_and(|r| in_loaded_cell(e, r))
+}
+
+/// Brings actor `id`, in a cell this game let go, to `pos` the way an avatar is (its `MoveTo` to
+/// the local player, when `pos` is within [`LOADED_REACH`] of it). Whether it was brought.
+pub fn bring_into_view(e: &mut Engine, id: u32, pos: [f32; 3]) -> bool {
+    match forms::form(e, id) {
+        Some(r) if e.is_registered(addr::CELL_IS_LOADED) && !in_loaded_cell(e, r) => {
+            rehome(e, r, pos)
+        }
+        _ => false,
+    }
 }
 
 /// Whether reference `r` is in a cell this game has loaded.
@@ -208,6 +234,17 @@ fn in_loaded_cell(e: &mut Engine, r: u32) -> bool {
 /// keeps loaded: two exterior cells of 4096 units (the game's `uGridsToLoad` of 5 is the player's
 /// cell and two around it).
 pub const LOADED_REACH: f32 = 8192.0;
+
+/// Whether `pos` is within [`LOADED_REACH`] of this game's player, in the world.
+fn near_player(e: &mut Engine, pos: [f32; 3]) -> bool {
+    match player(e) {
+        Some(p) if e.mem.u32(p.wrapping_add(addr::REF_LOADED_OFFSET)) != 0 => {
+            let at = [0, 4, 8].map(|o| e.mem.f32(p.wrapping_add(addr::REF_POS_OFFSET + o)));
+            (0..2).map(|i| (pos[i] - at[i]).powi(2)).sum::<f32>().sqrt() <= LOADED_REACH
+        }
+        _ => false,
+    }
+}
 
 /// Brings reference `r` to `pos` with the game's `MoveTo` to the local player (the difference as
 /// offsets), which puts it in the cell there. False when the player is not in the world, `pos` is
