@@ -32,6 +32,8 @@ const HEALTH_PART: u32 = 0x40;
 /// Where a stack's extra data list keeps its count and health extras in the kit.
 const XDATA_COUNT: u32 = 0x10;
 const XDATA_HEALTH: u32 = 0x14;
+// character: and its worn mark.
+const XDATA_WORN: u32 = 0x18;
 /// The form type of the kit's items and of an actor's base (any that is no container).
 const FORM_TYPE_ITEM: u8 = 0x1f;
 const FORM_TYPE_NPC: u8 = 0x2a;
@@ -102,6 +104,8 @@ struct Holder {
     inv: u32,
     container: u32,
     merchant: u32,
+    // character: the item forms it wears.
+    worn: Vec<u32>,
 }
 
 /// The kit's state beside the engine's memory.
@@ -198,6 +202,12 @@ fn rebuild(e: &mut Engine, r: u32) {
             e.mem.set_u32(x + XDATA_HEALTH, h);
             stacks.push(x);
         }
+        // character: a worn item has an extra data list of its own that says so.
+        if total > 0 && e.ext::<Kit>().holders[&r].worn.contains(&form) {
+            let x = new(e, 0x20);
+            e.mem.set_u32(x + XDATA_WORN, 1);
+            stacks.push(x);
+        }
         if total == in_base && stacks.is_empty() {
             continue;
         }
@@ -255,6 +265,9 @@ fn take(e: &mut Engine, r: u32, form: u32, count: i32) -> Vec<(i32, Option<f32>)
         }
     }
     h.have.retain(|s| s.1 > 0);
+    // character: what the holder no longer has it no longer wears.
+    let left: Vec<u32> = h.have.iter().map(|s| s.0).collect();
+    h.worn.retain(|f| left.contains(f));
     if !out.is_empty() {
         rebuild(e, r);
         add_change(e, r, addr::CHANGE_REFR_INVENTORY);
@@ -330,9 +343,25 @@ fn make_holder(e: &mut Engine, r: u32, spec: &HolderSpec) {
             inv,
             container,
             merchant: 0,
+            worn: Vec::new(), // character
         },
     );
     rebuild(e, r);
+}
+
+// character
+/// Holder `r` puts item form `form` on (the stand-in of the game's equip): its stack is marked
+/// worn while the holder has the item.
+pub(crate) fn wear(e: &mut Engine, r: u32, form: u32) {
+    let Some(h) = e.ext::<Kit>().holders.get_mut(&r) else {
+        return;
+    };
+    if h.worn.contains(&form) || !h.have.iter().any(|s| s.0 == form && s.1 > 0) {
+        return;
+    }
+    h.worn.push(form);
+    rebuild(e, r);
+    add_change(e, r, addr::CHANGE_REFR_INVENTORY);
 }
 
 /// Adds `spec`'s forms to `story` and the stand-ins for the game's item functions, and installs
@@ -369,6 +398,7 @@ pub fn install(story: &mut Story, spec: &ItemKitSpec) {
         eax(match a[1] {
             addr::EXTRA_TYPE_COUNT => e.mem.u32(a[0] + XDATA_COUNT),
             addr::EXTRA_TYPE_HEALTH => e.mem.u32(a[0] + XDATA_HEALTH),
+            addr::EXTRA_TYPE_WORN => e.mem.u32(a[0] + XDATA_WORN), // character
             _ => 0,
         })
     });

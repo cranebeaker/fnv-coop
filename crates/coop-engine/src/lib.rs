@@ -57,6 +57,10 @@ pub mod vats;
 #[cfg(any(test, feature = "testkit"))]
 pub mod itemkit;
 pub mod items;
+// character: the player's own values, level, perks and worn items (docs/coop/SPECS.md S30).
+#[cfg(any(test, feature = "testkit"))]
+pub mod statkit;
+pub mod stats;
 
 use std::sync::atomic::Ordering;
 

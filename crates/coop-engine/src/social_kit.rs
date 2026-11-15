@@ -55,6 +55,9 @@ const INFO_TEXT: u32 = 0x280;
 /// (`tesscriptfunctions_p2.rs`, `fn_005c1a00`).
 const PLAYER_WAIT_HOURS: u32 = 0x654;
 const PLAYER_WAIT_IN_BED: u32 = 0x658;
+// character: where the stat kit (`crate::statkit`) takes part in a result script that ran,
+// `(info, index)`; no function of the game.
+pub(crate) const RESULT_RAN_HOOK: u32 = 0x0134_0000;
 
 fn eax(v: u32) -> Ret {
     Ret {
@@ -88,6 +91,10 @@ fn run_result(e: &mut Engine, a: &[u32]) -> Ret {
         if e.mem.u32(Story::RAN_AT) != before {
             let stage = e.mem.u32(result + 4);
             e.call(addr::QUEST_SET_STAGE_DONE, &args![quest, stage]);
+            // character: a story with the stat kit also gives the player what the script gives.
+            if e.is_registered(RESULT_RAN_HOOK) {
+                e.call(RESULT_RAN_HOOK, &args![info, index]);
+            }
         }
     }
     Ret::default()

@@ -708,3 +708,81 @@ pub const GET_MERCHANT_CONTAINER: u32 = 0x0042_1400;
 /// destroyed.
 pub const PLAYER_PICK_UP: u32 = 0x0095_3ff0;
 // items: end
+
+// character: the player's own values, level, perks and worn items (docs/coop/SPECS.md S30),
+// and what a line of dialogue gives the player (S31). Every constant names its translation.
+
+/// The actor values that are the seven SPECIAL attributes, 5 to 0xb, and the fourteen skills,
+/// 0x20 to 0x2d (`playercharacter_p2.rs`, `player_character_export_progress_data`: the skills
+/// as `index + 0x20` for 14, the attributes as `index + 5` for 7; `actorvalue.rs`,
+/// `actor_value_to_actor_value` and `actor_value_get_section_count`: section 0 from 5 with 7
+/// values, section 2 from 0x20 with 0xe).
+pub const ACTOR_VALUE_SPECIAL_FIRST: u32 = 5;
+/// See [`ACTOR_VALUE_SPECIAL_FIRST`].
+pub const ACTOR_VALUE_SPECIAL_COUNT: u32 = 7;
+/// See [`ACTOR_VALUE_SPECIAL_FIRST`].
+pub const ACTOR_VALUE_SKILL_FIRST: u32 = 0x20;
+/// See [`ACTOR_VALUE_SPECIAL_FIRST`].
+pub const ACTOR_VALUE_SKILL_COUNT: u32 = 0xe;
+/// The actor value that is karma (`playercharacter_p2.rs`, `player_character_reward_karma`:
+/// value `0x17`).
+pub const ACTOR_VALUE_KARMA: u32 = 0x17;
+/// The actor value that is experience (`falloutcharacterprogression.rs`,
+/// `character_progression_reward_experience`: value `0x18`).
+pub const ACTOR_VALUE_EXPERIENCE: u32 = 0x18;
+/// The value owner's virtual `+0x08`: an actor value as an integer (`playercharacter_p2.rs`,
+/// `player_character_export_progress_data` reads experience and the skills through it;
+/// `GetActorValue` in the Xbox PDB, `valuemodifiereffect.rs`).
+pub const OWNER_INT_VALUE_SLOT: u32 = 0x08;
+/// The player's virtual `+0x48c`, `(value, address of a byte)`: the player's own value of an
+/// actor value as a float, the byte set when one is kept, and `+0x394`, `(value, the new one
+/// as f32)`, which stores it. The level-up menu raises a skill by reading the first and
+/// writing the second (`levelupmenu.rs`, `level_up_menu_do_click`).
+pub const PLAYER_OWN_VALUE_SLOT: u32 = 0x48c;
+/// See [`PLAYER_OWN_VALUE_SLOT`].
+pub const PLAYER_SET_OWN_VALUE_SLOT: u32 = 0x394;
+/// `Actor` virtual `+0x3a8`: changes an actor value by an integer, `(value, amount, source
+/// actor or 0)` (`playercharacter_p2.rs`, `player_character_reward_karma`;
+/// `falloutcharacterprogression.rs`, `character_progression_reward_experience` adds the
+/// experience through it).
+pub const ACTOR_MODIFY_INT_VALUE_SLOT: u32 = 0x3a8;
+/// An actor's level, a 16-bit answer (`0087f9f0`, `thiscall`; `actor.rs`, `fn_0087f9f0`).
+pub const ACTOR_GET_LEVEL: u32 = 0x0087_f9f0;
+/// The player's `CharacterProgression` (`00464e10`, `thiscall` on the player: `this + 0x878`;
+/// `tesscriptfunctions_p5.rs`, `PLAYER_CHARACTER_PROGRESSION`). Its first word is the level-up
+/// state: the ready-to-level-up byte at +0, the experience the next level needs at +4 and, at
+/// +8, a byte that keeps a change of experience from being shown or judged while it is set
+/// (`falloutcharacterprogression.rs`, `character_progression_force_level` sets it around its
+/// own change; `run_008d53f0.rs`, `fn_008d53f0` does nothing while it is set).
+pub const PLAYER_PROGRESSION: u32 = 0x0046_4e10;
+/// See [`PLAYER_PROGRESSION`].
+pub const LEVEL_STATE_QUIET_OFFSET: u32 = 8;
+/// `CharacterProgression::ForceLevel(progression, level)` (`008d5300`,
+/// `falloutcharacterprogression.rs`): what the set-level command does for the player
+/// (`tesscriptfunctions_p5.rs`, `fn_005d0e30`). Nothing when the level is the player's.
+pub const PROGRESSION_FORCE_LEVEL: u32 = 0x008d_5300;
+/// `PlayerCharacter::RewardKarma(player, amount)` (`0094fd30`, `playercharacter_p2.rs`): the
+/// karma changed within its limits, with the game's message and sound.
+pub const PLAYER_REWARD_KARMA: u32 = 0x0094_fd30;
+/// The player's perks: a list (data, next) at +0x87c of `PerkRankData`, each the perk's form
+/// at +0 and its rank, a byte, at +4 (`playercharacter_p3.rs`, `perk_list` and
+/// `find_perk_rank_data`).
+pub const PLAYER_PERK_LIST_OFFSET: u32 = 0x87c;
+/// See [`PLAYER_PERK_LIST_OFFSET`].
+pub const PERK_RANK_OFFSET: u32 = 4;
+/// Gives the player a perk at a rank, `(player, perk, rank, companion)`, and takes one away,
+/// `(player, perk, companion)` (`00963790`, `00963900`, `thiscall`; `playercharacter_p3.rs`,
+/// `fn_00963790` and `fn_00963900`).
+pub const PLAYER_SET_PERK_RANK: u32 = 0x0096_3790;
+/// See [`PLAYER_SET_PERK_RANK`].
+pub const PLAYER_REMOVE_PERK: u32 = 0x0096_3900;
+/// The form type of a perk (`args.rs` of `nvse`, `form_type::BGS_PERK`).
+pub const FORM_TYPE_PERK: u8 = 0x56;
+/// The extra data type of a worn stack (`invref.rs` of `nvse`, `EXTRA_WORN`), for
+/// [`EXTRA_GET_BY_TYPE`].
+pub const EXTRA_TYPE_WORN: u32 = 0x16;
+/// `Actor::QueueEquipObject(actor, item, 1, 0, 1, cannot be taken off, 1)` (`0088c650`,
+/// `thiscall`; `tesscriptfunctions_p5.rs`, `script_equip_item_function`: what the `EquipItem`
+/// command calls; `invref.rs` of `nvse` names it `Actor::EquipItem`).
+pub const ACTOR_QUEUE_EQUIP: u32 = 0x0088_c650;
+// character: end
