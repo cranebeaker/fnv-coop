@@ -742,3 +742,26 @@ experience and items a quest gives).
   even when the guest said the line (the rules' `Payment` goes to the line's initiator: to do);
   items moved to the player from a container or an NPC (`RemoveAllItems player`) are not copied.
 
+
+## S26: the other players on the compass (implemented; run in two headless games, not yet on a PC)
+
+The owner (2026-11-15): a marker of its own for the other players (not for companions), on the
+HUD's compass, in purple, a colour none of the game's HUD colours (amber, white, blue, green, and
+the red of a hostile tick) is near.
+
+- Each other player this game shows (their avatar, which exists while both players are in the same
+  interior or worldspace) has a tick on the compass in purple (190, 80, 255), step C-14
+  (`crates/coop-engine/src/compass.rs`, a wrap of `HUDMainMenu::UpdateCompass` `00779070`).
+- The game's own actor ticks are untouched: the avatars are kept off them for that call (the
+  player's compass list's keep-off byte, set and put back around the call), so a player is never
+  ticked twice or in an NPC's colour. The avatar's tick then goes on a tile the game left unused
+  that frame (the last one when every tile was used), placed and faded as the game places and
+  fades an actor tick, hidden while the player is outside the strip (behind, or exactly to the
+  side). Its system colour is taken away so the tile shows its own red, green and blue; the game
+  gives a tile it uses again its system colour back, so no NPC is left purple.
+- Unlike an NPC's tick, the player's is not limited by distance or by being detected.
+- Checked in two headless games (`/tmp/s_compass*.sh`, harness `compass`, which reads each shown
+  tick's traits and the colour its picture is drawn in): after loading the saves, outside the
+  saloon, inside the saloon (through its door) and at the Goodsprings Source after a fast travel,
+  each game showed the other player ahead of it in purple (drawn 0.75, 0.31, 1.00) and its NPC
+  ticks in the HUD's amber; none when the other player was behind or at the side.

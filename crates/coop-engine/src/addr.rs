@@ -766,3 +766,64 @@ pub const PROCESS_FOLLOWED_SLOT: u32 = 0x128;
 /// `TESPackage::pPackTarg` (+0x30): a `PackageTarget` whose type (+0, 0 = a reference) and
 /// reference (+4) say whom the package is about.
 pub const PACKAGE_TARGET_OFFSET: u32 = 0x30;
+/// `HUDMainMenu::UpdateCompass` (`cdecl`: the compass, the landmark marks, the objective marks, the
+/// actor ticks; `hudmainmenu.rs`): every frame the HUD shows, it places each mark on the strip.
+pub const HUD_UPDATE_COMPASS: u32 = 0x0077_9070;
+/// `HUDMainMenu::GetCompassAngle` (`cdecl`, six floats: the mark's place, then the player's):
+/// where a place is on the compass, in the compass's degrees from straight ahead.
+pub const HUD_GET_COMPASS_ANGLE: u32 = 0x0077_8b80;
+/// The HUD (`HUDMainMenu *`), 0 when there is none.
+pub const HUD_SINGLETON: u32 = 0x011d_96c0;
+/// `HUDMainMenu::iCompassDisplayWidth` (+0x214) and `iCompassHalfAngle` (+0x218).
+pub const HUD_COMPASS_DISPLAY_WIDTH_OFFSET: u32 = 0x214;
+/// See [`HUD_COMPASS_DISPLAY_WIDTH_OFFSET`].
+pub const HUD_COMPASS_HALF_ANGLE_OFFSET: u32 = 0x218;
+/// The player's list of the actors the compass may tick (`PlayerCharacter +0xd48`, `00595d10`):
+/// nodes of (item, next), each item an actor (+0), whether it is hostile (+4, a byte: the red
+/// tick) and a byte (+5) that keeps it off the compass when set.
+pub const PLAYER_COMPASS_ACTORS_OFFSET: u32 = 0xd48;
+/// See [`PLAYER_COMPASS_ACTORS_OFFSET`].
+pub const COMPASS_ACTOR_SKIP_OFFSET: u32 = 5;
+/// The id of the compass marks' `_Heading` trait (looked up by `UpdateCompass` on its first call;
+/// 0 before).
+pub const COMPASS_HEADING_TRAIT: u32 = 0x011d_9e60;
+/// `cdecl` (a, b, low, high, x): `x` taken from `low..high` to `a..b`.
+pub const LERP: u32 = 0x004b_3ab0;
+/// `Tile::SetFloat` (`thiscall`, tile, trait, value, 1).
+pub const TILE_SET_FLOAT: u32 = 0x00a0_12d0;
+/// `Tile::SetString` (`thiscall`, tile, trait, text, 1).
+pub const TILE_SET_STRING: u32 = 0x00a0_1350;
+/// `cdecl` (tile, trait, integer): a trait set to a whole number (`run_007001f0.rs`).
+pub const TILE_SET_INT: u32 = 0x0070_0320;
+/// Tile traits: `visible`, `alpha`, `red`, `green`, `blue`, `filename`, `systemcolor`.
+pub const TRAIT_VISIBLE: u32 = 0xfa3;
+/// See [`TRAIT_VISIBLE`].
+pub const TRAIT_ALPHA: u32 = 0xfa9;
+/// See [`TRAIT_VISIBLE`].
+pub const TRAIT_RED: u32 = 0xfb2;
+/// See [`TRAIT_VISIBLE`].
+pub const TRAIT_GREEN: u32 = 0xfb3;
+/// See [`TRAIT_VISIBLE`].
+pub const TRAIT_BLUE: u32 = 0xfb4;
+/// See [`TRAIT_VISIBLE`].
+pub const TRAIT_FILENAME: u32 = 0xfcc;
+/// See [`TRAIT_VISIBLE`]. 1 is the HUD's colour, 2 its warning colour (the hostile tick); a number
+/// no system colour has (0) makes the tile take its `red`, `green` and `blue` (`tile.rs`,
+/// `update_tile_color`).
+pub const TRAIT_SYSTEM_COLOR: u32 = 0xff4;
+/// The text "Interface\HUD\glow_hud_tick_mark.dds", the actor tick's picture.
+pub const TICK_TEXTURE: u32 = 0x0107_350c;
+/// A reference's virtual `GetPos` (the compass's place of it): a pointer to three floats.
+pub const REF_GET_POS_SLOT: u32 = 0x1f4;
+/// `cdecl`, a setting: a pointer to its value.
+pub const SETTING_VALUE: u32 = 0x0040_3e20;
+/// The HUD opacity setting (a float, 0..1).
+pub const HUD_OPACITY_SETTING: u32 = 0x011d_9774;
+/// A list whose count (+8) is not 0 while the HUD is drawn at full opacity (`UpdateCompass`).
+pub const HUD_FULL_OPACITY_LIST: u32 = 0x011f_2250;
+/// `HUDMainMenu +0x3c`: the group whose tiles are the actor ticks (the fourth word
+/// `UpdateCompass` is called with, `HUDMainMenu::DoIdle`).
+pub const HUD_ACTOR_TICKS_OFFSET: u32 = 0x3c;
+/// `NiAVObject::GetProperty` (`thiscall`, object, type): type 3 is the shader property, whose
+/// colour (four floats at +0x68) a tile's colour update writes (`Tile::SetAlphaAndColor`).
+pub const NI_OBJECT_GET_PROPERTY: u32 = 0x00a5_9d30;

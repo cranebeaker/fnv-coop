@@ -553,7 +553,10 @@ impl Harness {
             // one line: how far it went, its largest step, how many were jumps.
             "watch" => {
                 let mut p = rest.split_whitespace();
-                match (p.next().and_then(hex), p.next().and_then(|n| n.parse::<u32>().ok())) {
+                match (
+                    p.next().and_then(hex),
+                    p.next().and_then(|n| n.parse::<u32>().ok()),
+                ) {
                     (Some(id), Some(frames)) if frames > 0 => {
                         lock(&WATCHES).push(Watch {
                             id,
@@ -580,6 +583,34 @@ impl Harness {
                     )],
                     _ => vec!["fight ACTORHEX TARGETHEX".into()],
                 }
+            }
+            // `compass`: the HUD's actor ticks now, the shown ones each as heading, system colour,
+            // red green blue, alpha and the colour drawn; then how many purple ticks co-op drew.
+            "compass" => {
+                let ticks = coop_engine::compass::ticks(e);
+                let shown: Vec<String> = ticks
+                    .iter()
+                    .filter(|t| t.shown)
+                    .map(|t| {
+                        let drawn = t.drawn.map_or("-".to_string(), |c| {
+                            format!("{:.2},{:.2},{:.2}", c[0], c[1], c[2])
+                        });
+                        format!(
+                            "x {:.1} sys {} rgb {:.0},{:.0},{:.0} a {:.0} drawn {drawn}",
+                            t.heading, t.system_color, t.rgb[0], t.rgb[1], t.rgb[2], t.alpha
+                        )
+                    })
+                    .collect();
+                let c = coop_engine::compass::counts(e);
+                vec![format!(
+                    "compass {} of {} ticks shown: {}; co-op drew {}, behind {}, no tile {}",
+                    shown.len(),
+                    ticks.len(),
+                    shown.join("; "),
+                    c.drawn,
+                    c.behind,
+                    c.no_tile
+                )]
             }
             "say" => vec![rest.to_string()],
             "menu" => vec![match coop_engine::talk::menu_npc(e) {
@@ -676,7 +707,10 @@ fn watch_frame(e: &mut Engine) {
         };
         let pos = coop_engine::fight::place_of_ptr(e, a);
         if let Some(last) = w.last {
-            let step = (0..3).map(|i| (pos[i] - last[i]).powi(2)).sum::<f32>().sqrt();
+            let step = (0..3)
+                .map(|i| (pos[i] - last[i]).powi(2))
+                .sum::<f32>()
+                .sqrt();
             w.path += step;
             w.largest = w.largest.max(step);
             w.jumps += u32::from(step > WATCH_JUMP);

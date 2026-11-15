@@ -22,6 +22,7 @@
 pub mod actors;
 pub mod addr;
 pub mod commands;
+pub mod compass;
 pub mod diag;
 // fights
 pub mod fight;
@@ -109,6 +110,8 @@ pub fn install(e: &mut Engine) {
     puppet::install(e);
     // social
     social::install(e);
+    // the other players' ticks on the compass
+    compass::install(e);
 }
 
 // The unit tests' own program: no other crate's functions are linked in.

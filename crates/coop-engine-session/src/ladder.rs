@@ -240,6 +240,8 @@ impl Ladder {
         if self.cap >= Cap::Avatar && self.warp == Warp::Idle {
             self.avatars(e, now_ms, me, peers);
         }
+        // The other players' ticks on the compass: each avatar this game has now.
+        coop_engine::compass::set_players(e, self.avatar_ids().into_iter().map(|(_, id)| id));
         me
     }
 
@@ -502,6 +504,7 @@ impl Ladder {
         for p in self.peers.keys().copied().collect::<Vec<_>>() {
             self.remove(e, p, "session ended");
         }
+        coop_engine::compass::set_players(e, []);
     }
 
     /// The highest rung that passed, and one status phrase for the log.

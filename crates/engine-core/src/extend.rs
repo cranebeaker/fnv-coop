@@ -206,6 +206,13 @@ pub const WRAPS: &[Entry] = &[
         owners: COOP,
         step: "C-6",
     },
+    // HUDMainMenu::UpdateCompass (compass, landmarks, objectives, actor ticks): the other
+    // players get a mark of their own on the compass, in a colour the game's HUD does not use.
+    Entry {
+        addr: 0x0077_9070,
+        owners: COOP,
+        step: "C-14",
+    },
     Entry {
         addr: 0x007c_0220,
         owners: COOP,
