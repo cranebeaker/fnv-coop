@@ -213,7 +213,7 @@ mod real {
                 if tx.talking && !self.mic.is_empty() {
                     let sq: f32 = self.mic.iter().map(|s| s * s).sum();
                     let rms = (sq / self.mic.len() as f32).sqrt();
-                    link.speaking.local_level = (rms * 4.0).clamp(0.0, 1.0);
+                    link.speaking.local_level = coop_engine_session::voicelist::display_level(rms);
                 }
             }
             // The party to the speakers, each where their avatar stands.
@@ -252,6 +252,13 @@ mod real {
                 }
             }
             self.out = out;
+            // voiceui: each speaking player's level as heard here, for the lists.
+            let speaking = link.speaking.now(link.now_ms);
+            link.levels.retain(|p, _| speaking.contains(p));
+            for p in speaking {
+                let l = coop_engine_session::voicelist::display_level(self.rx.level(p.0));
+                link.levels.insert(p, l);
+            }
         }
     }
 }

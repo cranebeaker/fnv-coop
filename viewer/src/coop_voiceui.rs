@@ -1,15 +1,17 @@
 //! voiceui: the players list, who is speaking, and each player's mute and volume by name
 //! (docs/coop/SPECS.md, voice list).
 //!
-//! - The players key (`NV_COOP_PLAYERS_KEY`, F9) opens the list as the game's own message box
+//! - The players key (`NV_COOP_PLAYERS_KEY`, F11) opens the list as the game's own message box
 //!   (`coop_engine::msgbox`): every player with ping (where this game's network measures it),
 //!   speaking, muted and volume; a click on a player opens their page: mute, volume up and down,
 //!   kick (the host). The pages are `coop_engine_session::voicelist::PlayerList`'s.
 //! - Mutes and volumes are by name ([`Prefs`]): from `NV_COOP_VOICE_MUTE`, `NV_COOP_VOICE_VOLUMES`
 //!   and the `Player=` lines of the launcher's `coop.ini` (`NV_COOP_INI`), written back there on
 //!   every change in the game.
-//! - A player who begins to speak is said on the HUD (`NV_COOP_SPEAKING=off` keeps it off); the
-//!   compass marks of speaking players are the session's (`voicelist::mark`).
+//! - Who speaks is shown on the HUD every frame (`coop_engine::hudtext`): a live list (name and
+//!   level bar) and a label over each speaking player's head; `NV_COOP_SPEAKING=messages` also says
+//!   who begins in the game's own messages, `off` shows none of it. The compass marks of speaking
+//!   players are the session's (`voicelist::mark`).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -119,7 +121,17 @@ impl VoiceUi {
         let now = link.map_or(0, |l| l.now_ms);
         let speaking = link.map(|l| l.speaking.now(now)).unwrap_or_default();
         let local = link.is_some_and(|l| l.speaking.local_now(now));
-        // Who began to speak, on the HUD.
+        // Who speaks, on the HUD: the live list and the head labels, every frame.
+        if self.settings.live {
+            let levels = link.map(|l| l.levels.clone()).unwrap_or_default();
+            let local_level = link.map_or(0.0, |l| l.speaking.local_level);
+            let lines =
+                voicelist::live_lines(names, &speaking, local.then_some(local_level), &levels);
+            coop_engine::hudtext::show_list(e, &lines);
+            let avatars = link.map(|l| l.avatars.clone()).unwrap_or_default();
+            coop_engine::hudtext::show_heads(e, &voicelist::head_marks(names, &speaking, &avatars));
+        }
+        // Who began to speak, in the game's own messages (when asked for).
         if self.settings.announce {
             for who in self.announce.step(&speaking, local, now) {
                 coop_engine::talk::show(e, &announce_text(who, names));
@@ -158,7 +170,12 @@ impl VoiceUi {
                 muted: *p != me && self.prefs.is_muted(n),
                 volume: self.prefs.volume_of(n),
                 me: *p == me,
-                level: (*p == me && local).then(|| link.map_or(0.0, |l| l.speaking.local_level)),
+                level: if *p == me {
+                    local.then(|| link.map_or(0.0, |l| l.speaking.local_level))
+                } else {
+                    link.and_then(|l| l.levels.get(p).copied())
+                        .filter(|_| speaking.contains(p))
+                },
             })
             .collect();
         let mut kick = None;
