@@ -61,7 +61,7 @@ pub mod vats;
 #[cfg(any(test, feature = "testkit"))]
 pub mod itemkit;
 pub mod items;
-// character: the player's own values, level, perks and worn items (docs/coop/SPECS.md S30).
+// character: the player's character, condition and worn items (docs/coop/SPECS.md S32).
 #[cfg(any(test, feature = "testkit"))]
 pub mod statkit;
 pub mod stats;

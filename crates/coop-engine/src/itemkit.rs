@@ -364,6 +364,20 @@ pub(crate) fn wear(e: &mut Engine, r: u32, form: u32) {
     add_change(e, r, addr::CHANGE_REFR_INVENTORY);
 }
 
+// character
+/// Holder `r` takes item form `form` off (the stand-in of the game's unequip).
+pub(crate) fn unwear(e: &mut Engine, r: u32, form: u32) {
+    let Some(h) = e.ext::<Kit>().holders.get_mut(&r) else {
+        return;
+    };
+    if !h.worn.contains(&form) {
+        return;
+    }
+    h.worn.retain(|f| *f != form);
+    rebuild(e, r);
+    add_change(e, r, addr::CHANGE_REFR_INVENTORY);
+}
+
 /// Adds `spec`'s forms to `story` and the stand-ins for the game's item functions, and installs
 /// co-op's item wraps in front of the ones it wraps.
 pub fn install(story: &mut Story, spec: &ItemKitSpec) {

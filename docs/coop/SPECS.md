@@ -476,9 +476,8 @@ its own code leaves the game sound.
   the hashes carry them. Each guest takes the newest part with its key once: its own quests are put
   back as on a load (no script runs) and the player is asked to be moved to the saved place, once the
   player is in the world.
-- **Limits, stated.** The character's values and the inventory are not in the part yet: no function
-  of the repository was established for reading and writing them here, so a guest keeps those in its
-  own game and its own `.fos`. A guest's part is as old as its last upload (at most 5 s). The party
+- **Limits, stated.** The inventory (S20) and the character (S32) were added as sections later. A
+  guest's part is as old as its last upload (at most 5 s). The party
   folder is not the save folder: the platform layer keeps saves, and co-op writes plain files.
 
 ## S18: rejoining and joining late (implemented with unit tests; not run on a PC)
@@ -570,11 +569,8 @@ Nothing in this section has run in the real game. Its tests use stand-ins for th
   holder's condition per stack does not travel (the count per item does); the game chooses which
   stack a removal takes. A move in the same frame as the menu's opening is not seen. Contents above
   four pieces (about 250 kinds of item) are not published. A trader's stock in several references
-  is one trade per reference. Items equipped are not put on again after a part is taken back. The
-  character's values (SPECIAL, skills, level, experience, perks) are not in a part: the repository
-  shows an actor value's read and the set command's write by code, but not which codes they are,
-  nor a write for level, experience and perks. A conversation's reward still goes to the host's
-  character (S16).
+  is one trade per reference. What is worn and the character's values are in a part since S32. A
+  conversation's reward still goes to the host's character (S16).
 
 **Verified here:** 5 tests in the bridge (the listing with base items, changes and conditions; add
 and remove; caps; the wraps with sharing off and on), 2 unit tests of the encodings and 7 two- to
@@ -926,3 +922,56 @@ A companion that follows the player who hired it, as the host's actor, was not s
 shows the teammate byte (`Actor::bPlayerTeammate`, +0x18d) and `Actor::SetPlayerTeammate` (`actor_p6.rs`),
 but following is a package whose target is the player, and nothing read here shows how a package is made
 to follow another reference (a guest's avatar) without changing the package for every actor that uses it.
+
+## S32: a guest's character in a party save (implemented with unit tests; not run on a PC)
+
+Nothing in this section has run in the real game. Its tests use stand-ins for the game's functions
+(`coop_engine::statkit`, with `itemkit` for what is worn).
+
+- **The section.** A guest's part (S17) has a new section (4), the version stays 1 and an older build
+  skips it. It is a list of tagged parts of its own (`coop_engine_session::sheet`): 1 the character,
+  2 its condition, 3 what it wears; a part with a tag this build does not know is skipped, one with
+  other counts of values than this build's is read as missing and its values are left alone.
+- **The character** (`coop_engine::stats`). The SPECIAL attributes (actor values 5 to 0xb) and the
+  fourteen skill values (0x20 to 0x2d) as base values: read through the value owner's `+0x04`, set
+  through `00881360`, which adds to a base value as the game does. The tag skills: the four words at
+  +0x44 of the player's class (`Actor::GetClass`, `00884350`), set through `TESClass::SetTagSkill`
+  (`005f6e80`) as the `SetPlayerTagSkill` command sets them. The level through
+  `CharacterProgression::ForceLevel` (`008d5300`), as the set-level command; the experience (0x18)
+  then by the difference through the actor's integer change of a value (`+0x3a8`), with the game's
+  quiet byte set as `ForceLevel` sets it, so no message shows and no level-up is judged. The perks
+  with their ranks: the player's list at +0x87c, given through `00963790` and taken through
+  `00963900`; a perk this game's data lack is left out. Traits travel as the perks of that list
+  they are; nothing here shows the game keeping them anywhere else.
+- **The condition.** Health (0x10), action points (0x0c), radiation (0x36) and the seven body
+  conditions (0x19 to 0x1f) as current values: read through the value owner's `+0x0c`, set by the
+  difference through the actor's change of a value (`+0x3ac`), the call damage, restoring and
+  radiation make. Karma (0x17) by the difference through `+0x3a8`, without `RewardKarma`'s message.
+- **What is worn.** The inventory's stacks marked worn (extra data 0x16); on taking the part back
+  what is worn and not saved is taken off (`Actor::QueueUnEquipObject`, `0088c790`, as
+  `UnequipItem`), and what was saved and is carried is put on (`Actor::QueueEquipObject`,
+  `0088c650`, as `EquipItem`).
+- **Order.** On taking its part back a guest's game puts back the quests and the place, then the
+  pack (S20), then the character: the level and experience, the perks, the tag skills, and the base
+  values last, so that what giving a perk did to a base value is set back to the saved value; then
+  the condition, whose limits follow from the character; then what is worn, which the pack has just
+  given back.
+- **Limits, stated.** Name, sex, race, head parts, hair, hair colour and face values are not in the
+  part: the translation reads the sex (`0087f4c0`) and has the race menu's own functions, but shows
+  no function that sets these on a player in the world and rebuilds its head (only the menu does,
+  through its own state), nor where the entered name is taken. A level-up the player had not taken
+  yet is not kept (`ForceLevel` clears the ready byte). An item that cannot be taken off stays on.
+  Equipping is queued in the game: the worn list a guest uploads right after taking its part back may
+  not show it yet. Skill values are bases: whether the game's base of a skill already holds what the
+  attributes give is not established here, so a saved skill is set back to the saved base whatever
+  the attributes are.
+
+**Verified here:** 9 tests in the bridge (the value codes; a game without the functions; a character
+read and applied in another game, counted; perks given before base values; the condition through the
+change of a value, by the difference; what is worn put on and taken off; a sheet whole and in part;
+experience changed quietly), 3 unit tests of the section (round trip, a cut section and an unknown
+part, another build's counts) and 3 multi-game tests: a party save holds a guest's character and a
+load gives it back after it changed; a guest whose game started anew gets its character back with
+its pack; a part without the section leaves the character alone. **Not verified here:** every game
+function above in the real game, that `00881360` gives the base value the owner's `+0x04` reads for
+the player, what the real perk functions do to values, two real games.

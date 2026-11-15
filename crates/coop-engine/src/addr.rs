@@ -786,8 +786,8 @@ pub const GET_MERCHANT_CONTAINER: u32 = 0x0042_1400;
 pub const PLAYER_PICK_UP: u32 = 0x0095_3ff0;
 // items: end
 
-// character: the player's own values, level, perks and worn items (docs/coop/SPECS.md S30),
-// and what a line of dialogue gives the player (S31). Every constant names its translation.
+// character: the player's own values, level, perks, condition and worn items
+// (docs/coop/SPECS.md S32). Every constant names its translation.
 
 /// The actor values that are the seven SPECIAL attributes, 5 to 0xb, and the fourteen skills,
 /// 0x20 to 0x2d (`playercharacter_p2.rs`, `player_character_export_progress_data`: the skills
@@ -811,13 +811,14 @@ pub const ACTOR_VALUE_EXPERIENCE: u32 = 0x18;
 /// `player_character_export_progress_data` reads experience and the skills through it;
 /// `GetActorValue` in the Xbox PDB, `valuemodifiereffect.rs`).
 pub const OWNER_INT_VALUE_SLOT: u32 = 0x08;
-/// The player's virtual `+0x48c`, `(value, address of a byte)`: the player's own value of an
-/// actor value as a float, the byte set when one is kept, and `+0x394`, `(value, the new one
-/// as f32)`, which stores it. The level-up menu raises a skill by reading the first and
-/// writing the second (`levelupmenu.rs`, `level_up_menu_do_click`).
-pub const PLAYER_OWN_VALUE_SLOT: u32 = 0x48c;
-/// See [`PLAYER_OWN_VALUE_SLOT`].
-pub const PLAYER_SET_OWN_VALUE_SLOT: u32 = 0x394;
+/// The value owner's virtual `+0x04`: the base value of an actor value as a float, the one
+/// [`ACTOR_MOD_BASE_VALUE`] adds to (`actor.rs`, `fn_00881360`; `tesscriptfunctions_p2.rs`,
+/// `script_get_actor_value_info_function` prints it as the computed base value).
+pub const OWNER_BASE_VALUE_SLOT: u32 = 0x04;
+/// `00881360` (`thiscall` on an actor: value, amount as f32; `actor.rs`, `fn_00881360`): adds
+/// the amount to the base value (the owner's `+0x04`) through the actor's virtual `+0x394`,
+/// then reports the change as the game does. Nothing for a value with flag `0x100`.
+pub const ACTOR_MOD_BASE_VALUE: u32 = 0x0088_1360;
 /// `Actor` virtual `+0x3a8`: changes an actor value by an integer, `(value, amount, source
 /// actor or 0)` (`playercharacter_p2.rs`, `player_character_reward_karma`;
 /// `falloutcharacterprogression.rs`, `character_progression_reward_experience` adds the
@@ -838,9 +839,6 @@ pub const LEVEL_STATE_QUIET_OFFSET: u32 = 8;
 /// `falloutcharacterprogression.rs`): what the set-level command does for the player
 /// (`tesscriptfunctions_p5.rs`, `fn_005d0e30`). Nothing when the level is the player's.
 pub const PROGRESSION_FORCE_LEVEL: u32 = 0x008d_5300;
-/// `PlayerCharacter::RewardKarma(player, amount)` (`0094fd30`, `playercharacter_p2.rs`): the
-/// karma changed within its limits, with the game's message and sound.
-pub const PLAYER_REWARD_KARMA: u32 = 0x0094_fd30;
 /// The player's perks: a list (data, next) at +0x87c of `PerkRankData`, each the perk's form
 /// at +0 and its rank, a byte, at +4 (`playercharacter_p3.rs`, `perk_list` and
 /// `find_perk_rank_data`).
@@ -862,6 +860,34 @@ pub const EXTRA_TYPE_WORN: u32 = 0x16;
 /// `thiscall`; `tesscriptfunctions_p5.rs`, `script_equip_item_function`: what the `EquipItem`
 /// command calls; `invref.rs` of `nvse` names it `Actor::EquipItem`).
 pub const ACTOR_QUEUE_EQUIP: u32 = 0x0088_c650;
+/// `Actor::QueueUnEquipObject`, the same seven words (`0088c790`, `tesscriptfunctions_p5.rs`,
+/// `fn_005d0300`: what the `UnequipItem` command calls).
+pub const ACTOR_QUEUE_UNEQUIP: u32 = 0x0088_c790;
+/// The actor value that is action points (`actor_p2.rs`, `RESTORED_VALUE_ACTION_POINTS`: value
+/// `0x0c`). Health is [`ACTOR_VALUE_HEALTH`].
+pub const ACTOR_VALUE_ACTION_POINTS: u32 = 0x0c;
+/// The actor value that is radiation (`highprocess_p5.rs`, `RADIATION_ACTOR_VALUE`: value
+/// `0x36`, raised through the actor's [`ACTOR_MODIFY_VALUE_SLOT`]).
+pub const ACTOR_VALUE_RADIATION: u32 = 0x36;
+/// The seven body condition values, 0x19 to 0x1f (`actorvalue.rs`,
+/// `actor_value_to_actor_value` and `actor_value_get_section_count`: section 4 from 0x19 with 7
+/// values; `actor_p6.rs`, `actor_condition_modified_callback`: 0x19 to 0x1e are limbs, 0x1d and
+/// 0x1e the legs, 0x1f handled beside them).
+pub const ACTOR_VALUE_CONDITION_FIRST: u32 = 0x19;
+/// See [`ACTOR_VALUE_CONDITION_FIRST`].
+pub const ACTOR_VALUE_CONDITION_COUNT: u32 = 7;
+/// `Actor::GetClass` (`00884350`, `thiscall`; `tesscriptfunctions_p7.rs`, `ACTOR_GET_CLASS`).
+/// The player's tag skills are its class's: four words at +0x44, each a skill's actor value or
+/// -1 (`tesclass.rs`, `tes_class_set_tag_skill`; `tesconditionfunctions_p2.rs`, `fn_005a5f40`;
+/// `tesscriptfunctions_p7.rs`, `fn_005d9660` answers 4).
+pub const ACTOR_GET_CLASS: u32 = 0x0088_4350;
+/// See [`ACTOR_GET_CLASS`].
+pub const CLASS_TAG_SKILLS_OFFSET: u32 = 0x44;
+/// See [`ACTOR_GET_CLASS`].
+pub const TAG_SKILL_COUNT: u32 = 4;
+/// `TESClass::SetTagSkill(class, index, skill or -1)` (`005f6e80`, `thiscall`; `tesclass.rs`):
+/// what the `SetPlayerTagSkill` command calls on the player's class (`tesscriptfunctions_p7.rs`).
+pub const CLASS_SET_TAG_SKILL: u32 = 0x005f_6e80;
 // character: end
 
 // Scenes (docs/coop/SPECS.md S23), from `run_005c8740.rs`.

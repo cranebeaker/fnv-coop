@@ -30,6 +30,8 @@ pub mod world;
 // social: conversations, party saves and the rest vote (docs/coop/SPECS.md S16 to S19).
 pub mod party;
 pub mod rest;
+// character: a character in a party part (docs/coop/SPECS.md S32).
+pub mod sheet;
 pub mod social;
 pub mod talk;
 pub mod track;
