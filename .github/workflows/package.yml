@@ -49,6 +49,10 @@ jobs:
       - name: Build and package
         env:
           VERSION: ${{ inputs.version }}
+          # A Cargo home outside the runner's user folder: libopus is C code built by CMake, and its
+          # file names (in assert texts) keep the full path, which the package check refuses when
+          # it holds the build machine's user name.
+          CARGO_HOME: D:\cargo-home
         run: |
           ./scripts/package-playtest.ps1 -Version $env:VERSION -Coop | Format-List
       - name: Attach the package to a draft release
