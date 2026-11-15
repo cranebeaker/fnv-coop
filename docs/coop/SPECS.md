@@ -1235,13 +1235,30 @@ for every game function named here.
   - On the compass (S31): a speaking player's tick is drawn in light magenta (255, 140, 255) at full
     alpha instead of purple, through the same tile traits (`coop_engine::voicemark`; the compass wrap
     asks it per avatar). It needs the avatar, so the live ladder.
-  - On the HUD: the game's own message (`SHOW_HUD_MESSAGE`, as conversations' lines) says "Voice
-    chat: NAME is speaking" (and "you are speaking") when someone begins, at most once every 10 s for
-    each player. `NV_COOP_SPEAKING=off` keeps these off. The game's messages queue and stay their
-    time, so this is no live list.
-  - In the players list: "speaking" on each row, with a level bar of this player's microphone (its
-    last frame's loudness).
-- **The players list.** `NV_COOP_PLAYERS_KEY` (default F9; a key name or code, as the voice keys) opens
+  - On the HUD, every frame (`coop_engine::hudtext`): a live list of who speaks now ("You" first,
+    then each name, with a level bar), and over each speaking player's head "NAME (speaking)". The
+    tiles are the HUD's own kind: built by the game with `Menu::RenderTemplate` (`00a1ddb0`,
+    `menu.rs`) from the HUD's text template at `0107_33d0` (the one the HUD builds its action
+    points label from and writes text into, `hudmainmenu.rs`; the template's name itself is not in
+    this repository) under the HUD's root tile (`Menu::pMenu`, +4), and placed, filled and shown
+    with the tile setters (`x` 0xfa1, `y` 0xfa2, `string` 0xfc4, `visible`, `alpha`). They are
+    built once per HUD, only when there is something to show, and hidden when there is not. The
+    list stands at 3% from the left and a third down the screen (a layout choice), one line a tile.
+    A head label is placed where the scene camera (`0045c670`, `006629f0`, as `vatsmenu.rs`) shows
+    the place the avatar looks from (`008a2fa0`, `actor_p3.rs`: its head node) 20 units higher,
+    through `NiCamera::WorldPtToScreenPt` (`00a6fc50`, `nicamera.rs`, with `vatsmenu.rs`'s least w
+    at `010718c0`), scaled to the HUD's space as `vatsmenu.rs` scales a V.A.T.S. point (x times the
+    screen width `00715d40`, y flipped times the height `00715da0`), centred on its width (0xfb1)
+    and standing on the point (its height, 0xfb0). Behind the camera or outside the view it is
+    hidden. `NV_COOP_SPEAKING=off` shows none of it; `messages` also has the game's own HUD
+    message (`SHOW_HUD_MESSAGE`) say "Voice chat: NAME is speaking" when someone begins, at most
+    once every 10 s for each player.
+  - The levels: the receiver keeps each speaker's loudness, the RMS of their last decoded frame
+    as sent (before volume and distance), 0 once a mixed frame had nothing of theirs
+    (`coop_voice::mixer::Mixer::level`, `VoiceRx::level`); this player's is the RMS of its last
+    microphone frame. Both are shown four times larger in the bars (speech's RMS is mostly under a
+    quarter of full scale; a display choice).
+  - In the players list: "speaking" on each row, with the level bar.- **The players list.** `NV_COOP_PLAYERS_KEY` (default F11; a key name or code, as the voice keys) opens
   it as the game's own message box (`coop_engine::msgbox`): `00703e80` (`interface.rs`), a modal entry
   with no result callback, whose buttons are numbered from 0xa0 (the entry's first button's result;
   `007a8e60` and `007a92e0` in `messagemenu.rs` give each button that plus its index, and
@@ -1262,8 +1279,8 @@ for every game function named here.
     file's `Player=` lines and keeps every other line; a name at its default (heard, 100%) has none.
 - **The launcher window (S38).** It reads and writes the same `Player=` lines and lists the first six
   names with a Muted box and a volume list (0% to 200%); the others keep what the file says. It picks
-  the players list key (`PlayersKey`, F9), the microphone key (`MuteKey`, F8) and the others' voices key
-  (`DeafenKey`, F7), each from F1 to F12, Insert, Delete, Home, End, Page Up and Page Down, and gives
+  the players list key (`PlayersKey`, F11), the microphone key (`MuteKey`, F8) and the others' voices key
+  (`DeafenKey`, F7), each from F1 to F12 but F5 and F9, Insert, Delete, Home, End, Page Up and Page Down, and gives
   them to the game (`NV_COOP_PLAYERS_KEY`, `NV_COOP_MUTE_KEY`, `NV_COOP_DEAFEN_KEY`, all three in
   `SWITCHES`; the voice keys only with voice chat on).
 - **Tests.** `coop-engine`: `msgbox::tests` (the box's words, the texts copied before they are freed,
@@ -1278,10 +1295,19 @@ for every game function named here.
   300 ms after; the speaking host's avatar marked for the compass on the guest). `scripts/launcher`:
   `coop::tests` (the lines read back, the last line of a name wins, the keys in the environment, the
   window's rows).
-- **Not done.** A live list drawn on the HUD itself (nothing read here makes a new text tile on the
-  HUD outside the HUD's own setup, and the game's messages cannot be taken back after 300 ms); a mark
-  over the avatar's head (no projection of a world place onto the screen and no speaker picture were
-  found in what was read); the other players' voice levels (the receiver does not give its decoded
-  loudness). The message box's text uses line breaks; whether the game's box shows them as such has
-  not been seen. With no ladder nobody's compass tick shows, so speaking shows only in the list and on
-  the HUD.
+- **The default key.** Not F9: the game binds F9 to quick load and F5 to quick save by default
+  (the keyboard defaults `fn_00a24b70` writes, `run_00a237f0.rs`: DirectInput 0x3f and 0x43 in the
+  binding slots 0x19 and 0x1a). F11 (0x57), F8 and F7 are in none of the defaults. The game still
+  sees every key co-op reads.
+- **Tests added for the HUD.** `coop-engine` `hudtext::tests` (the list built from the HUD's
+  template under its root only when needed, its lines placed one under the other, hidden and kept,
+  new tiles for a new HUD; a head label centred over the projected head and hidden behind the
+  camera, out of view or for an avatar this game lacks; nothing without a HUD or its functions, a
+  template that builds nothing counted); `coop-voice` `mixer::tests` (a speaker's level is its last
+  decoded frame's RMS and falls to 0); `voicelist::tests` (the live lines, the head labels, the
+  settings).
+- **Not verified here.** That the template at `0107_33d0` is a plain text tile as its one use
+  suggests, how its text looks (size, colour) and whether a tile built under the HUD's root after
+  the HUD's own setup is drawn and kept as the HUD's own; whether the projected point lines up with
+  the head on a real screen and aspect; whether the message box shows line breaks. With no ladder
+  nobody's head label or compass tick shows, so speaking shows only in the lists.
