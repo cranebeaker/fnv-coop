@@ -40,6 +40,25 @@ Not shared in this version
 - The other player's figure slides. It does not walk, and it has the base look.
 
 
+Split-screen on one PC (Couchlink)
+----------------------------------
+Couchlink (https://github.com/cranebeaker/couchlink) starts one copy of the game for each player
+on this PC, puts each window on its part of the screen and gives each player their own controller,
+or their own keyboard and mouse.
+1. Extract this package and run Play.exe once alone, as in Start above. Close the game.
+2. In Couchlink's Library, add this package's folder as a game of your own. It shows as
+   "Fallout: New Vegas (FNV Co-Op package on nv-rs)".
+3. Put the players on their seats and screens, and start it. Player 1 hosts and the others join
+   on this PC by themselves: no join code is needed.
+4. Everybody presses New Game.
+- The game reads no controllers itself: a controller plays it as keyboard and mouse. Couchlink's
+  Controls page changes the layout.
+- Each player gets their own copy of the package in Couchlink's folder, with their own saves and
+  settings. The saves of this package folder are not used there.
+- Friends on other PCs cannot join a Couchlink session: host a normal session for them,
+  as in Start above.
+
+
 If something goes wrong
 -----------------------
 The game writes a log for each start in userdata\logs (game-....log). Lines with "co-op" say what
