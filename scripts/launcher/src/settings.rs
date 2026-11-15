@@ -272,7 +272,8 @@ impl Settings {
             "Off" => Some(0u32),
             v => v.strip_suffix('x').and_then(|n| n.parse().ok()),
         };
-        if self.borderless() {
+        // split: a Couchlink seat's window is never full screen either.
+        if self.borderless() || self.seat_window() {
             set.push(("bFull Screen".into(), "0".into()));
         }
         if let Some((w, h)) = self.get("Resolution").split_once('x') {
@@ -294,6 +295,42 @@ impl Settings {
         }
         set
     }
+}
+
+// split
+impl Settings {
+    /// A Couchlink seat (`Play.exe --window WIDTHxHEIGHT`): the game's own window at that size,
+    /// framed and not full screen, whatever settings.ini chose. Couchlink takes the frame off
+    /// and puts the window on the seat's part of the screen; the launcher's borderless window
+    /// covers the whole primary monitor, so it is not used for a seat.
+    pub fn set_seat_window(&mut self, width: u32, height: u32) {
+        let lines = [
+            ("Resolution", format!("{width}x{height}")),
+            ("Borderless", "0".to_string()),
+            ("Window", "seat".to_string()),
+        ];
+        for (name, value) in lines {
+            self.0.retain(|k, _| !k.eq_ignore_ascii_case(name));
+            self.0.insert(name.to_string(), value);
+        }
+    }
+
+    /// Whether this run is a Couchlink seat ([`Settings::set_seat_window`]).
+    pub fn seat_window(&self) -> bool {
+        self.get("Window") == "seat"
+    }
+}
+
+/// `--window`'s value: `WIDTHxHEIGHT`, each from 320 to 16384.
+pub fn parse_window(text: &str) -> Option<(u32, u32)> {
+    let (w, h) = text.trim().split_once(['x', 'X'])?;
+    let size = |v: &str| {
+        v.trim()
+            .parse::<u32>()
+            .ok()
+            .filter(|n| (320..=16384).contains(n))
+    };
+    Some((size(w)?, size(h)?))
 }
 
 /// `prefs` (a `FalloutPrefs.ini`) with these lines set: each replaced where its name stands, and
@@ -505,6 +542,30 @@ mod tests {
                 Settings::parse(&decode(&bytes)).game_switches().unwrap()[0].1,
                 "vanilla"
             );
+        }
+    }
+
+    // split
+    #[test]
+    fn a_seat_window_is_framed_at_its_size_and_never_full_screen() {
+        let mut settings = Settings::parse("Borderless=1\nresolution=2560x1440\nVSync=On\n");
+        assert!(!settings.seat_window());
+        settings.set_seat_window(960, 540);
+        assert!(settings.seat_window() && !settings.borderless());
+        let lines = settings.prefs_lines();
+        let get = |name: &str| {
+            lines
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, v)| v.as_str())
+        };
+        assert_eq!(get("bFull Screen"), Some("0"));
+        assert_eq!((get("iSize W"), get("iSize H")), (Some("960"), Some("540")));
+        assert_eq!(get("iPresentInterval"), Some("1"), "the rest stays");
+        assert_eq!(parse_window("1280x720"), Some((1280, 720)));
+        assert_eq!(parse_window(" 960X1080 "), Some((960, 1080)));
+        for bad in ["", "1280", "x720", "0x0", "100x100", "1280x99999", "axb"] {
+            assert_eq!(parse_window(bad), None, "{bad}");
         }
     }
 

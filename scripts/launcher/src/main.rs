@@ -9,6 +9,7 @@
 //!   Play.exe --check          everything up to starting the game, then says what it found
 //!   --game FOLDER             the game's folder, instead of looking for it
 //!   --from FOLDER             with --import-saves: where to copy saves from
+//!   --window WIDTHxHEIGHT     a Couchlink seat: the game's own window at that size (split)
 //!
 //! Scripted tests set `NV_RS_NO_WINDOWS=1` (no window shown; every message is in
 //! `userdata\logs\launcher.log` either way), `NV_RS_REAL_DOCUMENTS=DIR` (where the player's
@@ -747,6 +748,9 @@ struct Options {
     check_only: bool,
     game: Option<PathBuf>,
     from: Option<PathBuf>,
+    // split
+    /// `--window WIDTHxHEIGHT`: a Couchlink seat's window ([`Settings::set_seat_window`]).
+    window: Option<(u32, u32)>,
 }
 
 fn parse_options(raw: &[String]) -> Options {
@@ -756,6 +760,7 @@ fn parse_options(raw: &[String]) -> Options {
         check_only: false,
         game: std::env::var_os("NV_RS_GAME").map(PathBuf::from),
         from: None,
+        window: None,
     };
     let mut args = raw.iter();
     while let Some(arg) = args.next() {
@@ -765,6 +770,8 @@ fn parse_options(raw: &[String]) -> Options {
             "--check" => options.check_only = true,
             "--game" => options.game = args.next().map(PathBuf::from),
             "--from" => options.from = args.next().map(PathBuf::from),
+            // split
+            "--window" => options.window = args.next().and_then(|v| settings::parse_window(v)),
             _ => {}
         }
     }
@@ -1038,9 +1045,16 @@ fn play(
         message: format!("{}: {e}", profile.table.display()),
     })?;
 
-    let settings = Settings::parse(&settings::decode(
+    let mut settings = Settings::parse(&settings::decode(
         &std::fs::read(&package.settings).unwrap_or_default(),
     ));
+    // split: a Couchlink seat's window size wins over settings.ini's.
+    if let Some((width, height)) = options.window {
+        settings.set_seat_window(width, height);
+        package.log(&format!(
+            "a Couchlink seat: the game's window is {width}x{height}, framed"
+        ));
+    }
     let game_switches = settings.game_switches().map_err(|why| Stop {
         code: STOP_SETTINGS,
         message: format!(
@@ -1148,6 +1162,11 @@ fn play(
                 names.join(", ")
             ));
         }
+    }
+    // split: a seat's window is framed even when Fallout.ini asks for borderless (the borderless
+    // window covers the whole primary monitor); Couchlink takes the frame off.
+    if settings.seat_window() {
+        command.env("NV_BORDERLESS", "0");
     }
 
     package.log(&format!(
@@ -1347,8 +1366,20 @@ mod tests {
         .collect();
         let o = parse_options(&raw);
         assert!(o.mods && o.import && !o.check_only);
+        assert_eq!(o.window, None);
         assert_eq!(o.game.unwrap(), PathBuf::from("D:\\x"));
         assert_eq!(o.from.unwrap(), PathBuf::from("E:\\y"));
+    }
+
+    // split
+    #[test]
+    fn a_seat_window_is_read() {
+        let read = |args: &[&str]| {
+            parse_options(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).window
+        };
+        assert_eq!(read(&["--window", "960x540", "--mods"]), Some((960, 540)));
+        assert_eq!(read(&["--window", "nonsense"]), None);
+        assert_eq!(read(&["--window"]), None);
     }
 
     #[test]
