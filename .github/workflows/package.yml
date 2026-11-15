@@ -37,6 +37,15 @@ jobs:
           if ($LASTEXITCODE) { rustup toolchain install; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
           rustup toolchain install stable --profile minimal --target i686-pc-windows-msvc
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Fetch the build inputs that are not in the repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The pinned Steam library (Valve's steam_api64.dll); the package script checks its
+          # hash and ships it only when it matches. Without it the package has no Steam invites.
+          New-Item -ItemType Directory -Force third_party/steam | Out-Null
+          gh release download build-deps -R $env:GITHUB_REPOSITORY -p steam_api64.dll -D third_party/steam --clobber
+          if ($LASTEXITCODE) { Write-Warning 'No Steam library: the package will have no Steam invites.'; exit 0 }
       - name: Build and package
         env:
           VERSION: ${{ inputs.version }}
