@@ -54,11 +54,13 @@ pub const PTT_KEYS: [&str; 16] = [
 ];
 
 // voiceui
-/// The keys the players list, mute and deafen lists offer (the game program's names; F9, F8 and
-/// F7 are the game program's defaults for them).
-pub const LIST_KEYS: [&str; 18] = [
-    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "INSERT", "DELETE",
-    "HOME", "END", "PAGEUP", "PAGEDOWN",
+/// The keys the players list, mute and deafen lists offer (the game program's names; F11, F8 and
+/// F7 are the game program's defaults for them). F5 and F9 are left out: the game binds them by
+/// default (quick save and quick load, the keyboard defaults `fn_00a24b70` writes,
+/// `run_00a237f0.rs`).
+pub const LIST_KEYS: [&str; 16] = [
+    "F1", "F2", "F3", "F4", "F6", "F7", "F8", "F10", "F11", "F12", "INSERT", "DELETE", "HOME",
+    "END", "PAGEUP", "PAGEDOWN",
 ];
 
 // voiceui
@@ -190,7 +192,7 @@ impl Default for Choice {
             vats: false,
             harm: false,
             // voiceui
-            players_key: "F9".into(),
+            players_key: "F11".into(),
             mute_key: "F8".into(),
             deafen_key: "F7".into(),
             players: Vec::new(),
@@ -670,10 +672,10 @@ mod tests {
         let ini = c.to_ini();
         assert!(ini.contains("Player=cy;0;200\r\n") && ini.contains("Player=bo;0;40\r\n"));
         assert!(!ini.contains("Player=Dee"));
-        assert!(ini.contains("PlayersKey=F9\r\nMuteKey=F8\r\nDeafenKey=F7\r\n"));
+        assert!(ini.contains("PlayersKey=F11\r\nMuteKey=F8\r\nDeafenKey=F7\r\n"));
         // The keys reach the game; without voice only the players list's.
         let env = c.environment(Mode::Host, None).unwrap();
-        assert_eq!(get(&env, "NV_COOP_PLAYERS_KEY"), Some("F9"));
+        assert_eq!(get(&env, "NV_COOP_PLAYERS_KEY"), Some("F11"));
         assert_eq!(get(&env, "NV_COOP_MUTE_KEY"), Some("F8"));
         assert_eq!(get(&env, "NV_COOP_DEAFEN_KEY"), Some("F7"));
         let off = Choice {
@@ -681,7 +683,7 @@ mod tests {
             ..c.clone()
         };
         let env = off.environment(Mode::Host, None).unwrap();
-        assert_eq!(get(&env, "NV_COOP_PLAYERS_KEY"), Some("F9"));
+        assert_eq!(get(&env, "NV_COOP_PLAYERS_KEY"), Some("F11"));
         assert_eq!(get(&env, "NV_COOP_MUTE_KEY"), None);
         let alone = c.environment(Mode::Alone, None).unwrap();
         assert_eq!(get(&alone, "NV_COOP_PLAYERS_KEY"), None);
@@ -721,7 +723,7 @@ mod tests {
         keys.dedup();
         assert_eq!(keys.len(), LIST_KEYS.len());
         assert!(
-            LIST_KEYS.contains(&"F9") && LIST_KEYS.contains(&"F8") && LIST_KEYS.contains(&"F7")
+            LIST_KEYS.contains(&"F11") && LIST_KEYS.contains(&"F8") && LIST_KEYS.contains(&"F7")
         );
     }
 }

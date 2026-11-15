@@ -412,31 +412,29 @@ unsafe fn show(saved: &Choice, steam: bool) {
         .unwrap_or(0);
     list(KEY, &PTT_KEYS, key_at, [170, 275, 200, 240]);
     // voiceui: the players list's key, the mute and deafen keys, and the known players.
-    let key_index = |k: &str, default: usize| {
-        LIST_KEYS
-            .iter()
-            .position(|x| x.eq_ignore_ascii_case(k))
-            .unwrap_or(default)
+    let key_index = |k: &str, default: &str| {
+        let at = |n: &str| LIST_KEYS.iter().position(|x| x.eq_ignore_ascii_case(n));
+        at(k).or_else(|| at(default)).unwrap_or(0)
     };
     label("Players list key (in the game):", [16, 306, 150, 18]);
     list(
         PLAYERS_KEY,
         &LIST_KEYS,
-        key_index(&saved.players_key, 8),
+        key_index(&saved.players_key, "F11"),
         [170, 303, 90, 240],
     );
     label("Microphone off and on:", [16, 334, 150, 18]);
     list(
         MUTE_KEY,
         &LIST_KEYS,
-        key_index(&saved.mute_key, 7),
+        key_index(&saved.mute_key, "F8"),
         [170, 331, 90, 240],
     );
     label("Other voices off and on:", [276, 334, 140, 18]);
     list(
         DEAFEN_KEY,
         &LIST_KEYS,
-        key_index(&saved.deafen_key, 6),
+        key_index(&saved.deafen_key, "F7"),
         [420, 331, 90, 240],
     );
     let mut y = 362;
