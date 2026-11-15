@@ -21,3 +21,14 @@ coop-engine-session = { path = "../crates/coop-engine-session" }
 engine-core = { path = "../crates/engine-core" }
 engine-platform = { path = "../crates/engine-platform" }
 esm = { path = "../crates/esm" }
+# voice: co-op voice chat's microphone, codec (Opus) and speakers (docs/coop/SPECS.md S32).
+coop-voice = { path = "../crates/coop-voice", optional = true }
+
+[features]
+# Voice chat and Steam invites are in the package's build; `--no-default-features` builds the game
+# program without them (no cpal, no libopus, no Steam library loader).
+default = ["voice", "steam"]
+# voice: cpal for the microphone and the speakers, libopus (built from source with CMake).
+voice = ["dep:coop-voice", "coop-voice/capture", "coop-voice/opus"]
+# steam: loads Valve's steam_api64.dll at run time when a session asks for Steam (S33).
+steam = ["coop-net/steam"]

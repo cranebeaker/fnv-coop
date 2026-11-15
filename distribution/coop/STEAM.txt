@@ -1,0 +1,17 @@
+Steam client library (optional): steam_api64.dll
+=================================================
+
+Steam invites in FNV Co-Op load Valve's steam_api64.dll from next to Play.exe while the game runs.
+This file belongs to Valve and is not covered by the licence of this project.
+STEAM_DLL_STATUS_PLACEHOLDER
+
+The program loads it only for a session that asks for Steam (Host with "Host on Steam too",
+Invite a Steam friend, Join a Steam friend). Without it, everything else works over the join code.
+Valve's terms for the Steamworks redistributable apply to that file.
+
+Steam invites use Valve's public test game, Spacewar (AppID 480): your friends see you "playing
+Spacewar" while you host. The program writes steam_appid.txt (480) next to app\FalloutNV.exe and
+in userdata so Steam knows which game it is.
+
+As an additional permission under GPLv3 section 7, the copyright holders of the co-op layer permit
+linking or loading Valve's proprietary steam_api64.dll at run time.

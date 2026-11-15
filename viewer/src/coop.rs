@@ -32,6 +32,10 @@
 //!
 //! Both players start the same game (a new game, or the same save) from installations whose
 //! plugins load in the same order; the handshake refuses a guest whose plugins differ.
+//!
+//! voice: `NV_COOP_VOICE=off|ptt|open` (default ptt) is voice chat (`coop_voice`, S32).
+//! steam: `NV_COOP_STEAM=on|invite` makes a host's Steam lobby beside its UDP port, `NV_COOP=steam`
+//! joins a Steam friend's (`coop_steam`, S33).
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::path::Path;
@@ -41,7 +45,8 @@ use coop_core::sync::HostConfig;
 use coop_engine_session::ladder::{Cap, Ladder, DEFAULT_AVATAR_BASE};
 use coop_engine_session::{self as session, GuestDriver, HostDriver};
 use coop_net::{
-    random_token, Endpoint, EndpointConfig, JoinCode, JoinTarget, NetEvent, UdpBackend, UdpConfig,
+    random_token, Backend, Endpoint, EndpointConfig, JoinCode, JoinTarget, NetEvent, UdpBackend,
+    UdpConfig,
 };
 use engine_core::Engine;
 
@@ -58,6 +63,9 @@ pub enum Ask {
     // split
     /// `host:local`: host for the other copies on this PC only ([`LOCAL_TOKEN`]).
     HostLocal,
+    // steam
+    /// Join a Steam friend's game: one that hosts, or the first invite (`NV_COOP=steam`).
+    SteamFriend,
 }
 
 // split
@@ -107,7 +115,7 @@ fn host_socket(ask: &Ask) -> (u16, SocketAddr, coop_net::Token, IpAddr) {
             random_token(),
             join_ip(),
         ),
-        Ask::Join(_) => unreachable!("a guest does not host"),
+        Ask::Join(_) | Ask::SteamFriend => unreachable!("a guest does not host"),
     }
 }
 
@@ -123,6 +131,10 @@ pub fn parse(v: &str) -> Result<Option<Ask>, String> {
     }
     if v == "host" {
         return Ok(Some(Ask::Host(DEFAULT_PORT)));
+    }
+    // steam
+    if v == "steam" {
+        return Ok(Some(Ask::SteamFriend));
     }
     if let Some(port) = v.strip_prefix("host:") {
         return port
@@ -140,7 +152,7 @@ pub fn parse(v: &str) -> Result<Option<Ask>, String> {
         return Ok(Some(Ask::Join(code.to_string())));
     }
     Err(format!(
-        "NV_COOP={v}: use host, host:PORT, host:local, join:CODE, join:local, local:SEAT or journal"
+        "NV_COOP={v}: use host, host:PORT, host:local, join:CODE, join:local, local:SEAT, steam or journal"
     ))
 }
 
@@ -335,7 +347,8 @@ enum Role {
 
 /// A running session.
 pub struct Coop {
-    ep: Endpoint<UdpBackend>,
+    // steam: UDP, a Steam lobby, or both (a host's).
+    ep: Endpoint<Box<dyn Backend>>,
     role: Role,
     plugins: Vec<String>,
     own_quests: Vec<u32>,
@@ -350,6 +363,10 @@ pub struct Coop {
     /// This player's name (its party key is a hash of it) and own quests, for a guest's part of
     /// a party save; whether the parts of co-op that found no function to wrap were named.
     social: Social,
+    // voice
+    voice: Option<crate::coop_voice::Audio>,
+    // steam
+    steam: Option<crate::coop_steam::SteamSide>,
 }
 
 // social
@@ -571,6 +588,15 @@ impl Coop {
             ..EndpointConfig::default()
         };
         let mut lines = Vec::new();
+        // voice
+        let (voice, line) = {
+            let (settings, notes) = crate::coop_voice::settings();
+            lines.extend(notes);
+            crate::coop_voice::Audio::open(settings)
+        };
+        lines.extend(line);
+        // steam
+        let mut steam = None;
         let (ep, role) = match ask {
             Ask::Host(_) | Ask::HostLocal => {
                 // split: `host:local` listens on this PC only, with the local token.
@@ -617,19 +643,41 @@ impl Coop {
                 // Each player's opening is its own, its conversations too (Doc Mitchell's).
                 host.social.talker.opening = opening_quest(&plugins);
                 lines.push(line);
+                // voice
+                if voice.is_some() {
+                    host.voice = Some(session::voice::VoiceLink::new());
+                }
+                // steam
+                let (b, side) = crate::coop_steam::host_backend(b, token, &mut lines);
+                steam = side;
                 (Endpoint::host(b, token, cfg), Role::Host(Box::new(host)))
             }
             Ask::Join(code) => {
                 let code: JoinCode = code
                     .parse()
                     .map_err(|e| format!("co-op: join code: {e:?}"))?;
-                let JoinTarget::Direct(addr) = code.target else {
-                    return Err("co-op: this build joins UDP codes only (not a Steam lobby)".into());
-                };
-                let b = UdpBackend::guest(addr, code.token, UdpConfig::default())
-                    .map_err(|e| format!("co-op: {addr}: {e}"))?;
-                lines.push(format!("co-op: joining {addr}"));
-                (Endpoint::guest(b, code.token, cfg), Role::Guest(None))
+                match code.target {
+                    JoinTarget::Direct(addr) => {
+                        let b = UdpBackend::guest(addr, code.token, UdpConfig::default())
+                            .map_err(|e| format!("co-op: {addr}: {e}"))?;
+                        lines.push(format!("co-op: joining {addr}"));
+                        let b: Box<dyn Backend> = Box::new(b);
+                        (Endpoint::guest(b, code.token, cfg), Role::Guest(None))
+                    }
+                    // steam: a code that names a Steam lobby joins it through Steam.
+                    _ => {
+                        let (b, token, side) =
+                            crate::coop_steam::guest_backend(Some(code), &mut lines)?;
+                        steam = Some(side);
+                        (Endpoint::guest(b, token, cfg), Role::Guest(None))
+                    }
+                }
+            }
+            // steam
+            Ask::SteamFriend => {
+                let (b, token, side) = crate::coop_steam::guest_backend(None, &mut lines)?;
+                steam = Some(side);
+                (Endpoint::guest(b, token, cfg), Role::Guest(None))
             }
         };
         Ok((
@@ -650,6 +698,8 @@ impl Coop {
                     own_quests,
                     missing_named: false,
                 },
+                voice, // voice
+                steam, // steam
             },
             lines,
         ))
@@ -711,6 +761,10 @@ impl Coop {
                             g.social.party.key = session::party::key_of(&self.social.name);
                             g.social.party.own_quests = self.social.own_quests.clone();
                             g.social.talker.opening = opening_quest(&self.plugins);
+                            // voice
+                            if self.voice.is_some() {
+                                g.voice = Some(session::voice::VoiceLink::new());
+                            }
                             *slot = Some(Box::new(g));
                         }
                         // Joined again after losing the host: resume from what this guest has.
@@ -803,6 +857,26 @@ impl Coop {
             }
             Role::Guest(None) => {}
         }
+        // voice
+        if let Some(audio) = self.voice.as_mut() {
+            let ep = &self.ep;
+            let name_of = |p: coop_core::ids::PlayerId| ep.name_of(p).map(str::to_string);
+            let (link, me) = match &mut self.role {
+                Role::Host(h) => (h.voice.as_mut(), coop_core::ids::PlayerId::HOST),
+                Role::Guest(Some(g)) => {
+                    let me = g.sync.player;
+                    (g.voice.as_mut(), me)
+                }
+                Role::Guest(None) => (None, coop_core::ids::PlayerId::HOST),
+            };
+            if let Some(link) = link {
+                audio.frame(e, link, me, &name_of, &mut lines);
+            }
+        }
+        // steam
+        if let Some(s) = self.steam.as_mut() {
+            s.frame(e, &mut lines);
+        }
         // social
         if !self.social.missing_named {
             self.social.missing_named = true;
@@ -838,6 +912,19 @@ impl Coop {
             }
             // social
             lines.push(self.social_status(e));
+            // voice
+            let link = match &self.role {
+                Role::Host(h) => h.voice.as_ref(),
+                Role::Guest(Some(g)) => g.voice.as_ref(),
+                Role::Guest(None) => None,
+            };
+            lines.extend(link.map(session::voice::VoiceLink::status));
+            // steam
+            lines.extend(
+                self.steam
+                    .as_ref()
+                    .map(crate::coop_steam::SteamSide::status),
+            );
             if let Role::Guest(_) = self.role {
                 // Which story scripts this guest holds back, each named once (the first 80): what
                 // a guest would have to run itself to have its own start.
@@ -1038,6 +1125,8 @@ mod tests {
         assert!(parse("host:x").is_err());
         assert!(parse("join:nonsense").is_err());
         assert!(parse("play").is_err());
+        // steam
+        assert_eq!(parse("steam"), Ok(Some(Ask::SteamFriend)));
         let code = JoinCode::new(
             JoinTarget::Direct(SocketAddr::from(([127, 0, 0, 1], 4000))),
             [7; 16],

@@ -45,6 +45,9 @@ pub mod track;
 pub mod smooth;
 pub mod vats;
 
+// voice: voice chat's frames and places (docs/coop/SPECS.md S32).
+pub mod voice;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use coop_core::avatar::{AvatarMsg, AvatarSender, Sample};
@@ -384,6 +387,9 @@ pub struct HostDriver {
     // companions
     /// Who keeps which companion.
     pub companions: companion::HostCompanions,
+    // voice
+    /// Voice chat's frames and places; `None` leaves the session without voice.
+    pub voice: Option<voice::VoiceLink>,
 }
 
 impl HostDriver {
@@ -452,6 +458,7 @@ impl HostDriver {
             social: social::HostSocial::default(),
             companions: companion::HostCompanions::default(), // companions
             social_on: true,
+            voice: None, // voice
         }
     }
 
@@ -1030,6 +1037,8 @@ impl HostDriver {
             send(net, to, &msg, &mut self.send_failures);
         }
         self.live_step(e, net, now_ms);
+        // voice
+        voice::host_step(self, e, net, now_ms);
     }
 
     /// The live ladder's frame: the other players' states into the host's view, the ladder's
@@ -1223,6 +1232,9 @@ pub struct GuestDriver {
     // companions
     /// The companions this player keeps.
     pub companions: companion::GuestCompanions,
+    // voice
+    /// See [`HostDriver::voice`].
+    pub voice: Option<voice::VoiceLink>,
 }
 
 impl GuestDriver {
@@ -1281,6 +1293,7 @@ impl GuestDriver {
             social: social::GuestSocial::default(),
             social_on: true,
             companions: companion::GuestCompanions::default(), // companions
+            voice: None, // voice
         }
     }
 
@@ -1415,6 +1428,8 @@ impl GuestDriver {
                 send(net, PlayerId::HOST, &msg, &mut self.send_failures);
             }
         }
+        // voice
+        voice::guest_step(self, e, net, now_ms);
         self.now_ms = now_ms;
         self.claim_deaths(e, net);
         self.apply(e);

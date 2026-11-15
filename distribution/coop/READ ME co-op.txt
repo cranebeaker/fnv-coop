@@ -12,15 +12,49 @@ Start
 -----
 1. Each player extracts the whole ZIP as READ ME.txt says, and runs Play.exe once alone. That
    first start finds the game and reads the graphics card and the sound device. Close the game.
-2. The host double-clicks "Play Co-op.cmd", types H and a name.
-   - Friends in the same home network: press Enter at the address question.
+2. Each player double-clicks "Play Co-op.exe". A window asks for your name, and has the buttons
+   below. It keeps your choices for the next time (userdata\coop.ini).
+3. The host presses Host.
+   - Friends in the same home network: leave the address box empty.
    - Friends over the internet: type your public address, and forward UDP port 27961 to your PC
      in your router. Or all players use a private network app (Tailscale, ZeroTier, Radmin VPN),
      and the host types its address in that app.
-   The window shows the join code (NVRS-...) and copies it. Send it to your friends.
-3. Each friend double-clicks "Play Co-op.cmd", types J, a name, and pastes the join code.
-4. Everybody presses New Game. Each player makes their own character at Doc Mitchell's. When a
-   guest is in the world, the game moves it to the host.
+   - With Steam (see below), tick "Host on Steam too": Steam friends join with no port forwarded.
+   When the game has started, a window shows the join code (NVRS-...) and copies it. Send it to
+   your friends.
+4. Each friend pastes the join code in the Join code box and presses Join.
+5. Everybody presses New Game (or loads the same save). Each player makes their own character at
+   Doc Mitchell's. When a guest is in the world, the game moves it to the host.
+
+"Play Co-op.cmd" still works: it asks the same in a console (host or join, name, address).
+
+
+Steam invites
+-------------
+Steam invites need Steam running and signed in on each PC, and Valve's steam_api64.dll next to
+Play.exe (STEAM.txt says whether this package has it). Then:
+- The host presses "Invite a Steam friend". In the game, the Steam overlay's invite dialog opens
+  once you are in the world; F6 opens it again. If the overlay does not show in the game, invite
+  from the Steam friends list instead (right-click the friend, Invite to game).
+- The friend presses "Join a Steam friend" before or after the invite. Their game waits up to two
+  minutes for a friend who hosts or an invite, then joins through Steam.
+Accepting an invite in the Steam client while the game is not running starts Spacewar, not this
+game: start "Join a Steam friend" first.
+
+
+Voice chat
+----------
+On unless you choose Off. Push to talk: hold the key you chose (Backslash unless you changed it).
+Open microphone: the game sends when you speak. In the game, F8 turns your microphone off and on,
+F7 the other players' voices. You hear each player from where they stand, quieter far away.
+The game uses Windows' default microphone and speakers.
+
+
+Experimental parts
+------------------
+The window's check boxes turn on parts that are off unless ticked: loot and barter through the
+host, V.A.T.S. with several players, falls and traps decided by the host. Every player ticks the
+same ones.
 
 
 What is shared

@@ -1125,3 +1125,90 @@ frame's count; each killed by a test.
 included, but nothing read here shows how the game starts a jump or a fall on another actor), and
 turning on the spot (the heading is set, no turn animation is asked for). A look changed after
 character creation (a barber, a surgeon) is read again within a second and gives a new base.
+
+## S36: voice chat (implemented with unit tests; not run on a PC)
+
+`NV_COOP_VOICE=off|ptt|open` (default `ptt`). The design is the old viewer's (`main`'s
+`viewer/src/coop_live/voice.rs`); what changed is where the frames travel.
+
+- **Frames.** `nv-viewer`'s `coop_voice` (cargo feature `voice`, on by default) opens Windows' default
+  microphone and speakers through cpal on a session's first frame; `coop_voice::pipeline::VoiceTx`
+  resamples, gates (push to talk, or an open microphone with the energy gate) and encodes Opus (48 kHz,
+  20 ms, 24 kbit/s); each frame goes into the session's `VoiceLink` (`coop_engine_session::voice`).
+- **Wire.** No new message: coop-core's `Msg::Social(SocialMsg::Voice)` (unreliable, at most 480 bytes of
+  payload) carries each frame, so none of the tags 120 to 129 is used. A guest sends only once the host
+  let it in (before that the frames are counted and dropped). The host's live layer checks the speaker
+  against the sender and the rate (`VoiceHub`: 80 frames, 24 KB a second) and relays to everyone but the
+  speaker; the host player's copies come out of the live layer's local inbox into the host's view. Every
+  receiver orders and deduplicates by speaker (`VoiceRx`). At most 50 frames wait to be sent and 400 to
+  be played: older ones are dropped and counted.
+- **Places.** Each step the link holds this player's place (`coop_engine::live::local`: position,
+  heading, interior cell or world space) and every other player's from the live ladder's interpolated
+  avatar sample. `coop_voice::pipeline::VoiceRx` uses them: full volume within 1200 units, down to 15%
+  at 7000, panned by the listener's heading; a player in another space, or with no place (ladder off),
+  is heard flat at 50%.
+- **Keys and volume.** Read from the game's window (`engine_platform::d3d9real::held_keys`, DirectInput
+  codes, only while it has the focus): `NV_COOP_PTT_KEY` (default BACKSLASH, a name or `0x2B`),
+  `NV_COOP_MUTE_KEY` (F8, this player's microphone), `NV_COOP_DEAFEN_KEY` (F7, the others' voices); the
+  game also sees these keys. Muting or deafening shows a HUD message. `NV_COOP_VOICE_VOLUME` (0 to 100),
+  `NV_COOP_VOICE_MUTE=name,name` and `NV_COOP_VOICE_VOLUMES=name:percent` go by the names the endpoint
+  knows (on a guest, the host's; another guest has no name there and keeps the defaults).
+- **Status.** Every 5 s: frames sent, heard, dropped, not sent before joining, players with a place.
+- **Tests.** `coop-engine-session` `voice::tests` (settings, keys, queue bounds, numbering, own frames,
+  the mixing clock) and `tests/voice.rs` (a host and two guests in one process: every frame reaches every
+  other player once and never its speaker; nothing before a guest is in; places from the ladder; voice
+  without the ladder). `coop-voice`'s pipeline tests run through Opus with `--features opus`.
+- **Not done.** Nothing has played through a real microphone or speaker in this engine. No in-game
+  list to mute a player by name (only the variables). No mark for who is speaking.
+
+## S37: Steam invites (implemented; tested on MockSteam only)
+
+- **Host.** `NV_COOP_STEAM=on` (or `invite`) with `NV_COOP=host`: besides the UDP port, a friends-only
+  Steam lobby on Spacewar (AppID 480) with the marker, protocol tag and the session token in its data
+  (`coop_net::steam::link::host`). The host's endpoint carries both (`coop_net::Dual`: the UDP backend's
+  peer keys are marked with bit 63, which a SteamID64 never has), so the UDP join code still works for a
+  player without Steam, and the lobby's join code (`NVRS-...` naming the lobby) works for one with it.
+  When Steam is missing the host hosts over UDP only and the log says why.
+- **Invites.** `invite` opens the Steam overlay's invite dialog once, 3 s after this player is in the
+  world; `NV_COOP_INVITE_KEY` (default F6) opens it again. The friends list's "Invite to game" works too
+  (the lobby and the `connect` rich presence are set).
+- **Guest.** `NV_COOP=steam`: before the game starts, the first lobby of a friend shown playing
+  Spacewar in a lobby, or of an invite that arrives (callbacks 333, 337, 503), within two minutes; the
+  token is read from the lobby's data. A join code naming a lobby joins it. Traffic then goes through
+  ISteamNetworkingMessages: nobody forwards a port. Accepting an invite in the Steam client while this
+  game is not running starts Spacewar itself: the friend starts "Join a Steam friend" first.
+- **The library.** Valve's `steam_api64.dll` is never in the repository. The game program looks at
+  `NV_COOP_STEAM_DLL` (the launcher sets the one next to `Play.exe`), next to itself (`app\`), then the
+  folder above it (the package's), and says plainly which places it looked at when it is missing. The
+  package ships it only when `third_party/steam/steam_api64.dll` has the pinned SHA-256 (`eb17909a...`,
+  Steamworks.NET Standalone 2025.164.1, Windows-x64), the old package script's rule, and its `STEAM.txt`
+  says which.
+- **The overlay in this engine's window.** The game's window is the real Win32 window `d3d9real`'s
+  window thread makes (class `nv-rs-d3d9`), drawn by a real Direct3D 9 device. Steam's overlay draws only
+  into a device made after its library is in the process, so `coop_steam::early` starts Steam in
+  `main` before `host::Host::start_with`. Its key (Shift+Tab by default) is an ordinary key message on
+  that window; nothing in the window procedure swallows it (only Alt and F10 are kept from the system
+  menu). Whether the overlay hooks this device has not been seen on a PC; the friends list is the way
+  when it does not.
+- **Tests.** `coop-net` `steam::link::tests` (a code with the token, a friend found with no code, an
+  invite followed, nobody hosting said plainly, wrong lobbies refused, the handle's invite and dialog,
+  where the library is looked for) and `dual::tests` (guests of two backends on one host, key marks,
+  readiness). `RealSteam` itself, as before, only a two-account run can check.
+
+## S38: the co-op launcher window (implemented with unit tests; not run on a PC)
+
+- `Play Co-op.exe` (the package's second copy of `Play.exe`; `Play.exe --coop` too) shows a window
+  before anything else: the player's name, the join code box, the address for the host's code
+  (`NV_COOP_ADDRESS`), "Host on Steam too", voice chat (push to talk, open microphone, off) and the
+  push-to-talk key, and three check boxes for the parts that are off unless asked (`NV_COOP_ITEMS`,
+  `NV_COOP_VATS`, `NV_COOP_HARM`). Buttons: Play alone, Host, Join, Invite a Steam friend, Join a Steam
+  friend; the Steam ones are off when `steam_api64.dll` is not next to `Play.exe`, and the window says so.
+- The choices are kept in `userdata\coop.ini`, written after the launcher's own place checks (its first
+  write). The window sets or clears all its switches for the game (`scripts/launcher/src/coop.rs`
+  `SWITCHES`), over settings.ini's. A bad name, address or code is said in a message and the window stays.
+- A host's launcher watches the game's log for the join codes, copies the direct one to the clipboard
+  and shows both (the Steam one with how friends join).
+- `Play Co-op.cmd` still works as before, as the fallback.
+- Tests: `scripts/launcher` `coop::tests` (the file read back, the environment of each button, Steam
+  without the library refused, codes cleaned and refused, the codes read from a game log). The window
+  itself (`coop_ui.rs`) has never been shown.

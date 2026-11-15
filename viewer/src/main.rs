@@ -11,6 +11,10 @@
 //! that layer was removed (docs/adr/0011-old-layer-removed.md).
 
 mod coop;
+// steam
+mod coop_steam;
+// voice
+mod coop_voice;
 mod harness;
 
 use std::path::{Path, PathBuf};
@@ -189,6 +193,12 @@ fn main() {
             std::process::exit(1);
         }
     };
+    // steam: Steam starts before the game makes its window and device, so its overlay draws in it.
+    if let Ok(Some(ask)) = coop::parse(&std::env::var("NV_COOP").unwrap_or_default()) {
+        for line in coop_steam::early(&ask) {
+            println!("{line}");
+        }
+    }
     let mut game = match host::Host::start_with(&data, &choice) {
         Ok(host) => host,
         Err(e) => {

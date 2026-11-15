@@ -32,12 +32,15 @@ pub mod api;
 pub mod backend;
 #[cfg(feature = "steam")]
 pub mod flat;
+// steam: a session's Steam side (host, guest, the program's handle).
+pub mod link;
 pub mod mock;
 #[cfg(feature = "steam")]
 pub mod real;
 
 pub use api::{Friend, RecvMsg, SendResult, SteamApi, SteamError, SteamEvent};
 pub use backend::{Invite, SteamBackend, SteamOptions, SteamPhase, MARKER_KEY};
+pub use link::{GuestTarget, Hosted, Joined, Linked, Setup, SteamHandle};
 pub use mock::{Faults, MockSteam, MockUniverse};
 #[cfg(feature = "steam")]
 pub use real::{try_init, RealSteam};

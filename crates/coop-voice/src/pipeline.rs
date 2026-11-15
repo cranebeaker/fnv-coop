@@ -470,6 +470,11 @@ mod tests {
             .collect()
     }
 
+    /// Samples in one frame of the codec the build has (Opus with the `opus` feature).
+    fn frame() -> usize {
+        default_codec().frame_samples()
+    }
+
     fn talk(tx: &mut VoiceTx, ms: u32, mic_rate: u32) -> Vec<Vec<u8>> {
         let mut out = Vec::new();
         for _ in 0..(ms / 10) {
@@ -564,8 +569,8 @@ mod tests {
         let (mut a, mut b) = (Vec::new(), Vec::new());
         let (mut ea, mut eb) = ((0.0, 0.0), (0.0, 0.0));
         for _ in 0..4 {
-            near.mix(320, &mut a);
-            far.mix(320, &mut b);
+            near.mix(frame(), &mut a);
+            far.mix(frame(), &mut b);
             let (l, r) = energy(&a);
             ea = (ea.0 + l, ea.1 + r);
             let (l, r) = energy(&b);
@@ -585,8 +590,10 @@ mod tests {
 
     #[test]
     fn facing_east_moves_an_eastern_speaker_to_the_centre() {
-        let mut p = Positions::default();
-        p.listener = ([0.0; 3], std::f32::consts::FRAC_PI_2, 1);
+        let mut p = Positions {
+            listener: ([0.0; 3], std::f32::consts::FRAC_PI_2, 1),
+            ..Positions::default()
+        };
         p.speakers.insert(1, ([3000.0, 0.0, 0.0], 1));
         let (_, pan) = p.geometry(1).unwrap();
         assert!(pan.abs() < 1e-4, "{pan}");
@@ -594,8 +601,10 @@ mod tests {
 
     #[test]
     fn other_cells_are_heard_flat_and_unknown_speakers_too() {
-        let mut p = Positions::default();
-        p.listener = ([0.0; 3], 0.0, 1);
+        let mut p = Positions {
+            listener: ([0.0; 3], 0.0, 1),
+            ..Positions::default()
+        };
         p.speakers.insert(1, ([0.0; 3], 2));
         assert!(p.geometry(1).is_none());
         let sp = Spatial {
@@ -621,7 +630,7 @@ mod tests {
         deliver(&mut rx, 1, &pk, 0);
         let mut out = Vec::new();
         for _ in 0..4 {
-            rx.mix(320, &mut out);
+            rx.mix(frame(), &mut out);
             assert!(out.iter().all(|s| *s == 0.0), "volume 0 is silent");
         }
         rx.set_volume(1, 1.0);
@@ -688,7 +697,7 @@ mod tests {
             if i % 7 != 3 {
                 rx.on_bytes(1, b, i as u64 * 20);
             }
-            if rx.mix(320, &mut out) > 0 {
+            if rx.mix(frame(), &mut out) > 0 {
                 voiced += 1;
             }
         }
