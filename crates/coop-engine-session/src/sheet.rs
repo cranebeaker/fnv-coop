@@ -11,6 +11,9 @@
 //! - **2, the condition**: health, action points, radiation (`f32` each), the count of body
 //!   conditions (`u8`) and each as an `f32`, karma (`i32`).
 //! - **3, what is worn**: the count (`u16`) and each item's form id.
+//! - **4, the look** (anim, docs/coop/SPECS.md S39): the face, hair, race, sex, body and name, as
+//!   the avatar's appearance carries them ([`crate::look::encode`]); one this build cannot read
+//!   is read as missing.
 //!
 //! A part whose counts are not this build's is read as missing (its values are left alone); a
 //! part that is cut makes the whole section unreadable.
@@ -20,6 +23,7 @@ use coop_engine::stats::{Character, Condition, Sheet, CONDITIONS, SKILLS, SPECIA
 const PART_CHARACTER: u8 = 1;
 const PART_CONDITION: u8 = 2;
 const PART_WORN: u8 = 3;
+const PART_LOOK: u8 = 4; // anim
 
 fn part(out: &mut Vec<u8>, tag: u8, body: &[u8]) {
     out.push(tag);
@@ -73,6 +77,10 @@ pub fn encode(s: &Sheet) -> Vec<u8> {
             b.extend(id.to_le_bytes());
         }
         part(&mut out, PART_WORN, &b);
+    }
+    // anim
+    if let Some(b) = s.look.as_ref().and_then(crate::look::encode) {
+        part(&mut out, PART_LOOK, &b);
     }
     out
 }
@@ -181,6 +189,7 @@ pub fn decode(b: &[u8]) -> Option<Sheet> {
                 }
                 s.worn = Some(w);
             }
+            PART_LOOK => s.look = crate::look::decode(body.0), // anim
             _ => {}
         }
     }
@@ -212,6 +221,25 @@ mod tests {
                 karma: -230,
             }),
             worn: Some(vec![0x0002_0420, 0x0000_4333]),
+            // anim
+            look: Some(coop_engine::look::Face {
+                female: true,
+                race: 0x0000_424a,
+                hair: 0x0003_2b4e,
+                hair_length: 0.25,
+                eyes: 0x0004_bc2a,
+                hair_color: 0x0040_2010,
+                height: 1.0,
+                weight: 0.5,
+                head_parts: vec![0x0001_0101],
+                coord: [
+                    (2, 1, vec![0.5, -1.25]),
+                    (1, 1, vec![0.125]),
+                    (0, 0, Vec::new()),
+                    (0, 0, Vec::new()),
+                ],
+                name: "Courier Two".into(),
+            }),
         }
     }
 
@@ -251,6 +279,21 @@ mod tests {
         let read = decode(&bytes).unwrap();
         assert_eq!(read.character, None);
         assert_eq!(read.condition, s.condition);
+        assert_eq!(read.worn, s.worn);
+    }
+
+    // anim
+    #[test]
+    fn a_look_this_build_cannot_read_is_read_as_missing() {
+        let s = sheet();
+        let bytes = encode(&s);
+        let mut other = bytes.clone();
+        // The look's appearance version, after its tag, its length and its magic byte.
+        let at = bytes.len() - crate::look::encode(s.look.as_ref().unwrap()).unwrap().len();
+        assert_eq!(other[at], crate::look::APPEARANCE_MAGIC);
+        other[at + 1] = crate::look::APPEARANCE_VERSION + 1;
+        let read = decode(&other).unwrap();
+        assert_eq!(read.look, None);
         assert_eq!(read.worn, s.worn);
     }
 }

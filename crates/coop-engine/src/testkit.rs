@@ -31,6 +31,9 @@ pub mod companion_kit;
 // look: avatars that walk, hold weapons, wear items and have a face (docs/coop/SPECS.md S35).
 #[path = "look_kit.rs"]
 pub mod look_kit;
+// anim: bodies that play groups, idles, jumps, sit and get knocked down (docs/coop/SPECS.md S39).
+#[path = "anim_kit.rs"]
+pub mod anim_kit;
 
 /// Where the story lives.
 const HEAP: u32 = 0x0200_0000;

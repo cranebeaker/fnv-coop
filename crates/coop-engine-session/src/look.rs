@@ -50,15 +50,16 @@ pub enum Cap {
 }
 
 impl Cap {
-    /// `walk`, `pose`, `gear`, or `face` (also `name`, `on`, `all`); anything else, or nothing,
-    /// is `None` (off).
+    /// `walk`, `pose`, `gear`, or `face` (also `name`, `on`, `all`); `off` (also `0`, `no`,
+    /// `none`) is `None`. Anything else, or nothing, is [`Cap::Face`]: every level is on unless
+    /// asked otherwise (anim, docs/coop/SPECS.md S39).
     pub fn parse(v: &str) -> Option<Cap> {
         match v.trim() {
             "walk" => Some(Cap::Walk),
             "pose" => Some(Cap::Pose),
             "gear" => Some(Cap::Gear),
-            "face" | "name" | "on" | "all" | "1" => Some(Cap::Face),
-            _ => None,
+            "off" | "0" | "no" | "none" => None, // anim
+            _ => Some(Cap::Face),
         }
     }
 }
@@ -211,6 +212,8 @@ struct Shown {
     forced: Option<u16>,
     drawn_asked: Option<(bool, u64)>,
     worn: Option<(Vec<u32>, u64)>,
+    // anim: its head built from its base form's face.
+    head: bool,
 }
 
 /// Counters, for the status line and the tests.
@@ -238,6 +241,9 @@ pub struct Counts {
     pub parts_sent: u64,
     /// See [`Counts::parts_sent`].
     pub actions_sent: u64,
+    // anim
+    /// Avatars' heads built from their base form's face.
+    pub heads: u64,
 }
 
 /// The look of this player for the others, and of the others' avatars here.
@@ -258,6 +264,9 @@ pub struct Look {
     pub notes: Vec<String>,
     /// See [`Counts`].
     pub counts: Counts,
+    // anim
+    /// Every other animation of this player and of the others' avatars (docs/coop/SPECS.md S39).
+    pub anim: crate::anim::Anim,
 }
 
 impl Look {
@@ -274,6 +283,7 @@ impl Look {
             seen: BTreeSet::new(),
             notes: Vec::new(),
             counts: Counts::default(),
+            anim: crate::anim::Anim::default(), // anim
         }
     }
 
@@ -291,6 +301,7 @@ impl Look {
         if p.moves & MOVE_SNEAKING != 0 {
             state.flags |= FLAG_SNEAK;
         }
+        self.anim.stamp(e, state); // anim
         if self.cap >= Cap::Pose {
             state.weapon = p.weapon;
             if p.drawn {
@@ -338,6 +349,9 @@ impl Look {
                 }
             }
         }
+        // anim: every level sends the rest of what the body does.
+        let body = self.anim.own(e);
+        out.actions.extend(body);
         self.counts.actions_sent += out.actions.len() as u64;
         out
     }
@@ -368,6 +382,7 @@ impl Look {
         for peer in self.peers.values_mut() {
             peer.actions.clear();
         }
+        self.anim.clear_pending(); // anim
         for (p, r) in &live.remote {
             let Some(parts) = &r.parts else {
                 continue;
@@ -381,18 +396,22 @@ impl Look {
             peer.face = decode(&parts.appearance);
         }
         let actions = live.take_actions();
-        if self.cap >= Cap::Pose {
-            for (p, a) in actions {
-                if matches!(
+        for (p, a) in actions {
+            // anim
+            if self.anim.take(p, a.kind, a.arg) {
+                continue;
+            }
+            if self.cap >= Cap::Pose
+                && matches!(
                     a.kind,
                     ActionKind::Shoot | ActionKind::Swing | ActionKind::Reload
-                ) {
-                    self.peers
-                        .entry(p)
-                        .or_default()
-                        .actions
-                        .push((a.kind, a.arg));
-                }
+                )
+            {
+                self.peers
+                    .entry(p)
+                    .or_default()
+                    .actions
+                    .push((a.kind, a.arg));
             }
         }
     }
@@ -439,13 +458,35 @@ impl Look {
     /// actions, and its items, as far as the cap goes.
     pub fn frame(&mut self, e: &mut Engine, p: PlayerId, avatar: u32, s: &Sample, now_ms: u64) {
         self.seen.insert(avatar);
+        // anim: the gait with its turns on the spot; none forced while it uses furniture.
+        let moves = self.anim.moves(avatar, s, now_ms);
         let shown = self.shown.entry(avatar).or_default();
-        if shown.forced != Some(s.anim) && look::gait(e, avatar, s.anim) {
-            shown.forced = Some(s.anim);
-            self.counts.gaits += 1;
+        match moves {
+            Some(m) if shown.forced != Some(m) && look::gait(e, avatar, m) => {
+                shown.forced = Some(m);
+                self.counts.gaits += 1;
+            }
+            None => shown.forced = None,
+            _ => {}
         }
         if look::calm(e, avatar) {
             self.counts.calmed += 1;
+        }
+        // anim: its other animations, and its head from its own base form once it has its 3D.
+        self.anim.frame(e, p, avatar, s, now_ms);
+        let made = self
+            .peers
+            .get(&p)
+            .and_then(|peer| peer.base.as_ref().map(|b| b.1));
+        let shown = self.shown.entry(avatar).or_default();
+        if self.cap >= Cap::Face
+            && !shown.head
+            && made.is_some()
+            && look::base_of(e, avatar) == made
+            && look::rebuild_head(e, avatar)
+        {
+            shown.head = true;
+            self.counts.heads += 1;
         }
         if self.cap < Cap::Pose {
             return;
@@ -511,19 +552,21 @@ impl Look {
     /// Ends a frame of the avatars: what was kept for one no longer shown is let go.
     pub fn end_frame(&mut self) {
         let seen = std::mem::take(&mut self.seen);
+        self.anim.end_frame(&seen); // anim
         self.shown.retain(|id, _| seen.contains(id));
     }
 
     /// A player who left: what was known of them is forgotten.
     pub fn forget(&mut self, p: PlayerId) {
         self.peers.remove(&p);
+        self.anim.forget(p); // anim
     }
 
     /// One status phrase for the log.
     pub fn status(&self) -> String {
         let c = &self.counts;
         format!(
-            "look {:?}: gaits {}, calmed {}, draws {}, attacks {} (refused {}), reloads {}, put on {}, taken off {}, bases {}, parts sent {}, actions sent {}",
+            "look {:?}: gaits {}, calmed {}, draws {}, attacks {} (refused {}), reloads {}, put on {}, taken off {}, bases {}, heads {}, parts sent {}, actions sent {}; {}",
             self.cap,
             c.gaits,
             c.calmed,
@@ -534,8 +577,10 @@ impl Look {
             c.put_on,
             c.taken_off,
             c.bases,
+            c.heads,
             c.parts_sent,
-            c.actions_sent
+            c.actions_sent,
+            self.anim.status()
         )
     }
 }
@@ -609,7 +654,10 @@ mod tests {
         assert_eq!(Cap::parse(" pose "), Some(Cap::Pose));
         assert_eq!(Cap::parse("gear"), Some(Cap::Gear));
         assert_eq!(Cap::parse("on"), Some(Cap::Face));
-        assert_eq!(Cap::parse(""), None);
+        // anim: on unless asked otherwise.
+        assert_eq!(Cap::parse(""), Some(Cap::Face));
+        assert_eq!(Cap::parse("face"), Some(Cap::Face));
         assert_eq!(Cap::parse("off"), None);
+        assert_eq!(Cap::parse(" 0 "), None);
     }
 }

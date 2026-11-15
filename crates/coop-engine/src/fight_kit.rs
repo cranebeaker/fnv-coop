@@ -85,7 +85,8 @@ fn owner_value(e: &mut Engine, a: &[u32]) -> Ret {
     st0(e.mem.f32(a[0] - addr::ACTOR_VALUE_OWNER_OFFSET + HEALTH))
 }
 
-fn modify_value(e: &mut Engine, a: &[u32]) -> Ret {
+// anim: the anim kit hands it every value but fatigue.
+pub(super) fn modify_value(e: &mut Engine, a: &[u32]) -> Ret {
     if a[1] == addr::ACTOR_VALUE_HEALTH {
         let h = e.mem.f32(a[0] + HEALTH) + f32::from_bits(a[2]);
         e.mem.set_f32(a[0] + HEALTH, h);
@@ -184,6 +185,7 @@ fn place_at_me(e: &mut Engine, a: &[u32]) -> Ret {
             .set_u32(r.eax + addr::ACTOR_PROCESS_OFFSET, r.eax + SMALL_PROCESS);
         // look: an actor the look kit can animate (nothing unless it is installed).
         super::look_kit::placed(e, r.eax, a[1]);
+        super::anim_kit::placed(e, r.eax); // anim
     }
     r
 }

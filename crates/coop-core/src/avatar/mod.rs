@@ -33,6 +33,11 @@ pub const FLAG_DRAWN: u16 = 4;
 pub const FLAG_DEAD: u16 = 8;
 /// Avatar flag: the player's own opening runs in its game (not yet in the shared world).
 pub const FLAG_OPENING: u16 = 16;
+// anim: the rest of what the player's body does (docs/coop/SPECS.md S39).
+/// Avatar flag: looking down the sights.
+pub const FLAG_SIGHTS: u16 = 32;
+/// Avatar flag: knocked down (lying, or getting up).
+pub const FLAG_KNOCKED: u16 = 64;
 
 /// Quantizes a world coordinate.
 pub fn quant_pos(v: f32) -> i32 {
@@ -122,6 +127,17 @@ pub enum ActionKind {
     Knockdown,
     /// Died.
     Death,
+    // anim: the player's other animations (docs/coop/SPECS.md S39), added after protocol 8.
+    /// An animation group started in a section of the body; `arg` is the section (bits 16..24)
+    /// and the group's type (bits 0..8).
+    Group,
+    /// An idle (a gesture, a fidget, a furniture idle) started; `arg` is the idle form.
+    Idle,
+    /// The player left the ground in a jump.
+    Jump,
+    /// The player's walking and running speeds changed; `arg` is the walking speed (bits 0..16)
+    /// and the running speed (bits 16..32), in whole units a second.
+    Speed,
 }
 
 impl ActionKind {
