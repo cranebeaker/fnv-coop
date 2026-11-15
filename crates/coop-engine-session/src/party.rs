@@ -28,6 +28,8 @@ use coop_core::schema::Field;
 use coop_engine::{gate, live, quest, vars};
 // items
 use coop_engine::{addr, items};
+// character
+use coop_engine::stats;
 use engine_core::Engine;
 
 use crate::record;
@@ -54,6 +56,8 @@ const SECTION_PLACE: u8 = 1;
 const SECTION_QUEST: u8 = 2;
 // items: the player's inventory and caps. A build without it skips the section.
 const SECTION_PACK: u8 = 3;
+// character: the player's character, condition and what it wears (docs/coop/SPECS.md S32).
+const SECTION_SHEET: u8 = 4;
 const CHUNK_HEADER: usize = 8 + 4 + 1 + 1 + 1;
 const CHUNK_PAYLOAD: usize = 480;
 const _: () = assert!(CHUNK_HEADER + CHUNK_PAYLOAD <= coop_core::schema::MAX_CUSTOM_BYTES);
@@ -181,6 +185,9 @@ pub struct Part {
     // items
     /// What the player carries (`None`: not read, or a part written before this section).
     pub pack: Option<Pack>,
+    // character
+    /// The player's character (`None`: not read, or a part written before this section).
+    pub sheet: Option<stats::Sheet>,
 }
 
 /// What applying a part did.
@@ -195,6 +202,9 @@ pub struct Applied {
     // items
     /// Items (and the caps) whose count was set to the saved one.
     pub items: u32,
+    // character
+    /// What of the character was set to the saved one.
+    pub character: stats::Changed,
 }
 
 fn section(out: &mut Vec<u8>, tag: u8, body: &[u8]) {
@@ -267,6 +277,10 @@ impl Part {
             }
             section(&mut out, SECTION_PACK, &body);
         }
+        // character
+        if let Some(sheet) = &self.sheet {
+            section(&mut out, SECTION_SHEET, &crate::sheet::encode(sheet));
+        }
         out
     }
 
@@ -282,7 +296,8 @@ impl Part {
             key: c.u64()?,
             place: None,
             quests: Vec::new(),
-            pack: None, // items
+            pack: None,  // items
+            sheet: None, // character
         };
         while !c.0.is_empty() {
             let tag = c.u8()?;
@@ -321,6 +336,8 @@ impl Part {
                     }
                     part.pack = Some(Pack { caps, stacks });
                 }
+                // character
+                SECTION_SHEET => part.sheet = Some(crate::sheet::decode(body.0)?),
                 _ => {}
             }
         }
@@ -352,7 +369,8 @@ impl Part {
             key,
             place,
             quests,
-            pack: Pack::read(e), // items
+            pack: Pack::read(e),   // items
+            sheet: stats::read(e), // character
         }
     }
 
@@ -386,6 +404,10 @@ impl Part {
         // items
         if let Some(p) = &self.pack {
             out.items = p.apply(e);
+        }
+        // character: after the pack, so that what was worn is carried.
+        if let Some(sheet) = &self.sheet {
+            out.character = stats::apply(e, sheet);
         }
         out
     }
@@ -897,6 +919,18 @@ mod tests {
                     },
                 ],
             }),
+            // character
+            sheet: Some(stats::Sheet {
+                character: Some(stats::Character {
+                    level: 3,
+                    xp: 2100,
+                    tags: [0x2b, -1, -1, -1],
+                    perks: vec![(0x0003_1dd8, 1)],
+                    ..stats::Character::default()
+                }),
+                condition: None,
+                worn: Some(vec![0x0000_4333]),
+            }),
         }
     }
 
@@ -909,6 +943,7 @@ mod tests {
             place: None,
             quests: vec![],
             pack: None,
+            sheet: None, // character
         };
         assert_eq!(bare.encode().len(), 4 + 1 + 8);
         assert_eq!(Part::decode(&bare.encode()), Some(bare));
