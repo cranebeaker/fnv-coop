@@ -1293,7 +1293,7 @@ impl GuestDriver {
             social: social::GuestSocial::default(),
             social_on: true,
             companions: companion::GuestCompanions::default(), // companions
-            voice: None, // voice
+            voice: None,                                       // voice
         }
     }
 

@@ -183,6 +183,8 @@ fn wants_steam(ask: &crate::coop::Ask) -> bool {
     match ask {
         crate::coop::Ask::Host(_) => HostSteam::from_env() != HostSteam::Off,
         crate::coop::Ask::SteamFriend => true,
+        // split: copies on one PC meet on the loopback address, never through Steam.
+        crate::coop::Ask::HostLocal => false,
         crate::coop::Ask::Join(code) => code
             .parse::<JoinCode>()
             .is_ok_and(|c| matches!(c.target, coop_net::JoinTarget::SteamLobby(_))),
