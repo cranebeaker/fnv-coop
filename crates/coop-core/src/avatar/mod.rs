@@ -31,6 +31,8 @@ pub const FLAG_SNEAK: u16 = 2;
 pub const FLAG_DRAWN: u16 = 4;
 /// Avatar flag: dead.
 pub const FLAG_DEAD: u16 = 8;
+/// Avatar flag: the player's own opening runs in its game (not yet in the shared world).
+pub const FLAG_OPENING: u16 = 16;
 
 /// Quantizes a world coordinate.
 pub fn quant_pos(v: f32) -> i32 {

@@ -1,5 +1,5 @@
 //! Loot taken once and barter through the host, between games in one process
-//! (docs/coop/SPECS.md S18). The games are test stories with the item kit's stand-ins for the
+//! (docs/coop/SPECS.md S20). The games are test stories with the item kit's stand-ins for the
 //! game's inventory functions; the transport is coop-core's loopback.
 
 use coop_core::compat::plugin_list_hash;
@@ -301,7 +301,9 @@ fn a_placed_item_is_picked_up_by_one_player_and_leaves_every_world() {
     assert!(!items::in_world(&mut run.guests[2].0.e, BOTTLE));
     assert_eq!((run.hi().picked, run.hi().refused), (1, 1));
     assert_eq!(run.gi(1).taken_back, 1);
-    assert_eq!(run.gi(2).removed, 1);
+    // The host's game switched the reference off, so the story carries that too (`RefDisabled`,
+    // S11), and either may take it out of the third world first; never twice.
+    assert!(run.gi(2).removed <= 1);
     assert_eq!(run.gi(0).waiting() + run.gi(1).waiting(), 0);
 }
 
@@ -438,4 +440,36 @@ fn a_party_save_holds_what_a_guest_carries_and_a_load_gives_it_back() {
     // Nothing of it was put to the host as a take or a trade.
     assert_eq!(run.gi(0).asked_host, 0);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A quest's reward (S30) is the reward path's alone: when the story gives a guest's player an
+/// item in the same step a holder it has open loses the same item, the gain is not read as a take
+/// and put to the host (which would take it out of the host's holder too, or, refused, take the
+/// reward back). Twin: without the reward path's word the same change is a take.
+#[test]
+fn a_quest_reward_is_not_read_as_a_take() {
+    let run_with = |told: bool| {
+        let mut run = Run::new(1, true);
+        run.open(0, CHEST);
+        run.frames(2);
+        let g = &mut run.guests[0];
+        let chest = items::holder(&mut g.0.e, CHEST).unwrap();
+        let player = items::holder(&mut g.0.e, PLAYER).unwrap();
+        // The chest loses its stimpak in this game, and the story gives the player one.
+        assert_eq!(items::remove(&mut g.0.e, chest, STIMPAK, 1), 1);
+        assert!(items::add(&mut g.0.e, player, STIMPAK, 1, None));
+        if told {
+            g.1.items.as_mut().unwrap().story_gave(STIMPAK, 1);
+        }
+        run.frames(10);
+        (
+            run.gi(0).asked_host,
+            kit::has(&mut run.host, CHEST, STIMPAK),
+            kit::has(&mut run.guests[0].0, PLAYER, STIMPAK),
+            run.gi(0).story_gifts,
+        )
+    };
+    assert_eq!(run_with(true), (0, 1, 1, 1));
+    let (asked, in_hosts_chest, _, gifts) = run_with(false);
+    assert_eq!((asked, in_hosts_chest, gifts), (1, 0, 0));
 }

@@ -11,6 +11,7 @@
 //! that layer was removed (docs/adr/0011-old-layer-removed.md).
 
 mod coop;
+mod harness;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -246,9 +247,19 @@ fn main() {
             std::process::exit(1);
         }
     };
+    let mut harness = harness::Harness::from_env();
     loop {
-        game.set_keys_down(&[]);
-        game.mouse([0; 3], [false; 8]);
+        match &harness {
+            Some(h) => {
+                game.set_keys_down(&h.keys());
+                let (motion, buttons) = h.mouse();
+                game.mouse(motion, buttons);
+            }
+            None => {
+                game.set_keys_down(&[]);
+                game.mouse([0; 3], [false; 8]);
+            }
+        }
         if !game.main_frame() {
             break;
         }
@@ -266,6 +277,11 @@ fn main() {
         }
         if let Some(session) = &mut coop_session {
             for line in session.after_frame(&mut game.engine) {
+                println!("{line}");
+            }
+        }
+        if let Some(h) = &mut harness {
+            for line in h.after_frame(&mut game.engine) {
                 println!("{line}");
             }
         }

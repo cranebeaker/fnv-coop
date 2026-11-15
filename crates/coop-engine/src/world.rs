@@ -1,5 +1,5 @@
 //! Placed objects' doors and locks, read and set through the game's own functions
-//! (docs/coop/SPECS.md S12): whether a reference that opens is open, and its lock.
+//! (docs/coop/SPECS.md S14): whether a reference that opens is open, and its lock.
 //!
 //! These are the per-feature calls beside the changed-form stream ([`crate::changes`]). They
 //! exist because the change journal cannot follow a door: a door opened gets its change flag

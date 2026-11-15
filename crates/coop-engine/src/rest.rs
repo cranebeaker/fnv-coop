@@ -1,4 +1,4 @@
-//! Sleeping and waiting (docs/coop/SPECS.md S17): in a party, time passes for everyone or for no
+//! Sleeping and waiting (docs/coop/SPECS.md S19): in a party, time passes for everyone or for no
 //! one.
 //!
 //! The rest button of the game's sleep and wait menu goes through `SleepWaitMenu::DoClick`

@@ -32,6 +32,9 @@ pub struct Change {
     pub flags: u32,
     /// Whether any of them was forced (`TESForm::ForceChange`).
     pub forced: bool,
+    /// The script that was running when the form was first changed, if one was and the host's
+    /// state was not being applied ([`crate::gate::cause`]).
+    pub cause: Option<crate::gate::Cause>,
 }
 
 /// The bridge's game-wide state: one value for every game thread's engine (engine-core's
@@ -46,30 +49,44 @@ pub struct Journal {
     /// Changes are recorded only while this is set.
     armed: AtomicBool,
     /// Form id to (type, flags, forced), since the last drain.
-    changes: Mutex<BTreeMap<u32, (u8, u32, bool)>>,
+    changes: Mutex<BTreeMap<u32, Entry>>,
 }
 
+/// One form's entry: type, flags, forced, cause.
+type Entry = (u8, u32, bool, Option<crate::gate::Cause>);
+
 impl Journal {
-    fn map(&self) -> std::sync::MutexGuard<'_, BTreeMap<u32, (u8, u32, bool)>> {
+    fn map(&self) -> std::sync::MutexGuard<'_, BTreeMap<u32, Entry>> {
         // A thread that panicked while holding it left a whole map (each change is one insert).
         self.changes.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn record(&self, form: u32, kind: u8, flags: u32, forced: bool) {
+    fn record(
+        &self,
+        form: u32,
+        kind: u8,
+        flags: u32,
+        forced: bool,
+        cause: Option<crate::gate::Cause>,
+    ) {
         let mut map = self.map();
-        let entry = map.entry(form).or_insert((kind, 0, false));
+        let entry = map.entry(form).or_insert((kind, 0, false, None));
         entry.1 |= flags;
         entry.2 |= forced;
+        if entry.3.is_none() {
+            entry.3 = cause;
+        }
     }
 
     fn drain(&self) -> Vec<Change> {
         std::mem::take(&mut *self.map())
             .into_iter()
-            .map(|(form, (kind, flags, forced))| Change {
+            .map(|(form, (kind, flags, forced, cause))| Change {
                 form,
                 kind,
                 flags,
                 forced,
+                cause,
             })
             .collect()
     }
@@ -103,7 +120,9 @@ pub(crate) fn add_change(e: &mut Engine, a: &[u32]) -> Ret {
     {
         let id = e.mem.u32(form.wrapping_add(addr::FORM_ID_OFFSET));
         let kind = e.mem.u8(form.wrapping_add(addr::FORM_TYPE_OFFSET));
-        e.ext_free::<Journal>().record(id, kind, flags, force != 0);
+        let cause = crate::gate::cause(e);
+        e.ext_free::<Journal>()
+            .record(id, kind, flags, force != 0, cause);
     }
     r
 }
@@ -174,6 +193,7 @@ mod tests {
     #[test]
     fn an_armed_journal_records_each_form_once_with_all_its_flags() {
         let mut e = engine();
+        e.register(addr::ACTOR_EVALUATE_PACKAGE, |_, _| Ret::default());
         crate::install(&mut e);
         arm(&mut e, true);
         add(&mut e, form(0), addr::CHANGE_QUEST_STAGES, 0);
@@ -186,13 +206,15 @@ mod tests {
                     form: 0x0000_0014,
                     kind: 0x3b,
                     flags: 4,
-                    forced: false
+                    forced: false,
+                    cause: None,
                 },
                 Change {
                     form: 0x0010_4c0c,
                     kind: addr::FORM_TYPE_QUEST,
                     flags: addr::CHANGE_QUEST_STAGES | 2,
-                    forced: true
+                    forced: true,
+                    cause: None,
                 },
             ]
         );
@@ -205,6 +227,7 @@ mod tests {
     #[test]
     fn the_game_call_runs_and_answers_as_without_the_wrap() {
         let mut e = engine();
+        e.register(addr::ACTOR_EVALUATE_PACKAGE, |_, _| Ret::default());
         crate::install(&mut e);
         for on in [false, true] {
             arm(&mut e, on);
@@ -217,6 +240,7 @@ mod tests {
     #[test]
     fn nothing_is_recorded_while_disarmed_or_for_a_null_form() {
         let mut e = engine();
+        e.register(addr::ACTOR_EVALUATE_PACKAGE, |_, _| Ret::default());
         crate::install(&mut e);
         assert!(!armed(&mut e));
         add(&mut e, form(0), 1, 0);
@@ -229,6 +253,7 @@ mod tests {
     #[test]
     fn a_change_the_game_does_not_record_is_not_recorded() {
         let mut e = engine();
+        e.register(addr::ACTOR_EVALUATE_PACKAGE, |_, _| Ret::default());
         crate::install(&mut e);
         arm(&mut e, true);
         e.mem.set_u8(form(2) + 8, 1);
@@ -244,6 +269,7 @@ mod tests {
     #[test]
     fn disarming_keeps_what_was_recorded_until_the_drain() {
         let mut e = engine();
+        e.register(addr::ACTOR_EVALUATE_PACKAGE, |_, _| Ret::default());
         crate::install(&mut e);
         arm(&mut e, true);
         add(&mut e, form(1), 8, 0);

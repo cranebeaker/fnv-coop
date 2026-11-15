@@ -21,6 +21,8 @@
 
 pub mod actors;
 pub mod addr;
+pub mod commands;
+pub mod compass;
 pub mod diag;
 // fights
 pub mod fight;
@@ -28,7 +30,9 @@ pub mod forms;
 pub mod gate;
 pub mod journal;
 pub mod live;
+pub mod puppet;
 pub mod quest;
+pub mod reward;
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
 pub mod vars;
@@ -41,7 +45,7 @@ mod world_tests;
 pub mod worldkit;
 // world: end
 
-// social: conversations, party saves and the rest vote (docs/coop/SPECS.md S12 to S15).
+// social: conversations, party saves and the rest vote (docs/coop/SPECS.md S16 to S19).
 pub mod rest;
 pub mod saves;
 pub mod social;
@@ -50,10 +54,10 @@ pub mod social_kit;
 pub mod talk;
 
 // vats: V.A.T.S. with several players, and damage outside `Actor::HitMe` (docs/coop/SPECS.md
-// S20, S21).
+// S21, S22).
 pub mod harm;
 pub mod vats;
-// items: a reference's inventory, loot and barter (docs/coop/SPECS.md S18).
+// items: a reference's inventory, loot and barter (docs/coop/SPECS.md S20).
 #[cfg(any(test, feature = "testkit"))]
 pub mod itemkit;
 pub mod items;
@@ -88,10 +92,35 @@ pub fn install(e: &mut Engine) {
     }
     e.wrap(journal::ADD_CHANGE, journal::add_change);
     e.wrap(gate::RUN, gate::run);
+    // A program without the function (a unit test's own) is left without the wrap.
+    if e.is_registered(addr::ACTOR_EVALUATE_PACKAGE) {
+        e.wrap(commands::EVALUATE, commands::evaluate);
+    }
+    if e.is_registered(addr::CMD_START_CONVERSATION) {
+        e.wrap(commands::CONVERSE, commands::converse);
+    }
+    if e.is_registered(addr::PACKAGE_LIST_FIND_CURRENT) {
+        e.wrap(commands::FIND_PACKAGE, commands::find_package);
+    }
+    if e.is_registered(addr::CMD_SAY_TO) {
+        e.wrap(commands::SAY_TO, commands::say_to);
+    }
+    if e.is_registered(addr::OBJECTIVE_SET_STATE) {
+        e.wrap(quest::OBJECTIVE_STATE, quest::objective_state);
+    }
+    if e.is_registered(addr::PLAYER_REWARD_EXPERIENCE) {
+        e.wrap(reward::EXPERIENCE, reward::experience);
+    }
+    if e.is_registered(addr::CONTAINER_GIVE) {
+        e.wrap(reward::ITEMS, reward::items);
+    }
+    let _ = e.ext_free::<commands::Commands>();
     // The gate's slot too, before the threads start.
     let _ = e.ext_free::<gate::Gate>();
     // fights: the hit wrap and its slot.
     fight::install(e);
+    // copies: their targets and attacks are their owners'.
+    puppet::install(e);
     // social
     social::install(e);
     // vats: the menu-mode, time multiplier and value-change wraps.
@@ -99,6 +128,8 @@ pub fn install(e: &mut Engine) {
     harm::install(e);
     // items
     items::install(e);
+    // the other players' ticks on the compass
+    compass::install(e);
 }
 
 // The unit tests' own program: no other crate's functions are linked in.
@@ -115,6 +146,7 @@ mod tests {
         let mut e = Engine::new();
         e.register(addr::SAVE_LOAD_ADD_CHANGE, |_, _| Ret::default());
         e.register(addr::SCRIPT_RUNNER_RUN, |_, _| Ret::default());
+        e.register(addr::ACTOR_EVALUATE_PACKAGE, |_, _| Ret::default());
         install(&mut e);
         install(&mut e);
         assert_eq!(
@@ -122,6 +154,7 @@ mod tests {
             [
                 (addr::SCRIPT_RUNNER_RUN, vec![Owner::Coop]),
                 (addr::SAVE_LOAD_ADD_CHANGE, vec![Owner::Coop]),
+                (addr::ACTOR_EVALUATE_PACKAGE, vec![Owner::Coop]),
             ]
         );
     }

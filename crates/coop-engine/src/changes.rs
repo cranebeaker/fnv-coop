@@ -1,5 +1,5 @@
 //! The changed-form stream (docs/coop/DECISIONS.md D1, option C inside hybrid H; docs/coop/SPECS.md
-//! S12): one form's change as the game's own save record, taken from the host's game and loaded
+//! S14): one form's change as the game's own save record, taken from the host's game and loaded
 //! by a guest's.
 //!
 //! - [`capture`] does for one form what `BGSSaveLoadGame::SaveGame` and `UnloadForm` do for each

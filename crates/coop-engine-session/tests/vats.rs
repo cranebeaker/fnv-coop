@@ -1,5 +1,5 @@
 //! V.A.T.S. with two players and damage outside `Actor::HitMe`, on two games in one process
-//! (docs/coop/SPECS.md S20, S21). The harness is the shared fights' (`tests/fights.rs`).
+//! (docs/coop/SPECS.md S21, S22). The harness is the shared fights' (`tests/fights.rs`).
 
 use coop_core::ids::PlayerId;
 use coop_core::proto::{Hello, PROTOCOL_VERSION};
@@ -43,6 +43,15 @@ fn hello() -> Hello {
     }
 }
 
+/// Fights with this round's parts switched on, as `NV_COOP_VATS=on` and `NV_COOP_HARM=on` do
+/// (off by default).
+fn asked(f: Fight) -> Fight {
+    let mut f = f.quiet();
+    f.vats = Share::new(Mode::parse("on"));
+    f.harm_on = true;
+    f
+}
+
 struct Pair {
     host: Story,
     hd: HostDriver,
@@ -61,13 +70,16 @@ impl Pair {
         let mut host = Story::new(&spec());
         let mut hd = HostDriver::new(HostConfig::new(hello(), 1), [MQ], [0x39]);
         hd.ladder = Some(Ladder::new(false, Cap::Avatar, DEFAULT_AVATAR_BASE).quiet());
-        hd.fight = Some(Fight::new(false, cap.unwrap_or(fight::Cap::parse(""))).quiet());
+        hd.fight = Some(asked(Fight::new(
+            false,
+            cap.unwrap_or(fight::Cap::parse("")),
+        )));
         hd.start(&mut host.e);
         let mut guest = Story::new(&spec());
         gate_guest(&mut guest.e);
         let mut gd = GuestDriver::new(PlayerId(1), hello());
         gd.ladder = Some(Ladder::new(true, ladder, DEFAULT_AVATAR_BASE).quiet());
-        gd.fight = cap.map(|c| Fight::new(true, c).quiet());
+        gd.fight = cap.map(|c| asked(Fight::new(true, c)));
         let mut p = Pair {
             hnet: net.endpoint(PlayerId::HOST),
             gnet: net.endpoint(PlayerId(1)),
@@ -330,4 +342,25 @@ fn twin_with_state_only_every_game_applies_its_own_losses() {
     p.frames(3);
     assert_eq!(p.host.actor_view(RAIDER).health, 100.0);
     assert_eq!(p.guest_fight().harms_sent, 0);
+}
+
+/// Merged from another line of work, V.A.T.S. sharing, losses outside hits and held actors in
+/// steps are off unless asked: nothing set is the game's own V.A.T.S., as before.
+#[test]
+fn vats_harm_and_steps_are_off_unless_asked() {
+    let f = Fight::new(false, fight::Cap::parse(""));
+    assert_eq!(f.vats.mode(), Mode::Off);
+    assert!(!f.harm_on && !f.smooth_on);
+    assert_eq!(Mode::parse(""), Mode::Off);
+    assert_eq!(Mode::parse("off"), Mode::Off);
+    assert_eq!(Mode::parse("on"), Mode::Live);
+    assert_eq!(Mode::parse("slow"), Mode::Slow);
+    // With nothing asked the host's menu stops its game, a guest there or not.
+    let mut p = Pair::new();
+    p.hd.fight.as_mut().unwrap().vats = Fight::new(false, fight::Cap::parse("")).vats;
+    p.frames(40);
+    p.host.open_menu(VATS_MENU);
+    p.host.set_vats_mode(2);
+    p.frames(2);
+    assert!(p.host.in_menu_mode());
 }

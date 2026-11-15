@@ -1,4 +1,4 @@
-//! Shared fights in the game (docs/coop/SPECS.md S13): the host's game is the authority for
+//! Shared fights in the game (docs/coop/SPECS.md S15): the host's game is the authority for
 //! actors that are not players.
 //!
 //! - Reading: the actors the game runs around its player ([`near`]) and one actor's place, life,
@@ -76,6 +76,9 @@ pub struct Fights {
     avatars: RwLock<BTreeSet<u32>>,
     /// Guest: the form ids of the actors held at the host's state.
     held: RwLock<BTreeSet<u32>>,
+    /// The form ids of the actors handed to a player's game (hand-off) whose damage the host's
+    /// ledger keeps: on the game that runs one, and on the host for its copy.
+    ledgered: RwLock<BTreeSet<u32>>,
     /// Hits kept from the game since the last drain.
     hits: Mutex<Vec<Hit>>,
     /// Hits kept from the game, ever.
@@ -128,6 +131,14 @@ pub(crate) fn kill(e: &mut Engine, a: &[u32]) -> Ret {
 /// Whether `Actor::HitMe` is wrapped on this game (hits can be shared).
 pub fn hits_wrapped(e: &mut Engine) -> bool {
     e.ext_free::<Fights>().wrapped.load(Ordering::SeqCst) != 0
+}
+
+/// Sets the actors handed to a player's game whose damage the host's ledger keeps.
+pub fn set_ledgered(e: &mut Engine, ids: impl IntoIterator<Item = u32>) {
+    *e.ext_free::<Fights>()
+        .ledgered
+        .write()
+        .unwrap_or_else(PoisonError::into_inner) = ids.into_iter().collect();
 }
 
 /// Sets what this machine is for the hit wrap.
@@ -211,9 +222,13 @@ pub(crate) fn verdict(e: &mut Engine, target: u32, aggressor: u32) -> Verdict {
         // This guest's player: what the host's actors and the other players do to it comes
         // from the host.
         (has(&f.held, aid) || has(&f.avatars, aid), false)
-    } else if role == 2 && has(&f.held, tid) {
-        // An actor the host runs: this player's damage is a claim for the host; anything else
-        // that damages it here is for the host's game to decide.
+    } else if (role == 2 && has(&f.held, tid)) || has(&f.ledgered, tid) {
+        // An actor whose damage the host's ledger keeps (one the host runs, held on a guest; or
+        // one handed to the nearest player's game): this player's damage goes through the
+        // ledger, and the game that runs the actor takes its damage from there; anything else
+        // that damages it here is for that game to decide. What such an actor does to this
+        // game's player is this game's own (it runs here, or its copy here is led to where it
+        // is run).
         (true, aid == actors::PLAYER_REF_ID)
     } else {
         (false, false)
@@ -289,6 +304,8 @@ pub struct Snap {
     pub loaded: bool,
     /// `Actor::GetEssential`: the game does not let it die.
     pub essential: bool,
+    /// Its movement flags ([`addr::ACTOR_MOVE_FLAGS`]; 0 where the program has no such function).
+    pub moves: u16,
 }
 
 impl Snap {
@@ -328,6 +345,29 @@ pub fn near(e: &mut Engine) -> Vec<u32> {
         .collect()
 }
 
+/// Every actor the game has loaded, at any process level (the close-actors list holds only those
+/// at full detail near this game's player). Falls back to [`near`] where the game's process array
+/// is not there (tests).
+pub fn loaded(e: &mut Engine) -> Vec<u32> {
+    if !e.is_registered(addr::PROCESS_ARRAY_HEAD)
+        || !e.is_registered(addr::PROCESS_ARRAY_TAIL)
+        || !e.is_registered(addr::PROCESS_ARRAY_OBJECT)
+    {
+        return near(e);
+    }
+    let array = addr::PROCESS_LISTS + 4;
+    let first = e.call(addr::PROCESS_ARRAY_HEAD, &args![array, 0u32]).u32();
+    let end = e.call(addr::PROCESS_ARRAY_TAIL, &args![array, 3u32]).u32();
+    let mut out = Vec::new();
+    for i in first..end.min(first.saturating_add(4096)) {
+        let o = e.call(addr::PROCESS_ARRAY_OBJECT, &args![array, i]).u32();
+        if o != 0 && actors::is_actor_type(e.mem.u8(o.wrapping_add(addr::FORM_TYPE_OFFSET))) {
+            out.push(o);
+        }
+    }
+    out
+}
+
 /// An actor's health, through its `ActorValueOwner`.
 pub fn health(e: &mut Engine, actor: u32) -> f32 {
     e.vcall(
@@ -363,6 +403,11 @@ pub fn snap(e: &mut Engine, actor: u32) -> Snap {
         target,
         loaded: e.mem.u32(actor.wrapping_add(addr::REF_LOADED_OFFSET)) != 0,
         essential: e.call(addr::ACTOR_GET_ESSENTIAL, &args![actor]).bool(),
+        moves: if e.is_registered(addr::ACTOR_MOVE_FLAGS) {
+            e.call(addr::ACTOR_MOVE_FLAGS, &args![actor]).u32() as u16
+        } else {
+            0
+        },
     }
 }
 
@@ -432,6 +477,101 @@ pub fn hold(e: &mut Engine, id: u32, pos: [f32; 3], heading: f32, health: f32) -
     })
 }
 
+/// Where actor `id` is in this game now; `None` when it is not here, has no 3D, or is dead.
+pub fn place_of(e: &mut Engine, id: u32) -> Option<[f32; 3]> {
+    let a = actors::actor(e, id)?;
+    if e.mem.u32(a.wrapping_add(addr::REF_LOADED_OFFSET)) == 0 || actors::dead(e, id)? {
+        return None;
+    }
+    Some([0, 4, 8].map(|o| e.mem.f32(a.wrapping_add(addr::REF_POS_OFFSET + o))))
+}
+
+/// The position of the actor at `actor` (a pointer), whatever its state.
+pub fn place_of_ptr(e: &mut Engine, actor: u32) -> [f32; 3] {
+    [0, 4, 8].map(|o| e.mem.f32(actor.wrapping_add(addr::REF_POS_OFFSET + o)))
+}
+
+/// Puts an actor this game runs itself at the host's place and heading (radians), its AI left
+/// on (switched on again if a hold had it off), and has it pick its package again from there, so
+/// it goes on in its own way, animated by its own game. `None` as [`place_of`].
+pub fn nudge(e: &mut Engine, id: u32, pos: [f32; 3], heading: f32) -> Option<[f32; 3]> {
+    place_of(e, id)?;
+    let a = actors::actor(e, id)?;
+    e.mem
+        .set_u8(a.wrapping_add(addr::ACTOR_PROCESS_ME_OFFSET), 1);
+    for (axis, v) in (*b"XYZ").into_iter().zip(pos) {
+        e.call(addr::SET_POS_BASE, &args![a, u32::from(axis), v.to_bits()]);
+    }
+    e.call(
+        addr::SET_ANGLE_BASE,
+        &args![a, u32::from(b'Z'), heading.to_degrees().to_bits()],
+    );
+    if e.is_registered(addr::ACTOR_EVALUATE_PACKAGE) {
+        e.call(addr::ACTOR_EVALUATE_PACKAGE, &args![a, 0u32, 0u32]);
+    }
+    place_of(e, id)
+}
+
+/// Moves an actor this game runs itself to the host's place and heading (radians) and nothing
+/// else: its AI stays as it is and it is not told to think again. For an actor led frame by frame
+/// because its own game keeps taking it elsewhere. `None` as [`place_of`].
+pub fn lead(e: &mut Engine, id: u32, pos: [f32; 3], heading: f32) -> Option<[f32; 3]> {
+    place_of(e, id)?;
+    let a = actors::actor(e, id)?;
+    for (axis, v) in (*b"XYZ").into_iter().zip(pos) {
+        e.call(addr::SET_POS_BASE, &args![a, u32::from(axis), v.to_bits()]);
+    }
+    e.call(
+        addr::SET_ANGLE_BASE,
+        &args![a, u32::from(b'Z'), heading.to_degrees().to_bits()],
+    );
+    place_of(e, id)
+}
+
+/// Whether this game's actor `id` is in a conversation (its package a dialogue package: a scene a
+/// script started, or one with a player). False when it is not in this game now.
+pub fn in_dialogue(e: &mut Engine, id: u32) -> bool {
+    match actors::actor(e, id) {
+        Some(a) if e.is_registered(addr::MOBILE_IS_IN_DIALOGUE) => {
+            e.call(addr::MOBILE_IS_IN_DIALOGUE, &args![a]).bool()
+        }
+        _ => false,
+    }
+}
+
+/// Brings an actor that is in another space of this game into this game's player's space, at
+/// `pos` there: the game's own `MoveTo` to the player with the difference as offsets. For a copy
+/// the host's actor left behind by walking through a door. False when the actor or the player is
+/// not in this game now, or the program has no such function.
+pub fn bring(e: &mut Engine, id: u32, pos: [f32; 3]) -> bool {
+    let player = e.mem.u32(addr::PLAYER_SINGLETON);
+    let Some(a) = actors::actor(e, id) else {
+        return false;
+    };
+    if player == 0 || !e.is_registered(addr::MOVE_TO_FUNCTION_BASE) {
+        return false;
+    }
+    let at = [0, 4, 8].map(|o| e.mem.f32(player.wrapping_add(addr::REF_POS_OFFSET + o)));
+    let off = [0, 1, 2].map(|i| (pos[i] - at[i]).to_bits());
+    e.call(
+        addr::MOVE_TO_FUNCTION_BASE,
+        &args![a, player, off[0], off[1], off[2]],
+    );
+    true
+}
+
+/// Sets a followed actor's health to the host's (never below 1 here: a death comes as a death).
+/// Its place and its AI are left alone. False when it is not in this game now or is dead here.
+pub fn mend(e: &mut Engine, id: u32, health: f32) -> bool {
+    match actors::actor(e, id) {
+        Some(a) if actors::dead(e, id) == Some(false) => {
+            set_health(e, a, health.max(1.0));
+            true
+        }
+        _ => false,
+    }
+}
+
 /// Gives a held actor back to this game: its AI on again. False when it is not in this game now.
 pub fn release(e: &mut Engine, id: u32) -> bool {
     match actors::actor(e, id) {
@@ -450,6 +590,11 @@ pub fn release(e: &mut Engine, id: u32) -> bool {
 /// any hit. Answers the actor's health afterwards; `None` when it is not in this game now. The
 /// applier does not kill: see [`kill_by`].
 pub fn hurt_actor(e: &mut Engine, id: u32, amount: f32, attacker: u32) -> Option<f32> {
+    // A dead one is not hurt again: the game would run its death once more (PC run 23: a
+    // gecko's death script counted it twice, and Sunny's quest moved on with one left).
+    if actors::dead(e, id) != Some(false) {
+        return None;
+    }
     let a = actors::actor(e, id)?;
     let by = forms::form(e, attacker).unwrap_or(0);
     // vats: co-op's own change passes the value-change wrap.
@@ -466,6 +611,9 @@ pub fn hurt_actor(e: &mut Engine, id: u32, amount: f32, attacker: u32) -> Option
 /// Kills actor `id` through the game's `Actor::Kill`, credited to `attacker` (a form id, or 0).
 /// False when the actor is not in this game now. The game keeps an essential actor alive.
 pub fn kill_by(e: &mut Engine, id: u32, attacker: u32) -> bool {
+    if actors::dead(e, id) != Some(false) {
+        return false;
+    }
     let Some(a) = actors::actor(e, id) else {
         return false;
     };

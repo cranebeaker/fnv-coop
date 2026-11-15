@@ -279,8 +279,33 @@ DLCs. **Not verified here:** that the guest's opening then plays through in the 
   death inside the apply scope, and its heal kills an actor that was not in the game when the death came.
   `echo` reports only a death the guest's game lacks.
 - Rules: `VPreorder*` and `VGenericTimer` are per-player rows (491 rows).
+- References (PC run 5): a placed reference whose form flags changed in the host's game (`Enable`,
+  `Disable`; change flag 1) is written as `Field::RefDisabled`; the guest sets its own through the game's
+  `Enable` (`00573f40`) and `Disable` (`00574400`) inside the apply scope, and its heal keeps it there.
 
-## S12: the rest of the world (implemented on stand-ins; docs/coop/DECISIONS.md D1, option C)
+## S12: the drift census (implemented; docs/coop/DECISIONS.md D5, rung 1)
+
+- `gate::Cause` (script id, owner quest, quest-script flag, reference) and `gate::cause`: the innermost
+  script running now, none while the host's state is applied. The gate's `Run` wrap keeps the stack.
+- `journal::Change::cause`: the script running when the form was first changed.
+- The guest keeps the last cause per form; the heal writes one `COOP-DRIFT` line per distinct (form, kind)
+  it puts back, with that cause or "cause unknown" (`drift_named`, `drift_unnamed` in the status line).
+
+## S13: host commands, the first: evaluate your package (implemented; D5's host commands)
+
+- PC run 6: after her dialogue Sunny stood still. Stage 10 of VCG02 says `SunnyREF.evp` in its result
+  script, which runs on the host only; the guest's copy was never told.
+- `coop_engine::commands`: a wrap of `Actor::EvaluatePackage` (`008a6ce0`, WRAPS step C-4) notes, on a host
+  whose journal is armed, each evaluation asked for while a script runs (`gate::cause`) of an actor both
+  games know. The AI's own evaluations are not noted.
+- Session: `EVALUATE_TAG` (`Field::Custom`, a count). The guest tells its copy the same, inside the apply
+  scope; `echo` and the heal leave the tag alone.
+- The host logs each shared quest's stage change (`stage_notes`), so a run shows whether the story moved.
+- The census of run 6 (D5 condition 1): VCG02's drift was named (the guest's own generic timer, event 3)
+  and VMQ01's (a result script of quest 00104c1c on the player). Script variables had no cause: the journal
+  does not see them, as B's planner expected, so the heal's diff stays their capture.
+
+## S14: the rest of the world (implemented on stand-ins; docs/coop/DECISIONS.md D1, option C)
 
 Nothing in this section has run in the real game. Its tests use stand-ins for the game's functions
 (`coop_engine::worldkit`).
@@ -354,7 +379,7 @@ a placed object's real record holds after its initial data, that a live `LoadGam
 be taken twice; each game has its own trader stock and caps); terminals' own state beyond their
 lock; references moved to another cell; records above 512 bytes.
 
-## S13: shared fights (implemented with unit tests; not yet run on a PC)
+## S15: shared fights (implemented with unit tests; not yet run on a PC)
 
 The host's game is the authority for actors that are not players (`coop_engine::fight`,
 `coop_engine_session::fight`). `NV_COOP_FIGHT=state|damage|threat|revive|off` caps it (default `revive`);
@@ -376,14 +401,14 @@ game by itself. A hit's kind and limb are not read (a direct hit, no limb), so l
 through this path. Friendly fire is off (coop-core's default). A revive needs no key: standing next to the
 downed player starts it. A respawn does not move the player. Only the controls byte is written for a downed
 player, not the rest of what `DisablePlayerControls` does. A held actor slides without the game's walk or
-run animation. V.A.T.S. for several players, damage outside `Actor::HitMe`, the actors the host's game does
-not run and the steps between two states of a held actor are S20 and S21.
+run animation. V.A.T.S. for several players, damage outside `Actor::HitMe` and the steps between two states of a held
+actor are S21 and S22; the actors the host's game does not run are S27 (hand-off).
 
 **Verified here:** 7 unit tests in `coop-engine` (`fight.rs`) and 17 two-game tests
 (`coop-engine-session/tests/fights.rs`); in each the story channel's echo, desyncs, refusals and guest script
 count are unchanged. **Not verified here:** every game call above (stand-ins only), and whether the game's
 own combat lets an actor fight an avatar whose AI is off.
-## S14: conversations (implemented with unit tests; not run on a PC)
+## S16: conversations (implemented with unit tests; not run on a PC)
 
 The player who talks to an NPC drives the conversation in the own game's dialogue menu. The other
 players see each line; a line's results happen once, in the host's game.
@@ -429,7 +454,7 @@ players at once, a pick the host cannot run). Removing the hold on a guest fails
 dialogue menu's lines all pass `RunResult` with the menu open, and that closing the menu from outside
 its own code leaves the game sound.
 
-## S15: party saves (implemented with unit tests; not run on a PC)
+## S17: party saves (implemented with unit tests; not run on a PC)
 
 - **A part** (`coop_engine_session::party::Part`) is a guest's own piece of the game: where the player
   is (space, position, heading) and the state of the quests each player runs for themself (the story
@@ -456,7 +481,7 @@ its own code leaves the game sound.
   own game and its own `.fos`. A guest's part is as old as its last upload (at most 5 s). The party
   folder is not the save folder: the platform layer keeps saves, and co-op writes plain files.
 
-## S16: rejoining and joining late (implemented with unit tests; not run on a PC)
+## S18: rejoining and joining late (implemented with unit tests; not run on a PC)
 
 - A guest that joins a running game gets coop-core's snapshot, which now also holds the published
   parts; one that lost the host resumes from its replica (S7). Either ends with the host's hashes.
@@ -465,7 +490,7 @@ its own code leaves the game sound.
   connection keeps what its still running game has; one whose game was started anew gets its place and
   own quests back. A part from a load is always taken.
 
-**Verified here (S15, S16):** 5 unit tests of the format (round trip, unknown sections, refusals, chunks,
+**Verified here (S17, S18):** 5 unit tests of the format (round trip, unknown sections, refusals, chunks,
 file names) and 4 multi-game tests: a save writes one file per guest and a load gives each part back
 once (place and own quests, files unchanged by later play); a player who joins late gets the snapshot
 and its saved part while a stranger gets none; a dropped guest keeps its game while a restarted one
@@ -473,7 +498,7 @@ gets its part back; a guest at its main menu gets its part once it is in the wor
 with 0 desyncs in each. **Not verified here:** the seams in the real game, the real save names, the
 move of a player to a saved place across cells.
 
-## S17: sleep and wait (implemented with unit tests; not run on a PC)
+## S19: sleep and wait (implemented with unit tests; not run on a PC)
 
 - **In the game** (`coop_engine::rest`). Co-op wraps `SleepWaitMenu::DoClick` (`007c0220`). With
   sharing on, the rest button (4) does not start the rest: the hours (the slider's value plus one, as
@@ -495,7 +520,7 @@ players agree and the hours pass in every game, ending on the host's clock; one 
 and nothing passes; a host alone rests as the game does). **Not verified here:** the real menu and
 hour step.
 
-## S18: items, loot and barter (implemented with unit tests; not run on a PC)
+## S20: items, loot and barter (implemented with unit tests; not run on a PC)
 
 Nothing in this section has run in the real game. Its tests use stand-ins for the game's functions
 (`coop_engine::itemkit`).
@@ -533,11 +558,12 @@ Nothing in this section has run in the real game. Its tests use stand-ins for th
   of pieces, each player's last request handled on the holder, then item and count pairs); a guest
   sets its own holder to them, less its own requests the contents do not show yet. A picked-up
   item's reference is published as gone (tag 74) and leaves every world (`TESObjectREFR::Disable`).
-- **Party saves** (S15). A guest's part has a new section (3): the caps and every stack the player
+- **Party saves** (S17). A guest's part has a new section (3): the caps and every stack the player
   carries (item, count, condition). The version stays 1; an older build skips the section. On
   taking its part back the guest's player carries what it carried then: the caps set, what is too
   much removed, what is missing added.
-- **Switch.** `NV_COOP_ITEMS=off` runs without any of this section.
+- **Switch.** Off unless asked: `NV_COOP_ITEMS=on` runs this section (merged from another line of
+  work, switched on one PC run at a time). A quest's reward (S30) is not a take: see S30.
 - **Limits, stated.** A container whose contents each game rolled for itself (leveled lists) differs
   until someone opens or takes from it: a guest's first take of something the host's game does not
   have there is refused and taken back, and from then on every game shows the host's contents. A
@@ -548,7 +574,7 @@ Nothing in this section has run in the real game. Its tests use stand-ins for th
   character's values (SPECIAL, skills, level, experience, perks) are not in a part: the repository
   shows an actor value's read and the set command's write by code, but not which codes they are,
   nor a write for level, experience and perks. A conversation's reward still goes to the host's
-  character (S14).
+  character (S16).
 
 **Verified here:** 5 tests in the bridge (the listing with base items, changes and conditions; add
 and remove; caps; the wraps with sharing off and on), 2 unit tests of the encodings and 7 two- to
@@ -561,7 +587,7 @@ a party save holds what a guest carries and a load gives it back.
 names a holder and the player on every move of an item; what the real pick-up does to a reference
 that persists; two real games.
 
-## S20: V.A.T.S. with several players (implemented with unit tests; not run on a PC)
+## S21: V.A.T.S. with several players (implemented with unit tests; not run on a PC)
 
 coop-core's model (`combat::vats`): the world's clock is shared, so with another player in the session
 `vats_scales` gives the world speed 1.0 whatever V.A.T.S. wants. Alone, V.A.T.S. is the game's own.
@@ -577,12 +603,13 @@ coop-core's model (`combat::vats`): the world's clock is shared, so with another
   `vats.rs` calls with less than 1. Co-op wraps it: with a shared world a multiplier below the world's
   speed that is asked for while the V.A.T.S. mode is not 0 goes to the game as the world's speed.
 - **On every machine.** The host's game runs the actors everyone sees, and a guest's game runs the ones
-  the host's does not (S21), so neither may stand still. `coop_engine_session::vats::Share` gives the
+  the host's does not (S27), so neither may stand still. `coop_engine_session::vats::Share` gives the
   game the world's speed when the first other player is there and takes it back when the last one left
-  or the session ends. `NV_COOP_VATS=slow` shares the speed only (the menu still stops the game), `off`
-  nothing.
+  or the session ends. Off unless asked (merged from another line of work, switched on one PC run at a
+  time): `NV_COOP_VATS=on` shares all of this, `slow` the speed only (the menu still stops the game);
+  unset or `off`, nothing.
 - **The queued shots** are played by the game as attacks. Each lands through `Actor::HitMe`, so a guest's
-  shot at a held actor goes to the host's ledger as any hit does (S13), and the host's own go to its game.
+  shot at a held actor goes to the host's ledger as any hit does (S15), and the host's own go to its game.
 - **No advantage.** The player who picks targets is hit in real time (the host's actors go on, and their
   damage reaches the player at once), and the playback gets no slow motion.
 - **Presentation.** Each machine tells the others when its player enters and leaves V.A.T.S.
@@ -603,11 +630,11 @@ only known from a PC run. What `Actor::HitMe` does for a player who is in V.A.T.
 host; twins with V.A.T.S. not shared and with the speed only; the session's end). **Not verified here:**
 every game function above in the real game.
 
-## S21: the rest of shared fights (implemented with unit tests; not run on a PC)
+## S22: the rest of shared fights (implemented with unit tests; not run on a PC)
 
 ### Damage that does not pass `Actor::HitMe` (`coop_engine::harm`)
 
-- An explosion damages an actor through `Actor::HitMe` (`explosion.rs`), so S13 already has it.
+- An explosion damages an actor through `Actor::HitMe` (`explosion.rs`), so S15 already has it.
 - A fall (`actor_p4.rs`, `actor_move`), a trap (`actor_p2.rs`, `actor_do_trap`), drowning and dangerous
   water (`actor_p2.rs`) call the damage applier (virtual `0x338`) straight; an effect
   (`valuemodifiereffect.rs`) calls the value change (virtual `0x3ac`) straight. All of them, and the
@@ -619,47 +646,279 @@ every game function above in the real game.
   (a guest's player's on a held actor or an avatar; anything on an avatar in the host's game) are added
   up per victim and source and taken every 100 ms as whole points, then go the way a kept hit goes
   (`ActorMsg::Hit`, `PlayerHit`, the host's vitals). What co-op itself writes passes the wrap.
+- **Switch.** Off unless asked: `NV_COOP_HARM=on` (with fights shared up to `damage` or more) has the
+  wrap decide; unset, every loss outside `Actor::HitMe` is the game's own, as before
+  (`harm::set_on`).
 - **Limits, stated.** What made the loss is not read; it is carried as coop-core's damage over time, which
   is neither scaled for the party nor tied to a limb. A held actor does not fall on a guest at all (its AI
   is off); its fall happens in its owner's game. Gains of health are not routed. Other values than health
   (limbs, fatigue) are each game's own. If the player's class has its own function in slot `0x3ac` that
   does not end in `00881130`, the player's losses do not pass the wrap: the repository shows none.
 
-### Actors the host's game does not run (`coop_engine_session::far`)
+### Actors the host's game does not run (taken out)
 
-- The host's game is the authority for every actor it runs (S13). An actor it does not run belongs to the
-  guest whose game runs it in that guest's own space and reported it first (`ActorMsg::Track`, once a
-  second, only actors nobody owns). The host enters it in coop-core's ledger pinned to the reporter
-  (`Ownership::set_follower`), and the ledger's own rules announce the owner. A report is the fights' to
-  judge: it is not passed on to coop-core's own handling, and one for another space than the reporter's,
-  for an actor the host runs, a dead one or an owned one is dropped.
-- The owner's game goes on running the actor and sends its state when it changed (about 20 times a
-  second). The ledger takes the owner's health and death from the state. Every other guest in that space
-  holds the actor as it holds the host's.
-- Another player's hit is judged by the ledger; its verdict (`Damaged`, `Died`) reaches the owner, whose
-  game applies it. The host's game applies damage only to actors it runs. A death in the owner's game also
-  reaches the story as any guest's death does (D4).
-- When the host's game comes to run the actor, the host is pinned as its owner and the ledger hands it
-  over; when it stops, nobody owns it and the guests report it again.
-- **Limits, stated.** An owner who walks away keeps the ledger's entry until the ledger gives the actor
-  to another player in that space or to nobody. Two guests in one space who both run an actor: the first
-  report wins. The host's own copy of a guest's actor is not moved. Threat is not directed for these
-  actors.
-
+- This build had them owned by the guest that reported them first (`coop_engine_session::far`,
+  `ActorMsg::Track`). The merge of hayato/coop-next (2026-11-12) took that out: its hand-off (S27), proven
+  on a PC, is the behaviour now. The nearest player's game runs an actor, the host tracks the loaded actors
+  near a guest's avatar, and every player's hit on a handed actor goes through the host's ledger. The hit
+  and value-change wraps share one decision (`fight::verdict`), which keeps a hit on a handed actor
+  (`fight::set_ledgered`) from the game as it keeps one on a held actor.
 ### Steps between two states (`coop_engine_session::smooth`)
 
 - A held actor gets coop-core's `avatar::InterpBuffer`: the newest state is fed at the avatars' rate and
   the actor is put where the buffer says, 100 ms behind and blended between two states. Another space or
-  a long jump is taken at once. `Fight::smooth_on` switches it off.
+  a long jump is taken at once. Off unless asked: `NV_COOP_SMOOTH=on` (`Fight::smooth_on`). Only held
+  actors (`NV_COOP_FIGHT=state` up to `revive`) are moved this way; a followed copy goes along its
+  owner's path with its gait and stands where its owner's actor stands (DECISIONS.md D6, D7), which
+  this does not touch.
 - **Not done:** the game's own walk or run animation on a held actor. The avatar code's approach
   (restrained, moved by the game's own mover) was not examined for held actors.
 
-**Verified here (S21):** 4 tests in the bridge (`harm.rs`), 2 unit tests (`smooth.rs`), 3 two-game tests
-(`tests/vats.rs`: a held actor's loss, an effect on an avatar, the twin with state only) and 7 three-game
-tests (`tests/far.rs`: a guest's actor held by another guest; one owner for two; another player's hit and
-kill through the owner; a death in the owner's game; the host taking over and giving back; a report for
-another space; the steps and their twin). **Not verified here:** every game function above in the real
-game.
+**Verified here (S22):** 4 tests in the bridge (`harm.rs`), 2 unit tests (`smooth.rs`), 3 two-game tests
+(`tests/vats.rs`: a held actor's loss, an effect on an avatar, the twin with state only) and 1 two-game test
+(`tests/fights.rs`: a held actor's steps and their twin). The six three-game tests of the guest-owned actors
+went with them. **Not verified here:** every game function above in the real game.
+
+## S23: scenes and followed actors (implemented; docs/coop/DECISIONS.md D5, rung 3; not yet run on a PC)
+
+- **Scenes.** A wrap of the `StartConversation` command's body (`005c8740`, WRAPS step C-5) parses the
+  command's parameters itself (the offset into the script data put back for the body's own parse). A
+  conversation with the player on either side is that player's own and runs as it is. One between two
+  placed actors is the host's: the host's game runs it and notes it (`commands::Scene`: both ids, the topic,
+  the two locations, the flags, both places); a guest's game does not run its own (the parameters are still
+  read past, so the script goes on) and counts it. The host writes a `Field::Custom` (`SCENE_TAG`) on the
+  actor; the guest puts both where the host had them, when they are in that space, and starts the
+  conversation through the actor's virtual slot 0x280 as the body does. One that comes with a join or a
+  repair is not played.
+- **Followed actors** (`NV_COOP_FIGHT=follow`, the viewer's default). PC run 10 showed that a held actor
+  (AI off, moved every frame) keeps the pose it had. Followed, the host's actors keep their own AI on a
+  guest; one further than `FOLLOW_DISTANCE` (200 units) from the host's place for `FOLLOW_MS` (1.5 s) is put
+  there (`fight::nudge`) and picks its package again. A copy in another space than the host's actor is left
+  alone. Holding (`state` and up) remains for the shared fights that need it.
+
+## S24: packages, doors, and the first peer review (implemented; not yet run on a PC)
+
+- **The host's package.** PC run 12: the two copies of an actor picked different packages (Sunny led the
+  host outdoors and walked back indoors on the guest; Chet sat on the host and walked on the spot on the
+  guest), because a package's schedule and conditions are each game's own and "the player" is that game's
+  player. The host writes the package each actor near it runs (`PACKAGE_TAG`; 0 when it has none both
+  games have, when it is aimed at the player other than to keep company, and when the host stops running
+  the actor). On a guest a wrap of `PackageList::FindCurrentPackage` (`0067e780`, WRAPS step C-7) answers an
+  evaluation of a followed actor with that package, after doing what the game's own pick does (`picked`:
+  procedure type, the old package's end, the new one's beginning). The follow step asks a copy that does not
+  run it to pick again (no AI reset), at once when the host's changes, else every 3 s, 5 times at most.
+- **Through doors.** A followed copy in another space than the host's actor is brought with the game's own
+  `MoveTo` (`005ccb20`) to this player's space at the host's place, every 3 s at most, 3 times at most.
+- **Switches** (D5, condition 6): `NV_COOP_SCENES=off`; `NV_COOP_FIGHT=follow-plain` (no leading, bringing or
+  packages); `NV_COOP_PACKAGES=off`.
+- **Peer review of this milestone (two reviewers, 2026-11-11).** Fixed: a scene asked of actors the game's
+  own command refuses (now its checks, plus loaded and alive); the package pin outliving the host's
+  interest; `picked`'s bookkeeping skipped; packages aimed at the player; unbounded asks and brings; an AI
+  reset on every package change; a scene lost when it came with a repair (now by count); the scene noted
+  before the game's body ran; no switches; counters and lines missing from the log. Open, recorded: a
+  guest's own scripts' conversations between actors are dropped and not forwarded to the host (a scene only
+  a guest triggers does not happen until the host's game triggers it); two scenes of one actor between two
+  sends keep the last; an actor in dialogue with the guest's player, or its companion, is not exempt from
+  following; the stand-ins move and pick at once where the game takes frames, so timing faults show only on
+  a PC.
+
+## S25: spent triggers, actors that leave a space (implemented; not yet run on a PC)
+
+PC run 13 (2026-11-11), from the two logs and the game's data.
+
+- **A spent trigger is its player's own.** The guest could draw no weapon. `VCG01RemoveDocCarebearModeTriggerSCRIPT`
+  (`0011e65e`, on `DocHouseTriggerREF` `0011e660`) gives the player who walks out of Doc Mitchell's house
+  their controls back and then deletes itself. The host's player spent it; the journal put its
+  `RefDisabled` into the story; the guest's was switched off before the guest's player reached it. A
+  trigger volume (a reference with a primitive: `ExtraDataList::GetPrimitive`, `0041fbe0`) switched by its
+  own object script (`actors::own_trigger_change`: the journal's cause is an object script running on that
+  same reference) is not written by the host. A guest remembers the triggers its own player spent, with
+  what the story said of each then, and neither heals nor applies the story over them until the story says
+  something new (a quest's script switching the trigger is still the story's).
+- **The space an actor leaves is told.** Actor states go to the players in the actor's space
+  (`Audience::Cell`). A guest never learned that the host's actor had gone through a door, and kept putting
+  its copy at the last place it knew there (Chet, Joe Cobb: "stands at the door"). The host sends the first
+  state in the new space to the players of the old one too. A guest whose copy is still in its player's
+  space then only asks it to take the host's package (which walks it out as it did the host's); it is not
+  moved.
+- **The host's package wherever the copy is.** The pin held only for copies in the guest's player's space:
+  Sunny's copy walked out after the host's and, out of sight, picked this game's own package and came back.
+  It now holds for every actor the host has said a package of (the host takes its word back when it stops
+  running the actor).
+- **Not in this step, recorded.** A trigger that starts a scene or sets the story counts only when the
+  host's player walks into it (`GSJoeCobbTriggerScript` `0010521f`: the guest's ran, its conversation was
+  dropped and its effects put back; nothing told the host). What a host-run script gives "the player"
+  reaches the host's player only (Sunny's Varmint Rifle). An actor that leaves without a package both games
+  have (fleeing) stays where this game has it. A body lies where each game dropped it. A led actor has no
+  walk animation.
+
+## S26: proposals (D5, rung 2; implemented; not yet run on a PC)
+
+PC run 16: the guest shot Sunny's bottles (`VCG02TargetSCRIPT`, `0010a1ef`: `set VCG02.nTargetCount to
+VCG02.nTargetCount + 1`, `SetObjectiveCompleted`, a stage) and the heal put each change back.
+
+- **What is proposed.** A difference between a guest's game and the story whose cause, by the guest's
+  journal, is one of its own object scripts: a script with a form id that is not a quest's (the gate holds
+  those) and not a dialogue result (id 0; the conversations carry those). A script variable of a quest
+  (`before`, `after`), a reference switched off or on, a quest's stage newly done, an objective's new state.
+  A reference the story has no entry for is proposed straight from the journal.
+- **The claim.** `PROPOSE_TAG` (`0x5052`), sent with the guest's other claims. The guest leaves its own
+  change alone for `PROPOSE_HOLD_MS` (3 s); if the story has not come to agree by then it is put back.
+- **The host.** A variable is set to `after` when the host's is still `before`; left when it is already
+  `after`; otherwise the guest's step is added on top. A reference is switched only from the state the
+  guest saw, never a trigger volume. A stage is set through the game's `SetStage` (its result script runs,
+  on the host) when not yet done; an objective's state through the quest's own setter. The outcome goes
+  into the story for every guest.
+- **Switch.** `NV_COOP_PROPOSE=off` on a guest: put back as before.
+- **Known limits, recorded.** Two players changing one counter inside one round trip to the same value
+  count once (the host cannot tell "both set it to 1" from "both added 1"). What the script said or gave
+  to "the player" happens in the game it ran in only. A conversation between two actors that a guest's
+  script asked for is still dropped, not proposed. Sunny's own lines and packages aimed at "the player"
+  are the host's player's.
+
+## S15 addendum: following with the fights shared
+
+`NV_COOP_FIGHT=follow-damage`, `follow-threat`, `follow-full`: a followed actor keeps its AI, is in the set
+the hit wrap reads (a guest's hit on it is a claim for the host; its own blows on the guest's player are
+dropped, the host's game says what hits), and has the host's health. PC run 16 at `follow-threat`: geckos
+died to the guest's shots on both games and turned on the guest.
+
+## S27: hand-off, the nearest player's game runs an actor (implemented; not yet run on a PC)
+
+PC run 21: a game runs its actors at full detail only near its own player. With the host's player at
+the saloon door, the host's Sunny and geckos near the guest stood still or moved in jumps (low process),
+and the guest's copies, following them, did the same.
+
+- **Who runs an actor.** coop-core's ownership (nearest player in the actor's space, 300 units of
+  hysteresis, 1 s hold) is no longer pinned to the host, except for an actor whose package keeps
+  company with the host's player (`commands::keeps_company`: follow, escort, accompany aimed at the
+  player). `NV_COOP_HANDOFF=off` pins every actor to the host as before.
+- **What the host tracks.** The actors near its player (the close-actors list) and every loaded actor
+  (the process array, all four levels: `005de0f0`, `005be5c0`, `00968670`) within 4096 units of a
+  guest's avatar in the same space.
+- **A guest that runs an actor.** It leaves it to its own AI (with the host's package still pinned),
+  and sends its state every 100 ms when it changes (`ActorClient::publish`; the target names this
+  guest's player).
+- **The host's copy.** Put at the guest's place and heading every frame, health from the ledger.
+- **Damage.** Every player's hit on a handed actor is kept from that game (`fight::set_ledgered`) and
+  goes to the host's ledger; the game that runs the actor does the damage the ledger records
+  (`damage_log`), its death is that game's and reaches the host as a claim. What the actor does to a
+  player is that player's game's own.
+- **Known limits.** The host's copy of a handed actor is moved without its walk. A guest's game runs a
+  handed actor with the host's package; a package that only the host's game has started may not be
+  where the guest's copy is.
+
+## S27 addendum (PC run 22)
+
+A handed actor stays tracked while it lives, whatever the host's own lists say from one moment to the
+next; the guests' places are read from their avatar reports (`avatars.state`), not from their avatars in
+the host's game, which are not loaded while the host is in another space; a dead actor's package is
+withdrawn (0).
+
+## S28: lines said to the player away from the host (implemented; not yet run on a PC)
+
+`SayTo` (`005c9100`) is wrapped on the host. A line a script has an actor say to the player
+(`thisObj` an actor, the target the player) is noted with its topic before the body runs. If the
+speaker is not loaded or has no process here, is in another space, or is more than 1500 units from
+the host's player, or a guest's game runs it (S27), the host writes `SAY_TAG` (`0x5359`: a count, the
+topic) on the speaker. A guest whose player is within 2500 units of its copy, in the same space, says it
+there (`commands::say_to_player`: as `SayTo`'s high-process branch: stop the current dialogue, pair the
+processes, the process's say slot `0x2a4`); its result runs in that game and its story changes reach the
+host as proposals (S26). One that came with the join is not said. Not tested against the game's own
+command: the stand-ins have no `SayTo`.
+
+## S29: a guest's completed objectives and items between players (in part implemented)
+
+Found in the harness on 2026-11-13 (VCG03, Sunny's healing powder). A quest script runs in the
+host's game only, and its `Player` is the host's player alone. VCG03's script completes "find a
+Xander root and a Broc flower" while that player holds both and takes it back while it does not.
+So when a guest who held both completed it, through its own gather trigger, the host's script took
+it back at once.
+
+Decided by a committee of three (unanimous), between three options:
+- A. Per player, as the original game counts.
+- B. The party's items summed for quest scripts.
+- C. A, plus giving items between players.
+
+The vote was C. B makes a check pass on items that a removal (`Player.RemoveItem` in the speaker's
+game) then cannot take: deliveries, purchases. Every quest that counts items would be exposed, and
+a split pair still cannot be crafted. Plants are picked separately in each game, so each player
+can gather and cook. A split pair is pooled by giving one item to the other player.
+
+- Implemented: on the host, an objective a guest's game completed (its proposal applied) is not set
+  back by the host's own scripts. The wrap is at the objective state setter `005ec5d0`, step C-9.
+  The guest's own taking back is applied as ever.
+- To do: giving an item to another player, done by the host as one step (taken from one, given to
+  the other, or neither). Quest items are allowed between players only. The owner decided
+  (2026-11-13): giving is one-way only, a player picks an item and an amount and hands it over,
+  with nothing asked in return; no trade window where both sides offer and confirm.
+- Rewards from host-only scripts (experience, caps, items): S30.
+
+## S30: the story's experience, caps and items go to every player (implemented)
+
+Found in the harness on 2026-11-13 (VCG03): Trudy's line that ends Sunny's last tutorial gives
+`RewardXP 50`. Said to the guest, its result ran in the host's game (the guest's results are held
+for the host), and the host's player alone got the 50. Sunny's line that starts VCG03 gives 50 too.
+
+The rules already decide this: every row of the bundled table has `reward: everyone` (every player
+gets the full reward once; `RewardLedger` keeps who has which). This spec carries it out on the
+engine backend for experience, caps and items (the owner, 2026-11-13: both players get any caps,
+experience and items a quest gives).
+
+- The host's game wraps `PlayerCharacter::RewardExperience` (`0094fd10`, vtable +0x488, what the
+  `RewardXP` command `005d5140` calls), step C-10. The amount is given as ever. While a story
+  script runs (its owner quest is set: a stage's or a line's result, a quest's script) and that
+  quest is not one each player plays for themself, the reward is noted (`coop_engine::reward`).
+  A line's result script names no owner quest: the quest of the line whose result runs
+  (`talk::result_quest`, kept by the `TESTopicInfo::RunResult` wrap) is the one.
+  Not noted: an object script with no quest (each game that has the object runs it), anything while
+  the host's state is applied, anything on a guest.
+- Items: the host's game wraps the hand-over of a container's items to a reference (`004821a0`,
+  what `AddItem` gives through, caps included; a leveled list is already rolled into the
+  container), step C-11. When the reference is the player and a story script runs (as above), each
+  item and its count is noted.
+- The host's driver numbers each noted reward and hands it to the rules (`RulesHost::reward`): every
+  other player in the party gets `RulesMsg::Reward { id, gift }` once (protocol 7; `Gift::Xp` or
+  `Gift::Item { form, count }`).
+- A guest's driver gives its player the same the game's own way, the message included: experience
+  through `RewardExperience`, items through a container of its own handed to its player, as
+  `AddItem` does. One that cannot be given yet (no player) waits; an item its data lacks is not
+  given.
+- Open: a player who joins after a reward does not get it (the ledger can name what it misses;
+  claiming needs the player's identity across sessions). Not mirrored: what a story script takes
+  from the player (`Player.RemoveItem`: a payment, a hand-in) is taken from the host's player only,
+  even when the guest said the line (the rules' `Payment` goes to the line's initiator: to do);
+  items moved to the player from a container or an NPC (`RemoveAllItems player`) are not copied.
+- With items shared (S20, `NV_COOP_ITEMS=on`) the reward path alone gives a quest's items. S20 never
+  gives a player anything on the host's word (it moves holders' contents and takes back what the host
+  refused), so the two cannot give a reward twice; but a reward reaching a guest's player in a step in
+  which a holder it has open lost the same item would read as a take, and be put to the host. S20
+  stands aside: each item reward a guest's game gives (sent by the host, or noted for a line said
+  there) is counted into that player's known items (`GuestItems::story_gave`), so it is never asked
+  for (test `a_quest_reward_is_not_read_as_a_take`).
+
+## S31: the other players on the compass (implemented; run in two headless games, not yet on a PC)
+
+The owner (2026-11-15): a marker of its own for the other players (not for companions), on the
+HUD's compass, in purple, a colour none of the game's HUD colours (amber, white, blue, green, and
+the red of a hostile tick) is near.
+
+- Each other player this game shows (their avatar, which exists while both players are in the same
+  interior or worldspace) has a tick on the compass in purple (190, 80, 255), step C-14
+  (`crates/coop-engine/src/compass.rs`, a wrap of `HUDMainMenu::UpdateCompass` `00779070`).
+- The game's own actor ticks are untouched: the avatars are kept off them for that call (the
+  player's compass list's keep-off byte, set and put back around the call), so a player is never
+  ticked twice or in an NPC's colour. The avatar's tick then goes on a tile the game left unused
+  that frame (the last one when every tile was used), placed and faded as the game places and
+  fades an actor tick, hidden while the player is outside the strip (behind, or exactly to the
+  side). Its system colour is taken away so the tile shows its own red, green and blue; the game
+  gives a tile it uses again its system colour back, so no NPC is left purple.
+- Unlike an NPC's tick, the player's is not limited by distance or by being detected.
+- Checked in two headless games (`/tmp/s_compass*.sh`, harness `compass`, which reads each shown
+  tick's traits and the colour its picture is drawn in): after loading the saves, outside the
+  saloon, inside the saloon (through its door) and at the Goodsprings Source after a fast travel,
+  each game showed the other player ahead of it in purple (drawn 0.75, 0.31, 1.00) and its NPC
+  ticks in the HUD's amber; none when the other player was behind or at the side.
 
 ## Not done: followers
 

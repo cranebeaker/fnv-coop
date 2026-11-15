@@ -1,4 +1,4 @@
-//! Installs co-op's part in conversations, saves and rests (docs/coop/SPECS.md S14 to S17): the
+//! Installs co-op's part in conversations, saves and rests (docs/coop/SPECS.md S16 to S19): the
 //! wraps of [`crate::talk`] and [`crate::rest`] and the seam handlers of [`crate::saves`].
 //!
 //! Each wrap goes in front of a translated function. An address with nothing registered (a test

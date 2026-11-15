@@ -1,4 +1,4 @@
-//! A reference's inventory, item by item (docs/coop/SPECS.md S18): what a container, a body, a
+//! A reference's inventory, item by item (docs/coop/SPECS.md S20): what a container, a body, a
 //! trader or the player holds, read and changed through the game's own functions.
 //!
 //! - **Reading.** The items are the base container's objects and the entries of the reference's
@@ -397,19 +397,16 @@ pub fn add(e: &mut Engine, r: u32, item: u32, count: i32, condition: Option<f32>
     let Some(form) = item_form(e, item) else {
         return false;
     };
-    e.with_stack(addr::TEMP_CONTAINER_SIZE, |e, container| {
+    e.with_stack(addr::CONTAINER_SIZE, |e, container| {
         let c = container.addr();
-        e.call(addr::TEMP_CONTAINER_CONSTRUCT, &args![c]);
-        e.call(
-            addr::TEMP_CONTAINER_ADD,
-            &args![c, form, count as u32, 0u32],
-        );
+        e.call(addr::CONTAINER_CONSTRUCT, &args![c]);
+        e.call(addr::CONTAINER_ADD, &args![c, form, count as u32, 0u32]);
         if let Some(part) = condition {
             let bits = part.clamp(0.0, 1.0).to_bits();
-            e.call(addr::TEMP_CONTAINER_SET_HEALTH, &args![c, bits]);
+            e.call(addr::CONTAINER_SET_HEALTH, &args![c, bits]);
         }
-        e.call(addr::TEMP_CONTAINER_GIVE, &args![c, r, 1u32]);
-        e.call(addr::TEMP_CONTAINER_DESTRUCT, &args![c]);
+        e.call(addr::CONTAINER_GIVE, &args![c, r, 1u32]);
+        e.call(addr::CONTAINER_DESTRUCT, &args![c]);
     });
     true
 }

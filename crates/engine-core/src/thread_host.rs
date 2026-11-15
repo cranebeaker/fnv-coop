@@ -1412,6 +1412,17 @@ pub fn finish_main_frame(e: &mut Engine, main: &mut MainThread) -> MainTurn {
     turn
 }
 
+/// A function the game's main thread runs at the end of each of its frames, before it hands the
+/// engine back ([`set_end_frame_hook`]).
+static END_FRAME_HOOK: std::sync::OnceLock<fn(&mut Engine)> = std::sync::OnceLock::new();
+
+/// Sets the function the game's main thread runs at the end of each frame (once per process; a
+/// test aid, the viewer's `NV_HARNESS`: game calls that must run on the main thread, such as a
+/// save's load, which waits on the game's own threads).
+pub fn set_end_frame_hook(hook: fn(&mut Engine)) {
+    let _ = END_FRAME_HOOK.set(hook);
+}
+
 /// The end of a frame on the game's main thread (its message loop found the queue empty): when
 /// the main thread runs as the host's coroutine ([`start_main_thread`]) it hands the engine
 /// back to the host and waits for the next frame, then answers true; anywhere else (a test
@@ -1420,6 +1431,10 @@ pub fn end_main_frame(e: &mut Engine) -> bool {
     let on_coroutine = MAIN_COROUTINE.with(|c| c.borrow().is_some());
     if !on_coroutine || !on_main(e) {
         return false;
+    }
+    // A test aid's work for the main thread itself (`set_end_frame_hook`), between two frames.
+    if let Some(hook) = END_FRAME_HOOK.get() {
+        hook(e);
     }
     // Real threads: the kernel lock goes to the host while main waits for its next frame
     // ([`finish_main_frame`] takes it, [`begin_main_frame`] gives it back).

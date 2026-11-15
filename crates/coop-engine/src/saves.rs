@@ -1,5 +1,5 @@
 //! The game's own saves and loads, seen at the seams where the script extender keeps its co-save
-//! (docs/coop/SPECS.md S15): `BGSSaveLoadGame::SaveGame` at `00847c45` and `LoadGame` at
+//! (docs/coop/SPECS.md S17): `BGSSaveLoadGame::SaveGame` at `00847c45` and `LoadGame` at
 //! `00848c3c`, each with the save's name. Co-op is the second owner of both seams, after `nvse`,
 //! and takes neither call: it notes the name for the session, which keeps the party's own files
 //! next to the save. The game's save file is not touched.
@@ -32,6 +32,15 @@ pub enum Event {
 #[derive(Debug, Default)]
 pub struct Saves {
     events: Mutex<Vec<Event>>,
+    /// Every load the game has made, counted (not taken).
+    loads: std::sync::atomic::AtomicU64,
+}
+
+/// How many saves this game has loaded since it started.
+pub fn loads(e: &mut Engine) -> u64 {
+    e.ext_free::<Saves>()
+        .loads
+        .load(std::sync::atomic::Ordering::SeqCst)
 }
 
 fn note(e: &mut Engine, name: u32, make: fn(String) -> Event) {
@@ -52,6 +61,9 @@ pub(crate) fn save_site(e: &mut Engine, a: &[u32]) -> Option<u32> {
 }
 
 pub(crate) fn load_site(e: &mut Engine, a: &[u32]) -> Option<u32> {
+    e.ext_free::<Saves>()
+        .loads
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     note(e, a.first().copied().unwrap_or(0), Event::Loaded);
     None
 }

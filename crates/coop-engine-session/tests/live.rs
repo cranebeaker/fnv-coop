@@ -233,6 +233,63 @@ fn players_outdoors_share_the_world_space_whatever_their_cells() {
     assert!(close(g[0].2, [4200.0, 0.0, 0.0]), "{:?}", g[0]);
 }
 
+/// PC run 30: a player fast travelled; in the other's game the avatar kept up (moved with
+/// `SetPos`) but stayed in the cell it was placed in, which that game let go when its player went
+/// there too, and so was drawn no more until both went into the saloon. An avatar in a cell this
+/// game does not have loaded is brought into this player's cell, at its place, once.
+#[test]
+fn an_avatar_left_in_a_cell_this_game_let_go_is_brought_into_the_players_cell() {
+    let mut s = spec();
+    s.exteriors = vec![(0x0010_5b00, 0xda7e), (0x0010_5b01, 0xda7e)];
+    let mut p = Pair::new(Cap::Avatar, &s);
+    p.host = Story::new(&s);
+    p.hd.start(&mut p.host.e);
+    p.host.move_player(0x0010_5b00, [100.0, 0.0, 0.0], 0.0);
+    p.guest.move_player(0x0010_5b00, [300.0, 0.0, 0.0], 0.0);
+    p.frames(40);
+    assert_eq!(p.host.placed()[0].1, 0x0010_5b00);
+    // The guest fast travels far: the host's game has its avatar's cell loaded still, then lets it
+    // go; the guest is too far to be seen, and its avatar is only moved.
+    p.guest.move_player(0x0010_5b01, [40_000.0, 0.0, 0.0], 0.0);
+    p.frames(10);
+    p.host.set_cell_loaded(0x0010_5b00, false);
+    p.frames(10);
+    assert_eq!(p.host.placed()[0].1, 0x0010_5b00);
+    assert!(close(p.host.placed()[0].2, [40_000.0, 0.0, 0.0]));
+    assert!(!p
+        .host_lines()
+        .iter()
+        .any(|l| l.contains("this game let go")));
+    // The host goes there too.
+    p.host.move_player(0x0010_5b01, [40_200.0, 0.0, 0.0], 0.0);
+    p.host.set_cell_loaded(0x0010_5b00, false);
+    p.frames(20);
+    let h = p.host.placed();
+    assert_eq!(h.len(), 1, "{h:?}");
+    assert_eq!(h[0].1, 0x0010_5b01, "{h:?}");
+    assert!(close(h[0].2, [40_000.0, 0.0, 0.0]), "{h:?}");
+    // Brought over once: in a loaded cell it is only moved.
+    let let_go = |p: &Pair| {
+        p.host_lines()
+            .iter()
+            .filter(|l| l.contains("this game let go"))
+            .count()
+    };
+    assert_eq!(let_go(&p), 1, "{:?}", p.host_lines());
+    p.frames(40);
+    assert_eq!(let_go(&p), 1);
+    // The game took it out of its cell altogether (as seen after a fast travel in the harness):
+    // brought into this player's cell again.
+    let a = coop_engine::forms::form(&mut p.host.e, h[0].0).unwrap();
+    p.host
+        .e
+        .mem
+        .set_u32(a + coop_engine::addr::REF_CELL_OFFSET, 0);
+    p.frames(5);
+    assert_eq!(p.host.placed()[0].1, 0x0010_5b01);
+    assert_eq!(let_go(&p), 2);
+}
+
 #[test]
 fn the_cap_stops_the_ladder_at_its_rung() {
     for (cap, warps, placed) in [(Cap::Log, 0, 0), (Cap::Warp, 1, 0), (Cap::Avatar, 1, 1)] {
@@ -371,4 +428,38 @@ fn a_guest_that_leaves_has_its_avatar_removed_on_the_host() {
         .host_lines()
         .iter()
         .any(|l| l.contains("removed (player 1 left)")));
+}
+
+/// PC run 31: after a fast travel the guest was invisible in the host's game (and the mantises
+/// there never went for it), its avatar in a loaded cell near the host with no 3D. An avatar there
+/// and not drawn for a moment is taken away and placed again.
+#[test]
+fn an_avatar_there_and_not_drawn_is_placed_again() {
+    let mut p = Pair::new(Cap::Avatar, &spec());
+    p.host.move_player(HOUSE, [100.0, 0.0, 0.0], 0.0);
+    p.guest.move_player(HOUSE, [300.0, 0.0, 0.0], 0.0);
+    p.frames(40);
+    let live = |p: &mut Pair| -> Vec<(u32, u32, [f32; 3], bool, bool)> {
+        p.host.placed().into_iter().filter(|a| !a.4).collect()
+    };
+    let first = live(&mut p)[0].0;
+    p.host.set_has_3d(first, false);
+    p.frames((coop_engine_session::ladder::UNSEEN_MS / 50) as u32 - 5);
+    assert_eq!(live(&mut p)[0].0, first);
+    p.frames(10);
+    let again = live(&mut p);
+    assert_eq!(again.len(), 1, "{again:?}");
+    assert_ne!(again[0].0, first);
+    assert!(close(again[0].2, [300.0, 0.0, 0.0]), "{again:?}");
+    assert!(p.host_lines().iter().any(|l| l.contains("had no 3D")));
+    // Drawn: left as it is.
+    p.frames(60);
+    assert_eq!(live(&mut p)[0].0, again[0].0);
+    // Far from this player (out of the cells its game keeps), not drawn as it should be: left.
+    p.guest.move_player(HOUSE, [40_000.0, 0.0, 0.0], 0.0);
+    p.frames(10);
+    let far = live(&mut p)[0].0;
+    p.host.set_has_3d(far, false);
+    p.frames(3 * (coop_engine_session::ladder::UNSEEN_MS / 50) as u32);
+    assert_eq!(live(&mut p)[0].0, far);
 }

@@ -881,3 +881,879 @@ fn an_actor_a_guest_kills_dies_in_the_hosts_game() {
         hd.claim_notes
     );
 }
+
+/// PC run 5, 2026-11-10: Trudy was not in her bar on the guest. She and Joe Cobb start disabled
+/// and a trigger's script enables them, which happened in the host's game only.
+#[test]
+fn a_reference_the_hosts_scripts_enable_or_disable_is_the_same_on_the_guest() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    // Both games start with Chet disabled, as the plugin has some references.
+    coop_engine::arm(&mut host.e, false);
+    host.set_disabled(CHET, true);
+    coop_engine::arm(&mut host.e, true);
+    guest.set_disabled(CHET, true);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.disabled(CHET), Some(true));
+    // Sunny is not in the guest's game now.
+    guest.set_present(SUNNY, false);
+    host.set_disabled(CHET, false);
+    host.set_disabled(SUNNY, true);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.disabled(CHET), Some(false));
+    assert_eq!((gd.refused, gd.healed), (0, 0));
+    guest.set_present(SUNNY, true);
+    // A script of the guest's own game disables him again: the host's state comes back.
+    guest.set_disabled(CHET, true);
+    frames(
+        25,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.disabled(CHET), Some(false));
+    assert_eq!(guest.disabled(SUNNY), Some(true));
+    assert!(echo(&mut guest.e, &gd.sync.store).is_empty());
+    assert_eq!((gd.refused, gd.sync.desyncs_detected), (0, 0));
+    assert_eq!(guest.scripts_run(), 0);
+}
+
+/// PC run 13, 2026-11-11: the guest could draw no weapon. The trigger outside Doc Mitchell's
+/// house gives a player their weapons back and spends itself; the host's player spent it, the
+/// story carried that to the guest, and the guest's player walked through a dead trigger.
+#[test]
+fn a_trigger_a_player_spends_is_spent_for_that_player_only() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    host.make_trigger(CHET);
+    guest.make_trigger(CHET);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    // The host's player walks into it: the guest's is still there for the guest's player.
+    host.enter_trigger(CHET);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(host.disabled(CHET), Some(true));
+    assert_eq!(guest.disabled(CHET), Some(false));
+    assert_eq!(hd.triggers_kept, 1);
+    // The guest's player walks into theirs: it stays spent, and the host's story is not told.
+    guest.enter_trigger(CHET);
+    frames(
+        45,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.disabled(CHET), Some(true));
+    assert_eq!(gd.healed, 0);
+    assert_eq!((gd.refused, gd.sync.desyncs_detected), (0, 0));
+}
+
+/// A trigger the host's story holds as enabled (a quest's script switched it on) and the guest's
+/// player then spends is not switched on again by the heal; a later word of the story is taken.
+#[test]
+fn a_spent_trigger_is_not_put_back_until_the_story_says_something_new() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    host.make_trigger(CHET);
+    guest.make_trigger(CHET);
+    // Both start with it off; the host's story switches it on (no script of its own).
+    coop_engine::arm(&mut host.e, false);
+    host.set_disabled(CHET, true);
+    coop_engine::arm(&mut host.e, true);
+    guest.set_disabled(CHET, true);
+    host.set_disabled(CHET, false);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.disabled(CHET), Some(false));
+    guest.enter_trigger(CHET);
+    frames(
+        45,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.disabled(CHET), Some(true), "the heal put it back");
+    assert_eq!(gd.healed, 0);
+    assert!(
+        gd.healed_notes
+            .iter()
+            .any(|n| n.contains("spent by this player")),
+        "{:?}",
+        gd.healed_notes
+    );
+    // The story switches it off and on again: the new word reaches the guest's.
+    host.set_disabled(CHET, true);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    host.set_disabled(CHET, false);
+    frames(
+        45,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.disabled(CHET), Some(false));
+}
+
+/// Only a trigger volume is each player's own: a thing anyone can see that its own script
+/// switches off (an activator that is used up) is gone for everyone, as before.
+#[test]
+fn a_reference_that_is_no_trigger_and_spends_itself_is_still_shared() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    host.enter_trigger(CHET);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.disabled(CHET), Some(true));
+    assert_eq!(hd.triggers_kept, 0);
+    // And the guest's own, spent by its player, is proposed and gone for everyone (S26).
+    host.set_disabled(CHET, false);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    guest.enter_trigger(CHET);
+    frames(
+        45,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.disabled(CHET), Some(true));
+    assert_eq!(host.disabled(CHET), Some(true));
+}
+
+/// PC run 16, 2026-11-11: the guest shot Sunny's bottles and the count stayed the host's; only
+/// the host's shots counted. What a guest's own object script does to the story (D5, rung 2) is
+/// proposed to the host, whose game does it for everyone: the stage (with its result script, on
+/// the host only), the variable, the reference switched off. The guest's game is not put back
+/// meanwhile.
+#[test]
+fn what_a_guests_own_object_script_does_is_done_by_the_host_for_everyone() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    // The game's data: these object scripts name the main quest.
+    for script in [
+        coop_engine::testkit::SETTER_SCRIPT_ID,
+        coop_engine::testkit::BOTTLE_SCRIPT_ID,
+    ] {
+        gd.object_script_quests.insert(script, vec![MQ]);
+    }
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    let ran = host.scripts_run();
+    let var = |s: &mut Story| coop_engine::vars::quest_vars(&mut s.e, MQ).unwrap()[0].1;
+    let before = f64::from_bits(var(&mut host));
+    guest.shoot_target(CHET, MQ, 20);
+    frames(
+        60,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(f64::from_bits(var(&mut host)), before + 1.0);
+    assert_eq!(host.disabled(CHET), Some(true));
+    assert!(coop_engine::quest::record(&mut host.e, MQ)
+        .unwrap()
+        .done
+        .contains(&20));
+    assert!(
+        host.scripts_run() > ran,
+        "the stage's result script ran on the host"
+    );
+    assert_same_game(&mut host, &mut guest);
+    assert_eq!(gd.healed, 0, "{:?}", gd.healed_notes);
+    assert!(hd.proposals_enacted >= 3 && gd.proposals_sent >= 3);
+    // The host's player shoots one, then the guest's another: both count.
+    host.set_disabled(CHET, false);
+    host.shoot_target(SUNNY, MQ, 20);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    guest.shoot_target(CHET, MQ, 20);
+    frames(
+        80,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(f64::from_bits(var(&mut host)), before + 3.0);
+    // A bottle that only counts (no stage, no objective): nothing in the journal names a cause
+    // for the quest; the script that ran names the quest, which is enough.
+    guest.set_disabled(CHET, false);
+    host.set_disabled(CHET, false);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    gd.forget_causes();
+    guest.shoot_target(CHET, MQ, 0);
+    frames(
+        80,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(f64::from_bits(var(&mut host)), before + 4.0);
+    assert_same_game(&mut host, &mut guest);
+    assert_eq!((gd.refused, gd.sync.desyncs_detected), (0, 0));
+}
+
+/// D5, rungs 1 and 2: a shared quest's stage that something in a guest's game set (a line of
+/// dialogue that also hands this player an item runs there: the Varmint Rifle, PC run 17) is
+/// proposed and done by the host; a change the host cannot do for everyone (a global) is put
+/// back, as before, and logged.
+#[test]
+fn a_guests_stage_is_done_by_the_host_and_another_drift_is_put_back() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    // The game's data: these object scripts name the main quest.
+    for script in [
+        coop_engine::testkit::SETTER_SCRIPT_ID,
+        coop_engine::testkit::BOTTLE_SCRIPT_ID,
+    ] {
+        gd.object_script_quests.insert(script, vec![MQ]);
+    }
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    guest.run_object_script_setting_stage(CHET, MQ, 20);
+    guest.set_global(0x39, 7.0);
+    frames(
+        60,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert!(coop_engine::quest::record(&mut host.e, MQ)
+        .unwrap()
+        .done
+        .contains(&20));
+    assert_same_game(&mut host, &mut guest);
+    assert_eq!((gd.drift_named, gd.drift_unnamed), (0, 1));
+    let notes = gd.healed_notes.join("\n");
+    assert!(notes.contains("cause unknown"), "{notes}");
+    assert!(notes.contains("proposed to the host"), "{notes}");
+}
+
+/// PC run 28, 2026-11-13: a dialogue line's result set a quest variable in the host's game
+/// (`bMetSunny`), which leaves nothing in the journal; the story kept the old value, and the
+/// guest's game was put back to it. A variable the host's game changes reaches the guests however
+/// it was changed.
+#[test]
+fn a_quest_variable_the_hosts_game_sets_without_the_journal_reaches_the_guest() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    let index = coop_engine::vars::quest_vars(&mut host.e, MQ).unwrap()[0].0;
+    assert!(coop_engine::vars::set_quest_var(
+        &mut host.e,
+        MQ,
+        index,
+        1.0f64.to_bits()
+    ));
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    let var = |s: &mut Story| coop_engine::vars::quest_vars(&mut s.e, MQ).unwrap()[0].1;
+    assert_eq!(var(&mut guest), 1.0f64.to_bits());
+    assert_same_game(&mut host, &mut guest);
+}
+
+/// PC run 19, 2026-11-12: quests of the pre-order packs changed in the guest's game on their own
+/// (timers, references), with no cause in the journal, and were proposed every few seconds. A
+/// change with no cause is proposed only when an object script that names that quest ran in
+/// this game just before; otherwise it is put back as before.
+#[test]
+fn a_quest_change_no_script_of_this_game_explains_is_put_back() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    // The data says the bottle's script names some other quest, not this one.
+    gd.object_script_quests
+        .insert(coop_engine::testkit::BOTTLE_SCRIPT_ID, vec![0x0099_0001]);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    let var = |s: &mut Story| coop_engine::vars::quest_vars(&mut s.e, MQ).unwrap()[0].1;
+    let before = var(&mut host);
+    // The quest's variable moves in the guest's game with nothing in the journal, while an
+    // object script that names another quest runs.
+    guest.shoot_target(CHET, 0x0099_0001, 20);
+    let index = coop_engine::vars::quest_vars(&mut guest.e, MQ).unwrap()[0].0;
+    coop_engine::vars::set_quest_var(&mut guest.e, MQ, index, 2.5f64.to_bits());
+    frames(
+        80,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(var(&mut host), before);
+    assert_eq!(var(&mut guest), before, "put back");
+}
+
+/// PC run 20, 2026-11-12: Sunny's rifle line ran in the guest's game (objective 5 completed,
+/// 10 shown) and was put back, so the guest got no instructions. A quest change the journal puts
+/// down to a line of this player's dialogue is proposed like an object script's.
+#[test]
+fn a_quest_change_made_by_the_guests_dialogue_is_done_by_the_host() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    // A dialogue result (script id 0, run on the speaker) sets the stage in the guest's game.
+    guest.run_dialogue_result_setting_stage(SUNNY, MQ, 20);
+    frames(
+        60,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert!(coop_engine::quest::record(&mut host.e, MQ)
+        .unwrap()
+        .done
+        .contains(&20));
+    assert_same_game(&mut host, &mut guest);
+}
+
+/// PC run 25, 2026-11-12: the third well's geckos were counted in both games (their death script
+/// in the guest's game, the death of each copy in the host's), the count passed 3 without being
+/// 3, and the well was never cleared. What a script does to a quest after the actor it ran on
+/// has died is that death's, and the host runs it.
+#[test]
+fn a_quest_change_from_an_actors_death_is_the_hosts() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    gd.object_script_quests
+        .insert(coop_engine::testkit::BOTTLE_SCRIPT_ID, vec![MQ]);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    let var = |s: &mut Story| coop_engine::vars::quest_vars(&mut s.e, MQ).unwrap()[0].1;
+    let before = f64::from_bits(var(&mut host));
+    // Its script runs while it lives (shot): that counts, as the bottles do.
+    guest.shoot_target(CHET, MQ, 0);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(f64::from_bits(var(&mut host)), before + 1.0);
+    // It dies in the guest's game and its death script counts it there: not proposed.
+    guest.kill(CHET);
+    let index = coop_engine::vars::quest_vars(&mut guest.e, MQ).unwrap()[0].0;
+    let now = f64::from_bits(var(&mut guest));
+    coop_engine::vars::set_quest_var(&mut guest.e, MQ, index, (now + 1.0).to_bits());
+    frames(
+        80,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(f64::from_bits(var(&mut host)), before + 1.0);
+    assert_eq!(host.dead(CHET), Some(true), "the death reached the host");
+    assert_same_game(&mut host, &mut guest);
+}
+
+/// PC run 25, 2026-11-12: the guest's player died, its game loaded the last save, and the guest
+/// proposed the whole of that save to the host. After a load nothing is proposed for a while:
+/// the guest's game is put back to the story.
+#[test]
+fn a_guest_that_loads_a_save_proposes_nothing() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    for script in [
+        coop_engine::testkit::SETTER_SCRIPT_ID,
+        coop_engine::testkit::BOTTLE_SCRIPT_ID,
+    ] {
+        gd.object_script_quests.insert(script, vec![MQ]);
+    }
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    let var = |s: &mut Story| coop_engine::vars::quest_vars(&mut s.e, MQ).unwrap()[0].1;
+    let before = var(&mut host);
+    // The load: the game reads a save, and its own scripts then run as after any load.
+    guest.load("autosave");
+    guest.shoot_target(CHET, MQ, 20);
+    frames(
+        80,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(var(&mut host), before);
+    assert!(!coop_engine::quest::record(&mut host.e, MQ)
+        .unwrap()
+        .done
+        .contains(&20));
+    assert_eq!(hd.proposals_enacted, 0);
+    assert_same_game(&mut host, &mut guest);
+}
+
+/// Harness, 2026-11-13: the host's story was read once, at the main menu; after the host loaded
+/// its save, Sunny's quest was at stage 5 in its game and 0 in the story, and the guests were put
+/// back to 0. After a load the story is read again from the host's game.
+#[test]
+fn the_story_is_read_again_after_the_host_loads_a_save() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    // The save's state comes into the host's game with nothing in the journal.
+    let mut rec = coop_engine::quest::record(&mut host.e, MQ).unwrap();
+    assert!(!rec.done.contains(&20));
+    rec.stage = 20;
+    rec.done.push(20);
+    assert!(coop_engine::gate::applying(&mut host.e, |e| {
+        let ok = coop_engine::quest::apply(e, &rec);
+        let _ = coop_engine::drain(e);
+        ok
+    }));
+    host.load("Save 2");
+    frames(
+        60,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert!(coop_engine::quest::record(&mut guest.e, MQ)
+        .unwrap()
+        .done
+        .contains(&20));
+    assert_same_game(&mut host, &mut guest);
+}
+
+/// A guest whose game is merely behind the story (it joins with a game that already did things
+/// of its own) proposes nothing: the story is put into its game, not its game into the story.
+#[test]
+fn a_guest_that_joins_with_a_game_of_its_own_proposes_nothing() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    guest.run_object_script_setting_stage(CHET, MQ, 20);
+    guest.shoot_target(SUNNY, MQ, 20);
+    frames(
+        80,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert!(!coop_engine::quest::record(&mut host.e, MQ)
+        .unwrap()
+        .done
+        .contains(&20));
+    assert_eq!((hd.proposals_enacted, gd.proposals_sent), (0, 0));
+    assert_same_game(&mut host, &mut guest);
+}
+
+/// PC run 6, 2026-11-10: after her dialogue Sunny stood still. The stage's result script tells
+/// her `evp` so she acts on the new stage at once; it runs on the host only. The host sends each
+/// evaluation a script asks for, and the guest's copy is told too. The AI's own evaluations are
+/// not sent.
+#[test]
+fn an_actor_a_hosts_script_tells_to_evaluate_its_package_is_told_on_the_guest() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    host.ai_evp(CHET);
+    host.ai_evp(CHET);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.evaluations(CHET), 0);
+    host.set_stage(MQ, 10);
+    host.script_evp(CHET);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!((guest.evaluations(CHET), guest.evaluations(SUNNY)), (1, 0));
+    // A second command is a second evaluation; the heal and the checks do not repeat one.
+    host.script_evp(CHET);
+    frames(
+        60,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(guest.evaluations(CHET), 2);
+    assert_eq!((gd.refused, gd.healed, gd.sync.desyncs_detected), (0, 0, 0));
+    // The guest's own scripts' evaluations stay in its game.
+    guest.script_evp(SUNNY);
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert_eq!(host.evaluations(SUNNY), 0);
+    // The host's log names the stage change.
+    assert!(
+        hd.stage_notes
+            .iter()
+            .any(|l| l.contains(&format!("quest {MQ:08x}: stage 10"))),
+        "{:?}",
+        hd.stage_notes
+    );
+}
+
+/// S30 (harness, 2026-11-13): Trudy's line that ends Sunny's last tutorial gives `RewardXP 50`;
+/// said to the guest, it ran in the host's game, and the host's player alone got the 50. The
+/// story's experience on the host goes to each guest's player once; the guest's own run of a
+/// story script stays held back by the gate.
+#[test]
+fn the_storys_experience_goes_to_every_player() {
+    let net = LoopbackNet::new();
+    let mut hostnet = net.endpoint(PlayerId::HOST);
+    let mut gnet = net.endpoint(PlayerId(1));
+    let mut host = Story::new(&spec());
+    let mut hd = HostDriver::new(HostConfig::new(hello(), 1), quest_ids(), GLOBALS);
+    hd.start(&mut host.e);
+    let mut guest = guest_story();
+    let mut gd = GuestDriver::new(PlayerId(1), hello());
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut hostnet,
+        &mut guest,
+        &mut gd,
+        &mut gnet,
+    );
+    host.run_script_rewarding_xp(MQ, 50);
+    guest.run_script_rewarding_xp(MQ, 50);
+    frames(
+        10,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut hostnet,
+        &mut guest,
+        &mut gd,
+        &mut gnet,
+    );
+    assert_eq!((host.xp(), guest.xp()), (50, 50));
+    assert_eq!((hd.rewards, gd.xp_given), (1, 50));
+    // Once: nothing more arrives later.
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut hostnet,
+        &mut guest,
+        &mut gd,
+        &mut gnet,
+    );
+    assert_eq!(guest.xp(), 50);
+}
+
+/// S30 (the user, 2026-11-13: both players get the caps and items a quest gives): caps and items
+/// the story gives the host's player go to each guest's player once, as `AddItem` gives them.
+#[test]
+fn the_storys_caps_and_items_go_to_every_player() {
+    const CAPS: u32 = 0x0000_000f;
+    const STIMPAK: u32 = 0x0001_5169;
+    let net = LoopbackNet::new();
+    let mut hostnet = net.endpoint(PlayerId::HOST);
+    let mut gnet = net.endpoint(PlayerId(1));
+    let mut host = Story::new(&spec());
+    let mut hd = HostDriver::new(HostConfig::new(hello(), 1), quest_ids(), GLOBALS);
+    hd.start(&mut host.e);
+    let mut guest = guest_story();
+    let mut gd = GuestDriver::new(PlayerId(1), hello());
+    for s in [&mut host, &mut guest] {
+        s.add_item_form(CAPS);
+        s.add_item_form(STIMPAK);
+    }
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut hostnet,
+        &mut guest,
+        &mut gd,
+        &mut gnet,
+    );
+    host.run_script_giving_item(MQ, CAPS, 100);
+    host.run_script_giving_item(MQ, STIMPAK, 2);
+    guest.run_script_giving_item(MQ, CAPS, 100);
+    frames(
+        10,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut hostnet,
+        &mut guest,
+        &mut gd,
+        &mut gnet,
+    );
+    assert_eq!((host.items(CAPS), guest.items(CAPS)), (100, 100));
+    assert_eq!((host.items(STIMPAK), guest.items(STIMPAK)), (2, 2));
+    assert_eq!((hd.rewards, gd.items_given), (2, 2));
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut hostnet,
+        &mut guest,
+        &mut gd,
+        &mut gnet,
+    );
+    assert_eq!(guest.items(CAPS), 100);
+}

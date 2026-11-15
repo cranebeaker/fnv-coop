@@ -44,6 +44,10 @@ pub struct ActorClient {
     /// Who hurt which actor, from the host's verdicts (the threat director
     /// reads and clears it; bounded).
     pub damage_log: Vec<(FormId, PlayerId, u16)>,
+    /// Actors this player's game runs that another game's copy went for that
+    /// game's player with, and the player (`ActorMsg::Engage`; the session
+    /// reads and clears it; bounded).
+    pub engages: Vec<(FormId, PlayerId)>,
 }
 
 impl ActorClient {
@@ -62,6 +66,7 @@ impl ActorClient {
             spawn_at: BTreeMap::new(),
             stale_dropped: 0,
             damage_log: Vec::new(),
+            engages: Vec::new(),
         }
     }
 
@@ -243,6 +248,11 @@ impl ActorClient {
                     a.alive = false;
                 }
             }
+            ActorMsg::Engage { actor, player } => {
+                if self.owns(actor) && self.engages.len() < super::host::ENGAGES_MAX {
+                    self.engages.push((actor, player));
+                }
+            }
             ActorMsg::SpawnReply { req, outcome } => {
                 self.spawn_results.insert(req, outcome);
             }
@@ -299,6 +309,25 @@ mod tests {
             seq: Seq(seq),
             state: st(x),
         }
+    }
+
+    #[test]
+    fn an_engagement_is_kept_only_for_an_actor_this_player_runs() {
+        let mut c = ActorClient::new(PlayerId(1));
+        let engage = ActorMsg::Engage {
+            actor: FormId(0x100),
+            player: PlayerId::HOST,
+        };
+        c.on_msg(engage.clone());
+        assert!(c.engages.is_empty());
+        c.on_msg(ActorMsg::Assign {
+            actor: FormId(0x100),
+            owner: Some(PlayerId(1)),
+            epoch: crate::ids::Epoch(1),
+            seed: None,
+        });
+        c.on_msg(engage);
+        assert_eq!(c.engages, vec![(FormId(0x100), PlayerId::HOST)]);
     }
 
     #[test]

@@ -252,6 +252,15 @@ fn get_data(e: &mut Engine, this: Ptr, data: Ptr, size: u32, flags: u32) -> u32 
                 return hr;
             }
             let _ = flags;
+            // `NV_HEADLESS_OCCLUSION=visible` (a test aid, co-op's two-game harness): nothing is
+            // drawn, and every occlusion query answers that what it covered is in sight (a pixel
+            // count of 1000), so the world runs as when everything tested is seen.
+            if kind == OCCLUSION
+                && std::env::var("NV_HEADLESS_OCCLUSION").as_deref() == Ok("visible")
+            {
+                write_result(e, data, size, 1000);
+                return D3D_OK;
+            }
             if kind == OCCLUSION {
                 panic!(
                     "IDirect3DQuery9::GetData of an occlusion query without NV_D3D9=real (nothing \

@@ -1,4 +1,4 @@
-//! The session's part in conversations, party saves and rests (docs/coop/SPECS.md S14 to S17):
+//! The session's part in conversations, party saves and rests (docs/coop/SPECS.md S16 to S19):
 //! one step for the host and one for a guest, called by the drivers between two of the game's
 //! frames. The pieces are [`crate::talk`], [`crate::party`] and [`crate::rest`].
 //!
@@ -59,9 +59,12 @@ pub(crate) fn host_step(h: &mut HostDriver, e: &mut Engine, net: &mut dyn Transp
         h.view.on_msg(msg, now_ms);
     }
     let players = h.sync.players();
-    let shared = !players.is_empty();
+    let shared = h.social_on && !players.is_empty();
     game_talk::set_sharing(e, shared);
     game_rest::set_sharing(e, shared);
+    if !h.social_on {
+        return;
+    }
 
     // The guests' parts: taken out of the claims before the driver judges the rest.
     let claims = std::mem::take(&mut h.sync.claims);
@@ -96,6 +99,11 @@ pub(crate) fn host_step(h: &mut HostDriver, e: &mut Engine, net: &mut dyn Transp
         local(h, net, Msg::Dialogue(m));
     }
     for ev in h.sync.live.dialogue.take_events() {
+        if let coop_core::dialogue::DialogueEvent::RunBegin { npc, initiator, .. } = &ev {
+            if let Some(f) = h.fight.as_mut() {
+                f.engage(npc.0, *initiator);
+            }
+        }
         h.social.enactor.on_event(e, ev, &h.quests);
     }
 
@@ -117,7 +125,7 @@ pub(crate) fn guest_step(
     net: &mut dyn Transport,
     now_ms: u64,
 ) {
-    let active = g.sync.phase() == GuestPhase::Active;
+    let active = g.social_on && g.sync.phase() == GuestPhase::Active;
     game_talk::set_sharing(e, active);
     game_rest::set_sharing(e, active);
     if !active {

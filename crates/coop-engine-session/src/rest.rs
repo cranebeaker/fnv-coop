@@ -1,4 +1,4 @@
-//! Sleeping and waiting in a session (docs/coop/SPECS.md S17): coop-core's vote, asked and
+//! Sleeping and waiting in a session (docs/coop/SPECS.md S19): coop-core's vote, asked and
 //! answered through the game's own sleep and wait menu.
 //!
 //! A player who presses rest in the menu proposes the rest to the party (`VoteRequest`: sleep in

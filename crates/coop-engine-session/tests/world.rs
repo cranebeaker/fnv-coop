@@ -1,4 +1,4 @@
-//! The rest of the world's state between games in one process (docs/coop/SPECS.md S12): placed
+//! The rest of the world's state between games in one process (docs/coop/SPECS.md S14): placed
 //! objects, containers, factions, reputations, notes and dialogue responses as the host's records,
 //! and doors and locks both ways. The games are test stories with the world kit's stand-ins for
 //! the game functions; the transport is coop-core's loopback.

@@ -641,6 +641,17 @@ fn get_device_data(
 /// A key (DirectInput key code, the scan code) going down or up: the keyboard state, and an
 /// event in each acquired, buffered keyboard device (a full buffer loses it and reports the
 /// overflow). The time stamp is the platform's tick count (`GetTickCount`).
+/// The game's DirectInput devices (a test aid): for each, whether it is the keyboard, whether it
+/// is acquired, its buffer size and the events waiting in it.
+pub fn devices(e: &mut Engine) -> Vec<(bool, bool, u32, usize)> {
+    state!(e)
+        .input
+        .devices
+        .values()
+        .map(|d| (d.keyboard, d.acquired, d.buffer_size, d.events.len()))
+        .collect()
+}
+
 pub fn key(e: &mut Engine, code: u8, down: bool) {
     let input = &mut state!(e).input;
     if input.keys.len() < KEYBOARD_KEYS as usize {

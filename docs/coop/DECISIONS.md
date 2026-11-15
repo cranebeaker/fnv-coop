@@ -169,3 +169,114 @@ death before the session started is not sent. Where the body lies, what it carri
 would not have (its own NPCs' fights); the host accepts it. An actor alive again on the host is not raised
 on a guest.
 
+## D5: a guest's actions and the host's world (PC run 5, 2026-11-10)
+
+**Question.** A guest cannot move the shared story: its talk with Sunny Smiles advanced VCG02 in its own
+game and the heal put it back 29,000 times. Scenes (Joe Cobb and Trudy, a trigger's `StartConversation`)
+and NPC behaviour exist in the host's game only. Scripts say `player` and mean the local player.
+
+**Options (three independent planners).** A: the guest's world is a mirror: guest AI off, a host actor
+stream, every guest action forwarded and enacted on the host (`TESTopicInfo::RunResult` `0061f170`,
+`ScriptEventList::SetActionFlag` `005ac750`, `Actor::HitMe` `0089a760`). B: two simulations: a shared write
+made by a guest's script is captured by the guest's own journal at the moment of the write and sent as a
+claim the host enacts; scenes as host-to-guest directives; actors reconciled softly. C: "drift is a
+proposal": the heal's diff is the guest's write-set; tag it with its cause, send it, hold the heal until the
+host's echo; scenes as host commands, the guest dropping its own.
+
+**Factors.** Works in the real game and diagnosable 0.35, whole story and DLCs 0.25, headless
+verifiability 0.15, effort 0.15, safety of the proven story channel 0.10.
+
+| Member | A | B | C | Vote |
+| --- | --- | --- | --- | --- |
+| 1 (sceptic) | 3.50 | 6.25 | 7.15 | C's ladder with B's capture for stages and objectives |
+| 2 (pragmatist) | 4.35 | 6.70 | 7.65 | C first, B's capture where the census shows the need |
+| 3 (correctness) | 4.60 | 6.95 | 6.90 | B's capture, C's ladder and backstop |
+
+**Decision: the hybrid, 3 votes to 0.** C's ladder (census; proposals with a bounded heal hold; host scene
+commands with the guest dropping its own actor-to-actor `StartConversation`), with B's journal capture and
+cause for stages, objectives, enabled state and life, and the heal's diff as the capture for variables and
+globals and as the backstop. A is rejected: on the host `player` is the host's player, and the effects that
+would go to the wrong person are silent. A per-script "host runs it" stays as the fallback both plans share.
+
+**Binding conditions.**
+1. Rung 1 (the census) ships alone and changes no behaviour: one `COOP-DRIFT` line per distinct drift with
+   its cause or "cause unknown". Rung 2 follows a PC run that shows VCG02's drift with its cause.
+2. Every proposal has an id and ends in exactly one logged outcome: confirmed by the host's echo, rejected,
+   or timed out and put back. No heal hold outlives its timeout (headless test with a silent host).
+3. Exactly once: the host ignores a repeated claim (headless test: three sends, one enactment, one result
+   script run).
+4. No lost updates: counters go as deltas or compare-and-set (headless test: both sides increment, both
+   count).
+5. No double scenes: a guest's own `StartConversation` outside a host command is dropped and logged
+   (headless test: a host command and a local trigger together play once).
+6. Proposals and scene commands have separate switches; with both off the story channel behaves as in run 5.
+
+
+## D6 (2026-11-14): every character the same in both games
+
+**Asked by the owner** after PC run 30: no teleports, no actor facing one player while shooting the
+other, no actor lagging in one game while smooth in the other; every character synced. The owner asked
+for a planner and a committee of three, two votes to win.
+
+**What the code did.** One game owns each actor and publishes its state about 20 times a second (place,
+heading, health, combat target, flags; the animation field unused). The other games' copies kept their
+own AI: their own package and movement, their own combat target (often their own player) and their own
+attacks; they were moved to the newest sample (`SetPos`, no interpolation) and teleported after straying
+1.5 s. Switching a copy's AI off stops its animation and character controller altogether (`bProcessMe`;
+the frozen pose of PC run 10, the sinking of run 29).
+
+**Options (planner).** A: an animated puppet: AI on, its decisions silenced by wraps (the mover forced to
+the owner's move flags so the animation's own root motion moves it; target choice and `SetTarget` locked
+to the owner's target, mapped; its own `QueueAttack` refused and the owner's attacks replayed), a 100 ms
+jitter buffer on the owner's clock, gentle position correction, teleports only for true discontinuities.
+B: the same target lock, attack replay and jitter buffer, with the copy moved to the buffered place every
+frame and the move flags used only to pick the animation (a strict subset of A). C: steer the copy with
+the game's own pathing (path rebuilds stutter and lag).
+
+**Decision: B then A, 3 votes to 0.** B first (target lock and attack replay fix the worst sight, the
+buffer the lag and the teleports), measured in the two-game harness; then A by lowering the correction
+gain so that the animation's root motion moves the copy.
+
+**Binding conditions (from the votes).**
+1. The wraps touch copies only: an actor its own game owns is never affected (tests on both sides).
+2. A refused attack or target never leaves a copy's combat stuck (a copy whose owner stops fighting
+   stops too).
+3. The puppet set does not cover an actor that is sitting, talking, in a scene or in another space: it
+   is left to its own AI (and its package) while the owner reports it still or busy.
+4. A replayed attack deals no damage in the copy's game; damage stays the host's.
+5. Before A: the path start (`009db090`) is wrapped for copies, the actor values that change speed are
+   synced, and the weapon-drawn state is carried; a run over stairs and through a door keeps the error
+   bounded with no snaps (harness).
+
+**Progress.** Batch 1 (target lock and attack replay) done 2026-11-14 (PLAN.md "D6 B1"). The group's
+choice (`00986c60`) is not wrapped: its answer only ever reaches the controller through the change of
+target (`00980830`), which is, so one wrap covers every path. Condition 4 as built: a replayed attack's
+hit is decided by the hit wrap as any hit of that actor is; on a guest a host-run copy's blows on its
+player are kept (the host sends the damage), and the host no longer sends the blows of a guest-run copy
+(the guest's game did them), so no blow lands twice. Batch 2 (the jitter buffer, the path and the gait) done
+2026-11-14 (PLAN.md "D6 B2"). As built: the copy is led along the buffered path while the owner's actor
+fights, moves or has just stopped, with the owner's movement flags forced on it (`008b3a20`), so its
+legs move as the owner's; once the owner's actor has stood 1.5 s it is its own AI's again (condition 3:
+sitting, idling, talking as its package has it), and a stray walks back rather than being put back.
+
+## D7 (2026-11-14): a copy stands where its owner's actor stands
+
+**Question.** PC run 31: at Sunny's campfire she stood by the fire in the host's game and some
+150 to 250 units off in the guest's. Once the owner's actor had stood 1.5 s, its copy was its own
+AI's (D6 batch 2), within 200 units it was left alone, and its sandbox package picked its own spot.
+Options: (A) as it was; (B) a 64-unit room; (C) while the owner's actor stands, its copy stands
+exactly where it is (no own AI but in a conversation), sitting and idles lost until furniture use is
+carried; (D) B now, carrying furniture use later.
+
+**Decision: C, 3 votes to 0.** The owner's priority is the same NPCs in the same places; only C makes
+them so every time. Under B or D the copy's own AI still picks its own spot, chair or idle and is
+walked back over and over (more visible than standing), and it is the root of the gap, not a knob
+on it. Sitting in the same chair and idles come back later by carrying what the owner's actor does
+(its furniture), on top of C's places.
+
+**As built.** With `lead_on` (the default; `NV_COOP_FIGHT=follow-plain` switches it off) a followed copy
+is put on its owner's path every frame, standing (forced move mode 0) where that actor stands. Off,
+the copy is its own AI's after 1.5 s still, a crouched one excepted, and walks back when it strays.
+A copy whose package is aimed at the player is only walked back, as before; a copy in a conversation
+here is left to it (D6, condition 3). The 30 s "kept standing" after repeated strays is gone (C covers
+it).

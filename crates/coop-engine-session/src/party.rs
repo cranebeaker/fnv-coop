@@ -1,4 +1,4 @@
-//! Party saves (docs/coop/SPECS.md S15, S16): each guest's own part of the game, kept by the host
+//! Party saves (docs/coop/SPECS.md S17, S18): each guest's own part of the game, kept by the host
 //! next to the host's saves and given back.
 //!
 //! - **A part** ([`Part`]) is what is a player's own and not the shared story's: where the player
@@ -96,7 +96,7 @@ pub struct OwnQuest {
 
 // items
 /// What a player carries: the caps, and every other item stack by stack (docs/coop/SPECS.md
-/// S18).
+/// S20).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Pack {
     /// The player's caps.

@@ -1,4 +1,4 @@
-//! V.A.T.S. with several players (docs/coop/SPECS.md S20; coop-core's `combat::vats`).
+//! V.A.T.S. with several players (docs/coop/SPECS.md S21; coop-core's `combat::vats`).
 //!
 //! coop-core's model has two clocks: the world's, which everyone shares, and the acting
 //! player's own presentation. `vats_scales(shared, wanted)` gives the world speed 1.0 in a
@@ -32,12 +32,14 @@ pub enum Mode {
 }
 
 impl Mode {
-    /// `off` or `slow`; anything else, or nothing, is everything this build shares.
+    /// `on` (or `live`) is everything this build shares, `slow` only the playback; anything
+    /// else, or nothing, is off: merged from another line of work and not yet run on a PC, it is
+    /// switched on one run at a time.
     pub fn parse(v: &str) -> Mode {
         match v.trim() {
-            "off" => Mode::Off,
+            "on" | "live" => Mode::Live,
             "slow" => Mode::Slow,
-            _ => Mode::Live,
+            _ => Mode::Off,
         }
     }
 }
