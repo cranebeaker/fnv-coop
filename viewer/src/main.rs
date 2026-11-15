@@ -15,6 +15,8 @@ mod coop;
 mod coop_steam;
 // voice
 mod coop_voice;
+// voiceui: the players list, who is speaking, mutes and volumes by name
+mod coop_voiceui;
 mod harness;
 
 use std::path::{Path, PathBuf};

@@ -365,6 +365,8 @@ pub struct Coop {
     social: Social,
     // voice
     voice: Option<crate::coop_voice::Audio>,
+    // voiceui: the players list, who speaks, the saved mutes and volumes.
+    voiceui: crate::coop_voiceui::VoiceUi,
     // steam
     steam: Option<crate::coop_steam::SteamSide>,
 }
@@ -595,6 +597,9 @@ impl Coop {
             crate::coop_voice::Audio::open(settings)
         };
         lines.extend(line);
+        // voiceui
+        let (voiceui, notes) = crate::coop_voiceui::VoiceUi::open();
+        lines.extend(notes);
         // steam
         let mut steam = None;
         let (ep, role) = match ask {
@@ -647,6 +652,8 @@ impl Coop {
                 if voice.is_some() {
                     host.voice = Some(session::voice::VoiceLink::new());
                 }
+                // voiceui: the host's own name in every game's roster.
+                host.roster.set(coop_core::ids::PlayerId::HOST, name);
                 // steam
                 let (b, side) = crate::coop_steam::host_backend(b, token, &mut lines);
                 steam = side;
@@ -698,8 +705,9 @@ impl Coop {
                     own_quests,
                     missing_named: false,
                 },
-                voice, // voice
-                steam, // steam
+                voice,   // voice
+                voiceui, // voiceui
+                steam,   // steam
             },
             lines,
         ))
@@ -774,6 +782,10 @@ impl Coop {
                 }
                 NetEvent::PeerJoined { player, name } => {
                     lines.push(format!("co-op: {name} joined (player {})", player.0));
+                    // voiceui: the guest's name for every game (again on a rejoin).
+                    if let Role::Host(h) = &mut self.role {
+                        h.roster.set(player, &name);
+                    }
                 }
                 NetEvent::PeerLeft { player, reason } => {
                     lines.push(format!("co-op: player {} left ({reason:?})", player.0));
@@ -858,9 +870,8 @@ impl Coop {
             Role::Guest(None) => {}
         }
         // voice
+        let names = self.names(); // voiceui
         if let Some(audio) = self.voice.as_mut() {
-            let ep = &self.ep;
-            let name_of = |p: coop_core::ids::PlayerId| ep.name_of(p).map(str::to_string);
             let (link, me) = match &mut self.role {
                 Role::Host(h) => (h.voice.as_mut(), coop_core::ids::PlayerId::HOST),
                 Role::Guest(Some(g)) => {
@@ -870,7 +881,23 @@ impl Coop {
                 Role::Guest(None) => (None, coop_core::ids::PlayerId::HOST),
             };
             if let Some(link) = link {
-                audio.frame(e, link, me, &name_of, &mut lines);
+                audio.frame(e, link, me, &names, &self.voiceui.prefs, &mut lines);
+            }
+        }
+        // voiceui: the players list and who speaks.
+        if !matches!(self.role, Role::Guest(None)) {
+            let (host, me, link) = match &self.role {
+                Role::Host(h) => (true, coop_core::ids::PlayerId::HOST, h.voice.as_ref()),
+                Role::Guest(Some(g)) => (false, g.sync.player, g.voice.as_ref()),
+                Role::Guest(None) => unreachable!(),
+            };
+            let ep = &self.ep;
+            let ping = |p: coop_core::ids::PlayerId| ep.rtt_ms(p);
+            if let Some(p) = self
+                .voiceui
+                .frame(e, &names, me, host, link, &ping, &mut lines)
+            {
+                self.ep.kick(p, "removed by the host");
             }
         }
         // steam
@@ -940,6 +967,31 @@ impl Coop {
             }
         }
         lines
+    }
+
+    // voiceui
+    /// Every player's name as this game knows it: the host's roster (on a guest, the record the
+    /// host wrote; before it came, the network's names).
+    fn names(&self) -> std::collections::BTreeMap<coop_core::ids::PlayerId, String> {
+        match &self.role {
+            Role::Host(h) => h.roster.names(&h.sync),
+            Role::Guest(Some(g)) => {
+                let mut n = session::roster::read(&g.sync.store);
+                if n.is_empty() {
+                    for p in self.ep.players() {
+                        if let Some(x) = self.ep.name_of(p) {
+                            n.insert(p, session::roster::clean(x, p));
+                        }
+                    }
+                    n.insert(
+                        g.sync.player,
+                        session::roster::clean(&self.social.name, g.sync.player),
+                    );
+                }
+                n
+            }
+            Role::Guest(None) => std::collections::BTreeMap::new(),
+        }
     }
 
     // social
