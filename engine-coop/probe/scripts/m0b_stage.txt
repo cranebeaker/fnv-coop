@@ -1,0 +1,17 @@
+# M0b: state by address. Reach play with a console line, then read and set a quest stage.
+# VCG01 (Ain't That a Kick in the Head) = 00104C1C. VCG03 = 0015D912.
+menu+120 console coc GSDocMitchellHouse
+play+30  watch 00104C1C
+play+30  watch 0015D912
+play+60  stage 00104C1C
+play+61  wraps 0060D510
+play+62  count 0060D510
+play+90  setstage 0015D912 10
+play+91  stage 0015D912
+play+120 console setstage VCG03 20
+play+121 stage 0015D912
+play+150 console setstage VCG01 10
+play+151 stage 00104C1C
+play+200 counts
+play+201 wraps 005E0D20
+play+210 quit

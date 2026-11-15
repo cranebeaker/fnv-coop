@@ -1,0 +1,16 @@
+# M0b: where does the console line "setstage" stop? Cmd_SetStage = 005C7140, ExtractArgs = 005ACCB0,
+# Cmd_StartQuest = 005C71C0, TESQuest::SetStage = 0060D510. VCG03 = 0015D912.
+menu+120 console coc GSDocMitchellHouse
+play+30  watch 0015D912
+play+31  count 0060D510
+play+32  count 005C7140
+play+33  count 005ACCB0
+play+34  count 005C71C0
+play+60  console SetStage VCG03 10
+play+61  stage 0015D912
+play+90  console StartQuest VCG03
+play+91  stage 0015D912
+play+120 console SetStage 0015D912 10
+play+121 stage 0015D912
+play+150 counts
+play+160 quit

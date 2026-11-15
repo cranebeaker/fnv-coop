@@ -33,6 +33,9 @@ pub struct HostConfig {
     pub mode: Mode,
     /// Join compatibility policy (the developer override lives here).
     pub compat: crate::compat::CompatPolicy,
+    /// Most changes in one delta before the encoder's own halving (24). Tests set 1 to send every
+    /// key in a delta of its own, so a record that spans keys would show up split.
+    pub delta_cap: usize,
 }
 
 impl HostConfig {
@@ -46,6 +49,7 @@ impl HostConfig {
             hash_history: 32,
             mode: Mode::CoopBalanced,
             compat: Default::default(),
+            delta_cap: 24,
         }
     }
 }
@@ -112,6 +116,11 @@ pub struct HostSync {
     refused_full: std::collections::BTreeSet<PlayerId>,
     /// The last store writes, oldest first (see [`HostSync::recent_roots`]).
     undo: VecDeque<Undo>,
+    /// `Field::Custom` tags a guest may send as a claim: a report of something that happened in
+    /// its game, for the host's game to judge and enact. A claim is not written to the store.
+    pub claim_tags: std::collections::BTreeSet<u16>,
+    /// Claims received and not yet taken, in order (each intent is taken once).
+    pub claims: Vec<(PlayerId, FormId, Field)>,
 }
 
 impl HostSync {
@@ -138,6 +147,8 @@ impl HostSync {
             full_refusals: 0,
             refused_full: std::collections::BTreeSet::new(),
             undo: VecDeque::new(),
+            claim_tags: std::collections::BTreeSet::new(),
+            claims: Vec::new(),
         }
     }
 
@@ -416,7 +427,11 @@ impl HostSync {
         }
         let mut rejected = 0u16;
         for (form, field) in changes {
-            if self.auth.check_write(from, epoch, form, &field).is_ok() {
+            if matches!(&field, Field::Custom { tag, .. } if self.claim_tags.contains(tag))
+                && field.is_sane()
+            {
+                self.claims.push((from, form, field));
+            } else if self.auth.check_write(from, epoch, form, &field).is_ok() {
                 self.write_logged(form, field);
             } else {
                 rejected += 1;
@@ -472,7 +487,7 @@ impl HostSync {
                 SendPlan::Nothing => {}
                 SendPlan::Delta { base } => {
                     let seq = self.ring.next_seq(p);
-                    let mut n = 24;
+                    let mut n = self.cfg.delta_cap.max(1);
                     loop {
                         let delta = self.store.delta_since(base, self.tick, n);
                         let rev = delta.rev;

@@ -1,0 +1,14 @@
+[package]
+name = "coop-engine-peer"
+version = "0.1.0"
+description = "The peer server: one game on the upstream engine, driven through a line protocol by a test harness in another process"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coop-core = { path = "../../crates/coop-core" }
+coop-game = { path = "../../crates/coop-game" }
+coop-policy = { path = "../../crates/coop-policy" }
+coop-engine = { path = "../coop-engine" }
+coop-engine-glue = { path = "../glue" }

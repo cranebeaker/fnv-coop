@@ -549,7 +549,7 @@ fn table() -> Result<PolicyTable, String> {
 fn policy_table_loads(_env: &Env, mutate: bool) -> Result<String, String> {
     let t = table()?;
     let (confirmed, default) = t.counts();
-    let want = if mutate { 488 } else { 487 };
+    let want = if mutate { 492 } else { 491 };
     if t.rows().len() != want {
         return Err(format!("{} rows, want {want}", t.rows().len()));
     }

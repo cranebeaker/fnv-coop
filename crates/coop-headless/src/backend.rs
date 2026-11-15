@@ -7,17 +7,24 @@
 //! game world seen only through what co-op needs: set a quest stage, read it
 //! back, export the shared state, apply a snapshot or delta from the host,
 //! and keep per-player rows. The tests in [`TESTS`] use nothing else.
-//! [`EngineBackend`] is the stub for the engine: it reports every test as
+//! [`EngineBackend`] is the engine: one game on the upstream engine in a child
+//! process for each peer ([`crate::engine_peer`]), when `COOP_ENGINE_PEER`
+//! names the peer server's program. Without it every test is
 //! `PENDING (engine backend)`.
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use coop_core::delta::{Change, Delta, SnapEntry};
 use coop_core::hash::ShardHashes;
 use coop_core::ids::{FormId as CForm, Rev, Tick};
-use coop_core::schema::Field;
+use coop_core::schema::{Field, Key};
+use coop_game::conformance::Subject;
+use coop_game::{Change as SlotChange, Intent, Role, Setup, Slot};
 use coop_policy::PolicyTable;
 use world::coop::apply::{Ctx, Opts};
+use world::coop::game::WorldCoop;
 use world::coop::{Authority, ShadowPlan, WorldBackend};
 use world::scripting::{GameState, Runner};
 
@@ -58,6 +65,252 @@ pub trait BackendPeer {
     fn apply_delta(&mut self, d: &Delta) -> (u32, u32);
     /// Adds a player to the party (their private rows).
     fn register_player(&mut self, slot: u8);
+    /// Whether this backend keeps per-player rows. A test of them is PENDING on a backend
+    /// that does not yet.
+    fn has_player_rows(&self) -> bool {
+        true
+    }
+    /// The shared state before this game's first frame of play. `None` on a backend that
+    /// does not keep it.
+    fn start_state(&self) -> Option<Vec<(CForm, Field)>> {
+        None
+    }
+    /// Runs this many frames of the game. False on a backend that has no frames.
+    fn frames(&mut self, _n: u32) -> bool {
+        false
+    }
+    /// Runs a console line as a script of the game would run it: the guest's gate sees it.
+    /// A test's stand-in for a script that the game runs.
+    fn script_line(&mut self, _line: &str) -> bool {
+        false
+    }
+    /// Runs a console line as the adapter's own: the gate lets it pass.
+    fn adapter_line(&mut self, _line: &str) -> bool {
+        false
+    }
+    /// What the guest's gate counted. `None` when this game has no gate.
+    fn gate_stats(&self) -> Option<GateStats> {
+        None
+    }
+    /// The changes of shared quests that the gate turned to the host, each one time. The
+    /// queue is empty after.
+    fn intents(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+    /// The globals that the game moves itself (its clock), each with the difference from
+    /// the host that is no leak.
+    fn set_moving(&mut self, _limits: &[(&str, f32)]) -> bool {
+        false
+    }
+    /// Compares each shared slot with the host's last value. With `restore`, the host's
+    /// values come back. `None` when this backend has no audit, or before a snapshot.
+    fn audit(&mut self, _restore: bool) -> Option<AuditReport> {
+        None
+    }
+    /// The stage of a quest that each player runs alone, in this game.
+    fn local_stage(&self, _quest: &str) -> Option<u16> {
+        None
+    }
+    /// Makes the avatar of the remote player `slot` in this game, at a place and heading
+    /// (degrees). `race`: a race's form id, or 0 for the base form's own. The avatar's form
+    /// id, or the reason. PENDING on a backend that has no avatar of this kind.
+    fn avatar_make(
+        &mut self,
+        _slot: u8,
+        _female: bool,
+        _race: u32,
+        _place: [f32; 3],
+        _heading: f32,
+    ) -> Result<u32, String> {
+        Err("PENDING (this backend has no engine avatar)".into())
+    }
+    /// One frame's command for an avatar: the place, the heading and the movement flags
+    /// (0: the remote player stands).
+    fn avatar_drive(
+        &mut self,
+        _slot: u8,
+        _place: [f32; 3],
+        _heading: f32,
+        _flags: u32,
+    ) -> Result<(), String> {
+        Err("PENDING (this backend has no engine avatar)".into())
+    }
+    /// What an avatar is now. `None` when the slot has none, or the game destroyed it.
+    fn avatar_state(&self, _slot: u8) -> Option<AvatarState> {
+        None
+    }
+    /// What the game's own tests say of an avatar's base: a female body, and the race `race`
+    /// (a form id).
+    fn avatar_look(&self, _slot: u8, _race: u32) -> Option<(bool, bool)> {
+        None
+    }
+    /// Removes an avatar from the game.
+    fn avatar_remove(&mut self, _slot: u8) -> bool {
+        false
+    }
+    /// One frame's step for the remote player `slot`: where the player is (the cell's form
+    /// id, the place, the heading, the movement flags), or `None` when the player left. The
+    /// avatar is in this game only while that cell is attached here. The step's name:
+    /// `made ID`, `driven`, `removed`, `absent` or `lost REASON`.
+    fn avatar_remote(
+        &mut self,
+        _slot: u8,
+        _at: Option<(u32, [f32; 3], f32, u32)>,
+    ) -> Result<String, String> {
+        Err("PENDING (this backend has no engine avatar)".into())
+    }
+    /// The local player's cell (an address of this game), place and heading.
+    fn player(&self) -> Option<(u32, [f32; 3], f32)> {
+        None
+    }
+    /// Puts the avatars' damage rules on this game: a local hit on an avatar is recorded and
+    /// not applied, and local code does not kill an avatar.
+    fn avatar_guard(&mut self) -> Result<(), String> {
+        Err("PENDING (this backend has no engine avatar)".into())
+    }
+    /// The kills of an avatar that were stopped, and the recorded hits, each one time.
+    fn avatar_hits(&mut self) -> Option<(u64, Vec<AvatarHit>)> {
+        None
+    }
+    /// An avatar's health as a part of 1, by the game's own test.
+    fn avatar_health(&self, _slot: u8) -> Option<f64> {
+        None
+    }
+    /// Gives an avatar its full health again.
+    fn avatar_heal(&mut self, _slot: u8) -> bool {
+        false
+    }
+    /// True when the game has a form with this id now.
+    fn has_form(&self, _id: u32) -> bool {
+        false
+    }
+    /// The 32-bit word at an offset of a form. `None` when the game has no such form.
+    fn form_word(&self, _id: u32, _offset: u32) -> Option<u32> {
+        None
+    }
+    /// The place of a reference's 3D object in the scene. `None` when it has no 3D object, or
+    /// the game has no such form.
+    fn node_place(&self, _id: u32) -> Option<[f32; 3]> {
+        None
+    }
+    /// Goes into another cell (an editor id) and runs some frames of play there.
+    fn enter(&mut self, _cell: &str) -> bool {
+        false
+    }
+    /// The game's map of changed forms as it is now becomes the baseline. The count of its
+    /// forms. `None` on a backend that has no such map.
+    fn changes_baseline(&mut self) -> Option<u32> {
+        None
+    }
+    /// Each form that is new in the game's change map or has a new flag bit since the last
+    /// look: form id and the new bits.
+    fn changes(&mut self) -> Option<Vec<(u32, u32)>> {
+        None
+    }
+    /// The game's own save of one changed form, with the flags of its entry in the change
+    /// map. `None` when the form is not in memory.
+    fn record(&mut self, _form: u32) -> Option<ChangeRecord> {
+        None
+    }
+    /// The game's form index pairs from an index: (index, form id).
+    fn index_pairs(&self, _from: u32) -> Vec<(u32, u32)> {
+        Vec::new()
+    }
+    /// Gives a guest's game the host's index pairs. The count that it took.
+    fn take_pairs(&mut self, _pairs: &[(u32, u32)]) -> Option<u32> {
+        None
+    }
+    /// Gives a guest's game a record of the host. `Ok(true)`: the game's own load applied it.
+    /// `Ok(false)`: it waits for the form's cell. `Err`: the game refused it.
+    fn take_record(&mut self, _record: &ChangeRecord) -> Result<bool, String> {
+        Err("PENDING (this backend has no change records)".into())
+    }
+}
+
+/// One form's change record: what the game's own save holds for one changed form.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChangeRecord {
+    /// The form's id.
+    pub form: u32,
+    /// The change flags.
+    pub flags: u32,
+    /// The form's type, as the game's save names it.
+    pub kind: u32,
+    /// The save version.
+    pub version: u32,
+    /// The host's count of index pairs when it made the record.
+    pub pairs: u32,
+    /// The record's bytes, as hex text.
+    pub bytes: String,
+}
+
+/// A local hit on an avatar that the game did not apply.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AvatarHit {
+    /// The remote player whose avatar was hit.
+    pub slot: u8,
+    /// The form id of the reference that made the hit.
+    pub source: u32,
+    /// The weapon's form id.
+    pub weapon: u32,
+    /// The health damage that the local game computed.
+    pub damage: f32,
+}
+
+/// What an avatar is in a game.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AvatarState {
+    /// The place.
+    pub place: [f32; 3],
+    /// The heading, in degrees.
+    pub heading: f32,
+    /// The game's life state (5: restrained).
+    pub life: u32,
+    /// The movement animation group that plays (3: forward).
+    pub group: u32,
+    /// The mover's flag override.
+    pub flags: u32,
+    /// The cell's address in this game.
+    pub cell: u32,
+}
+
+/// What a guest's gate counted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GateStats {
+    /// Script runs that reached the gate.
+    pub runs: u64,
+    /// Script runs that the gate left to the host.
+    pub stopped: u64,
+    /// Changes of a shared quest that became an intent.
+    pub guarded: u64,
+    /// The gate saw no script for five seconds of play.
+    pub blind: bool,
+}
+
+/// One audit of a guest's shared state.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AuditReport {
+    /// How many slots were not the host's value.
+    pub leaks: u32,
+    /// How many slots got the host's value back.
+    pub restored: u32,
+    /// The script that reached the gate last (a form id).
+    pub last_script: u32,
+    /// The leaks by name: form id and field kind (the first 64).
+    pub named: Vec<(u32, u8)>,
+}
+
+/// Which story code a guest's game runs itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GuestRules<'r> {
+    /// The campaign policy's rules: each per-player quest and each `guest_local` script.
+    Policy,
+    /// The policy's rules, and these quests local too (editor ids).
+    PolicyAnd(&'r [&'r str]),
+    /// A gate with no local quest and no local script.
+    Closed,
+    /// No gate: the guest's game runs each script.
+    Open,
 }
 
 /// A game world that can host a co-op session.
@@ -66,17 +319,149 @@ pub trait CoopBackend: Sync {
     fn name(&self) -> &'static str;
     /// A new machine: the host (authority) or a guest (runs no quest script).
     fn peer<'a>(&self, d: &'a Data, host: bool) -> Result<Box<dyn BackendPeer + 'a>, String>;
+    /// A new guest with these rules for its script gate. PENDING on a backend whose guest
+    /// has no script gate.
+    fn guest<'a>(
+        &self,
+        _d: &'a Data,
+        _rules: GuestRules,
+    ) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        Err("PENDING (this backend has no script gate)".into())
+    }
+    /// A new guest with the policy's rules whose game draws its frames. A weapon's shot
+    /// needs it: the game asks the graphics device about what it drew.
+    fn guest_that_draws<'a>(&self, d: &'a Data) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        self.guest(d, GuestRules::Policy)
+    }
 }
 
-/// The stub for the translated engine: nothing runs yet.
+/// The game's own program on the upstream engine, one child process for each peer
+/// ([`crate::engine_peer`]). PENDING when no peer server is named.
 pub struct EngineBackend;
+
+/// The scripts that each machine runs itself: the policy's `guest_local` lists, each script
+/// by its form id in this load order.
+fn local_scripts(table: &PolicyTable, d: &Data) -> Result<Vec<u32>, String> {
+    let mut scripts = Vec::new();
+    for row in table.rows() {
+        for name in &row.guest_local {
+            // `Plugin.esm:LOCALID`: the script's id in its own plugin.
+            let Some((plugin, local)) = name.rsplit_once(':') else {
+                return Err(format!("{}: bad guest_local entry {name}", row.edid));
+            };
+            let local = u32::from_str_radix(local, 16)
+                .map_err(|_| format!("{}: bad guest_local id {name}", row.edid))?;
+            let index = d
+                .order
+                .plugins()
+                .iter()
+                .find(|p| p.name.eq_ignore_ascii_case(plugin))
+                .map(|p| u32::from(p.load_index));
+            // A plugin that is not loaded has no script to run.
+            if let Some(index) = index {
+                scripts.push((index << 24) | (local & 0x00FF_FFFF));
+            }
+        }
+    }
+    scripts.sort_unstable();
+    scripts.dedup();
+    Ok(scripts)
+}
+
+/// What two games of a load order share, and a guest's gate for it. Shared: each quest that
+/// the policy does not give to each player separately, and each global. The gate: the
+/// policy's per-player quests and its `guest_local` scripts.
+fn policy_setup(
+    d: &Data,
+) -> Result<(crate::engine_peer::Catalog, crate::engine_peer::Gate), String> {
+    let bundled = PolicyTable::bundled().map_err(|e| format!("{e:?}"))?;
+    let table = coop_session::policy_ids::resolve_policy(&bundled, &d.order)?.0;
+    let own = ShadowPlan::from_policy(&table).quests;
+    let ids = |kind: &[u8; 4]| -> Vec<u32> {
+        d.order
+            .records_of_type(esm::FourCC::new(kind))
+            .map(|r| r.form_id)
+            .filter(|f| !own.contains(f))
+            .map(|f| f.0)
+            .collect()
+    };
+    let scripts = local_scripts(&table, d)?;
+    let catalog = crate::engine_peer::Catalog {
+        quests: ids(b"QUST"),
+        globals: ids(b"GLOB"),
+        local_scripts: scripts.clone(),
+    };
+    let gate = crate::engine_peer::Gate {
+        quests: own.iter().map(|f| f.0).collect(),
+        scripts,
+    };
+    Ok((catalog, gate))
+}
+
+impl EngineBackend {
+    fn start<'a>(
+        &self,
+        d: &'a Data,
+        host: bool,
+        gate: Option<crate::engine_peer::Gate>,
+        draws: bool,
+    ) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        let Some(program) = crate::engine_peer::program() else {
+            return Err("PENDING (engine backend)".into());
+        };
+        let catalog = policy_setup(d)?.0;
+        let peer = crate::engine_peer::EnginePeer::start(
+            d,
+            &program,
+            host,
+            &catalog,
+            gate.as_ref(),
+            draws,
+        )?;
+        Ok(Box::new(peer))
+    }
+}
 
 impl CoopBackend for EngineBackend {
     fn name(&self) -> &'static str {
         "engine"
     }
-    fn peer<'a>(&self, _d: &'a Data, _host: bool) -> Result<Box<dyn BackendPeer + 'a>, String> {
-        Err("PENDING (engine backend)".into())
+    fn peer<'a>(&self, d: &'a Data, host: bool) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        if host {
+            self.start(d, true, None, false)
+        } else {
+            // A guest of a session always has its gate.
+            self.guest(d, GuestRules::Policy)
+        }
+    }
+    fn guest<'a>(
+        &self,
+        d: &'a Data,
+        rules: GuestRules,
+    ) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        if crate::engine_peer::program().is_none() {
+            return Err("PENDING (engine backend)".into());
+        }
+        let gate = match rules {
+            GuestRules::Open => None,
+            GuestRules::Closed => Some(crate::engine_peer::Gate::default()),
+            GuestRules::Policy => Some(policy_setup(d)?.1),
+            GuestRules::PolicyAnd(more) => {
+                let mut gate = policy_setup(d)?.1;
+                for quest in more {
+                    let form = d
+                        .order
+                        .form_by_editor_id(quest)
+                        .ok_or(format!("no quest {quest} in this data"))?;
+                    gate.quests.push(form.0);
+                }
+                Some(gate)
+            }
+        };
+        self.start(d, false, gate, false)
+    }
+    fn guest_that_draws<'a>(&self, d: &'a Data) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        self.start(d, false, Some(policy_setup(d)?.1), true)
     }
 }
 
@@ -195,6 +580,186 @@ impl CoopBackend for GameStateBackend {
     }
 }
 
+/// The hand-written world layer behind the engine interface. Each call of a peer goes
+/// through `dyn` traits of `coop_game` ([`WorldCoop`]): the rows of [`TESTS`] show that the
+/// interface carries what a session does with a game. The verdicts must be those of
+/// [`GameStateBackend`].
+pub struct WorldGameBackend {
+    table: Arc<PolicyTable>,
+}
+
+impl WorldGameBackend {
+    /// With the bundled policy table.
+    pub fn new() -> Result<WorldGameBackend, String> {
+        Ok(WorldGameBackend {
+            table: Arc::new(PolicyTable::bundled().map_err(|e| format!("{e:?}"))?),
+        })
+    }
+}
+
+/// One game of the world layer, as the engine interface shows it.
+struct GPeer<'a> {
+    d: &'a Data,
+    /// The game. It is in a cell because an export through the interface needs `&mut`
+    /// (the export empties the effect queue), and a peer reads with `&self`.
+    gs: RefCell<GameState>,
+    /// The slot of this game's own player.
+    me: Slot,
+}
+
+impl GPeer<'_> {
+    /// Runs `f` on the game. `f` gets only the traits of `coop_game`.
+    fn game<R>(&self, f: impl FnOnce(&mut dyn Subject) -> R) -> R {
+        let mut gs = self.gs.borrow_mut();
+        let ctx = Ctx {
+            order: &self.d.order,
+            scripts: &self.d.scripts,
+        };
+        f(&mut WorldCoop::new(&mut gs, ctx))
+    }
+
+    /// A forced export, by slot.
+    fn fields(&self) -> BTreeMap<Key, Field> {
+        self.export()
+            .into_iter()
+            .map(|(form, field)| (field.key(form), field))
+            .collect()
+    }
+
+    fn apply(&self, changes: &[SlotChange], present: bool) -> (u32, u32) {
+        let applied = self.game(|g| g.apply_shared(changes, present));
+        (applied.set, applied.cleared)
+    }
+}
+
+impl BackendPeer for GPeer<'_> {
+    fn set_stage(&mut self, quest: &str, stage: u16) -> bool {
+        self.set_stage_as(self.me, quest, stage)
+    }
+    fn set_stage_as(&mut self, slot: u8, quest: &str, stage: u16) -> bool {
+        self.game(|g| {
+            let Some(quest) = g.form_of(quest) else {
+                return false;
+            };
+            g.run_intent(slot, &Intent::SetStage { quest, stage }) == Ok(true)
+        })
+    }
+    fn stage(&self, quest: &str) -> Option<u16> {
+        self.game(|g| g.stage(g.form_of(quest)?))
+    }
+    /// The rows of a player come in the export as a blob on the player's own form. The
+    /// interface has no call for the rows of one player yet (SPEC-02 step 7), so the peer
+    /// reads the blob with the codec of the world layer.
+    fn player_stage(&self, slot: u8, quest: &str) -> Option<u16> {
+        use world::coop::shadow;
+        let quest = self.d.order.form_by_editor_id(quest)?;
+        let rows = CForm(shadow::shadow_form(slot).0);
+        let fields = self.fields();
+        let mut blob = Vec::new();
+        for tag in shadow::TAG_BASE..shadow::TAG_END {
+            let probe = Field::Custom {
+                tag,
+                data: Vec::new(),
+            };
+            match fields.get(&probe.key(rows)) {
+                Some(Field::Custom { data, .. }) => blob.extend_from_slice(data),
+                _ => break,
+            }
+        }
+        shadow::decode(&blob)?.quest_stage.get(&quest).copied()
+    }
+    /// A plain write of the global: a guest's game takes it too (a test's local drift).
+    fn set_global(&mut self, global: &str, v: f32) -> bool {
+        let Some(form) = self.game(|g| g.form_of(global)) else {
+            return false;
+        };
+        let field = Field::global(v);
+        self.apply(&[(field.key(form), Some(field))], false);
+        true
+    }
+    fn global(&self, global: &str) -> Option<f32> {
+        let form = self.game(|g| g.form_of(global))?;
+        match self.fields().get(&Field::global(0.0).key(form)) {
+            Some(Field::Global { bits }) => Some(f32::from_bits(*bits)),
+            _ => None,
+        }
+    }
+    fn export(&self) -> Vec<(CForm, Field)> {
+        self.game(|g| g.export_shared(true)).unwrap_or_default()
+    }
+    fn shard_hashes(&self) -> ShardHashes {
+        let fields = self.export();
+        ShardHashes::of_fields(fields.iter().map(|(form, field)| (*form, field)))
+    }
+    /// The reconcile of a session: a slot that differs gets the snapshot's value, and a
+    /// slot that the snapshot does not have returns to its default.
+    fn apply_snapshot(&mut self, entries: &[SnapEntry]) -> (u32, u32) {
+        let want: BTreeMap<Key, Field> = entries
+            .iter()
+            .filter(|e| !e.field.is_tombstone())
+            .map(|e| (e.field.key(e.form), e.field.clone()))
+            .collect();
+        let have = self.fields();
+        let mut changes: Vec<SlotChange> = Vec::new();
+        for (key, field) in &want {
+            if have.get(key) != Some(field) {
+                changes.push((*key, Some(field.clone())));
+            }
+        }
+        for key in have.keys() {
+            if !want.contains_key(key) {
+                changes.push((*key, None));
+            }
+        }
+        self.apply(&changes, false)
+    }
+    fn apply_delta(&mut self, d: &Delta) -> (u32, u32) {
+        let changes: Vec<SlotChange> = d
+            .changes
+            .iter()
+            .map(|c| (c.field.key(c.form), Some(c.field.clone())))
+            .collect();
+        self.apply(&changes, true)
+    }
+    fn register_player(&mut self, slot: u8) {
+        self.game(|g| g.add_player(slot));
+    }
+}
+
+impl CoopBackend for WorldGameBackend {
+    fn name(&self) -> &'static str {
+        "world-game"
+    }
+    fn peer<'a>(&self, d: &'a Data, host: bool) -> Result<Box<dyn BackendPeer + 'a>, String> {
+        let table = Arc::new(coop_session::policy_ids::resolve_policy(&self.table, &d.order)?.0);
+        let me: Slot = if host { 0 } else { 1 };
+        let setup = Setup {
+            role: if host { Role::Host } else { Role::Guest },
+            me,
+            policy: Some(table),
+            keep_own_rows: false,
+        };
+        let mut peer = GPeer {
+            d,
+            gs: RefCell::new(GameState::new(&d.order)),
+            me,
+        };
+        peer.game(|g| g.configure(&setup))?;
+        if host {
+            // The guest of these tests is player 1: the host keeps its rows.
+            peer.game(|g| g.add_player(1));
+            // The interface has no call for the tether rule yet. These tests are about
+            // replication, not tether zones: the tether of the shared quest is off, so
+            // `SetStage` applies at once.
+            let gs = peer.gs.get_mut();
+            if let Some(g) = gs.coop.gate.as_mut() {
+                g.tether_mode = coop_policy::TetherMode::Off;
+            }
+        }
+        Ok(Box::new(peer))
+    }
+}
+
 /// Snapshot entries of a peer's shared state.
 pub fn snapshot_of(p: &dyn BackendPeer) -> Vec<SnapEntry> {
     p.export()
@@ -228,7 +793,7 @@ pub fn delta_of(fields: Vec<(CForm, Field)>, base: u64) -> Delta {
     }
 }
 
-fn need<T>(r: Result<T, String>) -> Result<T, Verdict> {
+pub(crate) fn need<T>(r: Result<T, String>) -> Result<T, Verdict> {
     r.map_err(|e| {
         if e.starts_with("PENDING") {
             Verdict::Pending(e)
@@ -244,10 +809,22 @@ const SHARED_QUEST: &str = "VCG03";
 const PLAYER_QUEST: &str = "VCG01";
 const STAGE: u16 = 10;
 
-type Test = fn(&dyn CoopBackend, &Data, bool) -> Result<(), Verdict>;
+/// One conformance test: the backend, the game's data, and the twin flag.
+pub type Test = fn(&dyn CoopBackend, &Data, bool) -> Result<(), Verdict>;
 
-fn bad(s: impl Into<String>) -> Verdict {
+pub(crate) fn bad(s: impl Into<String>) -> Verdict {
     Verdict::Fail(s.into())
+}
+
+/// A test of per-player rows is PENDING on a backend that does not keep them yet.
+fn need_player_rows(p: &dyn BackendPeer) -> Result<(), Verdict> {
+    if p.has_player_rows() {
+        Ok(())
+    } else {
+        Err(Verdict::Pending(
+            "PENDING (engine backend: per-player rows)".into(),
+        ))
+    }
 }
 
 fn snapshot_carries_stage(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result<(), Verdict> {
@@ -326,6 +903,7 @@ fn guest_runs_no_quest_script(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Re
 
 fn per_player_stays_private(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result<(), Verdict> {
     let mut host = need(b.peer(d, true))?;
+    need_player_rows(&*host)?;
     host.register_player(1);
     host.register_player(2);
     if !host.set_stage_as(if mutate { 0 } else { 1 }, PLAYER_QUEST, STAGE) {
@@ -348,6 +926,7 @@ fn per_player_stays_private(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Resu
 
 fn shadow_rows_reach_guest(b: &dyn CoopBackend, d: &Data, mutate: bool) -> Result<(), Verdict> {
     let mut host = need(b.peer(d, true))?;
+    need_player_rows(&*host)?;
     let mut guest = need(b.peer(d, false))?;
     host.register_player(1);
     host.set_stage_as(1, PLAYER_QUEST, STAGE);
@@ -399,18 +978,38 @@ pub const TESTS: &[(&str, Test)] = &[
     ("global_replicates", global_replicates),
 ];
 
+/// The tests of a guest's script gate (`crate::gate_rows`): id and function. They need a
+/// backend that runs the game's own scripts.
+pub const GATE_TESTS: &[(&str, Test)] = crate::gate_rows::TESTS;
+
+/// The tests of a remote player's avatar (`crate::avatar_rows`): id and function. They need
+/// a backend that runs the game's own actors.
+pub const AVATAR_TESTS: &[(&str, Test)] = crate::avatar_rows::TESTS;
+
+/// The tests of the world's state (`crate::world_rows`): id and function. They need a backend
+/// with the game's own change map.
+pub const WORLD_TESTS: &[(&str, Test)] = crate::world_rows::TESTS;
+
 /// The backend by name.
 pub fn by_name(name: &str) -> Result<Box<dyn CoopBackend>, String> {
     match name {
         "world" => Ok(Box::new(GameStateBackend::new()?)),
         "engine" => Ok(Box::new(EngineBackend)),
-        other => Err(format!("unknown backend {other} (world or engine)")),
+        "world-game" => Ok(Box::new(WorldGameBackend::new()?)),
+        other => Err(format!(
+            "unknown backend {other} (world, world-game or engine)"
+        )),
     }
 }
 
 /// Runs one conformance test; `mutate` runs its twin (which must fail).
 pub fn run_test(b: &dyn CoopBackend, d: &Data, id: &str, mutate: bool) -> Verdict {
-    let Some((_, f)) = TESTS.iter().find(|(n, _)| *n == id) else {
+    let all = TESTS
+        .iter()
+        .chain(GATE_TESTS)
+        .chain(AVATAR_TESTS)
+        .chain(WORLD_TESTS);
+    let Some((_, f)) = all.into_iter().find(|(n, _)| *n == id) else {
         return Verdict::Pending(format!("no conformance test {id}"));
     };
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(b, d, mutate))) {

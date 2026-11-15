@@ -1,0 +1,5 @@
+# The compiler that the pinned upstream engine builds with.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

@@ -1,0 +1,16 @@
+[package]
+name = "coop-engine-session"
+version = "0.1.0"
+description = "The session between two games on the upstream engine: host and guest drivers over coop-core's sync, driving each game through the adapter's interface. It names no engine type, so its tests run on the fake program"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coop-core = { path = "../../crates/coop-core" }
+coop-game = { path = "../../crates/coop-game" }
+coop-policy = { path = "../../crates/coop-policy" }
+coop-engine = { path = "../coop-engine" }
+
+[dev-dependencies]
+coop-net = { path = "../../crates/coop-net" }

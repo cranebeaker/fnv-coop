@@ -1,0 +1,13 @@
+[package]
+name = "coop-probe"
+version = "0.1.0"
+description = "M0 probes: the upstream engine driven from outside its tree (start, frames, state by program address)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coop-engine = { path = "../coop-engine" }
+coop-engine-glue = { path = "../glue" }
+host = { workspace = true }
+engine = { workspace = true }

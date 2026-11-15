@@ -1,0 +1,15 @@
+[package]
+name = "nv-coop"
+version = "0.1.0"
+description = "Story co-op on the upstream engine: starts one game through the glue, and hosts a session or joins one"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coop-core = { path = "../../crates/coop-core" }
+coop-net = { path = "../../crates/coop-net" }
+coop-policy = { path = "../../crates/coop-policy" }
+coop-engine = { path = "../coop-engine" }
+coop-engine-glue = { path = "../glue" }
+coop-engine-session = { path = "../session" }
