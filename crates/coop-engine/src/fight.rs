@@ -214,7 +214,7 @@ pub(crate) fn verdict(e: &mut Engine, target: u32, aggressor: u32) -> Verdict {
     let f = e.ext_free::<Fights>();
     let role = f.role.load(Ordering::SeqCst);
     // companions: a player's companion does not hurt a player (its own or another), here or as
-    // an avatar: the blow is dropped and not told (docs/coop/SPECS.md S32).
+    // an avatar: the blow is dropped and not told (docs/coop/SPECS.md S33).
     let companion_on_player = role != 0
         && (tid == actors::PLAYER_REF_ID || has(&f.avatars, tid))
         && crate::companion::kept(e, aid);

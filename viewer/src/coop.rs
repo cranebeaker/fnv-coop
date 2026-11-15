@@ -28,7 +28,7 @@
 //!
 //! Off unless asked too: `NV_COOP_LOOK=walk` has the other players' avatars walk and run with the
 //! game's animations, `pose` also holds, draws and fires their weapons, `gear` also has them wear
-//! their players' items, `face` also gives them their players' faces, bodies and names (S32).
+//! their players' items, `face` also gives them their players' faces, bodies and names (S35).
 //!
 //! Both players start the same game (a new game, or the same save) from installations whose
 //! plugins load in the same order; the handshake refuses a guest whose plugins differ.
