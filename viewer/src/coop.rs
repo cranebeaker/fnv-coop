@@ -448,8 +448,12 @@ impl Coop {
     }
 
     /// Whether the switch `name` is `on` (or `1`).
+    /// On unless the switch says `off`, `0`, `no` or `none` (owner 2026-11-15: every part on).
     fn switch_on(name: &str) -> bool {
-        matches!(std::env::var(name).unwrap_or_default().trim(), "on" | "1")
+        !matches!(
+            std::env::var(name).unwrap_or_default().trim(),
+            "off" | "0" | "no" | "none"
+        )
     }
 
     // items
@@ -457,7 +461,7 @@ impl Coop {
         if Self::items_on() {
             "co-op items: loot, pick-ups and barter through the host's game"
         } else {
-            "co-op items: off (NV_COOP_ITEMS=on puts loot, pick-ups and barter through the host's game)"
+            "co-op items: off (NV_COOP_ITEMS=off asked; unset puts loot, pick-ups and barter through the host's game)"
         }
     }
 
@@ -504,7 +508,8 @@ impl Coop {
         // pose they had, in floors and ceilings). `state` and up hold them as before; `off`.
         let ask = match std::env::var("NV_COOP_FIGHT") {
             Ok(v) if !v.trim().is_empty() => v,
-            _ => "follow".into(),
+            // Owner 2026-11-15: every part on, so following with the fights shared in full.
+            _ => "follow-full".into(),
         };
         if ask.trim() == "off" || !ladder {
             return (None, "co-op fights: off".into());
@@ -561,7 +566,10 @@ impl Coop {
     fn fight_extras(fight: &mut session::fight::Fight) -> String {
         // `NV_COOP_VATS=on`: V.A.T.S. neither stops nor slows a world other players are in;
         // `slow`: only the playback does not slow it (docs/coop/SPECS.md S21).
-        let vats = session::vats::Mode::parse(&std::env::var("NV_COOP_VATS").unwrap_or_default());
+        let vats = match std::env::var("NV_COOP_VATS") {
+            Ok(v) if !v.trim().is_empty() => session::vats::Mode::parse(&v),
+            _ => session::vats::Mode::Live,
+        };
         fight.vats = session::vats::Share::new(vats);
         // `NV_COOP_HARM=on`: a fall, a trap or an effect is decided as a hit is (S22; with fights
         // shared up to damage).
@@ -570,7 +578,7 @@ impl Coop {
         fight.smooth_on = Self::switch_on("NV_COOP_SMOOTH");
         let word = |on: bool| if on { "on" } else { "off" };
         format!(
-            "V.A.T.S. {vats:?} (NV_COOP_VATS=on or slow), damage outside hits {} (NV_COOP_HARM=on), held actors in steps {} (NV_COOP_SMOOTH=on)",
+            "V.A.T.S. {vats:?} (NV_COOP_VATS=slow or off), damage outside hits {} (NV_COOP_HARM=off), held actors in steps {} (NV_COOP_SMOOTH=off)",
             word(fight.harm_on),
             word(fight.smooth_on)
         )

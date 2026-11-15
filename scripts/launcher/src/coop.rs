@@ -188,9 +188,10 @@ impl Default for Choice {
             steam: true,
             voice: Voice::PushToTalk,
             ptt_key: PTT_KEYS[0].into(),
-            items: false,
-            vats: false,
-            harm: false,
+            // Owner 2026-11-15: every part on unless a player turns it off.
+            items: true,
+            vats: true,
+            harm: true,
             // voiceui
             players_key: "F11".into(),
             mute_key: "F8".into(),
@@ -342,9 +343,8 @@ impl Choice {
             (self.vats, "NV_COOP_VATS"),
             (self.harm, "NV_COOP_HARM"),
         ] {
-            if on {
-                set(name, "on".into());
-            }
+            // The game turns each on unless told off, so an unticked box says so.
+            set(name, if on { "on" } else { "off" }.into());
         }
         Ok(env)
     }
@@ -552,8 +552,12 @@ mod tests {
         assert_eq!(get(&env, "NV_COOP_VOICE"), Some("ptt"));
         assert_eq!(get(&env, "NV_COOP_PTT_KEY"), Some("BACKSLASH"));
         assert_eq!(get(&env, "NV_COOP_ITEMS"), Some("on"));
-        assert_eq!(get(&env, "NV_COOP_VATS"), None);
-        assert_eq!(get(&env, "NV_COOP_HARM"), None);
+        assert_eq!(
+            get(&env, "NV_COOP_VATS"),
+            Some("on"),
+            "every part is on by default"
+        );
+        assert_eq!(get(&env, "NV_COOP_HARM"), Some("on"));
         // No Steam library: the host hosts over UDP and nothing asks for Steam.
         let env = c.environment(Mode::Host, None).unwrap();
         assert_eq!(get(&env, "NV_COOP_STEAM"), None);
