@@ -952,7 +952,8 @@ Nothing in this section has run in the real game. Its tests use stand-ins for th
 - **Limits, stated.** Name, sex, race, head parts, hair, hair colour and face values are not in the
   part: the translation reads the sex (`0087f4c0`) and has the race menu's own functions, but shows
   no function that sets these on a player in the world and rebuilds its head (only the menu does,
-  through its own state), nor where the entered name is taken. A level-up the player had not taken
+  through its own state), nor where the entered name is taken. S39 adds them as a fourth part,
+  written through the race menu's and the save loader's calls. A level-up the player had not taken
   yet is not kept (`ForceLevel` clears the ready byte). An item that cannot be taken off stays on.
   Equipping is queued in the game: the worn list a guest uploads right after taking its part back may
   not show it yet. Skill values are bases: whether the game's base of a skill already holds what the
@@ -1076,8 +1077,8 @@ co-op build.
 
 Until now an avatar was placed from a base form (this game's own player's by default) with its AI
 off, and slid from place to place: it did not walk, did not hold the other player's weapon, and
-looked like this game's player. `NV_COOP_LOOK=walk|pose|gear|face` (off unless asked; each level
-includes the ones before it) changes that (`coop_engine::look`, `coop_engine_session::look`). Nothing
+looked like this game's player. `NV_COOP_LOOK=walk|pose|gear|face` (each level
+includes the ones before it; `face` unless set to `off` since S39) changes that (`coop_engine::look`, `coop_engine_session::look`). Nothing
 new travels: coop-core's avatar stream already carried the fields, unused until now.
 
 | Level | What the owner sends | What the other games do with its avatar | Game facts (each from this tree's translation) |
@@ -1123,7 +1124,7 @@ frame's count; each killed by a test.
 
 **Not done:** jumping and falling animations (the place follows the player's path, height
 included, but nothing read here shows how the game starts a jump or a fall on another actor), and
-turning on the spot (the heading is set, no turn animation is asked for). A look changed after
+turning on the spot (the heading is set, no turn animation is asked for). Both are in S39. A look changed after
 character creation (a barber, a surgeon) is read again within a second and gives a new base.
 
 ## S36: voice chat (implemented with unit tests; not run on a PC)
@@ -1212,3 +1213,108 @@ character creation (a barber, a surgeon) is read again within a second and gives
 - Tests: `scripts/launcher` `coop::tests` (the file read back, the environment of each button, Steam
   without the library refused, codes cleaned and refused, the codes read from a game log). The window
   itself (`coop_ui.rs`) has never been shown.
+
+## S39: every animation on the avatar, and a guest's look from a party save (implemented with unit tests; not run on a PC)
+
+Nothing in this section has run in the real game. Its tests use stand-ins for the game's functions
+(`coop_engine::testkit::anim_kit`, with the look kit and, for the party save, the stat kit). It
+extends S35 (`coop_engine::anim`, `coop_engine_session::anim`, part of `look::Look`) and S32 (a
+fourth part of the character section).
+
+`NV_COOP_LOOK` is now `face` (every level) unless set to `off` (also `0`, `no`, `none`); the viewer's
+start-up line says which. With it off the ladder is as before (S8). Everything below runs at every
+level from `walk`.
+
+### What the owner sends
+
+Read every frame from this game's player (`anim::body`): the group id in each of the eight sections
+of its third-person `Animation` (`004301b0`; `PlayerCharacter::GetAnimation(0)` `00950a60`, never the
+first-person one), the idle playing (`Animation::spAnimIdle` +0x124, `AnimIdle::pIdleForm` +0x2c),
+the character controller's state (`009306d0`, `005c0880`), the process's sit and sleep state, knock
+state and furniture (its virtuals `0x4bc`, `0x40c`, `0x4c8`), the iron sights (`008bbc10`) and the
+walking and running speeds (`00884dc0`, `00884eb0`).
+
+| What | How it travels | What the avatar's game does |
+| --- | --- | --- |
+| a group started in a section other than movement (hit reactions, staggers, blocks, deaths, get-ups, anything else the game plays there) | `ActionKind::Group` (section, group type), once | `Actor::GetAnimGroup(type)` (`00897910`) and `Animation::PlayGroup(group, 1, -1, -1)` (`00494740`), then `Actor::SetAnimAction(0xe, section 1's sequence)` (`008a73e0`, `00491040`): what the `PlayGroup` command does |
+| an idle (gestures, fidgets, furniture and marker idles) | `ActionKind::Idle` (the idle form), once | the process's virtual `0x71c(idle)` and `0x614(0x80)`: what `PlayIdle` does; nothing when it plays that idle already |
+| a jump (the controller's state becomes 1) | `ActionKind::Jump`, once | the mobile object's own jump (`00930640`, which hands the controller its jump height and wanted state 1); its own `PickAnimations` then plays the jump, the fall and the landing from its controller as it is placed along its player's path |
+| the walking and running speeds | `ActionKind::Speed` (whole units a second), when either changes by 2 % | stored in its process every frame (`00884ce0`, `00884d80`), which `GetWalkSpeed` and `GetRunSpeed` answer, so `PickAnimations` scales its walking and running groups to its player's speed |
+| looking down the sights | `FLAG_SIGHTS` (32) in the state | `Actor::SetIronSights(on, 0, 0)` (`008bb650`), asked again each second until it is so |
+| knocked down | `FLAG_KNOCKED` (64), and S13's `FLAG_DOWNED` and `FLAG_DEAD` | its fatigue (actor value `0x16`) lowered by 1000 through the actor's change of a value (`+0x3ac`), given back when the flags clear: the knock state's own trigger (`MiddleHighProcess::UpdateKnockState`, `00920150`), which knocks it down, keeps it down and plays the get-up idle |
+| sitting, sleeping, using a workbench, terminal or crafting station | the furniture's reference id in `AvatarState::seat` | the package `PlayerCharacter::InitiateSitSleepPackage` (`00953d80`) builds (type 6 at the furniture, through the actor's virtual `0x2f4`); leaving it, the package `InitiateGetUpPackage` gives (`008a75a0`); no gait is forced while it uses furniture |
+| turning on the spot | its movement flags (`0x10`, `0x20`), or a heading that changes by more than 0.01 radians a frame while standing | the turn flags forced with the gait (`ForceMoveMode`), held 250 ms after the heading last turned (0x20 for a rising heading, 0x10 for a falling one, as `DetailedActorPathHandler::NoPathUpdate` sets them); `PickAnimations` plays the turn groups `0xf` and `0x10` for them. The heading itself is still placed every frame (`SetAngle`) |
+
+Not sent as groups (the owner's game filters them, `anim::replayable`): the movement section (the
+avatar's own flags and controller pick walking, running, sneaking, turning, jumping and landing),
+the draw and put-away groups `0x18` and `0x19` (S35's draw call), attacks and aims as
+`TESAnimGroup::IsAttackAction` and `IsAimAction` (`005f2540`, `005f2630`) say (S35's attack wrap
+and `QueueAttack`, which also carry grenade throws and melee and unarmed swings, and V.A.T.S.
+attacks where V.A.T.S. starts the player's attacks through `Actor::StartAttack`, as queued attacks
+are, `008ba600`; the aim is the sights above), and anything while the player reloads (S35's
+`QueueReload`).
+
+The four action kinds are new in coop-core (`ActionKind::Group` to `Speed`), so the protocol is 9.
+
+### A guest's look from a party save (S32's section 4, part 4)
+
+The character section gets a fourth part, the look: the face, hair, race, sex, body and name in
+the avatar's appearance format (`look::encode`); one this build cannot read is read as missing. A
+guest's part is read with it (`stats::read`, in a game with the face functions) and taken back
+before the character (as character creation comes first; the values set after it are the saved
+ones whatever a race does to them). `look::restore` writes it onto this game's player, already in
+the world:
+
+- a new race through the race and sex menu's own calls (`racesexmenu.rs`, its race list):
+  `TESRace::KillEGTData` on the old race (`00613fd0`), the player told (`0095e5f0`, `008249d0` on
+  `player + 0x94`, `008c2b60`), then the base form's race (`0060b240`);
+- a new sex as its sex buttons set it (`TESActorBaseData::SetFlagBit(1, female, 1)` on `+0x30`,
+  `0047dd50`), then the player's 3D refreshed (`008b78c0(player, 1)`);
+- the hair and eyes through the base form's setters (`006031e0`, `00603200`);
+- the rest as S35's `set_face` writes it (hair length and colour, height, weight, head parts, the
+  four face-gen matrices, the name), then the stats menu's name (`StatsMenu::UpdatePlayerName`,
+  `007df4e0`, as the menu's close runs it);
+- the head built again as a loaded save's is when its face differs (`TESNPC::LoadFaceGen`,
+  `00609f60`): the two head nodes taken out of the palette and the scene, `TESNPC::ClearHead`
+  (`005dd560`), `LinearFaceGenHeadLoad` (`00606820`), the race's face-gen parameters (`006141f0`)
+  applied to both head nodes (`00655fa0`); after a race or sex change also `TESNPC`'s 3D update
+  (`0060a890`, the process's `0x464(actor)`).
+
+A look the player has already asks nothing of the game. The same head rebuild runs once on an
+avatar placed from S35's face base when it has its 3D, so its head is built from that base's
+face-gen values (S35's open question).
+
+**Verified here:** 9 tests in the bridge (`anim_tests.rs`: the player's body from its third-person
+animation and process; the group filter; a group and an idle played as the commands do, an idle
+not played twice; jump, sights, speeds, knock down and up; sit and get up; turns from a heading;
+a look written through the menu's calls in their order with the head rebuilt and nothing asked a
+second time; a look of the same race and sex; an avatar's head from its base), 4 session unit
+tests (the event words, the turn held, the cap's default, a look part another build cannot read),
+6 two-game tests (`tests/anim.rs`: groups, idles and jumps both ways and the filtered ones not
+sent; speeds, sights and a knock-down and back; furniture sat on once and left; turns on the spot
+both ways; nothing with the look off; on unless asked off) and 2 party-save tests
+(`tests/face.rs`: a guest started anew gets its face, race, sex and name back; a load gives the
+saved look back and a part without it leaves the look alone), each with the story channel
+untouched. No mutation checks were run.
+
+**Not verified here:** every game call above (stand-ins only). In particular, on a PC: whether the
+player's third-person animation keeps its groups while the player is in first person; whether a
+group or idle played on the avatar is kept by its own `PickAnimations` (the `PlayGroup` command's
+action `0xe` is what holds a script group); whether an avatar placed every frame leaves the
+ground with the jump and falls when placed in the air (its controller's own physics against
+`SetPos`); whether the process keeps the stored speeds between its own updates (they are stored
+again every frame); whether fatigue knocks down a placed actor of the player's base and the
+restore of 1000 brings it back to full; whether the sit package seats an actor with no package of
+its own that is placed every frame; whether a race change on a player in the world rebuilds its
+body as the menu's does (the menu runs inside its own rendered scene).
+
+**Not reached:** talking (the player has no voice of its own, so no lip file or dialogue head
+animation is played for it; voice chat, S36, drives none either; nothing in the translation shows
+an actor's lips moving without a sound), lockpicking and hacking poses (they are menus; no actor
+animation for them was found), picking up and dropping (the player's pick-up, `00953ff0`, plays
+no animation on the actor that was found), aiming down the sights as a group of its own (the
+sights flag is sent instead), the first-person animation (never read), and the script commands
+`SetRace`, `SetHair`, `SetHairColor`, `SetEyes`, `SetName`, `SexChange` or `UpdatePlayer3D` (the
+repository has some of their names in `crates/nvse/src/names.rs` only, with no body, and has no
+`jip` crate; the vanilla commands in `crates/engine-fallout-script` have none of them, so the
+menu's and the save loader's calls are used instead).
