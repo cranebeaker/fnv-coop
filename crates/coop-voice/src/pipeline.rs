@@ -450,6 +450,13 @@ impl VoiceRx {
         n
     }
 
+    // voiceui
+    /// The loudness (RMS, 0..1, as sent, before volume and distance) of `speaker`'s last mixed
+    /// frame, 0 when it had none.
+    pub fn level(&self, speaker: u8) -> f32 {
+        self.mixer.level(speaker)
+    }
+
     /// Slots heard within [`SPEAKING_HOLD_MS`] of `now_ms`.
     pub fn speaking(&self, now_ms: u64) -> Vec<u8> {
         self.last_heard

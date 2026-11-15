@@ -30,6 +30,8 @@ struct Speaker {
     jitter: JitterBuffer,
     codec: Box<dyn Codec>,
     scratch: Vec<i16>,
+    // voiceui: the loudness of the last frame mixed (RMS, 0..1, as sent: before gain and pan).
+    level: f32,
 }
 
 pub struct Mixer {
@@ -64,6 +66,13 @@ impl Mixer {
         self.speakers.get(&speaker).map(|s| s.jitter.stats)
     }
 
+    // voiceui
+    /// The loudness (RMS, 0..1, as sent) of speaker's last mixed frame; 0 once a frame had
+    /// nothing of theirs (or they never spoke).
+    pub fn level(&self, speaker: u8) -> f32 {
+        self.speakers.get(&speaker).map_or(0.0, |s| s.level)
+    }
+
     pub fn remove_speaker(&mut self, speaker: u8) {
         self.speakers.remove(&speaker);
     }
@@ -79,6 +88,7 @@ impl Mixer {
                     jitter: JitterBuffer::new(self.jitter_target, self.jitter_max),
                     codec,
                     scratch: Vec::new(),
+                    level: 0.0, // voiceui
                 },
             );
         }
@@ -111,13 +121,24 @@ impl Mixer {
             let popped = sp.jitter.pop();
             sp.scratch.clear();
             let ok = match &popped {
-                Pop::Idle => continue,
+                Pop::Idle => {
+                    sp.level = 0.0; // voiceui
+                    continue;
+                }
                 Pop::Frame(d) => sp.codec.decode(Some(d), &mut sp.scratch).is_ok(),
                 Pop::Conceal => sp.codec.decode(None, &mut sp.scratch).is_ok(),
             };
             if !ok || sp.scratch.len() != frame_samples {
+                sp.level = 0.0; // voiceui
                 continue;
             }
+            // voiceui: the frame's loudness as decoded.
+            let sq: f32 = sp
+                .scratch
+                .iter()
+                .map(|s| (*s as f32 / 32768.0).powi(2))
+                .sum();
+            sp.level = (sq / frame_samples.max(1) as f32).sqrt();
             active += 1;
             let g = spatial.gain(id).clamp(0.0, 1.0) * self.master_gain;
             let pan = spatial.pan(id).clamp(-1.0, 1.0);
@@ -256,5 +277,30 @@ mod tests {
         let l: f32 = out.iter().step_by(2).map(|x| x.abs()).sum();
         let r: f32 = out.iter().skip(1).step_by(2).map(|x| x.abs()).sum();
         assert!(l > 1.0 && r < 0.01, "l {l} r {r}");
+    }
+
+    // voiceui
+    #[test]
+    fn each_speaker_s_loudness_is_its_last_decoded_frame_s() {
+        let gate = Gate::new(Mode::PushToTalk, EnergyVad::new(0.01, 0));
+        let mut s = Sender::new(1, Box::new(AdpcmCodec::new(16000, 320)), gate);
+        s.gate.set_ptt(true);
+        let mut m = Mixer::new(factory, 1, 8);
+        assert_eq!(m.level(1), 0.0);
+        for _ in 0..2 {
+            let p = s.process(&tone()).unwrap();
+            m.receive(VoicePacket::decode(&p.encode()).unwrap());
+        }
+        let mut out = vec![];
+        m.mix_frame(320, &Hard, &mut out);
+        // A sine of amplitude 10000/32768 has an RMS of about 0.216.
+        let l = m.level(1);
+        assert!((0.15..0.3).contains(&l), "{l}");
+        assert_eq!(m.level(2), 0.0, "nobody else spoke");
+        // Nothing more arrives: the level falls to 0 once the buffer runs dry.
+        for _ in 0..12 {
+            m.mix_frame(320, &Hard, &mut out);
+        }
+        assert_eq!(m.level(1), 0.0);
     }
 }

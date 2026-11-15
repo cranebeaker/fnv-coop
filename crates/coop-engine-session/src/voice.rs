@@ -95,6 +95,15 @@ pub struct VoiceLink {
     pub dropped: u64,
     /// Frames not sent because this guest was not in the session yet.
     pub not_joined: u64,
+    // voiceui
+    /// Who is speaking: each frame heard, and this player's microphone (the audio side tells).
+    pub speaking: crate::voicelist::Speaking,
+    /// The session's clock at the last step (ms), for the audio side's notes.
+    pub now_ms: u64,
+    /// The other players' avatars in this game (player, form id), each step.
+    pub avatars: Vec<(PlayerId, u32)>,
+    /// The other players' voice levels as heard here (0 to 1), from the audio side.
+    pub levels: BTreeMap<PlayerId, f32>,
 }
 
 impl VoiceLink {
@@ -152,6 +161,7 @@ impl VoiceLink {
                 self.dropped += 1;
             }
             self.heard_frames += 1;
+            self.speaking.heard(p.speaker, self.now_ms); // voiceui
             self.heard.push((p.speaker, p.payload));
         }
     }
@@ -195,7 +205,15 @@ pub(crate) fn host_step(h: &mut HostDriver, e: &mut Engine, net: &mut dyn Transp
     for msg in h.sync.live.take_local() {
         h.view.on_msg(msg, now_ms);
     }
+    v.now_ms = now_ms; // voiceui
     v.hear(PlayerId::HOST, std::mem::take(&mut h.view.voice_in));
+    // voiceui: the speaking players' avatars marked on the compass.
+    crate::voicelist::mark(e, h.ladder.as_ref(), &v.speaking.now(now_ms));
+    v.avatars = h
+        .ladder
+        .as_ref()
+        .map(|l| l.avatar_ids())
+        .unwrap_or_default();
     v.listener = place_of(e);
     v.speakers.clear();
     for p in h.sync.players() {
@@ -223,7 +241,15 @@ pub(crate) fn guest_step(
         return;
     };
     let me = g.sync.player;
+    v.now_ms = now_ms; // voiceui
     v.hear(me, std::mem::take(&mut g.sync.live.voice_in));
+    // voiceui: the speaking players' avatars marked on the compass.
+    crate::voicelist::mark(e, g.ladder.as_ref(), &v.speaking.now(now_ms));
+    v.avatars = g
+        .ladder
+        .as_ref()
+        .map(|l| l.avatar_ids())
+        .unwrap_or_default();
     v.listener = place_of(e);
     v.speakers.clear();
     let ids: Vec<PlayerId> = g.sync.live.remote.keys().copied().collect();

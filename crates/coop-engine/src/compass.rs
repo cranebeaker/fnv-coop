@@ -265,13 +265,16 @@ fn mark(e: &mut Engine, player: u32, ticks: u32, avatars: &[u32]) {
         set_float(e, tile, heading, (f64::from(x) + TICK_NUDGE) as f32);
         set_int(e, tile, addr::TRAIT_VISIBLE, 1);
         set_int(e, tile, addr::TRAIT_SYSTEM_COLOR, 0);
+        // voiceui: a speaking player's tick in its own colour, at full alpha.
+        let id = e.mem.u32(avatar.wrapping_add(addr::FORM_ID_OFFSET));
+        let speaks = crate::voicemark::speaking(e, id);
         for (which, v) in [addr::TRAIT_RED, addr::TRAIT_GREEN, addr::TRAIT_BLUE]
             .into_iter()
-            .zip(PURPLE)
+            .zip(crate::voicemark::tick_colour(e, id))
         {
             set_float(e, tile, which, f32::from(v));
         }
-        let alpha = if x <= inner {
+        let alpha = if x <= inner || speaks {
             alpha_full
         } else {
             e.call(addr::LERP, &args![alpha_full, 0.0f32, inner, outer, x])
@@ -678,5 +681,28 @@ mod tests {
         assert_eq!(e.mem.u8(ITEMS + 5), 1);
         // The player is still shown, in purple.
         assert!(purple(&mut e, TILES[1]));
+    }
+
+    // voiceui
+    #[test]
+    fn a_speaking_player_is_ticked_in_the_speaking_colour_at_full_alpha() {
+        // 80 compass degrees right and far: an unspoken tick would fade there.
+        let r = 10_000.0f32;
+        let a = 80f32.to_radians();
+        let mut e = world([r * a.sin(), r * a.cos(), 0.0]);
+        crate::voicemark::install(&mut e);
+        set_players(&mut e, [AVATAR_ID]);
+        crate::voicemark::set_speaking(&mut e, [AVATAR_ID]);
+        update(&mut e);
+        let s = crate::voicemark::SPEAKING;
+        assert_eq!(get(&mut e, TILES[1], addr::TRAIT_RED), f32::from(s[0]));
+        assert_eq!(get(&mut e, TILES[1], addr::TRAIT_GREEN), f32::from(s[1]));
+        assert_eq!(get(&mut e, TILES[1], addr::TRAIT_BLUE), f32::from(s[2]));
+        assert_eq!(get(&mut e, TILES[1], addr::TRAIT_ALPHA), 255.0);
+        // Silent again: purple, and faded as before.
+        crate::voicemark::set_speaking(&mut e, []);
+        update(&mut e);
+        assert!(purple(&mut e, TILES[1]));
+        assert!(get(&mut e, TILES[1], addr::TRAIT_ALPHA) < 255.0);
     }
 }

@@ -27,8 +27,11 @@ pub use stub::Audio;
 
 #[cfg(not(feature = "voice"))]
 mod stub {
+    use std::collections::BTreeMap;
+
     use coop_core::ids::PlayerId;
     use coop_engine_session::voice::{Mode, Settings, VoiceLink};
+    use coop_engine_session::voicelist::Prefs; // voiceui
     use engine_core::Engine;
 
     pub struct Audio;
@@ -47,7 +50,8 @@ mod stub {
             _e: &mut Engine,
             _link: &mut VoiceLink,
             _me: PlayerId,
-            _name_of: &dyn Fn(PlayerId) -> Option<String>,
+            _names: &BTreeMap<PlayerId, String>, // voiceui
+            _prefs: &Prefs,                      // voiceui
             _lines: &mut Vec<String>,
         ) {
         }
@@ -59,10 +63,12 @@ pub use real::Audio;
 
 #[cfg(feature = "voice")]
 mod real {
+    use std::collections::BTreeMap;
     use std::time::Instant;
 
     use coop_core::ids::PlayerId;
     use coop_engine_session::voice::{FrameClock, Mode, Press, Settings, VoiceLink};
+    use coop_engine_session::voicelist::Prefs; // voiceui
     use coop_voice::capture::{self, Capture, Playback};
     use coop_voice::pipeline::{default_codec, Activation, VoiceRx, VoiceTx};
     use engine_core::Engine;
@@ -159,7 +165,8 @@ mod real {
             e: &mut Engine,
             link: &mut VoiceLink,
             me: PlayerId,
-            name_of: &dyn Fn(PlayerId) -> Option<String>,
+            names: &BTreeMap<PlayerId, String>, // voiceui
+            prefs: &Prefs,                      // voiceui
             lines: &mut Vec<String>,
         ) {
             if !self.tried {
@@ -200,6 +207,14 @@ mod real {
                 for frame in tx.push_mic(&self.mic) {
                     link.queue(frame);
                 }
+                // voiceui: this player's own talking and its level, for the players list.
+                let now = link.now_ms;
+                link.speaking.local(tx.talking, now);
+                if tx.talking && !self.mic.is_empty() {
+                    let sq: f32 = self.mic.iter().map(|s| s * s).sum();
+                    let rms = (sq / self.mic.len() as f32).sqrt();
+                    link.speaking.local_level = coop_engine_session::voicelist::display_level(rms);
+                }
             }
             // The party to the speakers, each where their avatar stands.
             self.rx.set_deafened(self.deafened);
@@ -216,9 +231,10 @@ mod real {
             let now = Instant::now();
             let now_ms = now.duration_since(self.started).as_millis() as u64;
             for (p, bytes) in link.take_heard() {
-                if let Some(name) = name_of(p) {
-                    self.rx.set_muted(p.0, self.settings.is_muted(&name));
-                    self.rx.set_volume(p.0, self.settings.volume_of(&name));
+                // voiceui: by the name every game knows (the host's roster), from the prefs.
+                if let Some(name) = names.get(&p) {
+                    self.rx.set_muted(p.0, prefs.is_muted(name));
+                    self.rx.set_volume(p.0, prefs.volume_of(name));
                 }
                 self.rx.on_bytes(p.0, &bytes, now_ms);
             }
@@ -236,6 +252,13 @@ mod real {
                 }
             }
             self.out = out;
+            // voiceui: each speaking player's level as heard here, for the lists.
+            let speaking = link.speaking.now(link.now_ms);
+            link.levels.retain(|p, _| speaking.contains(p));
+            for p in speaking {
+                let l = coop_engine_session::voicelist::display_level(self.rx.level(p.0));
+                link.levels.insert(p, l);
+            }
         }
     }
 }

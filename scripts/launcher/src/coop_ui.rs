@@ -8,7 +8,7 @@
 //! Plain Win32 controls in the style of `ui.rs`, no dependencies. With `NV_RS_NO_WINDOWS=1`
 //! nothing is shown and the environment stays as it is (as `Play Co-op.cmd` sets it).
 
-use crate::coop::{self, Choice, Mode, Voice, PTT_KEYS};
+use crate::coop::{self, Choice, Mode, PlayerVoice, Voice, LIST_KEYS, PTT_KEYS};
 use crate::win::{from_wide, wide_str};
 use std::cell::RefCell;
 use std::ffi::c_void;
@@ -82,6 +82,14 @@ const KEY: i32 = 106;
 const ITEMS: i32 = 107;
 const VATS: i32 = 108;
 const HARM: i32 = 109;
+// voiceui: the players list's keys, and each known player's mute and volume.
+const PLAYERS_KEY: i32 = 110;
+const MUTE_KEY: i32 = 111;
+const DEAFEN_KEY: i32 = 112;
+const PLAYER_MUTE: i32 = 300;
+const PLAYER_VOLUME: i32 = 340;
+/// The players the window lists at most (the others keep what the file says).
+const SHOWN_PLAYERS: usize = 6;
 const ALONE: i32 = 201;
 const HOST: i32 = 202;
 const JOIN: i32 = 203;
@@ -118,6 +126,9 @@ pub struct Picked {
 struct State {
     dll: Option<PathBuf>,
     picked: Option<Picked>,
+    // voiceui
+    /// The players the file named, the first [`SHOWN_PLAYERS`] of them listed.
+    players: Vec<PlayerVoice>,
 }
 
 thread_local! {
@@ -152,6 +163,7 @@ pub fn choose(root: &Path, userdata: &Path) -> Option<Picked> {
         *s.borrow_mut() = Some(State {
             dll: dll.clone(),
             picked: None,
+            players: saved(userdata).players, // voiceui
         })
     });
     // SAFETY: the window and its controls live on this thread until the loop below ends; every
@@ -190,6 +202,23 @@ unsafe fn read(window: *mut c_void) -> Choice {
         items: checked(window, ITEMS),
         vats: checked(window, VATS),
         harm: checked(window, HARM),
+        // voiceui
+        players_key: LIST_KEYS[selected(window, PLAYERS_KEY).min(LIST_KEYS.len() - 1)].into(),
+        mute_key: LIST_KEYS[selected(window, MUTE_KEY).min(LIST_KEYS.len() - 1)].into(),
+        deafen_key: LIST_KEYS[selected(window, DEAFEN_KEY).min(LIST_KEYS.len() - 1)].into(),
+        players: STATE.with(|s| {
+            let known = s
+                .borrow()
+                .as_ref()
+                .map(|st| st.players.clone())
+                .unwrap_or_default();
+            coop::players_from_window(&known, SHOWN_PLAYERS, |i| {
+                (
+                    checked(window, PLAYER_MUTE + i as i32),
+                    selected(window, PLAYER_VOLUME + i as i32),
+                )
+            })
+        }),
     }
 }
 
@@ -257,7 +286,9 @@ unsafe fn show(saved: &Choice, steam: bool) {
         class_name: class_name.as_ptr(),
     };
     RegisterClassW(&class);
-    let (width, height) = (560, 560);
+    // voiceui: taller by the known players' rows.
+    let rows = saved.players.len().min(SHOWN_PLAYERS) as i32;
+    let (width, height) = (560, 600 + if rows > 0 { 26 + 24 * rows } else { 26 });
     let (x, y) = (
         (GetSystemMetrics(0) - width) / 2,
         (GetSystemMetrics(1) - height) / 2,
@@ -380,41 +411,98 @@ unsafe fn show(saved: &Choice, steam: bool) {
         .position(|k| k.eq_ignore_ascii_case(&saved.ptt_key))
         .unwrap_or(0);
     list(KEY, &PTT_KEYS, key_at, [170, 275, 200, 240]);
-    label(
-        "In the game: F8 turns your microphone off and on, F7 the other players' voices.",
-        [16, 304, full, 18],
+    // voiceui: the players list's key, the mute and deafen keys, and the known players.
+    let key_index = |k: &str, default: &str| {
+        let at = |n: &str| LIST_KEYS.iter().position(|x| x.eq_ignore_ascii_case(n));
+        at(k).or_else(|| at(default)).unwrap_or(0)
+    };
+    label("Players list key (in the game):", [16, 306, 150, 18]);
+    list(
+        PLAYERS_KEY,
+        &LIST_KEYS,
+        key_index(&saved.players_key, "F11"),
+        [170, 303, 90, 240],
     );
+    label("Microphone off and on:", [16, 334, 150, 18]);
+    list(
+        MUTE_KEY,
+        &LIST_KEYS,
+        key_index(&saved.mute_key, "F8"),
+        [170, 331, 90, 240],
+    );
+    label("Other voices off and on:", [276, 334, 140, 18]);
+    list(
+        DEAFEN_KEY,
+        &LIST_KEYS,
+        key_index(&saved.deafen_key, "F7"),
+        [420, 331, 90, 240],
+    );
+    let mut y = 362;
+    let shown: Vec<&PlayerVoice> = saved.players.iter().take(SHOWN_PLAYERS).collect();
+    if shown.is_empty() {
+        label(
+            "Players you mute or turn up or down in the game's players list are kept here by name.",
+            [16, y, full, 18],
+        );
+        y += 26;
+    } else {
+        label(
+            "Players you have set (the game's players list changes them too):",
+            [16, y, full, 18],
+        );
+        y += 22;
+        let volumes = coop::volume_labels();
+        let volume_refs: Vec<&str> = volumes.iter().map(String::as_str).collect();
+        for (i, p) in shown.iter().enumerate() {
+            label(&p.name, [28, y + 2, 180, 18]);
+            check("Muted", PLAYER_MUTE + i as i32, p.muted, [216, y, 80, 20]);
+            list(
+                PLAYER_VOLUME + i as i32,
+                &volume_refs,
+                coop::volume_index(p.volume),
+                [300, y - 2, 90, 300],
+            );
+            y += 24;
+        }
+        y += 4;
+    }
     label(
         "Experimental parts, off unless ticked (every player ticks the same):",
-        [16, 332, full, 18],
+        [16, y, full, 18],
     );
     check(
         "Loot, pick-ups and barter through the host",
         ITEMS,
         saved.items,
-        [28, 352, 500, 20],
+        [28, y + 20, 500, 20],
     );
     check(
         "V.A.T.S. with several players (it does not stop the others' world)",
         VATS,
         saved.vats,
-        [28, 374, 500, 20],
+        [28, y + 42, 500, 20],
     );
     check(
         "Falls, traps and effects decided by the host, as hits are",
         HARM,
         saved.harm,
-        [28, 396, 500, 20],
+        [28, y + 64, 500, 20],
     );
-    button("Play alone", ALONE, false, [16, 430, 120, 30]);
-    button("Host", HOST, true, [144, 430, 120, 30]);
-    button("Join", JOIN, false, [272, 430, 120, 30]);
-    let invite = button("Invite a Steam friend", INVITE, false, [16, 466, 182, 30]);
+    let y = y + 98;
+    button("Play alone", ALONE, false, [16, y, 120, 30]);
+    button("Host", HOST, true, [144, y, 120, 30]);
+    button("Join", JOIN, false, [272, y, 120, 30]);
+    let invite = button(
+        "Invite a Steam friend",
+        INVITE,
+        false,
+        [16, y + 36, 182, 30],
+    );
     let steam_join = button(
         "Join a Steam friend",
         STEAM_JOIN,
         false,
-        [206, 466, 182, 30],
+        [206, y + 36, 182, 30],
     );
     if !steam {
         for h in [steam_box, invite, steam_join] {

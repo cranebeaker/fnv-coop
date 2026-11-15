@@ -1209,3 +1209,75 @@ pub const STRING_SET: u32 = 0x0040_37f0;
 /// The form type of a weapon (`actor_p2.rs`, `FORM_TYPE_WEAPON`, which `Actor::QueueEquipObject`
 /// equips).
 pub const FORM_TYPE_WEAPON: u8 = 0x28;
+
+// voiceui: the players list as the game's own message box, and the speaking players' ticks
+// (docs/coop/SPECS.md, voice list).
+/// The message box (`00703e80`, `interface.rs`, `fn_00703e80`; `cdecl`, variadic): the text, the
+/// icon (0), the title (0), the result callback (0 for none), the first button's result, the
+/// warning context, the background opacity and width override (floats, 0 for the defaults), the
+/// first button's text, the further buttons' texts and a 0. It queues a modal entry through
+/// `007a8e60` (`messagemenu.rs`), which copies every text, so the caller's buffers may be freed;
+/// false when the interface manager is not ready.
+pub const MESSAGE_BOX_SHOW: u32 = 0x0070_3e80;
+/// `Interface::GetMessageMenuResult` (`00703fa0`, `interface.rs`): the clicked button's result
+/// (the manager's byte at [`MESSAGE_MENU_RESULT_OFFSET`]), which it sets back to 0xff.
+pub const MESSAGE_MENU_RESULT: u32 = 0x0070_3fa0;
+/// The interface manager (`004b7210`, `interface.rs` `GET_MANAGER`, `messagemenu.rs`
+/// `INTERFACE_SINGLETON`; no arguments).
+pub const INTERFACE_MANAGER: u32 = 0x004b_7210;
+/// The manager's message menu result byte (+0xe4): `MessageMenu::DoClick` (`007aa070`,
+/// `messagemenu.rs`) stores the clicked button's value there, which is the entry's first
+/// button's result plus the button's index (`007a92e0`, `LoadNextMessage`).
+pub const MESSAGE_MENU_RESULT_OFFSET: u32 = 0xe4;
+/// `MessageMenu::pMe` (`011da4f0`, `messagemenu.rs` `MESSAGE_MENU`): the open message box, 0 when
+/// none is shown.
+pub const MESSAGE_MENU: u32 = 0x011d_a4f0;
+// voiceui: end
+
+// voiceui: text on the HUD (the live speaking list, the marks over the speaking players' heads).
+/// `Menu::RenderTemplate` (`00a1ddb0`, `menu.rs`, `menu_render_template`; `thiscall` on the menu:
+/// the parent tile, the template's name as a C string, the last tile or 0): builds the tile tree
+/// of the menu's template of that name under the parent and answers its root (0 when nothing was
+/// built). The HUD builds its tiles with it (`hudmainmenu.rs`, `create_render`).
+pub const MENU_RENDER_TEMPLATE: u32 = 0x00a1_ddb0;
+/// `Menu::pMenu` (+4, `menu.rs`): the menu's root tile.
+pub const MENU_ROOT_TILE_OFFSET: u32 = 4;
+/// The HUD template name the HUD builds its action points label from (`0107_33d0`,
+/// `hudmainmenu.rs`, `create_action_points`: the tile at HUD +0x4c is rendered from it and given
+/// its text with the string trait). A name in the exe's data; its text is not in this repository,
+/// so that it is a plain text tile is read from that use only.
+pub const HUD_TEXT_TEMPLATE: u32 = 0x0107_33d0;
+/// Tile traits (`hudmainmenu.rs`): `x` (0xfa1) and `y` (0xfa2) as the HUD places its tiles,
+/// `width` (0xfb1, read as a tile's width in `create_action_points`), `height` (0xfb0, read as a
+/// bar's height in `vatsmenu.rs` `fn_007f1840`), `string` (0xfc4, `hud_set_text`).
+pub const TRAIT_X: u32 = 0xfa1;
+/// See [`TRAIT_X`].
+pub const TRAIT_Y: u32 = 0xfa2;
+/// See [`TRAIT_X`].
+pub const TRAIT_WIDTH: u32 = 0xfb1;
+/// See [`TRAIT_X`].
+pub const TRAIT_HEIGHT: u32 = 0xfb0;
+/// See [`TRAIT_X`].
+pub const TRAIT_STRING: u32 = 0xfc4;
+/// `InterfaceManager::GetScreenWidth` (`00715d40`) and the screen height (`00715da0`), `cdecl`, no
+/// arguments, in ST0: the space the HUD places its tiles in (`hudmainmenu.rs`, the HUD's
+/// creation) and the one `vatsmenu.rs` (`fn_007f1840`) scales a projected point to.
+pub const SCREEN_WIDTH: u32 = 0x0071_5d40;
+/// See [`SCREEN_WIDTH`].
+pub const SCREEN_HEIGHT: u32 = 0x0071_5da0;
+/// The scene camera (`vatsmenu.rs`): `0045c670` (`cdecl`, no arguments) answers its holder,
+/// `006629f0` (`thiscall` on the holder) the camera.
+pub const CAMERA_HOLDER: u32 = 0x0045_c670;
+/// See [`CAMERA_HOLDER`].
+pub const CAMERA_OF: u32 = 0x0066_29f0;
+/// `NiCamera::WorldPtToScreenPt` (`00a6fc50`, `nicamera.rs`; `thiscall`: the world point, x out,
+/// y out, the least w as a float): true when the point is in front and in view, x and y then from
+/// 0 to 1 across the view, y up (`vatsmenu.rs` flips it for the screen).
+pub const WORLD_PT_TO_SCREEN_PT: u32 = 0x00a6_fc50;
+/// The least w `vatsmenu.rs` passes to [`WORLD_PT_TO_SCREEN_PT`] (a float at `010718c0`).
+pub const SCREEN_EPSILON: u32 = 0x0107_18c0;
+/// The place an actor looks from (`008a2fa0`, `actor_p3.rs`; `thiscall` with an out pointer of
+/// three floats): its head node's world place (with the ragdoll's eye offset), or 0.9 of its
+/// height above its place without one.
+pub const ACTOR_EYE_POSITION: u32 = 0x008a_2fa0;
+// voiceui: end
