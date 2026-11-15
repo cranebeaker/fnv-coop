@@ -1159,7 +1159,7 @@ character creation (a barber, a surgeon) is read again within a second and gives
   other player once and never its speaker; nothing before a guest is in; places from the ladder; voice
   without the ladder). `coop-voice`'s pipeline tests run through Opus with `--features opus`.
 - **Not done.** Nothing has played through a real microphone or speaker in this engine. No in-game
-  list to mute a player by name (only the variables). No mark for who is speaking.
+  list to mute a player by name (only the variables). No mark for who is speaking. (Both since: S39.)
 
 ## S37: Steam invites (implemented; tested on MockSteam only)
 
@@ -1212,3 +1212,76 @@ character creation (a barber, a surgeon) is read again within a second and gives
 - Tests: `scripts/launcher` `coop::tests` (the file read back, the environment of each button, Steam
   without the library refused, codes cleaned and refused, the codes read from a game log). The window
   itself (`coop_ui.rs`) has never been shown.
+
+## S39: voice list: names, who is speaking, the players list (implemented with unit tests; not run on a PC)
+
+Nothing in this section has run in the real game or with a real microphone. The tests use stand-ins
+for every game function named here.
+
+- **Names for every player.** The network knows a name only where a player joined: the host has
+  every guest's (from its join), a guest only "host". The host now writes the party's names into the
+  replicated store, one record (`Field::Custom` tag 140 on form 0, `coop_engine_session::roster`):
+  each slot in the session and its name (letters, digits, spaces, `-` and `_`, at most 24
+  characters, as the launcher allows; anything else becomes `_`), the host's own included. It is
+  written again when a player joins, leaves or joins again under another name, before the step's
+  tick, so a guest has it with its first snapshot (a join, a rejoin, a late join). A guest's game
+  only reads it (its apply leaves custom records it does not know alone). The viewer takes every
+  name from it (on a guest before the record came: the network's names), and the audio side mutes
+  and sets the volume of each player by that name on every game. Two players of one name share a
+  mute and a volume.
+- **Who is speaking.** A player speaks while their voice frames arrive and for 300 ms after the last
+  (`voicelist::Speaking`, fed by the voice link as each frame is heard); this player speaks while its
+  microphone sends a frame (push to talk held, or the open microphone's gate open; `VoiceTx::talking`).
+  - On the compass (S31): a speaking player's tick is drawn in light magenta (255, 140, 255) at full
+    alpha instead of purple, through the same tile traits (`coop_engine::voicemark`; the compass wrap
+    asks it per avatar). It needs the avatar, so the live ladder.
+  - On the HUD: the game's own message (`SHOW_HUD_MESSAGE`, as conversations' lines) says "Voice
+    chat: NAME is speaking" (and "you are speaking") when someone begins, at most once every 10 s for
+    each player. `NV_COOP_SPEAKING=off` keeps these off. The game's messages queue and stay their
+    time, so this is no live list.
+  - In the players list: "speaking" on each row, with a level bar of this player's microphone (its
+    last frame's loudness).
+- **The players list.** `NV_COOP_PLAYERS_KEY` (default F9; a key name or code, as the voice keys) opens
+  it as the game's own message box (`coop_engine::msgbox`): `00703e80` (`interface.rs`), a modal entry
+  with no result callback, whose buttons are numbered from 0xa0 (the entry's first button's result;
+  `007a8e60` and `007a92e0` in `messagemenu.rs` give each button that plus its index, and
+  `MessageMenu::DoClick`, `007aa070`, stores it in the interface manager's byte +0xe4). Each step co-op
+  reads that byte (the manager from `004b7210`); a value in its own range is its click, taken with the
+  game's `GetMessageMenuResult` (`00703fa0`), which sets it back; any other is left for the entry it
+  belongs to. Escape clicks the last button (`MessageMenu::DoKey`, `007aa110`, warning context 0). The
+  box gone without a click (`MessageMenu::pMe`, `011da4f0`, back to 0) closes the list.
+  - The list: every player with their name (this player marked "you"), speaking, muted, volume and
+    ping where this game's network measures it (a guest only to the host), and a button for each other
+    player (at most 8) and Close.
+  - A player's page: Mute or Unmute, Volume up, Volume down (10% steps, 0 to 200%), on the host Kick
+    (asked again: "Remove NAME from the session?", then the network's kick), and Back.
+  - Mutes and volumes are by name (`voicelist::Prefs`): from `NV_COOP_VOICE_MUTE` and
+    `NV_COOP_VOICE_VOLUMES` (S36), then the `Player=NAME;MUTED;PERCENT` lines of the launcher's
+    `coop.ini` (`NV_COOP_INI`, which the launcher sets to `userdata\coop.ini`; without it, `coop.ini`
+    in the folder the game was started in when there is one). Every change in the game rewrites that
+    file's `Player=` lines and keeps every other line; a name at its default (heard, 100%) has none.
+- **The launcher window (S38).** It reads and writes the same `Player=` lines and lists the first six
+  names with a Muted box and a volume list (0% to 200%); the others keep what the file says. It picks
+  the players list key (`PlayersKey`, F9), the microphone key (`MuteKey`, F8) and the others' voices key
+  (`DeafenKey`, F7), each from F1 to F12, Insert, Delete, Home, End, Page Up and Page Down, and gives
+  them to the game (`NV_COOP_PLAYERS_KEY`, `NV_COOP_MUTE_KEY`, `NV_COOP_DEAFEN_KEY`, all three in
+  `SWITCHES`; the voice keys only with voice chat on).
+- **Tests.** `coop-engine`: `msgbox::tests` (the box's words, the texts copied before they are freed,
+  the click read through the game's function, another entry's answer left alone, no box without the
+  function), `voicemark::tests`, `compass::tests` (a speaking tick's colour and alpha, purple again
+  after). `coop-engine-session`: `roster::tests` (round trip, cleaning, a record cut short, the size
+  limit), `voicelist::tests` (the 300 ms hold, this player's own talking, the HUD's once in 10 s, the
+  key setting, prefs from the environment and the file and back, the list's pages and clicks, kick
+  only for the host and only after the question, a page whose player left) and `tests/voicelist.rs`
+  (a host and two guests: every guest knows every name, the other guest's too; a leaver dropped; a
+  new name passed on; a late guest gets all names; speaking on each game while frames arrive and not
+  300 ms after; the speaking host's avatar marked for the compass on the guest). `scripts/launcher`:
+  `coop::tests` (the lines read back, the last line of a name wins, the keys in the environment, the
+  window's rows).
+- **Not done.** A live list drawn on the HUD itself (nothing read here makes a new text tile on the
+  HUD outside the HUD's own setup, and the game's messages cannot be taken back after 300 ms); a mark
+  over the avatar's head (no projection of a world place onto the screen and no speaker picture were
+  found in what was read); the other players' voice levels (the receiver does not give its decoded
+  loudness). The message box's text uses line breaks; whether the game's box shows them as such has
+  not been seen. With no ladder nobody's compass tick shows, so speaking shows only in the list and on
+  the HUD.
