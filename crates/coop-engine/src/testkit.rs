@@ -25,6 +25,10 @@ pub mod fight_kit;
 #[path = "vats_kit.rs"]
 pub mod vats_kit;
 
+// companions: the teammate flag, the wheel's switches and the follow steps.
+#[path = "companion_kit.rs"]
+pub mod companion_kit;
+
 /// Where the story lives.
 const HEAP: u32 = 0x0200_0000;
 const HEAP_LEN: u32 = 0x0010_0000;
@@ -819,6 +823,8 @@ impl Story {
         crate::social_kit::register(&mut e);
         // vats
         vats_kit::register(&mut e);
+        // companions
+        companion_kit::register(&mut e);
         crate::install(&mut e);
         Story { e }
     }

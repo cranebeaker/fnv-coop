@@ -916,13 +916,6 @@ the red of a hostile tick) is near.
   each game showed the other player ahead of it in purple (drawn 0.75, 0.31, 1.00) and its NPC
   ticks in the HUD's amber; none when the other player was behind or at the side.
 
-## Not done: followers
-
-A companion that follows the player who hired it, as the host's actor, was not started. The translation
-shows the teammate byte (`Actor::bPlayerTeammate`, +0x18d) and `Actor::SetPlayerTeammate` (`actor_p6.rs`),
-but following is a package whose target is the player, and nothing read here shows how a package is made
-to follow another reference (a guest's avatar) without changing the package for every actor that uses it.
-
 ## S32: a guest's character in a party save (implemented with unit tests; not run on a PC)
 
 Nothing in this section has run in the real game. Its tests use stand-ins for the game's functions
@@ -975,3 +968,61 @@ load gives it back after it changed; a guest whose game started anew gets its ch
 its pack; a part without the section leaves the character alone. **Not verified here:** every game
 function above in the real game, that `00881360` gives the base value the owner's `+0x04` reads for
 the player, what the real perk functions do to values, two real games.
+
+## S33: companions follow the player who hired them (implemented with unit tests; not run on a PC)
+
+Replaces the earlier note "Not done: followers". Bridge: `crates/coop-engine/src/companion.rs`
+(stand-ins in `companion_kit.rs`); session: `crates/coop-engine-session/src/companion.rs`; step C-15.
+
+- **Who hired it.** A wrap of `Actor::SetPlayerTeammate` (`008bca90`, `actor_p6.rs`) notes every
+  change of a placed actor's teammate flag (+0x18d) while a session runs, except co-op's own. The host
+  puts a hire down to the guest whose line its game was running then (`talk::enact`, wrapped by
+  `companion::with_hirer`), else to the host when its own dialogue menu was open on the actor, else to
+  the player who last spoke with the actor (a conversation's first line), else to the host. A let-go
+  has no keeper. The host writes `Field::Custom` tag 90 on the actor: the keeper's slot (0xff: none)
+  and the companion wheel's four switches.
+- **Following.** The package is not changed (other actors may run it). Each `ProcessFollow`
+  (`HighProcess` `008e0f80`, `MiddleHighProcess` `00918ee0`, `LowProcess` `00909de0`) follows the
+  process's target (`pTarget`, +0x40); a wrap of each sets that target, through the process's own
+  `SetTarget` (slot 0x12c), to the keeper's avatar when another player keeps the companion, the avatar
+  is loaded in the companion's space and the target is this game's player (or none). The game's own
+  `ResetTarget` puts the player back each update, and the next follow step aims it again. After an aimed
+  step the companion is taken off this game's player's followers (`ExtraDataList::RemoveFollower`), which
+  the high process's step adds it to. So on the host a guest's companion follows that guest's avatar,
+  and on every guest a companion another player keeps follows that player's avatar. In its keeper's game
+  it follows that game's own player as the game has it, and co-op makes it that player's teammate there
+  through the game's own `SetPlayerTeammate`. A companion the host hired is unchanged in the host's game.
+- **Who runs it.** With hand-off on, a companion a guest keeps is pinned to that guest
+  (coop-core's `set_follower`), so the keeper's game runs it and the other games' copies follow its
+  path (D6, D7). The host's actors that keep company with the host's player stay the host's.
+- **Doors, fast travel, cells.** The keeper's game brings a following companion (its package keeps
+  company with "the player" and the wheel's "Waiting" is 0) that is in another space than its player,
+  or more than 4096 units away, to 64 units behind the player with the game's own `MoveTo`
+  (`fight::bring`), every 3 s at most. A waiting companion, or one let go, stays.
+- **Fights.** While a session runs, a blow of a companion any player keeps on a player (this game's or
+  an avatar) is dropped and not told (`fight::verdict`). Whom it fights is the keeper's game's own
+  teammate logic, and the copies fight their owner's target (D6).
+- **The wheel.** The companion wheel (`companionwheelmenu.rs`) is the keeper's game's own menu, and
+  its commands run there. Its four switches ("FollowerSwitchAggressive", "IsFollowingLong",
+  "CombatStyleRanged", "Waiting", the exe's own texts) are read every 500 ms through the actor's
+  variable getter (`008c1740`) and a change is proposed to the host (claim tag 91). The host takes it
+  only from the companion's keeper, sets the switches on its copy (`008c16c0`) and has it pick its
+  package again, and every game gets them in tag 90. The wheel's inventory is the game's own container
+  menu on the keeper's copy (S20 with `NV_COOP_ITEMS=on`).
+- **Party saves.** A guest's part has a section 90: each companion it keeps with its switches. A
+  part given back (a load, or a game started anew) is claimed of the host (claim tag 92, again every
+  2 s, 5 times at most). The host takes it for an actor its game has as a teammate that no other player
+  in the session keeps, and sets the saved switches; a companion that player no longer names is the
+  host's. A load in the host's game first gives every companion to the host. A guest that comes back to
+  a running session claims the companions it kept.
+- **Limits, stated.** Not run on a PC: every function above is a stand-in in the tests. A hire whose
+  line runs in a guest's own game (not held for the host) is not seen; the repository does not show
+  which lines hire. The guest-kept companion is still the host player's teammate in the host's game (the
+  story's state): the host's own wheel opens on it there, and when the host's game runs it (no hand-off,
+  or the guest's game does not have it) its teammate fights are the host player's. Whether the game moves
+  teammates through a door by the follower list this takes it off, or by the teammate list, was not
+  traced. The repository's wheel has no "use stealth" switch: a teammate sneaking with the player is the
+  game's own. The keeper's copy picks its own package with its own game's state: a hire line's result
+  that sets the companion's own script variables runs in the host's game only, so a package that reads
+  them may differ until the next hire or switch. No test drives a real guest's line through
+  `Enactor` to the hire (the tests call `with_hirer`; the last-speaker rule covers the same case).

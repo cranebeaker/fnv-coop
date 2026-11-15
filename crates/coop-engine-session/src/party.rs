@@ -58,6 +58,8 @@ const SECTION_QUEST: u8 = 2;
 const SECTION_PACK: u8 = 3;
 // character: the player's character, condition and what it wears (docs/coop/SPECS.md S32).
 const SECTION_SHEET: u8 = 4;
+// companions: the companions the player keeps (actor, the wheel's four switches).
+const SECTION_COMPANIONS: u8 = 90;
 const CHUNK_HEADER: usize = 8 + 4 + 1 + 1 + 1;
 const CHUNK_PAYLOAD: usize = 480;
 const _: () = assert!(CHUNK_HEADER + CHUNK_PAYLOAD <= coop_core::schema::MAX_CUSTOM_BYTES);
@@ -188,6 +190,10 @@ pub struct Part {
     // character
     /// The player's character (`None`: not read, or a part written before this section).
     pub sheet: Option<stats::Sheet>,
+        }
+    // companions
+    /// The companions the player keeps: each one's reference id and the wheel's four switches.
+    pub companions: Vec<(u32, [f32; 4])>,
 }
 
 /// What applying a part did.
@@ -280,6 +286,16 @@ impl Part {
         // character
         if let Some(sheet) = &self.sheet {
             section(&mut out, SECTION_SHEET, &crate::sheet::encode(sheet));
+        // companions
+        if !self.companions.is_empty() {
+            let mut body = (self.companions.len() as u16).to_le_bytes().to_vec();
+            for (id, switches) in &self.companions {
+                body.extend(id.to_le_bytes());
+                for s in switches {
+                    body.extend(s.to_bits().to_le_bytes());
+                }
+            }
+            section(&mut out, SECTION_COMPANIONS, &body);
         }
         out
     }
@@ -298,6 +314,7 @@ impl Part {
             quests: Vec::new(),
             pack: None,  // items
             sheet: None, // character
+            companions: Vec::new(), // companions
         };
         while !c.0.is_empty() {
             let tag = c.u8()?;
@@ -338,6 +355,14 @@ impl Part {
                 }
                 // character
                 SECTION_SHEET => part.sheet = Some(crate::sheet::decode(body.0)?),
+                // companions
+                SECTION_COMPANIONS => {
+                    for _ in 0..body.u16()? {
+                        let id = body.u32()?;
+                        let s = [body.f32()?, body.f32()?, body.f32()?, body.f32()?];
+                        part.companions.push((id, s));
+                    }
+                }
                 _ => {}
             }
         }
@@ -371,6 +396,13 @@ impl Part {
             quests,
             pack: Pack::read(e),   // items
             sheet: stats::read(e), // character
+        }
+            pack: Pack::read(e), // items
+            // companions
+            companions: coop_engine::companion::mine(e)
+                .into_iter()
+                .filter_map(|id| Some((id, coop_engine::companion::switches(e, id)?)))
+                .collect(),
         }
     }
 
@@ -408,6 +440,9 @@ impl Part {
         // character: after the pack, so that what was worn is carried.
         if let Some(sheet) = &self.sheet {
             out.character = stats::apply(e, sheet);
+        // companions: claimed of the host by the session (`companion::GuestCompanions`).
+        if !self.companions.is_empty() {
+            coop_engine::companion::restore_kept(e, &self.companions);
         }
         out
     }
@@ -931,6 +966,7 @@ mod tests {
                 condition: None,
                 worn: Some(vec![0x0000_4333]),
             }),
+            companions: vec![(0x0004_0001, [1.0, 0.0, 1.0, 0.0])], // companions
         }
     }
 
@@ -944,6 +980,7 @@ mod tests {
             quests: vec![],
             pack: None,
             sheet: None, // character
+            companions: vec![],
         };
         assert_eq!(bare.encode().len(), 4 + 1 + 8);
         assert_eq!(Part::decode(&bare.encode()), Some(bare));

@@ -284,6 +284,30 @@ pub const WRAPS: &[Entry] = &[
         owners: COOP,
         step: "C-4",
     },
+    // companions: Actor::SetPlayerTeammate (this, flag): co-op notes who hired a companion, and
+    // the three ProcessFollow steps (process, actor, ...) of HighProcess, LowProcess and
+    // MiddleHighProcess: a companion another player hired follows that player's avatar
+    // (docs/coop/SPECS.md S33).
+    Entry {
+        addr: 0x008b_ca90,
+        owners: COOP,
+        step: "C-15",
+    },
+    Entry {
+        addr: 0x008e_0f80,
+        owners: COOP,
+        step: "C-15",
+    },
+    Entry {
+        addr: 0x0090_9de0,
+        owners: COOP,
+        step: "C-15",
+    },
+    Entry {
+        addr: 0x0091_8ee0,
+        owners: COOP,
+        step: "C-15",
+    },
     // rewards: PlayerCharacter::RewardExperience (vtable +0x488, `RewardXP`'s call): experience
     // the shared story gives in the host's game goes to the guests' players too
     // (docs/coop/SPECS.md S30).

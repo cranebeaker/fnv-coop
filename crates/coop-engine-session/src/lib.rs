@@ -18,6 +18,8 @@
 //! The transport is coop-core's `Transport`: coop-net's endpoint in the game, the loopback and
 //! chaos transports in tests.
 
+// companions: a companion follows the player who hired it (docs/coop/SPECS.md S32).
+pub mod companion;
 // fights
 pub mod fight;
 pub mod ladder;
@@ -377,6 +379,9 @@ pub struct HostDriver {
     /// Whether conversations, party saves and the rest vote are shared (on unless the caller
     /// turns it off: none of it has run on a PC yet, and it is switched on by itself).
     pub social_on: bool,
+    // companions
+    /// Who keeps which companion.
+    pub companions: companion::HostCompanions,
 }
 
 impl HostDriver {
@@ -443,6 +448,7 @@ impl HostDriver {
             items: None, // items
             // social
             social: social::HostSocial::default(),
+            companions: companion::HostCompanions::default(), // companions
             social_on: true,
         }
     }
@@ -956,6 +962,13 @@ impl HostDriver {
         }
         // social
         social::host_step(self, e, net, now_ms);
+        // companions: who keeps which, and the keepers' claims (before the others are judged).
+        let avatars = self
+            .ladder
+            .as_ref()
+            .map(ladder::Ladder::avatar_ids)
+            .unwrap_or_default();
+        self.companions.step(e, &mut self.sync, &avatars);
         self.enact_claims(e);
         self.collect(e);
         // The story's rewards (S30): this game's player has each; every guest gets the same.
@@ -1178,6 +1191,9 @@ pub struct GuestDriver {
     pub social: social::GuestSocial,
     /// See [`HostDriver::social_on`].
     pub social_on: bool,
+    // companions
+    /// The companions this player keeps.
+    pub companions: companion::GuestCompanions,
 }
 
 impl GuestDriver {
@@ -1235,6 +1251,7 @@ impl GuestDriver {
             // social
             social: social::GuestSocial::default(),
             social_on: true,
+            companions: companion::GuestCompanions::default(), // companions
         }
     }
 
@@ -1331,6 +1348,18 @@ impl GuestDriver {
         }
         // social
         social::guest_step(self, e, net, now_ms);
+        // companions: this player's own, brought along; the wheel's switches to the host.
+        let avatars = self
+            .ladder
+            .as_ref()
+            .map(ladder::Ladder::avatar_ids)
+            .unwrap_or_default();
+        let claims = self.companions.step(e, &self.sync, &avatars, now_ms);
+        for batch in claims.chunks(proto::MAX_INTENT_CHANGES) {
+            for msg in self.sync.send_intent(Epoch(0), batch.to_vec()) {
+                send(net, PlayerId::HOST, &msg, &mut self.send_failures);
+            }
+        }
         self.now_ms = now_ms;
         self.claim_deaths(e, net);
         self.apply(e);

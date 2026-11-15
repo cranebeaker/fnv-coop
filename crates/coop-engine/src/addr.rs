@@ -1058,3 +1058,38 @@ pub const HUD_ACTOR_TICKS_OFFSET: u32 = 0x3c;
 /// `NiAVObject::GetProperty` (`thiscall`, object, type): type 3 is the shader property, whose
 /// colour (four floats at +0x68) a tile's colour update writes (`Tile::SetAlphaAndColor`).
 pub const NI_OBJECT_GET_PROPERTY: u32 = 0x00a5_9d30;
+
+// companions: a companion follows the player who hired it (docs/coop/SPECS.md S33).
+/// `Actor::SetPlayerTeammate` (`thiscall`, actor, flag; `actor_p6.rs`, translated from
+/// `008bca90`): what the `SetPlayerTeammate` command calls (`tesscriptfunctions_p7.rs`). Unless the
+/// actor is the player it adds it to the player's teammates or takes it off, and stores the flag.
+pub const ACTOR_SET_PLAYER_TEAMMATE: u32 = 0x008b_ca90;
+/// `Actor::bPlayerTeammate`, a byte at +0x18d (`actor.rs`, `0x18D bPlayerTeammate`).
+pub const ACTOR_TEAMMATE_OFFSET: u32 = 0x18d;
+/// `HighProcess::ProcessFollow` (`thiscall`, process, actor, stop, mode, check; translated from
+/// `008e0f80`, `highprocess_p3.rs`): one step of a follow package, after the process's target.
+pub const HIGH_PROCESS_FOLLOW: u32 = 0x008e_0f80;
+/// `LowProcess::ProcessFollow` (`thiscall`, process, actor and three words; translated from
+/// `00909de0`, `lowprocess.rs`).
+pub const LOW_PROCESS_FOLLOW: u32 = 0x0090_9de0;
+/// `MiddleHighProcess::ProcessFollow` (`thiscall`, process, actor and three words; translated from
+/// `00918ee0`, `middlehighprocess.rs`).
+pub const MIDDLE_HIGH_PROCESS_FOLLOW: u32 = 0x0091_8ee0;
+/// A process's `pTarget` (+0x40): whom a follow package follows (`lowprocess.rs` `TARGET`,
+/// `middlehighprocess.rs` `ProcessFollow`, "the target (+0x40)").
+pub const PROCESS_TARGET_OFFSET: u32 = 0x40;
+/// A process's virtual `SetTarget` (one word, the reference; `lowprocess.rs` `SET_TARGET_SLOT`,
+/// `middlehighprocess.rs` `ResetTarget`'s slot 0x12c).
+pub const PROCESS_SET_TARGET_SLOT: u32 = 0x12c;
+/// An actor's script variable by name as a `double` (`thiscall`, actor, name; `ST0`) and its
+/// setter (actor, name, a `double`): what the companion wheel reads and writes
+/// (`companionwheelmenu.rs`, `008c1740` and `008c16c0`).
+pub const ACTOR_GET_VARIABLE: u32 = 0x008c_1740;
+/// See [`ACTOR_GET_VARIABLE`].
+pub const ACTOR_SET_VARIABLE: u32 = 0x008c_16c0;
+/// The companion wheel's four switches, the exe's own texts of their variables' names
+/// (`companionwheelmenu.rs`): "FollowerSwitchAggressive", "IsFollowingLong",
+/// "CombatStyleRanged" and "Waiting".
+pub const WHEEL_SWITCH_TEXTS: [u32; 4] = [0x0107_1de0, 0x0107_1dd0, 0x0107_1dbc, 0x0107_1db4];
+/// The index of "Waiting" in [`WHEEL_SWITCH_TEXTS`].
+pub const WHEEL_WAITING: usize = 3;
