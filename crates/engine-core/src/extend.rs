@@ -262,6 +262,14 @@ pub const WRAPS: &[Entry] = &[
         owners: COOP,
         step: "C-12",
     },
+    // look: Actor::StartAttack (this, animation group): the player's own attacks start here
+    // (its attack button, 00948310). Co-op notes each one this game's player starts, so the
+    // other games' avatar of that player attacks too (docs/coop/SPECS.md S32).
+    Entry {
+        addr: 0x0089_3a40,
+        owners: COOP,
+        step: "C-15",
+    },
     // Actor::HitMe (this, hit data, kind): every weapon hit on an actor. Co-op decides whose
     // game applies it in a shared fight (docs/coop/SPECS.md S15).
     Entry {

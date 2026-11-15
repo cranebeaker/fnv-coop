@@ -182,6 +182,8 @@ fn place_at_me(e: &mut Engine, a: &[u32]) -> Ret {
         e.mem.set_u32(r.eax, PLAYER_VTABLE);
         e.mem
             .set_u32(r.eax + addr::ACTOR_PROCESS_OFFSET, r.eax + SMALL_PROCESS);
+        // look: an actor the look kit can animate (nothing unless it is installed).
+        super::look_kit::placed(e, r.eax, a[1]);
     }
     r
 }

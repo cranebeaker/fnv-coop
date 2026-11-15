@@ -25,6 +25,10 @@ pub mod fight_kit;
 #[path = "vats_kit.rs"]
 pub mod vats_kit;
 
+// look: avatars that walk, hold weapons, wear items and have a face (docs/coop/SPECS.md S32).
+#[path = "look_kit.rs"]
+pub mod look_kit;
+
 /// Where the story lives.
 const HEAP: u32 = 0x0200_0000;
 const HEAP_LEN: u32 = 0x0010_0000;
@@ -111,6 +115,8 @@ const START_CONVERSATION_FN: u32 = 0x0170_0280;
 const PLAYER: u32 = 0x0140_0000;
 const PLACED: u32 = 0x0141_0000;
 const ARENA: u32 = 0x0141_0100;
+// look: a placed reference's block, room for an actor's mover (+0x190) and the fights' fields.
+const PLACED_SIZE: u32 = 0x400;
 /// Counters at `RAN + 8..`: `CenterOnCell` calls, `Disable` calls, `EndMovement` calls, `SetGhost`
 /// calls.
 const WARPS: u32 = RAN + 8;
@@ -313,7 +319,7 @@ fn place_at_me(e: &mut Engine, a: &[u32]) -> Ret {
         return eax(0);
     }
     let n = e.mem.u32(PLACED);
-    let r = ARENA + 0x100 * n;
+    let r = ARENA + PLACED_SIZE * n;
     e.mem.set_u32(PLACED, n + 1);
     e.mem.set_u32(r + addr::FORM_ID_OFFSET, FIRST_PLACED_ID + n);
     for o in (0..0x1c).step_by(4) {
@@ -706,6 +712,8 @@ impl Story {
             eax(item)
         });
         e.register(addr::CONTAINER_GIVE, |e, a| {
+            // look: the look kit's inventories (nothing unless it is installed).
+            look_kit::give(e, a[0], a[1]);
             if a[1] != e.mem.u32(addr::PLAYER_SINGLETON) {
                 return Ret::default();
             }
@@ -819,6 +827,8 @@ impl Story {
         crate::social_kit::register(&mut e);
         // vats
         vats_kit::register(&mut e);
+        // look: the player's attacks, before the wrap is installed.
+        look_kit::register(&mut e);
         crate::install(&mut e);
         Story { e }
     }
@@ -942,7 +952,7 @@ impl Story {
         for i in 0..self.e.mem.u32(PLACED) {
             self.e
                 .mem
-                .set_u8(ARENA + 0x100 * i + addr::ACTOR_PROCESS_ME_OFFSET, 1);
+                .set_u8(ARENA + PLACED_SIZE * i + addr::ACTOR_PROCESS_ME_OFFSET, 1);
         }
     }
 
@@ -950,7 +960,7 @@ impl Story {
     pub fn placed(&mut self) -> Vec<(u32, u32, [f32; 3], bool, bool)> {
         (0..self.e.mem.u32(PLACED))
             .map(|i| {
-                let r = ARENA + 0x100 * i;
+                let r = ARENA + PLACED_SIZE * i;
                 let cell = self.e.mem.u32(r + addr::REF_CELL_OFFSET);
                 (
                     self.e.mem.u32(r + addr::FORM_ID_OFFSET),
