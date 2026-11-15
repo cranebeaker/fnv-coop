@@ -88,6 +88,8 @@ struct Peer {
     unseen_since: Option<u64>,
     replaced: u32,
     off_by: f32,
+    // look: the base form the avatar was placed from.
+    base: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +129,10 @@ pub struct Ladder {
     waiting_since: Option<u64>,
     hinted: bool,
     peers: BTreeMap<PlayerId, Peer>,
+    // look
+    /// The other players' avatars as those players (docs/coop/SPECS.md S32); `None` leaves them
+    /// sliding figures of this game's own player, their AI off.
+    pub look: Option<crate::look::Look>,
 }
 
 fn print_now(line: &str) {
@@ -161,6 +167,7 @@ impl Ladder {
             waiting_since: None,
             hinted: false,
             peers: BTreeMap::new(),
+            look: None, // look
         }
     }
 
@@ -368,6 +375,10 @@ impl Ladder {
         for p in gone {
             self.remove(e, p, "left");
             self.peers.remove(&p);
+            // look
+            if let Some(l) = self.look.as_mut() {
+                l.forget(p);
+            }
         }
         for (p, s) in peers {
             let here = me.is_some_and(|l| l.loaded && l.cell == s.cell.0);
@@ -383,9 +394,21 @@ impl Ladder {
             {
                 self.remove(e, *p, "was placed in another cell");
             }
+            // look: the base form with that player's look, once it is known; an avatar placed
+            // from another is placed anew.
+            let base = match self.look.as_mut() {
+                Some(l) => l.base_for(e, *p, self.base).unwrap_or(self.base),
+                None => self.base,
+            };
+            if self
+                .peers
+                .get(p)
+                .is_some_and(|peer| peer.avatar.is_some() && peer.base != base)
+            {
+                self.remove(e, *p, "takes that player's look");
+            }
             let peer = self.peers.entry(*p).or_default();
             if peer.avatar.is_none() && !peer.failed {
-                let base = self.base;
                 self.entering(
                     4,
                     format!("PlaceAtMe of base form {base:08x} for player {}", p.0),
@@ -395,6 +418,7 @@ impl Ladder {
                         let peer = self.peers.entry(*p).or_default();
                         peer.avatar = Some(a);
                         peer.space = space;
+                        peer.base = base; // look
                         peer.placed += 1;
                         if peer.placed > 1 {
                             let n = peer.placed;
@@ -419,8 +443,18 @@ impl Ladder {
                 continue;
             };
             self.entering(5, format!("moving avatar {:08x}", a.id));
-            match live::avatar_hold(e, a, s.pos, s.heading) {
+            // look: an avatar shown as its player is led with its AI on, so the game animates it.
+            let held = if self.look.is_some() {
+                coop_engine::look::lead(e, a, s.pos, s.heading)
+            } else {
+                live::avatar_hold(e, a, s.pos, s.heading)
+            };
+            match held {
                 Some(h) => {
+                    // look: its gait, weapon, actions and items.
+                    if let Some(l) = self.look.as_mut() {
+                        l.frame(e, *p, a.id, s, now_ms);
+                    }
                     let peer = self.peers.entry(*p).or_default();
                     peer.moved += 1;
                     peer.woke += u64::from(h.woke);
@@ -478,6 +512,13 @@ impl Ladder {
                 }
             }
         }
+        // look
+        if let Some(l) = self.look.as_mut() {
+            l.end_frame();
+            for line in std::mem::take(&mut l.notes) {
+                self.say(line);
+            }
+        }
     }
 
     fn remove(&mut self, e: &mut Engine, p: PlayerId, why: &str) {
@@ -522,7 +563,7 @@ impl Ladder {
                 })
             })
             .collect();
-        format!(
+        let line = format!(
             "live: last rung reported {top}, warps {}, {}",
             self.warps,
             if avatars.is_empty() {
@@ -530,6 +571,11 @@ impl Ladder {
             } else {
                 avatars.join("; ")
             }
-        )
+        );
+        // look
+        match &self.look {
+            Some(l) => format!("{line}; {}", l.status()),
+            None => line,
+        }
     }
 }

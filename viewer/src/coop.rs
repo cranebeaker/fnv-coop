@@ -23,6 +23,10 @@
 //! `NV_COOP_SMOOTH=on` for held actors moved in steps (S22), `NV_COOP_ITEMS=on` for loot, pick-ups
 //! and barter through the host (S20).
 //!
+//! Off unless asked too: `NV_COOP_LOOK=walk` has the other players' avatars walk and run with the
+//! game's animations, `pose` also holds, draws and fires their weapons, `gear` also has them wear
+//! their players' items, `face` also gives them their players' faces, bodies and names (S32).
+//!
 //! Both players start the same game (a new game, or the same save) from installations whose
 //! plugins load in the same order; the handshake refuses a guest whose plugins differ.
 
@@ -316,9 +320,20 @@ impl Coop {
             .ok()
             .and_then(|v| u32::from_str_radix(v.trim().trim_start_matches("0x"), 16).ok())
             .unwrap_or(DEFAULT_AVATAR_BASE);
+        // look: `NV_COOP_LOOK=walk|pose|gear|face` shows the other players' avatars as those
+        // players (docs/coop/SPECS.md S32); off unless asked (not yet run on a PC).
+        let look = session::look::Cap::parse(&std::env::var("NV_COOP_LOOK").unwrap_or_default());
+        let mut ladder = Ladder::new(guest, cap, base);
+        ladder.look = look.map(session::look::Look::new);
         (
-            Some(Ladder::new(guest, cap, base)),
-            format!("co-op live: ladder up to {cap:?}, avatar base form {base:08x}"),
+            Some(ladder),
+            format!(
+                "co-op live: ladder up to {cap:?}, avatar base form {base:08x}, look {}",
+                look.map_or(
+                    "off (NV_COOP_LOOK=walk, pose, gear or face)".to_string(),
+                    |c| { format!("{c:?}") }
+                )
+            ),
         )
     }
 

@@ -21,6 +21,8 @@
 // fights
 pub mod fight;
 pub mod ladder;
+// look: the other players' avatars as those players (docs/coop/SPECS.md S32).
+pub mod look;
 pub mod record;
 // items: loot taken once and barter through the host (docs/coop/SPECS.md S20).
 pub mod items;
@@ -1025,6 +1027,10 @@ impl HostDriver {
         for msg in self.sync.live.take_local() {
             self.view.on_msg(msg, now_ms);
         }
+        // look: the other players' parts and actions, for their avatars.
+        if let Some(l) = ladder.look.as_mut() {
+            l.take(&mut self.view);
+        }
         let players = self.sync.players();
         let peers: Vec<(PlayerId, Sample)> = players
             .iter()
@@ -1038,6 +1044,29 @@ impl HostDriver {
         let mut state = ladder::state_of(&me);
         if let Some(f) = self.fight.as_ref() {
             f.stamp(e, &mut state);
+        }
+        // look: this player's gait and weapon in its state; its parts and actions to the others.
+        if let Some(l) = ladder.look.as_mut() {
+            l.stamp(e, &mut state);
+            let own = l.own(e, now_ms);
+            let mut msgs: Vec<AvatarMsg> = Vec::new();
+            if let Some((equipment, appearance)) = own.parts {
+                msgs.push(self.sender.set_parts(equipment, appearance));
+            }
+            for (kind, arg) in own.actions {
+                msgs.push(self.sender.action(kind, arg));
+            }
+            for m in msgs {
+                let relayed = self.sync.live.on_msg(
+                    PlayerId::HOST,
+                    Msg::Avatar(m),
+                    now_ms,
+                    &mut self.sync.auth,
+                );
+                for (to, msg) in relayed {
+                    send(net, to, &msg, &mut self.send_failures);
+                }
+            }
         }
         let Some(m) = self.sender.tick(now_ms, &state) else {
             return;
@@ -1302,6 +1331,10 @@ impl GuestDriver {
         }
         self.take_rewards(e, net);
         if let Some(ladder) = self.ladder.as_mut() {
+            // look: the other players' parts and actions, for their avatars.
+            if let Some(l) = ladder.look.as_mut() {
+                l.take(&mut self.sync.live);
+            }
             let ids: Vec<PlayerId> = self.sync.live.remote.keys().copied().collect();
             let peers: Vec<(PlayerId, Sample)> = ids
                 .into_iter()
@@ -1311,6 +1344,28 @@ impl GuestDriver {
             if let Some(me) = ladder.frame(e, now_ms, &peers) {
                 // Sent by coop-core's guest sync at its fixed rate, in the tick below.
                 self.sync.live.local = ladder::state_of(&me);
+                // look: this player's gait and weapon; its parts and actions to the host, once
+                // it takes them (the host drops what a guest sends before it is in).
+                if let Some(l) = ladder.look.as_mut() {
+                    l.stamp(e, &mut self.sync.live.local);
+                }
+                let active = self.sync.phase() == GuestPhase::Active;
+                if let Some(l) = ladder.look.as_mut().filter(|_| active) {
+                    let own = l.own(e, now_ms);
+                    if let Some((equipment, appearance)) = own.parts {
+                        let m = self.sync.live.sender.set_parts(equipment, appearance);
+                        send(
+                            net,
+                            PlayerId::HOST,
+                            &Msg::Avatar(m),
+                            &mut self.send_failures,
+                        );
+                    }
+                    for (kind, arg) in own.actions {
+                        let m = self.sync.live.action(kind, arg);
+                        send(net, PlayerId::HOST, &m, &mut self.send_failures);
+                    }
+                }
             }
         }
         // fights
