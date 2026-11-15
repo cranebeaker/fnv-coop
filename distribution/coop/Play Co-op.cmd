@@ -6,6 +6,7 @@ echo.
 echo  FNV Co-Op: play the story of Fallout: New Vegas together.
 echo  One player hosts. The others join with the host's join code.
 echo  If this is the first start on this PC, run Play.exe once alone first.
+echo  (Play Co-op.exe is the same with a window, Steam invites and voice chat settings.)
 echo.
 set "MODE="
 set /p "MODE=Type H to host or J to join, then press Enter: "

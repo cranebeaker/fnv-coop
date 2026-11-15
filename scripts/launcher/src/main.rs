@@ -7,6 +7,7 @@
 //!   Play.exe --mods           plays with the mods in the `mods` folder
 //!   Play.exe --import-saves   copies the saves from Documents\My Games\FalloutNV (read only)
 //!   Play.exe --check          everything up to starting the game, then says what it found
+//!   Play.exe --coop           the co-op window first (so does a copy named `Play Co-op.exe`)
 //!   --game FOLDER             the game's folder, instead of looking for it
 //!   --from FOLDER             with --import-saves: where to copy saves from
 //!
@@ -15,6 +16,9 @@
 //! Documents are read from), `NV_RS_NO_SHORT_PATHS=1`, `NV_RS_NO_STORES=1` (look in no store) and `NV_RS_SYSTEM_FOLDER=DIR`.
 #![windows_subsystem = "windows"]
 
+// co-op
+mod coop;
+mod coop_ui;
 mod find;
 mod mods;
 mod settings;
@@ -747,6 +751,8 @@ struct Options {
     check_only: bool,
     game: Option<PathBuf>,
     from: Option<PathBuf>,
+    // co-op
+    coop: bool,
 }
 
 fn parse_options(raw: &[String]) -> Options {
@@ -756,6 +762,7 @@ fn parse_options(raw: &[String]) -> Options {
         check_only: false,
         game: std::env::var_os("NV_RS_GAME").map(PathBuf::from),
         from: None,
+        coop: coop_ui::named_for_coop(), // co-op
     };
     let mut args = raw.iter();
     while let Some(arg) = args.next() {
@@ -763,6 +770,7 @@ fn parse_options(raw: &[String]) -> Options {
             "--mods" => options.mods = true,
             "--import-saves" => options.import = true,
             "--check" => options.check_only = true,
+            "--coop" => options.coop = true, // co-op
             "--game" => options.game = args.next().map(PathBuf::from),
             "--from" => options.from = args.next().map(PathBuf::from),
             _ => {}
@@ -857,8 +865,18 @@ fn run(package: &Package, options: &Options) -> Result<i32, Stop> {
             "nv-rs is already running from this folder. Only one game at a time from one folder.",
         );
     }
+    // co-op: the co-op window first; closing it ends here.
+    let picked = if options.coop && !options.check_only {
+        match coop_ui::choose(&package.root, &package.userdata) {
+            Some(p) => Some(p),
+            None if ui::windows_allowed() => return Ok(0),
+            None => None,
+        }
+    } else {
+        None
+    };
     let status = ui::Status::show("Looking for Fallout: New Vegas...");
-    let result = play(package, options, &profile, &status);
+    let result = play(package, options, &profile, &status, picked.as_ref());
     status.close();
     result
 }
@@ -868,6 +886,7 @@ fn play(
     options: &Options,
     profile: &Profile,
     status: &ui::Status,
+    picked: Option<&coop_ui::Picked>,
 ) -> Result<i32, Stop> {
     let (mut game, check_lines) = find_game(package, options.game.as_deref())?;
     // The first write of the run: the game's folder is known and the package is not in it.
@@ -902,6 +921,10 @@ fn play(
         code: STOP_LOCATION,
         message: format!("{}: {e}", package.machine.display()),
     })?;
+    // co-op: the window's choices, for the next time.
+    if let Some(p) = picked {
+        let _ = std::fs::write(package.userdata.join(coop::FILE), p.choice.to_ini());
+    }
 
     // Mods: a whole install of links and copies in the package.
     if options.mods {
@@ -1119,6 +1142,16 @@ fn play(
     for (name, value) in &game_switches {
         command.env(name, value);
     }
+    // co-op: the window's switches, over settings.ini's and the console's.
+    if let Some(p) = picked {
+        for (name, value) in &p.env {
+            match value {
+                Some(value) => command.env(name, value),
+                None => command.env_remove(name),
+            };
+        }
+        package.log(&format!("co-op: {:?} as {}", p.mode, p.choice.name.trim()));
+    }
     if settings.borderless() {
         command.env("NV_BORDERLESS", "1");
     } else {
@@ -1166,6 +1199,10 @@ fn play(
         ),
     })?;
     let mut waiting_for_window = true;
+    // co-op: a host's join code, shown once the game has made it.
+    let mut codes = picked
+        .filter(|p| matches!(p.mode, coop::Mode::Host | coop::Mode::InviteSteamFriend))
+        .map(|_| coop_ui::CodeWatch::new(&log_path));
     let exit = loop {
         match child.try_wait() {
             Ok(Some(code)) => break code,
@@ -1181,6 +1218,9 @@ fn play(
         if waiting_for_window && ui::game_window_is_there() {
             waiting_for_window = false;
             status.close();
+        }
+        if let Some(line) = codes.as_mut().and_then(coop_ui::CodeWatch::poll) {
+            package.log(&line);
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
     };

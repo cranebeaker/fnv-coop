@@ -11,7 +11,12 @@
 #       [-Target DIR]    the Cargo target folder (default: target)
 #       [-Toolchain32 stable]   the Rust toolchain that has i686-pc-windows-msvc, for the 32-bit tools
 #
-# The 32-bit tools need `rustup target add i686-pc-windows-msvc` on that toolchain once.
+# The 32-bit tools need `rustup target add i686-pc-windows-msvc` on that toolchain once. The game
+# program's voice chat builds libopus from source, so the build needs CMake on PATH.
+#
+# steam: with -Coop, Valve's steam_api64.dll is shipped next to Play.exe only when
+# third_party/steam/steam_api64.dll (never committed: *.dll is ignored) is the pinned file below;
+# otherwise the package says plainly that the player puts it there for Steam invites.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9._-]+$')][string]$Version,
@@ -61,6 +66,11 @@ try {
     $x86 = Join-Path $Target 'i686-pc-windows-msvc/release'
     $tool = Join-Path $x64 'package-check.exe'
     if (!$UseBuilt) {
+        # voice: libopus is built with CMake. A CMAKE_TOOLCHAIN_FILE for another platform (an
+        # Android one, say) would build it for that platform: it is set aside for this build.
+        if (!(Get-Command cmake -ErrorAction SilentlyContinue)) { throw 'CMake is not on PATH: the game program builds libopus (voice chat) with it.' }
+        $toolchainFile = $env:CMAKE_TOOLCHAIN_FILE
+        Remove-Item Env:CMAKE_TOOLCHAIN_FILE -ErrorAction SilentlyContinue
         # A static C runtime, because a new PC may not have the Visual C++ runtime. The build
         # machine's folders stay out of the programs.
         $registry = Join-Path $(if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE '.cargo' }) 'registry\src'
@@ -78,6 +88,7 @@ try {
             if ($LASTEXITCODE) { throw "$manifest did not build." }
         }
         Remove-Item Env:CARGO_ENCODED_RUSTFLAGS
+        if ($toolchainFile) { $env:CMAKE_TOOLCHAIN_FILE = $toolchainFile }
     }
 
     $name = $(if ($Coop) { "fnv-coop-$Version-windows-x64" } else { "nv-rs-preview-$Version-windows-x64" }) + $(if ($TestBuild) { '-test' } else { '' })
@@ -105,12 +116,34 @@ try {
     Copy-Item -LiteralPath (Join-Path $root 'crates/vorbis/LICENSE-libvorbis') -Destination (Join-Path $stage 'licenses/LICENSE-libvorbis')
     Copy-Item -LiteralPath (Join-Path $root 'crates/nvse/LICENSE-msvc-stl') -Destination (Join-Path $stage 'licenses/LICENSE-msvc-stl')
     $notepad = @('READ ME.txt', 'mods/READ ME.txt')
+    $steamDll = $null
     if ($Coop) {
         foreach ($file in @('Play Co-op.cmd', 'READ ME co-op.txt')) {
             Copy-Item -LiteralPath (Join-Path $root "distribution/coop/$file") -Destination $stage
         }
         Copy-Item -LiteralPath (Join-Path $root 'distribution/coop/join-code.ps1') -Destination (Join-Path $stage 'app/tools/join-code.ps1')
-        $notepad += @('Play Co-op.cmd', 'READ ME co-op.txt', 'app/tools/join-code.ps1')
+        # The co-op window: Play.exe again, under the name that opens it (scripts/launcher coop_ui).
+        Copy-Item -LiteralPath (Join-Path $x64 'Play.exe') -Destination (Join-Path $stage 'Play Co-op.exe')
+        # steam: the pinned Steam library (Steamworks.NET Standalone 2025.164.1, Windows-x64),
+        # unmodified, next to Play.exe; any other file is not shipped.
+        $pinned = 'eb17909a76668cf9ae0b92a618a34a50f6c73d3a6787cb4dd8ce36a8b10bfb75'
+        $dll = Join-Path $root 'third_party/steam/steam_api64.dll'
+        $dllStatus = 'It is not in this package. For Steam invites, put your own 64-bit steam_api64.dll (Valve, Steamworks SDK) next to Play.exe. Without it the join code works as before.'
+        if (Test-Path -LiteralPath $dll) {
+            $h = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($h -eq $pinned) {
+                Copy-Item -LiteralPath $dll -Destination $stage
+                $steamDll = Join-Path $stage 'steam_api64.dll'
+                $dllStatus = "It is shipped here unmodified, next to Play.exe (Steamworks.NET Standalone 2025.164.1, Windows-x64, SHA-256 $pinned)."
+            } else {
+                Write-Warning 'third_party/steam/steam_api64.dll does not match the pinned hash; not shipping it.'
+            }
+        } else {
+            Write-Warning 'third_party/steam/steam_api64.dll is not there: the package has no Steam library (its STEAM.txt says so).'
+        }
+        $steamText = (Get-Content -LiteralPath (Join-Path $root 'distribution/coop/STEAM.txt') -Raw).Replace('STEAM_DLL_STATUS_PLACEHOLDER', $dllStatus)
+        [IO.File]::WriteAllText((Join-Path $stage 'STEAM.txt'), $steamText, (New-Object Text.UTF8Encoding($false)))
+        $notepad += @('Play Co-op.cmd', 'READ ME co-op.txt', 'STEAM.txt', 'app/tools/join-code.ps1')
     }
     # Text files for Notepad (and the line ends that cmd.exe reads).
     foreach ($file in $notepad) {
@@ -125,7 +158,10 @@ try {
 
     # What must not be in it: the file types first, then the build machine's traces and game data.
     $forbidden = '\.(esm|esp|bsa|nif|kf|dds|ogg|mp3|wav|lip|bik|fos|sdp|pdb|tsv|ini|log|dll|sym)$'
-    $bad = Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object { $_.Name -match $forbidden }
+    # steam: the one DLL allowed is the pinned Steam library next to Play.exe, checked again here.
+    $bad = Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object { $_.Name -match $forbidden } | Where-Object {
+        !($steamDll -and $_.FullName -eq $steamDll -and (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -eq $pinned)
+    }
     if ($bad) { throw "These must not be in the package: $($bad.FullName -join ', ')" }
     # (LEGAL.md names fnv_decomp, so that one only counts in the programs.)
     $needles = @($env:USERNAME, $env:USERPROFILE, $root) | Where-Object { $_ }
