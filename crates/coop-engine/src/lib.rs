@@ -32,6 +32,8 @@ pub mod forms;
 pub mod gate;
 pub mod journal;
 pub mod live;
+// look: the other player's avatar as that player (docs/coop/SPECS.md S35).
+pub mod look;
 pub mod puppet;
 pub mod quest;
 pub mod reward;
@@ -134,6 +136,8 @@ pub fn install(e: &mut Engine) {
     compass::install(e);
     // companions
     companion::install(e);
+    // look: the player's attacks noted for its avatar in the other games.
+    look::install(e);
 }
 
 // The unit tests' own program: no other crate's functions are linked in.

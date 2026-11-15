@@ -1093,3 +1093,119 @@ pub const ACTOR_SET_VARIABLE: u32 = 0x008c_16c0;
 pub const WHEEL_SWITCH_TEXTS: [u32; 4] = [0x0107_1de0, 0x0107_1dd0, 0x0107_1dbc, 0x0107_1db4];
 /// The index of "Waiting" in [`WHEEL_SWITCH_TEXTS`].
 pub const WHEEL_WAITING: usize = 3;
+// look: the other player's avatar walks, holds its weapon, wears and looks as that player
+// (docs/coop/SPECS.md S35). Each fact is read from this tree's translation, named below.
+
+/// `Actor::StartAttack` (`00893a40`, `actor_p3.rs`, `actor_start_attack`): `thiscall` on the actor
+/// with the animation group; true when the attack animation was started. The player's attack
+/// button starts its attacks here directly (`playercharacter.rs`, `fn_00948310`), not through
+/// `Actor::QueueAttack`.
+pub const ACTOR_START_ATTACK: u32 = 0x0089_3a40;
+/// `Actor::IsWeaponDrawn` (`008a16d0`, `actor_p3.rs`, `actor_is_weapon_drawn`): a byte, the
+/// process's virtual `0x454`; 0 without a process.
+pub const ACTOR_IS_WEAPON_DRAWN: u32 = 0x008a_16d0;
+/// The actor's draw or put away of its weapon (`008a6840`, `actor_p4.rs`, `fn_008a6840`:
+/// `thiscall`, a byte): the player's attack button draws the weapon with it, `(player, 1)`, when
+/// it is not drawn (`playercharacter.rs`, `fn_00948310`). It does nothing when the state asked
+/// for is the actor's already.
+pub const ACTOR_DRAW_WEAPON: u32 = 0x008a_6840;
+/// `Actor::GetCurrentWeapon` (`008a1710`, `actor_p3.rs`, `actor_get_current_weapon`): the form of
+/// the weapon the process holds, or 0.
+pub const ACTOR_GET_CURRENT_WEAPON: u32 = 0x008a_1710;
+/// `Actor::GetAnimAction` (`008a7570`, `actor_p4.rs`, `actor_get_anim_action`): the process's
+/// virtual `0x3e4`, -1 without a process.
+pub const ACTOR_GET_ANIM_ACTION: u32 = 0x008a_7570;
+/// The animation action of a reload (`playercharacter.rs`, `reload_attack`: "while the actor is
+/// reloading (animation action 0x11)").
+pub const ANIM_ACTION_RELOAD: i32 = 0x11;
+/// `Actor::QueueReload` (`008a8840`, `actor_p4.rs`, `actor_queue_reload`): `thiscall`; with a
+/// process, its virtual `0x614(2)`.
+pub const ACTOR_QUEUE_RELOAD: u32 = 0x008a_8840;
+/// `TESObjectWEAP::GetCurrentAmmo` (`00525980`, `actor_p3.rs`, `WEAPON_GET_CURRENT_AMMO`):
+/// `thiscall` on the weapon form with the actor; the ammunition form, 0 for a weapon without.
+pub const WEAPON_GET_CURRENT_AMMO: u32 = 0x0052_5980;
+/// `InventoryChanges::WearingObject` (`004bfda0`, `tesscriptfunctions_p5.rs`, `WEARING_OBJECT`):
+/// `thiscall` on the inventory changes (`item, 0`); the item's worn extra data list, 0 when the
+/// reference does not wear it.
+pub const CHANGES_WEARING_OBJECT: u32 = 0x004b_fda0;
+/// `Actor::QueueEquipObject` (`0088c650`, `actor_p2.rs`, `actor_queue_equip_object`): `thiscall`
+/// with `(item, count, extra data, 1, lock, 1)`, the words the `EquipItem` command passes
+/// (`tesscriptfunctions_p5.rs`, `script_equip_item_function`; its lock is `count > 0`).
+pub const ACTOR_QUEUE_EQUIP_OBJECT: u32 = ACTOR_QUEUE_EQUIP;
+/// `Actor::QueueUnEquipObject` (`0088c790`, `actor_p2.rs`): the same six words, as the
+/// `UnequipItem` command passes them (`tesscriptfunctions_p5.rs`, `fn_005d0300`).
+pub const ACTOR_QUEUE_UNEQUIP_OBJECT: u32 = ACTOR_QUEUE_UNEQUIP;
+/// `TESDataHandler::CreateFormOfType` (`00465110`, `tesdatahandler.rs`,
+/// `tes_data_handler_create_form_of_type`): a plain function of the form type byte; the new form,
+/// constructed (an NPC, type `0x2a`, is `0x20c` bytes made by `TESNPC::TESNPC` `00601170`). The
+/// `TESForm` constructor gives it the data handler's next free id (`tesform.rs`,
+/// `tes_form_tes_form`, `TESDataHandler::GetNextID` `00469800`).
+pub const CREATE_FORM_OF_TYPE: u32 = 0x0046_5110;
+/// The form type of an NPC (`tesdatahandler.rs`, `FORM_TYPE_NPC`; `tesnpc.rs`, `cFormType`).
+pub const FORM_TYPE_NPC: u8 = 0x2a;
+/// `TESNPC::Copy` (`006035e0`, `tesnpc.rs`, `tesnpc_copy`): the form's virtual `0x108`, with the
+/// source NPC: every component, the NPC data, class, combat style, the head and face
+/// (`fn_00603790`), height and weight.
+pub const FORM_COPY_SLOT: u32 = 0x108;
+/// `TESNPC` fields (`tesnpc.rs`, the `TESNPC` layout, PC offsets): `iActorBaseFlags` (+0x34, bit
+/// 0 female: `TESActorBase::GetSex`, `GET_SEX`), `pFormRace` (+0x110), `pHair` (+0x1b8),
+/// `fHairLength` (+0x1bc), `pEyeColor` (+0x1c0), `iHairColor` (+0x1d8), `listHeadParts` (+0x1dc,
+/// a `BSSimpleList`: item, next), `pFaceNPC` (+0x1f0), `fHeight` (+0x1f4), `fWeight` (+0x1f8).
+pub const NPC_BASE_FLAGS_OFFSET: u32 = 0x34;
+/// See [`NPC_BASE_FLAGS_OFFSET`]: the female bit.
+pub const NPC_FLAG_FEMALE: u32 = 1;
+/// See [`NPC_BASE_FLAGS_OFFSET`].
+pub const NPC_RACE_OFFSET: u32 = 0x110;
+/// See [`NPC_BASE_FLAGS_OFFSET`].
+pub const NPC_HAIR_OFFSET: u32 = 0x1b8;
+/// See [`NPC_BASE_FLAGS_OFFSET`].
+pub const NPC_HAIR_LENGTH_OFFSET: u32 = 0x1bc;
+/// See [`NPC_BASE_FLAGS_OFFSET`].
+pub const NPC_EYES_OFFSET: u32 = 0x1c0;
+/// See [`NPC_BASE_FLAGS_OFFSET`].
+pub const NPC_HAIR_COLOR_OFFSET: u32 = 0x1d8;
+/// See [`NPC_BASE_FLAGS_OFFSET`].
+pub const NPC_HEAD_PARTS_OFFSET: u32 = 0x1dc;
+/// See [`NPC_BASE_FLAGS_OFFSET`]. `TESNPC::Copy` makes the source this NPC's face NPC unless it
+/// is the player's base form (`tesnpc.rs`, `fn_00603790`).
+pub const NPC_FACE_NPC_OFFSET: u32 = 0x1f0;
+/// See [`NPC_BASE_FLAGS_OFFSET`].
+pub const NPC_HEIGHT_OFFSET: u32 = 0x1f4;
+/// See [`NPC_BASE_FLAGS_OFFSET`].
+pub const NPC_WEIGHT_OFFSET: u32 = 0x1f8;
+/// The `BSSimpleList` emptying (`00470470`, `run_00470040.rs`, `fn_00470470`): `thiscall` on the
+/// list head; `TESNPC::Copy` empties the head parts with it (`tesnpc.rs`, `fn_00603790`).
+pub const LIST_CLEAR: u32 = 0x0047_0470;
+/// The `BSSimpleList` append (`00905820`, `highprocess_p5.rs`, `fn_00905820`): `thiscall` on the
+/// list head with the address of a word holding the item; `TESNPC::Copy` refills the head parts
+/// with it.
+pub const LIST_APPEND: u32 = 0x0090_5820;
+/// An NPC's face-gen coordinate (`00601800`, `tesnpc.rs`, `NPC_FACE_COORD_POINTER`): `thiscall`;
+/// two rows of two `0x20`-byte matrices (row `i`, column `j` at `i * 0x40 + j * 0x20`;
+/// `bsfacegenmanager.rs`, `bs_face_gen_manager_copy_face_gen_coord`).
+pub const NPC_FACE_COORD: u32 = 0x0060_1800;
+/// A face-gen matrix (`FR2MatrixVTC<float>`, `tesnpc.rs`, the `Fr2Matrix` layout): its values'
+/// first element at +0xc (`std::vector::_Myfirst`), its row count at +0x18, its column count at
+/// +0x1c.
+pub const MATRIX_DATA_OFFSET: u32 = 0x0c;
+/// See [`MATRIX_DATA_OFFSET`].
+pub const MATRIX_ROWS_OFFSET: u32 = 0x18;
+/// See [`MATRIX_DATA_OFFSET`].
+pub const MATRIX_COLUMNS_OFFSET: u32 = 0x1c;
+/// The four matrices of a face-gen coordinate, `0x20` bytes each (see [`NPC_FACE_COORD`]).
+pub const MATRIX_SIZE: u32 = 0x20;
+/// A face-gen matrix's resize (`0060b340`, `tesnpc.rs`, `fn_0060b340`): `thiscall` with the row
+/// and column counts; the values become `rows * columns` zeros.
+pub const MATRIX_RESIZE: u32 = 0x0060_b340;
+/// `TESFullName::GetFullName` (`00482720`, `tescontainer.rs`, `tes_full_name_get_full_name`):
+/// `cdecl` with the form; its name's text (a C string), or the empty string.
+pub const FULL_NAME_TEXT: u32 = 0x0048_2720;
+/// The name of an NPC: its `TESFullName` at +0xd0 (`tesnpc.rs`, `COMPONENT_FULL_NAME`), whose
+/// string is at +4 of it (`tesfullname.rs`: "the string at +4").
+pub const NPC_NAME_STRING_OFFSET: u32 = 0xd0 + 4;
+/// `BSStringT<char>` text assignment (`004037f0`, `run_00403720.rs`, `fn_004037f0`): `thiscall`
+/// with a C string and the least capacity; the text is copied.
+pub const STRING_SET: u32 = 0x0040_37f0;
+/// The form type of a weapon (`actor_p2.rs`, `FORM_TYPE_WEAPON`, which `Actor::QueueEquipObject`
+/// equips).
+pub const FORM_TYPE_WEAPON: u8 = 0x28;

@@ -1071,3 +1071,57 @@ co-op build.
   `local` values and the host's socket (viewer/src/coop.rs), and the recipe's values in
   Couchlink's built-in recipe test. Not run: the game under Couchlink, two copies on one PC, the
   hook's input reaching the engine's window, the window's placement.
+
+## S35: the other player's avatar as that player (implemented with unit tests; not run on a PC)
+
+Until now an avatar was placed from a base form (this game's own player's by default) with its AI
+off, and slid from place to place: it did not walk, did not hold the other player's weapon, and
+looked like this game's player. `NV_COOP_LOOK=walk|pose|gear|face` (off unless asked; each level
+includes the ones before it) changes that (`coop_engine::look`, `coop_engine_session::look`). Nothing
+new travels: coop-core's avatar stream already carried the fields, unused until now.
+
+| Level | What the owner sends | What the other games do with its avatar | Game facts (each from this tree's translation) |
+| --- | --- | --- | --- |
+| walk | its movement flags in each state (`AvatarState::anim`, the mover's `GetMoveMode`), sneaking as `FLAG_SNEAK` | its AI is kept on (the game animates it) and it is put on its player's place every frame; the flags are forced on it when they change (`ForceMoveMode`), so it walks, runs or sneaks as its player does and stands (the idle) when they are 0, as D6 B2's led copies; a fight its own AI starts is ended at once | `ACTOR_MOVE_FLAGS` `008846e0`, `ACTOR_FORCE_MOVE_MODE` `008b3a20` (as D6); `bProcessMe` +0xbc |
+| pose | its weapon (`AvatarState::weapon`), drawn as `FLAG_DRAWN`; an action event for each attack its game starts (`ActionKind::Shoot`, the animation group) and each reload (`ActionKind::Reload`) | the weapon is given and put in its hand, with ammunition for it; drawn or put away as its player's is; each attack is the game's own `QueueAttack` with the same group, each reload `QueueReload`; an attack is a cue, its hits decided by the hit wrap as any actor's (S15) | `Actor::StartAttack` `00893a40` (the player's attack button, `fn_00948310`, starts there; a wrap, step C-15, notes the player's), `Actor::IsWeaponDrawn` `008a16d0`, the draw call `008a6840`, `Actor::GetCurrentWeapon` `008a1710`, `Actor::GetAnimAction` `008a7570` (0x11 a reload), `Actor::QueueReload` `008a8840`, `TESObjectWEAP::GetCurrentAmmo` `00525980` |
+| gear | what it wears (the parts' equipment: each inventory item its game says it wears), read every second and sent when it changes | it is given each item it lacks (as `AddItem`), puts it on and takes off whatever else it wears, through the `EquipItem` and `UnequipItem` commands' calls | `InventoryChanges::WearingObject` `004bfda0`, `Actor::QueueEquipObject` `0088c650`, `Actor::QueueUnEquipObject` `0088c790` |
+| face | its face, body and name (the parts' appearance, `look::encode`: sex, race, hair, hair length, eyes, hair colour, height, weight, head parts, the four face-gen matrices in thousandths, the name), what character creation set on its base form | a new NPC base is made by the game (`CreateFormOfType`, a new id of its own) as a copy of the avatar base (`TESNPC::Copy`), the player's look is written onto it (its face NPC cleared, which the copy had made the source), and the avatar is placed from it; a changed look (a new name) is a new base and the avatar is placed anew. The crosshair and anything else that names the reference read the base's name | `CreateFormOfType` `00465110`, `TESNPC::Copy` virtual `0x108` (`006035e0`), the `TESNPC` layout (`tesnpc.rs`), `BSSimpleList` clear `00470470` and append `00905820`, the face-gen coordinate `00601800` and matrix resize `0060b340`, `TESFullName::GetFullName` `00482720`, `BSStringT` set `004037f0` |
+
+- A guest sends its parts and actions only once the host has taken it in (the host drops what a
+  guest sends before); an attack started before that is not played later. The host's hub gives a
+  late joiner the parts it holds.
+- Below `face` no base form is made: the avatar keeps its default base, as before.
+- With `NV_COOP_LOOK` off the ladder is as it was (S8): AI off, a sliding figure.
+- The compass (S31) ticks the avatar whatever its base.
+
+**Verified here:** 8 unit tests in `coop-engine` (`look_tests.rs`, on the testkit's look kit:
+the pose read, the attack wrap noting only the player's started attacks, the lead keeping the AI
+on, gait and calm, draw, attack and reload, wearing with strip and ammunition, the base copy and
+its face, forms the game lacks), 4 in the session (`look.rs`: the appearance's encoding and the
+cap's words), 7 two-game tests (`tests/look.rs`: walking, running, sneaking and standing both
+ways; the look off as before; weapon in hand, drawn, attacks once each, a refused attack not sent,
+reload, a weapon change, put away, both directions; an attack from before the guest was in; gear
+put on and taken off with its player; face, body and name both ways and a new base on a new name;
+no base below the face level), each with the story channel untouched. Mutation checks: the AI kept
+on, the gait in the state, the face NPC cleared, the strip, the started-attack test, the first
+frame's count; each killed by a test.
+
+**Not verified here:** every game call above (stand-ins only). In particular, on a PC:
+
+- whether a placed actor of the player's base, its AI on, with no package of its own, does
+  anything of its own that this does not undo (only its fights are ended);
+- whether the forced movement flags give the sneak and turn animations (D6 B2 showed walk and run
+  for NPCs); the animation's speed is the avatar's own (its speed values are not synced), its
+  place is its player's;
+- whether `QueueEquipObject` on a placed actor puts the item on at once or a frame later, whether
+  equipped ammunition counts as worn, and whether a replayed attack plays without the avatar being
+  in combat;
+- whether the head of an NPC base made while playing is built from its face-gen values (as the
+  player's is) or looked for in face-gen files that do not exist for it;
+- what a save made while such a base and avatar exist holds (avatars were already not removed
+  before a save, S8).
+
+**Not done:** jumping and falling animations (the place follows the player's path, height
+included, but nothing read here shows how the game starts a jump or a fall on another actor), and
+turning on the spot (the heading is set, no turn animation is asked for). A look changed after
+character creation (a barber, a surgeon) is read again within a second and gives a new base.
