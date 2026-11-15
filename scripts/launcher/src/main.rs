@@ -851,10 +851,10 @@ fn run(package: &Package, options: &Options) -> Result<i32, Stop> {
         clear_for_writing(package, None)?;
         return import_saves(package, &profile, options.from.as_deref());
     }
-    if win::another_is_running() {
+    if win::another_is_running(&package.root) {
         return stop(
             STOP_LOCATION,
-            "nv-rs is already running. Only one game at a time.",
+            "nv-rs is already running from this folder. Only one game at a time from one folder.",
         );
     }
     let status = ui::Status::show("Looking for Fallout: New Vegas...");

@@ -123,9 +123,11 @@ pub fn now() -> (String, String) {
     )
 }
 
-/// True when another copy of the launcher already runs. The mutex lives as long as this process.
-pub fn another_is_running() -> bool {
-    let name = wide_str("Local\\nv-rs-preview-launcher");
+/// True when another copy of the launcher already runs from the same package folder `root`. The
+/// mutex lives as long as this process. Two packages extracted to two folders each have their own
+/// user data, so each may run one game (two players on one PC).
+pub fn another_is_running(root: &std::path::Path) -> bool {
+    let name = wide_str(&mutex_name(root));
     // SAFETY: the name lives through the call; the handle is kept open on purpose.
     unsafe {
         let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
@@ -391,5 +393,30 @@ pub fn default_sound_device() -> Option<String> {
         let release: Release = std::mem::transmute(*(*device).vtable.add(2));
         release(device);
         text
+    }
+}
+
+/// The launcher's mutex name for the package folder `root`: one per folder, whatever its case.
+fn mutex_name(root: &std::path::Path) -> String {
+    // FNV-1a over the folder's lower-case text: stable across runs, no dependency.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in root.to_string_lossy().to_lowercase().bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("Local\nv-rs-preview-launcher-{hash:016x}")
+}
+
+#[cfg(test)]
+mod mutex_tests {
+    use super::mutex_name;
+    use std::path::Path;
+
+    #[test]
+    fn each_package_folder_has_its_own_mutex() {
+        let a = mutex_name(Path::new(r"C:\Games\fnv-coop\A"));
+        assert_eq!(a, mutex_name(Path::new(r"c:\games\FNV-COOP\a")));
+        assert_ne!(a, mutex_name(Path::new(r"C:\Games\fnv-coop\B")));
+        assert!(a.starts_with("Local\nv-rs-preview-launcher-"));
     }
 }
