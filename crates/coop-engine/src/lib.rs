@@ -22,7 +22,7 @@
 pub mod actors;
 pub mod addr;
 pub mod commands;
-// companions: a companion follows the player who hired it (docs/coop/SPECS.md S32).
+// companions: a companion follows the player who hired it (docs/coop/SPECS.md S33).
 pub mod companion;
 pub mod compass;
 pub mod diag;

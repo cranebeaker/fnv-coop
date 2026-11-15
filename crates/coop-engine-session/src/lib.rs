@@ -18,7 +18,7 @@
 //! The transport is coop-core's `Transport`: coop-net's endpoint in the game, the loopback and
 //! chaos transports in tests.
 
-// companions: a companion follows the player who hired it (docs/coop/SPECS.md S32).
+// companions: a companion follows the player who hired it (docs/coop/SPECS.md S33).
 pub mod companion;
 // fights
 pub mod fight;
