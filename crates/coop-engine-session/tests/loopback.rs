@@ -1275,6 +1275,46 @@ fn a_guests_stage_is_done_by_the_host_and_another_drift_is_put_back() {
     assert!(notes.contains("proposed to the host"), "{notes}");
 }
 
+/// PC run 28, 2026-11-13: a dialogue line's result set a quest variable in the host's game
+/// (`bMetSunny`), which leaves nothing in the journal; the story kept the old value, and the
+/// guest's game was put back to it. A variable the host's game changes reaches the guests however
+/// it was changed.
+#[test]
+fn a_quest_variable_the_hosts_game_sets_without_the_journal_reaches_the_guest() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    let index = coop_engine::vars::quest_vars(&mut host.e, MQ).unwrap()[0].0;
+    assert!(coop_engine::vars::set_quest_var(
+        &mut host.e,
+        MQ,
+        index,
+        1.0f64.to_bits()
+    ));
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    let var = |s: &mut Story| coop_engine::vars::quest_vars(&mut s.e, MQ).unwrap()[0].1;
+    assert_eq!(var(&mut guest), 1.0f64.to_bits());
+    assert_same_game(&mut host, &mut guest);
+}
+
 /// PC run 19, 2026-11-12: quests of the pre-order packs changed in the guest's game on their own
 /// (timers, references), with no cause in the journal, and were proposed every few seconds. A
 /// change with no cause is proposed only when an object script that names that quest ran in
@@ -1455,6 +1495,51 @@ fn a_guest_that_loads_a_save_proposes_nothing() {
     assert_same_game(&mut host, &mut guest);
 }
 
+/// Harness, 2026-11-13: the host's story was read once, at the main menu; after the host loaded
+/// its save, Sunny's quest was at stage 5 in its game and 0 in the story, and the guests were put
+/// back to 0. After a load the story is read again from the host's game.
+#[test]
+fn the_story_is_read_again_after_the_host_loads_a_save() {
+    let (mut host, mut hd, mut hostnet, mut guest, mut gd, mut gnet) = pair();
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    // The save's state comes into the host's game with nothing in the journal.
+    let mut rec = coop_engine::quest::record(&mut host.e, MQ).unwrap();
+    assert!(!rec.done.contains(&20));
+    rec.stage = 20;
+    rec.done.push(20);
+    assert!(coop_engine::gate::applying(&mut host.e, |e| {
+        let ok = coop_engine::quest::apply(e, &rec);
+        let _ = coop_engine::drain(e);
+        ok
+    }));
+    host.load("Save 2");
+    frames(
+        60,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut *hostnet,
+        &mut guest,
+        &mut gd,
+        &mut *gnet,
+    );
+    assert!(coop_engine::quest::record(&mut guest.e, MQ)
+        .unwrap()
+        .done
+        .contains(&20));
+    assert_same_game(&mut host, &mut guest);
+}
+
 /// A guest whose game is merely behind the story (it joins with a game that already did things
 /// of its own) proposes nothing: the story is put into its game, not its game into the story.
 #[test]
@@ -1560,4 +1645,115 @@ fn an_actor_a_hosts_script_tells_to_evaluate_its_package_is_told_on_the_guest() 
         "{:?}",
         hd.stage_notes
     );
+}
+
+/// S30 (harness, 2026-11-13): Trudy's line that ends Sunny's last tutorial gives `RewardXP 50`;
+/// said to the guest, it ran in the host's game, and the host's player alone got the 50. The
+/// story's experience on the host goes to each guest's player once; the guest's own run of a
+/// story script stays held back by the gate.
+#[test]
+fn the_storys_experience_goes_to_every_player() {
+    let net = LoopbackNet::new();
+    let mut hostnet = net.endpoint(PlayerId::HOST);
+    let mut gnet = net.endpoint(PlayerId(1));
+    let mut host = Story::new(&spec());
+    let mut hd = HostDriver::new(HostConfig::new(hello(), 1), quest_ids(), GLOBALS);
+    hd.start(&mut host.e);
+    let mut guest = guest_story();
+    let mut gd = GuestDriver::new(PlayerId(1), hello());
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut hostnet,
+        &mut guest,
+        &mut gd,
+        &mut gnet,
+    );
+    host.run_script_rewarding_xp(MQ, 50);
+    guest.run_script_rewarding_xp(MQ, 50);
+    frames(
+        10,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut hostnet,
+        &mut guest,
+        &mut gd,
+        &mut gnet,
+    );
+    assert_eq!((host.xp(), guest.xp()), (50, 50));
+    assert_eq!((hd.rewards, gd.xp_given), (1, 50));
+    // Once: nothing more arrives later.
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut hostnet,
+        &mut guest,
+        &mut gd,
+        &mut gnet,
+    );
+    assert_eq!(guest.xp(), 50);
+}
+
+/// S30 (the user, 2026-11-13: both players get the caps and items a quest gives): caps and items
+/// the story gives the host's player go to each guest's player once, as `AddItem` gives them.
+#[test]
+fn the_storys_caps_and_items_go_to_every_player() {
+    const CAPS: u32 = 0x0000_000f;
+    const STIMPAK: u32 = 0x0001_5169;
+    let net = LoopbackNet::new();
+    let mut hostnet = net.endpoint(PlayerId::HOST);
+    let mut gnet = net.endpoint(PlayerId(1));
+    let mut host = Story::new(&spec());
+    let mut hd = HostDriver::new(HostConfig::new(hello(), 1), quest_ids(), GLOBALS);
+    hd.start(&mut host.e);
+    let mut guest = guest_story();
+    let mut gd = GuestDriver::new(PlayerId(1), hello());
+    for s in [&mut host, &mut guest] {
+        s.add_item_form(CAPS);
+        s.add_item_form(STIMPAK);
+    }
+    let mut t = 0;
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut hostnet,
+        &mut guest,
+        &mut gd,
+        &mut gnet,
+    );
+    host.run_script_giving_item(MQ, CAPS, 100);
+    host.run_script_giving_item(MQ, STIMPAK, 2);
+    guest.run_script_giving_item(MQ, CAPS, 100);
+    frames(
+        10,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut hostnet,
+        &mut guest,
+        &mut gd,
+        &mut gnet,
+    );
+    assert_eq!((host.items(CAPS), guest.items(CAPS)), (100, 100));
+    assert_eq!((host.items(STIMPAK), guest.items(STIMPAK)), (2, 2));
+    assert_eq!((hd.rewards, gd.items_given), (2, 2));
+    frames(
+        30,
+        &mut t,
+        &mut host,
+        &mut hd,
+        &mut hostnet,
+        &mut guest,
+        &mut gd,
+        &mut gnet,
+    );
+    assert_eq!(guest.items(CAPS), 100);
 }

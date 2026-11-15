@@ -53,6 +53,60 @@ pub struct Gate {
     seen: Mutex<BTreeMap<u32, SkippedScript>>,
     /// The scripts running now, outermost first ([`cause`]).
     running: Mutex<Vec<Cause>>,
+    /// Host: the actors a guest's game runs ([`set_puppets`]).
+    puppets: RwLock<BTreeSet<u32>>,
+    /// Host: the actors in a conversation this game started between two of them (a scene).
+    scene_actors: RwLock<BTreeSet<u32>>,
+    /// Host: scripts skipped because they ran on an actor a guest's game runs.
+    skipped_puppet: AtomicU64,
+}
+
+/// Host: names the actors a guest's game runs. This game's copy of each is led to where that game
+/// has it, its AI on so that it walks and goes through doors; the scripts it runs here (its
+/// object script, its packages' scripts, its own conversations' results) are skipped while it
+/// lives, because the guest's game runs them and what they do reaches the host as proposals (PC
+/// run 25: Sunny's copy here, far from this player, finished her sneak package and her talk at
+/// once and set the stages past them). Not skipped: a guest's line this game runs for it
+/// ([`crate::talk::enact`]), the lines of a scene this game started ([`set_scene_actors`]), and
+/// anything once the actor is dead (its death is the host's to run).
+pub fn set_puppets(e: &mut Engine, ids: impl IntoIterator<Item = u32>) {
+    *e.ext_free::<Gate>()
+        .puppets
+        .write()
+        .unwrap_or_else(PoisonError::into_inner) = ids.into_iter().collect();
+}
+
+/// Host: names the actors in a scene this game plays (see [`set_puppets`]).
+pub fn set_scene_actors(e: &mut Engine, ids: impl IntoIterator<Item = u32>) {
+    *e.ext_free::<Gate>()
+        .scene_actors
+        .write()
+        .unwrap_or_else(PoisonError::into_inner) = ids.into_iter().collect();
+}
+
+/// Host: how many scripts were skipped because they ran on an actor a guest's game runs.
+pub fn puppet_skips(e: &mut Engine) -> u64 {
+    e.ext_free::<Gate>().skipped_puppet.load(Ordering::SeqCst)
+}
+
+/// Host: whether a script run on `reference` (a pointer, 0 for none) is skipped as a puppet's.
+fn puppets_own(e: &mut Engine, reference: u32) -> bool {
+    if reference == 0 {
+        return false;
+    }
+    let id = e.mem.u32(reference.wrapping_add(addr::FORM_ID_OFFSET));
+    let g = e.ext_free::<Gate>();
+    let puppet = g
+        .puppets
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .contains(&id)
+        && !g
+            .scene_actors
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&id);
+    puppet && !crate::talk::enacting(e) && crate::actors::dead(e, id) == Some(false)
 }
 
 /// A script that is running: what a change made meanwhile is put down to.
@@ -218,6 +272,11 @@ pub fn ran_own(e: &mut Engine) -> u64 {
     e.ext_free::<Gate>().ran_own.load(Ordering::SeqCst)
 }
 
+/// Whether this game is applying another game's doing now ([`applying`]).
+pub fn is_applying(e: &mut Engine) -> bool {
+    e.ext_free::<Gate>().applying.load(Ordering::SeqCst) > 0
+}
+
 /// Runs `f` as the application of the host's state: no script runs on a guest until it returns.
 pub fn applying<R>(e: &mut Engine, f: impl FnOnce(&mut Engine) -> R) -> R {
     e.ext_free::<Gate>().applying.fetch_add(1, Ordering::SeqCst);
@@ -311,6 +370,11 @@ pub(crate) fn run(e: &mut Engine, a: &[u32]) -> Ret {
             }
             return Ret::default();
         }
+    } else if puppets_own(e, a.get(2).copied().unwrap_or(0)) {
+        e.ext_free::<Gate>()
+            .skipped_puppet
+            .fetch_add(1, Ordering::SeqCst);
+        return Ret::default();
     }
     run_named(e, a)
 }

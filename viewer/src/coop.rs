@@ -17,6 +17,12 @@
 //! the host's actors turn on a guest, `revive` (the default) also holds a player's death for a
 //! revive; `off` leaves every game running its own fights.
 //!
+//! Merged from another line of work and off unless asked, each switched on for one PC run at a
+//! time: `NV_COOP_VATS=on` (or `slow`) for V.A.T.S. with several players (S21), `NV_COOP_HARM=on`
+//! for damage outside `Actor::HitMe` decided as hits are (S22, with fights shared up to damage),
+//! `NV_COOP_SMOOTH=on` for held actors moved in steps (S22), `NV_COOP_ITEMS=on` for loot, pick-ups
+//! and barter through the host (S20).
+//!
 //! Both players start the same game (a new game, or the same save) from installations whose
 //! plugins load in the same order; the handshake refuses a guest whose plugins differ.
 
@@ -337,13 +343,15 @@ impl Coop {
     }
 
     // items
-    /// Whether loot and barter go through the host's game (docs/coop/SPECS.md S20): on unless
-    /// `NV_COOP_ITEMS` is `off` or `0`.
+    /// Whether loot and barter go through the host's game (docs/coop/SPECS.md S20): off unless
+    /// `NV_COOP_ITEMS` is `on` (not yet run on a PC).
     fn items_on() -> bool {
-        !matches!(
-            std::env::var("NV_COOP_ITEMS").unwrap_or_default().trim(),
-            "off" | "0"
-        )
+        Self::switch_on("NV_COOP_ITEMS")
+    }
+
+    /// Whether the switch `name` is `on` (or `1`).
+    fn switch_on(name: &str) -> bool {
+        matches!(std::env::var(name).unwrap_or_default().trim(), "on" | "1")
     }
 
     // items
@@ -351,7 +359,7 @@ impl Coop {
         if Self::items_on() {
             "co-op items: loot, pick-ups and barter through the host's game"
         } else {
-            "co-op items: off (NV_COOP_ITEMS=off)"
+            "co-op items: off (NV_COOP_ITEMS=on puts loot, pick-ups and barter through the host's game)"
         }
     }
 
@@ -429,10 +437,11 @@ impl Coop {
             fight.lead_on = !plain;
             fight.bring_on = !plain;
             fight.packages_on = packages;
+            let extra = Self::fight_extras(&mut fight);
             return (
                 Some(fight),
                 format!(
-                    "co-op fights: the host's actors are followed, fights shared up to {cap:?} (leading {}, through doors {}, the host's packages {}, the nearest player's game runs an actor {}; NV_COOP_FIGHT=off turns it all off)",
+                    "co-op fights: the host's actors are followed, fights shared up to {cap:?} (leading {}, through doors {}, the host's packages {}, the nearest player's game runs an actor {}; NV_COOP_FIGHT=off turns it all off); {extra}",
                     if plain { "off" } else { "on" },
                     if plain { "off" } else { "on" },
                     if packages { "on" } else { "off" },
@@ -442,13 +451,30 @@ impl Coop {
         }
         let cap = session::fight::Cap::parse(&ask);
         let mut fight = session::fight::Fight::new(guest, cap);
-        // vats: `NV_COOP_VATS=off` leaves V.A.T.S. as the game has it, `slow` only keeps it
-        // from slowing the game (docs/coop/SPECS.md S21).
-        let vats = session::vats::Mode::parse(&std::env::var("NV_COOP_VATS").unwrap_or_default());
-        fight.vats = session::vats::Share::new(vats);
+        let extra = Self::fight_extras(&mut fight);
         (
             Some(fight),
-            format!("co-op fights: shared up to {cap:?}, V.A.T.S. {vats:?}"),
+            format!("co-op fights: shared up to {cap:?}; {extra}"),
+        )
+    }
+
+    /// vats: the parts of shared fights merged from another line of work, each off unless asked
+    /// (one PC run at a time). Returns the words that say so and how to switch each on.
+    fn fight_extras(fight: &mut session::fight::Fight) -> String {
+        // `NV_COOP_VATS=on`: V.A.T.S. neither stops nor slows a world other players are in;
+        // `slow`: only the playback does not slow it (docs/coop/SPECS.md S21).
+        let vats = session::vats::Mode::parse(&std::env::var("NV_COOP_VATS").unwrap_or_default());
+        fight.vats = session::vats::Share::new(vats);
+        // `NV_COOP_HARM=on`: a fall, a trap or an effect is decided as a hit is (S22; with fights
+        // shared up to damage).
+        fight.harm_on = Self::switch_on("NV_COOP_HARM");
+        // `NV_COOP_SMOOTH=on`: a held actor moves between two states in steps (S22).
+        fight.smooth_on = Self::switch_on("NV_COOP_SMOOTH");
+        let word = |on: bool| if on { "on" } else { "off" };
+        format!(
+            "V.A.T.S. {vats:?} (NV_COOP_VATS=on or slow), damage outside hits {} (NV_COOP_HARM=on), held actors in steps {} (NV_COOP_SMOOTH=on)",
+            word(fight.harm_on),
+            word(fight.smooth_on)
         )
     }
 
@@ -513,6 +539,8 @@ impl Coop {
                 lines.push(line);
                 let (on, line) = Self::social_on();
                 host.social_on = on;
+                // Each player's opening is its own, its conversations too (Doc Mitchell's).
+                host.social.talker.opening = opening_quest(&plugins);
                 lines.push(line);
                 (Endpoint::host(b, token, cfg), Role::Host(Box::new(host)))
             }
@@ -607,6 +635,7 @@ impl Coop {
                             // social
                             g.social.party.key = session::party::key_of(&self.social.name);
                             g.social.party.own_quests = self.social.own_quests.clone();
+                            g.social.talker.opening = opening_quest(&self.plugins);
                             *slot = Some(Box::new(g));
                         }
                         // Joined again after losing the host: resume from what this guest has.
@@ -759,10 +788,11 @@ impl Coop {
             Role::Host(h) => {
                 let s = &h.social;
                 format!(
-                    "co-op host social: conversations {} (guests' results run {}, left {}), lines watched {}, party saves {} ({} files), parts given back {}, rests passed {} ({} h)",
+                    "co-op host social: conversations {} (guests' results run {}, left {}, greetings left to the owner's game {}), lines watched {}, party saves {} ({} files), parts given back {}, rests passed {} ({} h)",
                     s.talker.opened,
                     s.enactor.enacted,
                     s.enactor.left,
+                    s.talker.not_greeted,
                     s.talker.lines_shown,
                     s.party.saved,
                     s.party.files_written,
@@ -774,10 +804,11 @@ impl Coop {
             Role::Guest(Some(g)) => {
                 let s = &g.social;
                 format!(
-                    "co-op guest social: conversations {} (refused {}, not started {}), results held for the host {held}, run here as own {own}, with no quest known {unknown}, lines watched {}, part sent {} time(s), put back {}, rests passed {} ({} h)",
+                    "co-op guest social: conversations {} (refused {}, not started {}, greetings left to the owner's game {}), results held for the host {held}, run here as own {own}, with no quest known {unknown}, lines watched {}, part sent {} time(s), put back {}, rests passed {} ({} h)",
                     s.talker.opened,
                     s.talker.denied,
                     s.talker.blocked,
+                    s.talker.not_greeted,
                     s.talker.lines_shown,
                     s.party.uploads,
                     s.party.restored,

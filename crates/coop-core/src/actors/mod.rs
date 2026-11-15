@@ -32,7 +32,8 @@ pub struct ActorState {
     pub pos: [i32; 3],
     /// Heading, full circle in 65536 steps.
     pub heading: u16,
-    /// Animation state id.
+    /// The actor's movement flags as its owner's game has them (`ActorMover::GetMoveMode`: its
+    /// direction bits, walking, running, sneaking): its copies show the same gait.
     pub anim: u16,
     /// Health points. On the host the damage ledger overrides this.
     pub health: u16,
@@ -40,6 +41,15 @@ pub struct ActorState {
     pub target: u32,
     /// Flag bits.
     pub flags: u16,
+    /// How many attacks the owner's game queued for the actor (wrapping; 0 before the first):
+    /// a copy replays one when this changes.
+    pub attack_seq: u8,
+    /// The animation group of the owner's last attack.
+    pub attack_group: u8,
+    /// When the owner's game took this state, on its own clock (ms, wrapping): its copies are
+    /// played back along the states by it. Not part of what makes two states differ: an owner
+    /// sends a state again only when something else changed.
+    pub ms: u32,
 }
 
 /// Why a spawn or other request failed, on the wire.
@@ -79,6 +89,16 @@ pub enum ActorMsg {
         hit: u32,
         /// Damage points.
         amount: u16,
+    },
+    /// A game's copy of the actor went for that game's own player while the owner's actor
+    /// fights nobody (each game's actors notice only its own player): the owner's game is asked
+    /// to have it fight that player. Sent by that player's game; the host passes it to the
+    /// owner.
+    Engage {
+        /// Actor.
+        actor: FormId,
+        /// The player it went for (the sender's own).
+        player: PlayerId,
     },
     /// Host: damage applied.
     Damaged {

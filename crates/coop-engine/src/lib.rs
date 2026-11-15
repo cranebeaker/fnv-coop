@@ -22,6 +22,7 @@
 pub mod actors;
 pub mod addr;
 pub mod commands;
+pub mod compass;
 pub mod diag;
 // fights
 pub mod fight;
@@ -29,7 +30,9 @@ pub mod forms;
 pub mod gate;
 pub mod journal;
 pub mod live;
+pub mod puppet;
 pub mod quest;
+pub mod reward;
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
 pub mod vars;
@@ -98,11 +101,22 @@ pub fn install(e: &mut Engine) {
     if e.is_registered(addr::CMD_SAY_TO) {
         e.wrap(commands::SAY_TO, commands::say_to);
     }
+    if e.is_registered(addr::OBJECTIVE_SET_STATE) {
+        e.wrap(quest::OBJECTIVE_STATE, quest::objective_state);
+    }
+    if e.is_registered(addr::PLAYER_REWARD_EXPERIENCE) {
+        e.wrap(reward::EXPERIENCE, reward::experience);
+    }
+    if e.is_registered(addr::CONTAINER_GIVE) {
+        e.wrap(reward::ITEMS, reward::items);
+    }
     let _ = e.ext_free::<commands::Commands>();
     // The gate's slot too, before the threads start.
     let _ = e.ext_free::<gate::Gate>();
     // fights: the hit wrap and its slot.
     fight::install(e);
+    // copies: their targets and attacks are their owners'.
+    puppet::install(e);
     // social
     social::install(e);
     // vats: the menu-mode, time multiplier and value-change wraps.
@@ -110,6 +124,8 @@ pub fn install(e: &mut Engine) {
     harm::install(e);
     // items
     items::install(e);
+    // the other players' ticks on the compass
+    compass::install(e);
 }
 
 // The unit tests' own program: no other crate's functions are linked in.

@@ -14,7 +14,8 @@
 //! A hit that `Actor::HitMe` applies also ends here, but only after the hit wrap let it pass,
 //! and the wrap decides the same for both. What co-op itself writes (a held actor's health, the
 //! damage the host decided) is made inside [`own`] and passes. With no session
-//! ([`fight::Role::Off`]) every call goes to the game as before.
+//! ([`fight::Role::Off`]), or with the switch off ([`set_on`], the default), every call goes to the
+//! game as before.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
@@ -47,6 +48,8 @@ pub struct Harm {
 pub struct Harms {
     /// The value change is wrapped on this game.
     wrapped: AtomicU8,
+    /// The session asked for losses to be decided ([`set_on`]); off, the wrap passes every call.
+    on: AtomicU8,
     /// Above 0 while co-op itself changes a value: the wrap passes the call on.
     own: AtomicU32,
     /// Losses kept from the game and not yet taken, by (victim, source).
@@ -70,6 +73,14 @@ pub(crate) fn install(e: &mut Engine) {
 /// Whether the actor's value change is wrapped on this game.
 pub fn wrapped(e: &mut Engine) -> bool {
     e.ext_free::<Harms>().wrapped.load(Ordering::SeqCst) != 0
+}
+
+/// Whether a session decides losses outside `Actor::HitMe` (`NV_COOP_HARM=on`). Off (the
+/// default), every loss of health is the game's own, as before, whatever the fights' role.
+pub fn set_on(e: &mut Engine, on: bool) {
+    e.ext_free::<Harms>()
+        .on
+        .store(u8::from(on), Ordering::SeqCst);
 }
 
 /// Runs `f` as co-op's own change of an actor's values: the wrap passes it on.
@@ -115,6 +126,7 @@ pub(crate) fn modify_value(e: &mut Engine, a: &[u32]) -> Ret {
     let ours = actor != 0
         && word(1) == addr::ACTOR_VALUE_HEALTH
         && amount < 0.0
+        && e.ext_free::<Harms>().on.load(Ordering::SeqCst) != 0
         && e.ext_free::<Harms>().own.load(Ordering::SeqCst) == 0;
     if !ours {
         return e.call_next(addr::ACTOR_MODIFY_VALUE, a);
@@ -156,6 +168,7 @@ mod tests {
         s.move_player(HOUSE, [0.0; 3], 0.0);
         s.place_actor(RAIDER, HOUSE, [1.0, 2.0, 3.0], 0.5);
         s.place_actor(GECKO, HOUSE, [4.0, 5.0, 6.0], 0.5);
+        set_on(&mut s.e, true);
         s
     }
 
@@ -177,6 +190,18 @@ mod tests {
         s.fall(PLAYER, 10.0);
         assert_eq!(s.actor_view(RAIDER).health, 65.0);
         assert_eq!(s.actor_view(PLAYER).health, 90.0);
+        assert_eq!((kept(&mut s.e), take(&mut s.e)), (0, vec![]));
+    }
+
+    #[test]
+    fn with_the_switch_off_every_loss_is_the_games_in_a_session_too() {
+        let mut s = story();
+        set_on(&mut s.e, false);
+        set_role(&mut s.e, Role::Guest);
+        set_held(&mut s.e, [RAIDER]);
+        s.fall(RAIDER, 30.0);
+        s.burn(RAIDER, PLAYER, 5.0);
+        assert_eq!(s.actor_view(RAIDER).health, 65.0);
         assert_eq!((kept(&mut s.e), take(&mut s.e)), (0, vec![]));
     }
 

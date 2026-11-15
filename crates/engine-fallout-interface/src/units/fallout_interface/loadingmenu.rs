@@ -1463,8 +1463,15 @@ pub fn loading_menu_update(e: &mut Engine, this: Ptr<LoadingMenu>) {
     e.call(MUSIC_REFRESH, &args![]);
 }
 
+/// Whether the movie player plays a sequence. Until main has made the movie player (its global
+/// still 0) the answer is "playing", so the initial load waits for it: the exe asks without a
+/// check, and on a slow machine (two cores, the port's start-up) the loading thread's first
+/// `Update` came before main made the player, and `00ec17c0` read `[0 + 8]`.
 fn playing_sequence(e: &mut Engine) -> bool {
     let player = e.mem.u32(MOVIE_PLAYER);
+    if player == 0 {
+        return true;
+    }
     e.call(PLAYING_SEQUENCE, &args![player]).bool()
 }
 

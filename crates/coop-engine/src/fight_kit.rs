@@ -8,7 +8,13 @@
 //! - the damage applier (virtual `0x338`) lowers health by the loss through the value change,
 //!   which notes the attacker, and does nothing for an essential actor;
 //! - `Actor::HitMe` applies the hit's health damage through the applier and kills at 0;
-//! - the process's start of combat (virtual `0x33c`) sets the combat flag and the target.
+//! - the process's start of combat (virtual `0x33c`) sets the combat flag and the target, and
+//!   the target becomes one its combat group knows;
+//! - an actor in combat has a combat controller (virtual `0x428`) whose target is the actor's
+//!   combat target; the controller's change of target sets it; its group answers whether it knows
+//!   a target; `StopCombat` (virtual `0x434`) ends the combat;
+//! - `QueueAttack` queues the group when none is queued (true), unless the test refuses the
+//!   actor's attacks.
 
 use engine_core::prelude::*;
 
@@ -18,7 +24,28 @@ use crate::{addr, forms};
 /// Test-only places inside an actor: its health, combat target, essential byte, last attacker,
 /// and its process (whose first word is the process's vtable).
 const HEALTH: u32 = 0x200;
-const TARGET: u32 = 0x204;
+/// The actor's combat controller (0x188 bytes): its target is the actor's combat target.
+const CONTROLLER: u32 = 0xa00;
+const TARGET: u32 = CONTROLLER + addr::CONTROLLER_TARGET_OFFSET;
+/// The controller's combat group: the count of targets it knows, then up to 8 of them.
+const GROUP: u32 = 0xc00;
+const GROUP_MAX: u32 = 8;
+/// How many attacks the game queued for the actor, and the byte that refuses them.
+const QUEUES: u32 = 0x114;
+const NO_ATTACKS: u32 = 0x118;
+/// The byte that makes the actor's process ignore a start of combat.
+const DEAF: u32 = 0x119;
+/// The actor's movement flags (u16), the flags forced on it and whether they are.
+const MOVES: u32 = 0x11c;
+const FORCED: u32 = 0x120;
+const FORCED_ON: u32 = 0x124;
+/// How often the game was asked to force the actor's movement.
+const FORCES: u32 = 0x128;
+/// The byte that leaves the reference without 3D (not drawn): within the first 0x100 bytes, the
+/// size of an avatar placed in the arena.
+const NO_3D: u32 = 0xfc;
+/// The actor's mover (only its being there is read).
+const MOVER: u32 = 0xd00;
 const ESSENTIAL: u32 = 0x208;
 const ATTACKER: u32 = 0x20c;
 const PROCESS: u32 = 0x300;
@@ -35,6 +62,9 @@ const APPLY_DAMAGE_FN: u32 = 0x0130_0030;
 const COMBAT_TARGET_FN: u32 = 0x0130_0040;
 const ALARMED_FN: u32 = 0x0130_0050;
 const START_COMBAT_FN: u32 = 0x0130_0060;
+const CONTROLLER_FN: u32 = 0x0130_0070;
+const STOP_COMBAT_FN: u32 = 0x0130_0080;
+const NODE_FN: u32 = 0x0130_0090;
 /// Counters: real `HitMe` runs, starts of combat.
 const HITS: u32 = RAN + 32;
 const COMBATS: u32 = RAN + 36;
@@ -102,10 +132,48 @@ fn hit_me(e: &mut Engine, a: &[u32]) -> Ret {
 
 fn start_combat(e: &mut Engine, a: &[u32]) -> Ret {
     let (actor, target) = (a[1], a[2]);
+    bump(e, COMBATS);
+    if e.mem.u8(actor + DEAF) != 0 {
+        return Ret::default();
+    }
     e.mem.set_u8(actor + IN_COMBAT, 1);
     e.mem.set_u32(actor + TARGET, target);
-    bump(e, COMBATS);
+    know(e, actor, target);
     Ret::default()
+}
+
+/// Makes `target` (a pointer) one of the targets `actor`'s combat group knows.
+fn know(e: &mut Engine, actor: u32, target: u32) {
+    let group = actor + GROUP;
+    let n = e.mem.u32(group);
+    if target == 0 || (0..n).any(|i| e.mem.u32(group + 4 + 4 * i) == target) || n >= GROUP_MAX {
+        return;
+    }
+    e.mem.set_u32(group + 4 + 4 * n, target);
+    e.mem.set_u32(group, n + 1);
+}
+
+fn group_target_of(e: &mut Engine, a: &[u32]) -> Ret {
+    let (group, target) = (a[0], a[1]);
+    let n = e.mem.u32(group).min(GROUP_MAX);
+    // (the target's entry stands in for its `CombatTarget`)
+    eax((0..n)
+        .map(|i| group + 4 + 4 * i)
+        .find(|at| e.mem.u32(*at) == target)
+        .unwrap_or(0))
+}
+
+fn queue_attack(e: &mut Engine, a: &[u32]) -> Ret {
+    let (actor, group) = (a[0], a[1]);
+    if e.mem.u8(actor + NO_ATTACKS) != 0 {
+        return eax(0);
+    }
+    let queued = actor + addr::ACTOR_QUEUED_ATTACK_OFFSET;
+    if e.mem.u32(queued) == addr::NO_QUEUED_ATTACK {
+        e.mem.set_u32(queued, group);
+        bump(e, actor + QUEUES);
+    }
+    eax(1)
 }
 
 fn place_at_me(e: &mut Engine, a: &[u32]) -> Ret {
@@ -127,6 +195,18 @@ fn dress(e: &mut Engine, actor: u32) {
     e.mem
         .set_u32(actor + addr::ACTOR_PROCESS_OFFSET, actor + PROCESS);
     e.mem.set_u32(actor + PROCESS, PROCESS_VTABLE);
+    e.mem
+        .set_u32(actor + CONTROLLER + addr::CONTROLLER_ATTACKER_OFFSET, actor);
+    e.mem.set_u32(
+        actor + CONTROLLER + addr::CONTROLLER_GROUP_OFFSET,
+        actor + GROUP,
+    );
+    e.mem.set_u32(
+        actor + addr::ACTOR_QUEUED_ATTACK_OFFSET,
+        addr::NO_QUEUED_ATTACK,
+    );
+    e.mem
+        .set_u32(actor + addr::ACTOR_MOVER_OFFSET, actor + MOVER);
 }
 
 /// Called by `Story::new` once its forms are in the table and before co-op is installed.
@@ -137,6 +217,9 @@ pub(super) fn register(e: &mut Engine) {
         (addr::ACTOR_APPLY_DAMAGE_SLOT, APPLY_DAMAGE_FN),
         (addr::ACTOR_COMBAT_TARGET_SLOT, COMBAT_TARGET_FN),
         (addr::ACTOR_ALARMED_SLOT, ALARMED_FN),
+        (addr::ACTOR_COMBAT_CONTROLLER_SLOT, CONTROLLER_FN),
+        (addr::ACTOR_STOP_COMBAT_SLOT, STOP_COMBAT_FN),
+        (addr::REF_GET_3D_SLOT, NODE_FN),
         (addr::REF_IS_MOBILE_SLOT, super::IS_MOBILE_FN),
         (addr::ACTOR_SLOT_214, super::NOTHING_FN),
         (
@@ -177,6 +260,43 @@ pub(super) fn register(e: &mut Engine) {
     e.register(COMBAT_TARGET_FN, |e, a| eax(e.mem.u32(a[0] + TARGET)));
     e.register(ALARMED_FN, |_, _| eax(0));
     e.register(START_COMBAT_FN, start_combat);
+    e.register(CONTROLLER_FN, |e, a| {
+        eax(if e.mem.u8(a[0] + IN_COMBAT) != 0 {
+            a[0] + CONTROLLER
+        } else {
+            0
+        })
+    });
+    e.register(STOP_COMBAT_FN, |e, a| {
+        e.mem.set_u8(a[0] + IN_COMBAT, 0);
+        e.mem.set_u32(a[0] + TARGET, 0);
+        Ret::default()
+    });
+    // Its 3D: the actor itself stands in for the node, unless the test took it away.
+    e.register(NODE_FN, |e, a| {
+        eax(if e.mem.u8(a[0] + NO_3D) == 0 { a[0] } else { 0 })
+    });
+    e.register(addr::CONTROLLER_SET_TARGET, |e, a| {
+        e.mem.set_u32(a[0] + addr::CONTROLLER_TARGET_OFFSET, a[1]);
+        Ret::default()
+    });
+    e.register(addr::GROUP_TARGET_OF, group_target_of);
+    e.register(addr::ACTOR_QUEUE_ATTACK, queue_attack);
+    e.register(addr::ACTOR_MOVE_FLAGS, |e, a| {
+        eax(u32::from(e.mem.u16(a[0] + MOVES)))
+    });
+    e.register(addr::ACTOR_FORCE_MOVE_MODE, |e, a| {
+        assert_ne!(e.mem.u32(a[0] + addr::ACTOR_MOVER_OFFSET), 0, "no mover");
+        e.mem.set_u32(a[0] + FORCED, a[1]);
+        e.mem.set_u8(a[0] + FORCED_ON, 1);
+        bump(e, a[0] + FORCES);
+        Ret::default()
+    });
+    e.register(addr::ACTOR_CLEAR_FORCED_MOVE_MODE, |e, a| {
+        assert_ne!(e.mem.u32(a[0] + addr::ACTOR_MOVER_OFFSET), 0, "no mover");
+        e.mem.set_u8(a[0] + FORCED_ON, 0);
+        Ret::default()
+    });
     e.register(addr::ACTOR_IN_COMBAT, |e, a| {
         eax(u32::from(e.mem.u8(a[0] + IN_COMBAT)))
     });
@@ -304,6 +424,112 @@ impl Story {
         };
         self.e.mem.set_u8(a + IN_COMBAT, u8::from(target != 0));
         self.e.mem.set_u32(a + TARGET, t);
+        know(&mut self.e, a, t);
+    }
+
+    /// Makes `target` (a form id) one of the targets actor `id`'s combat group knows.
+    pub fn know_target(&mut self, id: u32, target: u32) {
+        let (a, t) = (self.actor_ptr(id), self.actor_ptr(target));
+        know(&mut self.e, a, t);
+    }
+
+    /// The fighting actor `id`'s own AI changes its target to `target` (a form id; 0 for none):
+    /// the controller's change of target, as the game calls it.
+    pub fn choose_target(&mut self, id: u32, target: u32) {
+        let a = self.actor_ptr(id);
+        let t = match target {
+            0 => 0,
+            t => self.actor_ptr(t),
+        };
+        self.e
+            .call(addr::CONTROLLER_SET_TARGET, &args![a + CONTROLLER, t]);
+    }
+
+    /// Actor `id`'s combat procedure asks for an attack with animation group `group`, as the game
+    /// does (`Actor::QueueAttack`). Whether it was queued.
+    pub fn queue_attack(&mut self, id: u32, group: u32) -> bool {
+        let a = self.actor_ptr(id);
+        self.e
+            .call(addr::ACTOR_QUEUE_ATTACK, &args![a, group])
+            .bool()
+    }
+
+    /// How many attacks the game queued for actor `id`.
+    pub fn attacks_queued(&mut self, id: u32) -> u32 {
+        let a = self.actor_ptr(id);
+        self.e.mem.u32(a + QUEUES)
+    }
+
+    /// The animation group of the attack queued for actor `id` (`0xff`: none).
+    pub fn queued_group(&mut self, id: u32) -> u32 {
+        let a = self.actor_ptr(id);
+        self.e.mem.u32(a + addr::ACTOR_QUEUED_ATTACK_OFFSET)
+    }
+
+    /// Actor `id`'s queued attack is over, as its update has it.
+    pub fn finish_attack(&mut self, id: u32) {
+        let a = self.actor_ptr(id);
+        self.e
+            .mem
+            .set_u32(a + addr::ACTOR_QUEUED_ATTACK_OFFSET, addr::NO_QUEUED_ATTACK);
+    }
+
+    /// Actor `id`'s own movement flags (as its mover has them).
+    pub fn set_moves(&mut self, id: u32, flags: u16) {
+        let a = self.actor_ptr(id);
+        self.e.mem.set_u16(a + MOVES, flags);
+    }
+
+    /// The movement flags forced on actor `id`, if any are.
+    pub fn forced_moves(&mut self, id: u32) -> Option<u16> {
+        let a = self.actor_ptr(id);
+        (self.e.mem.u8(a + FORCED_ON) != 0).then(|| self.e.mem.u32(a + FORCED) as u16)
+    }
+
+    /// How often the game was asked to force actor `id`'s movement.
+    pub fn forces(&mut self, id: u32) -> u32 {
+        let a = self.actor_ptr(id);
+        self.e.mem.u32(a + FORCES)
+    }
+
+    /// Reference `id` (an actor or an avatar) has its 3D, or none (it is not drawn).
+    pub fn set_has_3d(&mut self, id: u32, has: bool) {
+        let a = forms::form(&mut self.e, id).expect("a reference of the story");
+        self.e.mem.set_u8(a + NO_3D, u8::from(!has));
+    }
+
+    /// Actor `id` has no mover.
+    pub fn drop_mover(&mut self, id: u32) {
+        let a = self.actor_ptr(id);
+        self.e.mem.set_u32(a + addr::ACTOR_MOVER_OFFSET, 0);
+    }
+
+    /// Actor `id` is in combat with no target (it lost the one it fought and searches).
+    pub fn set_searching(&mut self, id: u32) {
+        let a = self.actor_ptr(id);
+        self.e.mem.set_u8(a + IN_COMBAT, 1);
+        self.e.mem.set_u32(a + TARGET, 0);
+    }
+
+    /// Actor `id`'s combat controller has no combat group (as one being torn down).
+    pub fn drop_group(&mut self, id: u32) {
+        let a = self.actor_ptr(id);
+        self.e
+            .mem
+            .set_u32(a + CONTROLLER + addr::CONTROLLER_GROUP_OFFSET, 0);
+    }
+
+    /// Actor `id`'s process ignores a start of combat (it is asked, and nothing comes of it),
+    /// or no longer.
+    pub fn set_deaf(&mut self, id: u32, deaf: bool) {
+        let a = self.actor_ptr(id);
+        self.e.mem.set_u8(a + DEAF, u8::from(deaf));
+    }
+
+    /// The game refuses actor `id`'s attacks (no weapon drawn, no ammunition), or no longer.
+    pub fn set_attack_refused(&mut self, id: u32, refused: bool) {
+        let a = self.actor_ptr(id);
+        self.e.mem.set_u8(a + NO_ATTACKS, u8::from(refused));
     }
 
     /// A weapon hit as the game makes it: `Actor::HitMe` on `target` with a `HitData` naming

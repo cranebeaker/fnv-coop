@@ -215,6 +215,36 @@ fn a_guests_line_runs_once_on_the_host_and_the_others_see_it() {
     assert_eq!(w.guests[1].game.scripts_run(), 0);
 }
 
+/// PC run 30: Sunny hands over her rifle at the bottles by speaking up, outside the guest's
+/// conversation: the line ran in the guest's game, whose player alone got the rifle, and the host
+/// never met that line again. A story line's reward a guest's game gave its player goes to the
+/// host's player and every other guest once; the guest is not given it twice.
+#[test]
+fn a_reward_a_guests_npc_gave_outside_the_conversation_goes_to_every_player() {
+    const RIFLE: u32 = 0x0007_ea24;
+    let mut w = World::new(&["Sunny", "Chet"]);
+    w.host.add_item_form(RIFLE);
+    for g in &mut w.guests {
+        g.game.add_item_form(RIFLE);
+        g.game.set_info_reward_xp(SHARED_LINE, true, 10);
+    }
+    w.run(20);
+    // A line's result giving the rifle and 10 experience, said by Sunny in guest 1's game.
+    w.guests[0].game.set_info_item(SHARED_LINE, true, RIFLE, 1);
+    w.guests[0].game.say_as(SUNNY, SHARED_LINE, true);
+    w.run(10);
+    assert_eq!(w.host.items(RIFLE), 1);
+    assert_eq!(w.host.xp(), 10);
+    for (i, g) in w.guests.iter_mut().enumerate() {
+        assert_eq!(g.game.items(RIFLE), 1, "guest {i}");
+        assert_eq!(g.game.xp(), 10, "guest {i}");
+    }
+    w.run(40);
+    assert_eq!(w.host.items(RIFLE), 1);
+    assert_eq!(w.guests[0].game.items(RIFLE), 1);
+    assert_eq!(w.guests[1].game.items(RIFLE), 1);
+}
+
 #[test]
 fn a_line_whose_end_never_comes_is_finished_by_the_next_line_and_by_the_goodbye() {
     let mut w = World::new(&["Sunny"]);
@@ -282,6 +312,41 @@ fn a_line_of_the_players_own_quest_stays_in_that_players_game() {
     assert_eq!(w.guests[0].driver.social.talker.opened, 0);
     assert_eq!(w.hd.social.enactor.enacted + w.hd.social.enactor.left, 0);
     assert!(w.host.messages().is_empty());
+}
+
+/// The owner, 2026-11-14: both players sat for Doc Mitchell's questions; he asked the host's and
+/// stared at the guest until the host was done. While a player's own opening runs (OWN's stage 9
+/// not done in its game), its conversations are its own: the host's conversation with the NPC does
+/// not keep it from the guest, and the guest's lines go to nobody; once the opening is done, an NPC
+/// is in one conversation at a time again.
+#[test]
+fn in_their_own_openings_both_players_talk_to_the_same_npc_at_once() {
+    let mut w = World::new(&["Sunny"]);
+    w.hd.social.talker.opening = Some((OWN, 9));
+    w.guests[0].driver.social.talker.opening = Some((OWN, 9));
+    w.run(20);
+    assert!(w.host.talk_to(SUNNY));
+    w.host.say(PLAIN_LINE, false);
+    w.run(10);
+    assert!(w.guests[0].game.talk_to(SUNNY));
+    w.guests[0].game.say(PLAIN_LINE, false);
+    w.run(10);
+    assert_eq!(w.guests[0].driver.social.talker.blocked, 0);
+    assert_eq!(w.hd.sync.live.dialogue.open_sessions(), 0);
+    assert!(w.guests[0].driver.social.talker.opening_lines > 0);
+    assert!(w.hd.social.talker.opening_lines > 0);
+    w.guests[0].game.leave();
+    w.host.leave();
+    // Both openings done: one conversation at a time.
+    forms::set_quest_stage(&mut w.host.e, OWN, 9);
+    forms::set_quest_stage(&mut w.guests[0].game.e, OWN, 9);
+    w.run(10);
+    assert!(w.host.talk_to(SUNNY));
+    w.host.say(PLAIN_LINE, false);
+    w.run(10);
+    assert!(!w.guests[0].game.talk_to(SUNNY));
+    w.run(2);
+    assert_eq!(w.guests[0].driver.social.talker.blocked, 1);
 }
 
 #[test]

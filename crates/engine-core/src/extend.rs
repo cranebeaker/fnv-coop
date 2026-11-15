@@ -117,6 +117,14 @@ pub const WRAPS: &[Entry] = &[
         owners: NVSE,
         step: "I-9",
     },
+    // rewards: TESContainer's hand-over to a reference (`004821a0`, what `AddItem` gives through):
+    // items and caps the shared story gives in the host's game go to the guests' players too
+    // (docs/coop/SPECS.md S30).
+    Entry {
+        addr: 0x0048_21a0,
+        owners: COOP,
+        step: "C-11",
+    },
     // ScriptEventList::SetActionFlag: the game events of the script event masks.
     Entry {
         addr: 0x005a_c750,
@@ -169,6 +177,13 @@ pub const WRAPS: &[Entry] = &[
         owners: NVSE,
         step: "I-3",
     },
+    // BGSQuestObjective's state setter (objective, state): on a co-op host an objective a guest's
+    // game completed is not taken back by the host's own scripts (docs/coop/SPECS.md S29).
+    Entry {
+        addr: 0x005e_c5d0,
+        owners: COOP,
+        step: "C-9",
+    },
     // social: co-op's shared conversations and its sleep and wait vote (docs/coop/SPECS.md S16,
     // S19). TESTopicInfo::RunResult (info, index, reference): a conversation's results run once,
     // on the host. DialogMenu::Create (speaker, word, target): one conversation per NPC.
@@ -211,6 +226,13 @@ pub const WRAPS: &[Entry] = &[
         owners: COOP,
         step: "C-6",
     },
+    // HUDMainMenu::UpdateCompass (compass, landmarks, objectives, actor ticks): the other
+    // players get a mark of their own on the compass, in a colour the game's HUD does not use.
+    Entry {
+        addr: 0x0077_9070,
+        owners: COOP,
+        step: "C-14",
+    },
     Entry {
         addr: 0x007c_0220,
         owners: COOP,
@@ -231,6 +253,14 @@ pub const WRAPS: &[Entry] = &[
         addr: 0x0088_1130,
         owners: COOP,
         step: "C-8",
+    },
+    // Actor::QueueAttack (this, animation group): a combat procedure's attack. Co-op refuses a
+    // copy's own attacks and replays its owner's; it notes the attacks of every other actor
+    // (docs/coop/DECISIONS.md D6).
+    Entry {
+        addr: 0x0089_35f0,
+        owners: COOP,
+        step: "C-12",
     },
     // Actor::HitMe (this, hit data, kind): every weapon hit on an actor. Co-op decides whose
     // game applies it in a shared fight (docs/coop/SPECS.md S15).
@@ -254,12 +284,27 @@ pub const WRAPS: &[Entry] = &[
         owners: COOP,
         step: "C-4",
     },
+    // rewards: PlayerCharacter::RewardExperience (vtable +0x488, `RewardXP`'s call): experience
+    // the shared story gives in the host's game goes to the guests' players too
+    // (docs/coop/SPECS.md S30).
+    Entry {
+        addr: 0x0094_fd10,
+        owners: COOP,
+        step: "C-10",
+    },
     // items: the player's pick-up of a placed item (player, reference, count, a byte): a guest's
     // take of a world item is put to the host (docs/coop/SPECS.md S20).
     Entry {
         addr: 0x0095_3ff0,
         owners: COOP,
         step: "C-7",
+    },
+    // CombatController's change of target (this, target): co-op gives a copy the target its
+    // owner's actor fights (docs/coop/DECISIONS.md D6).
+    Entry {
+        addr: 0x0098_0830,
+        owners: COOP,
+        step: "C-13",
     },
     // vats: BSTimer::SetGlobalTimeMultiplier (timer, multiplier, immediate). In a co-op session
     // with another player V.A.T.S. does not slow the game (docs/coop/SPECS.md S21).

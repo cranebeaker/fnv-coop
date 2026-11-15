@@ -432,6 +432,14 @@ pub fn drain_says(e: &mut Engine) -> Vec<(u32, u32)> {
     )
 }
 
+/// Puts lines back in front of the ones noted since ([`drain_says`]'s order kept).
+pub fn put_back_says(e: &mut Engine, mut earlier: Vec<(u32, u32)>) {
+    let c = e.ext_free::<Commands>();
+    let mut says = c.says.lock().unwrap_or_else(PoisonError::into_inner);
+    earlier.append(&mut says);
+    *says = earlier;
+}
+
 /// Has actor `speaker` say topic `topic` to this game's player, as `SayTo` does for an actor in
 /// high process that is not run at once: the line is said through its process, and its result
 /// runs in this game when it ends.

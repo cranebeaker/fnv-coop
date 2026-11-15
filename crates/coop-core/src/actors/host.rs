@@ -43,7 +43,13 @@ pub struct ActorHost {
     pub hits_applied: u32,
     /// Hit requests refused (duplicate, range, rate, dead, bad).
     pub hits_rejected: u32,
+    /// Actors the host's game runs that a guest's copy went for the guest with, and the guest
+    /// (`ActorMsg::Engage`; the host's session reads and clears it; bounded).
+    pub engages: Vec<(FormId, PlayerId)>,
 }
+
+/// Most engagements kept between two reads.
+pub const ENGAGES_MAX: usize = 64;
 
 impl ActorHost {
     /// Empty host side.
@@ -105,6 +111,25 @@ impl ActorHost {
             }
             ActorMsg::Hit { actor, hit, amount } => {
                 self.on_hit(from, actor, hit, amount, now_ms, attacker_cell)
+            }
+            ActorMsg::Engage { actor, player } => {
+                // A game asks only for its own player.
+                if player != from {
+                    return vec![];
+                }
+                match self.own.get(actor).and_then(|r| r.owner) {
+                    // Its own actor: nothing to ask.
+                    Some(p) if p == from => vec![],
+                    Some(p) if p != PlayerId::HOST => {
+                        vec![out(Audience::To(p), ActorMsg::Engage { actor, player })]
+                    }
+                    _ => {
+                        if self.engages.len() < ENGAGES_MAX {
+                            self.engages.push((actor, player));
+                        }
+                        vec![]
+                    }
+                }
             }
             ActorMsg::SpawnReq {
                 req,
@@ -460,6 +485,53 @@ mod tests {
         let mut h = ActorHost::new();
         h.register(A, st(100));
         (h, AuthorityTable::new())
+    }
+
+    fn engage(h: &mut ActorHost, auth: &mut AuthorityTable, from: u8, player: u8) -> Vec<Out> {
+        h.on_msg(
+            PlayerId(from),
+            ActorMsg::Engage {
+                actor: A,
+                player: PlayerId(player),
+            },
+            0,
+            Some(C),
+            auth,
+        )
+    }
+
+    #[test]
+    fn a_copys_engagement_goes_to_the_game_that_runs_the_actor() {
+        let (mut h, mut auth) = setup();
+        // Run by the host (or nobody): kept for the host's session.
+        assert!(engage(&mut h, &mut auth, 1, 1).is_empty());
+        assert_eq!(h.engages, vec![(A, PlayerId(1))]);
+        // Only for the sender's own player.
+        assert!(engage(&mut h, &mut auth, 1, 2).is_empty());
+        assert_eq!(h.engages.len(), 1);
+        // Run by guest 2: passed to it.
+        h.own.set_follower(A, Some(PlayerId(2)));
+        h.tick(0, &players(&[(1, 1), (2, 1)]), &mut auth);
+        assert_eq!(h.own.get(A).unwrap().owner, Some(PlayerId(2)));
+        let o = engage(&mut h, &mut auth, 1, 1);
+        assert_eq!(o.len(), 1);
+        assert_eq!(o[0].aud, Audience::To(PlayerId(2)));
+        assert_eq!(
+            o[0].msg,
+            ActorMsg::Engage {
+                actor: A,
+                player: PlayerId(1)
+            }
+        );
+        // Its owner's own copy asks nothing.
+        assert!(engage(&mut h, &mut auth, 2, 2).is_empty());
+        assert_eq!(h.engages.len(), 1);
+        // Bounded.
+        let (mut h, mut auth) = setup();
+        for _ in 0..2 * ENGAGES_MAX {
+            engage(&mut h, &mut auth, 1, 1);
+        }
+        assert_eq!(h.engages.len(), ENGAGES_MAX);
     }
 
     #[test]

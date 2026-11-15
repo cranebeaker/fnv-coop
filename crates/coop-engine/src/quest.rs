@@ -180,6 +180,48 @@ pub fn relist(e: &mut Engine, id: u32) -> u32 {
 mod tests {
     use super::*;
 
+    /// Harness, 2026-11-13: VCG03's quest script, run on the host for the host's player alone,
+    /// took back "find a Xander root and a Broc flower" that the guest's game had completed. An
+    /// objective a guest completed is not taken back by the host's own scripts; the guest's own
+    /// doing (applied here) still can.
+    #[test]
+    fn an_objective_a_guest_completed_is_not_taken_back_by_the_hosts_scripts() {
+        use crate::testkit::{Story, StorySpec};
+        const MQ: u32 = 0x0010_4c0c;
+        let mut s = Story::new(&StorySpec {
+            quests: vec![(MQ, vec![10])],
+            objectives: vec![(MQ, vec![10, 20])],
+            ..StorySpec::default()
+        });
+        crate::arm(&mut s.e, true);
+        let state = |s: &mut Story, n: u32| {
+            record(&mut s.e, MQ)
+                .unwrap()
+                .objectives
+                .iter()
+                .find(|o| o.0 == n)
+                .unwrap()
+                .1
+        };
+        // The host's own completion, taken back by its own script: as ever.
+        s.set_objective(MQ, 20, 3);
+        s.set_objective(MQ, 20, 1);
+        assert_eq!(state(&mut s, 20), 1);
+        // A guest's completion: kept.
+        s.set_objective(MQ, 10, 3);
+        note_guest_completed(&mut s.e, MQ, 10);
+        s.set_objective(MQ, 10, 1);
+        assert_eq!(state(&mut s, 10), 3);
+        assert_eq!(guest_completions_kept(&mut s.e), 1);
+        // The guest's own taking back, applied here: done.
+        gate::applying(&mut s.e, |e| {
+            let q = forms::quest(e, MQ).unwrap();
+            let o = list_items(e, q + addr::QUEST_OBJECTIVE_LIST_OFFSET)[0];
+            e.call(addr::OBJECTIVE_SET_STATE, &args![o, 1u32]);
+        });
+        assert_eq!(state(&mut s, 10), 1);
+    }
+
     const HEAP: u32 = 0x0200_0000;
     const QUEST_ID: u32 = 0x0010_4c0c;
     /// A result script with no owner quest, which a stage's mark runs: only the apply scope keeps it
@@ -357,4 +399,67 @@ mod tests {
         assert!(apply(&mut other.e, &sent));
         assert_eq!(other.e.mem.u32(RAN), 1);
     }
+}
+
+/// The wrap at `005ec5d0`, the objective state setter (`SetObjectiveDisplayed`,
+/// `SetObjectiveCompleted`).
+pub(crate) const OBJECTIVE_STATE: engine_core::extend::WrapSlot =
+    engine_core::extend::WrapSlot::new(engine_core::extend::Owner::Coop, addr::OBJECTIVE_SET_STATE);
+
+/// The objectives a guest's game completed, by (quest, objective number), and how many times
+/// the host's own scripts were kept from taking one back.
+#[derive(Default)]
+struct GuestDone {
+    done: std::sync::Mutex<std::collections::BTreeSet<(u32, u32)>>,
+    kept: std::sync::atomic::AtomicU64,
+}
+
+/// Host: objective `number` of `quest` was completed by a guest's game (its proposal applied
+/// here). From now on the host's own scripts do not take it back ([`objective_state`]).
+pub fn note_guest_completed(e: &mut Engine, quest: u32, number: u32) {
+    e.ext_free::<GuestDone>()
+        .done
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert((quest, number));
+}
+
+/// Host: how many times the host's own scripts were kept from taking back an objective a guest
+/// completed.
+pub fn guest_completions_kept(e: &mut Engine) -> u64 {
+    e.ext_free::<GuestDone>()
+        .kept
+        .load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// On the host, an objective a guest's game completed is not set back to "not completed" by the
+/// host's own scripts. A quest script's check of `Player` is the host's player alone: VCG03's
+/// script takes back "find a Xander root and a Broc flower" while the host's player lacks one,
+/// so the guest who found both (its gather trigger completed it) saw it undone at once (harness,
+/// 2026-11-13). The guest's own game may still take it back (its proposal), and so may a load.
+pub(crate) fn objective_state(e: &mut Engine, a: &[u32]) -> Ret {
+    let (o, state) = (
+        a.first().copied().unwrap_or(0),
+        a.get(1).copied().unwrap_or(0),
+    );
+    if o != 0 && !gate::is_guest(e) && !gate::is_applying(e) && state & 2 == 0 {
+        let now = e.mem.u32(o.wrapping_add(addr::OBJECTIVE_STATE_OFFSET));
+        let q = e.mem.u32(o.wrapping_add(addr::OBJECTIVE_QUEST_OFFSET));
+        if now & 2 != 0 && q != 0 {
+            let key = (
+                e.mem.u32(q.wrapping_add(addr::FORM_ID_OFFSET)),
+                e.mem.u32(o.wrapping_add(addr::OBJECTIVE_INDEX_OFFSET)),
+            );
+            let g = e.ext_free::<GuestDone>();
+            if g.done
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains(&key)
+            {
+                g.kept.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                return Ret::default();
+            }
+        }
+    }
+    e.call_next(addr::OBJECTIVE_SET_STATE, a)
 }

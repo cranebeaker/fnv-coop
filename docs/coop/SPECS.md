@@ -562,7 +562,8 @@ Nothing in this section has run in the real game. Its tests use stand-ins for th
   carries (item, count, condition). The version stays 1; an older build skips the section. On
   taking its part back the guest's player carries what it carried then: the caps set, what is too
   much removed, what is missing added.
-- **Switch.** `NV_COOP_ITEMS=off` runs without any of this section.
+- **Switch.** Off unless asked: `NV_COOP_ITEMS=on` runs this section (merged from another line of
+  work, switched on one PC run at a time). A quest's reward (S30) is not a take: see S30.
 - **Limits, stated.** A container whose contents each game rolled for itself (leveled lists) differs
   until someone opens or takes from it: a guest's first take of something the host's game does not
   have there is refused and taken back, and from then on every game shows the host's contents. A
@@ -604,8 +605,9 @@ coop-core's model (`combat::vats`): the world's clock is shared, so with another
 - **On every machine.** The host's game runs the actors everyone sees, and a guest's game runs the ones
   the host's does not (S27), so neither may stand still. `coop_engine_session::vats::Share` gives the
   game the world's speed when the first other player is there and takes it back when the last one left
-  or the session ends. `NV_COOP_VATS=slow` shares the speed only (the menu still stops the game), `off`
-  nothing.
+  or the session ends. Off unless asked (merged from another line of work, switched on one PC run at a
+  time): `NV_COOP_VATS=on` shares all of this, `slow` the speed only (the menu still stops the game);
+  unset or `off`, nothing.
 - **The queued shots** are played by the game as attacks. Each lands through `Actor::HitMe`, so a guest's
   shot at a held actor goes to the host's ledger as any hit does (S15), and the host's own go to its game.
 - **No advantage.** The player who picks targets is hit in real time (the host's actors go on, and their
@@ -644,6 +646,9 @@ every game function above in the real game.
   (a guest's player's on a held actor or an avatar; anything on an avatar in the host's game) are added
   up per victim and source and taken every 100 ms as whole points, then go the way a kept hit goes
   (`ActorMsg::Hit`, `PlayerHit`, the host's vitals). What co-op itself writes passes the wrap.
+- **Switch.** Off unless asked: `NV_COOP_HARM=on` (with fights shared up to `damage` or more) has the
+  wrap decide; unset, every loss outside `Actor::HitMe` is the game's own, as before
+  (`harm::set_on`).
 - **Limits, stated.** What made the loss is not read; it is carried as coop-core's damage over time, which
   is neither scaled for the party nor tied to a limb. A held actor does not fall on a guest at all (its AI
   is off); its fall happens in its owner's game. Gains of health are not routed. Other values than health
@@ -662,8 +667,10 @@ every game function above in the real game.
 
 - A held actor gets coop-core's `avatar::InterpBuffer`: the newest state is fed at the avatars' rate and
   the actor is put where the buffer says, 100 ms behind and blended between two states. Another space or
-  a long jump is taken at once. `Fight::smooth_on` switches it off. Only held actors (`NV_COOP_FIGHT=state`
-  up to `revive`) are moved this way; a followed actor (S23) keeps its own AI and walks.
+  a long jump is taken at once. Off unless asked: `NV_COOP_SMOOTH=on` (`Fight::smooth_on`). Only held
+  actors (`NV_COOP_FIGHT=state` up to `revive`) are moved this way; a followed copy goes along its
+  owner's path with its gait and stands where its owner's actor stands (DECISIONS.md D6, D7), which
+  this does not touch.
 - **Not done:** the game's own walk or run animation on a held actor. The avatar code's approach
   (restrained, moved by the game's own mover) was not examined for held actors.
 
@@ -819,6 +826,99 @@ there (`commands::say_to_player`: as `SayTo`'s high-process branch: stop the cur
 processes, the process's say slot `0x2a4`); its result runs in that game and its story changes reach the
 host as proposals (S26). One that came with the join is not said. Not tested against the game's own
 command: the stand-ins have no `SayTo`.
+
+## S29: a guest's completed objectives and items between players (in part implemented)
+
+Found in the harness on 2026-11-13 (VCG03, Sunny's healing powder). A quest script runs in the
+host's game only, and its `Player` is the host's player alone. VCG03's script completes "find a
+Xander root and a Broc flower" while that player holds both and takes it back while it does not.
+So when a guest who held both completed it, through its own gather trigger, the host's script took
+it back at once.
+
+Decided by a committee of three (unanimous), between three options:
+- A. Per player, as the original game counts.
+- B. The party's items summed for quest scripts.
+- C. A, plus giving items between players.
+
+The vote was C. B makes a check pass on items that a removal (`Player.RemoveItem` in the speaker's
+game) then cannot take: deliveries, purchases. Every quest that counts items would be exposed, and
+a split pair still cannot be crafted. Plants are picked separately in each game, so each player
+can gather and cook. A split pair is pooled by giving one item to the other player.
+
+- Implemented: on the host, an objective a guest's game completed (its proposal applied) is not set
+  back by the host's own scripts. The wrap is at the objective state setter `005ec5d0`, step C-9.
+  The guest's own taking back is applied as ever.
+- To do: giving an item to another player, done by the host as one step (taken from one, given to
+  the other, or neither). Quest items are allowed between players only. The owner decided
+  (2026-11-13): giving is one-way only, a player picks an item and an amount and hands it over,
+  with nothing asked in return; no trade window where both sides offer and confirm.
+- Rewards from host-only scripts (experience, caps, items): S30.
+
+## S30: the story's experience, caps and items go to every player (implemented)
+
+Found in the harness on 2026-11-13 (VCG03): Trudy's line that ends Sunny's last tutorial gives
+`RewardXP 50`. Said to the guest, its result ran in the host's game (the guest's results are held
+for the host), and the host's player alone got the 50. Sunny's line that starts VCG03 gives 50 too.
+
+The rules already decide this: every row of the bundled table has `reward: everyone` (every player
+gets the full reward once; `RewardLedger` keeps who has which). This spec carries it out on the
+engine backend for experience, caps and items (the owner, 2026-11-13: both players get any caps,
+experience and items a quest gives).
+
+- The host's game wraps `PlayerCharacter::RewardExperience` (`0094fd10`, vtable +0x488, what the
+  `RewardXP` command `005d5140` calls), step C-10. The amount is given as ever. While a story
+  script runs (its owner quest is set: a stage's or a line's result, a quest's script) and that
+  quest is not one each player plays for themself, the reward is noted (`coop_engine::reward`).
+  A line's result script names no owner quest: the quest of the line whose result runs
+  (`talk::result_quest`, kept by the `TESTopicInfo::RunResult` wrap) is the one.
+  Not noted: an object script with no quest (each game that has the object runs it), anything while
+  the host's state is applied, anything on a guest.
+- Items: the host's game wraps the hand-over of a container's items to a reference (`004821a0`,
+  what `AddItem` gives through, caps included; a leveled list is already rolled into the
+  container), step C-11. When the reference is the player and a story script runs (as above), each
+  item and its count is noted.
+- The host's driver numbers each noted reward and hands it to the rules (`RulesHost::reward`): every
+  other player in the party gets `RulesMsg::Reward { id, gift }` once (protocol 7; `Gift::Xp` or
+  `Gift::Item { form, count }`).
+- A guest's driver gives its player the same the game's own way, the message included: experience
+  through `RewardExperience`, items through a container of its own handed to its player, as
+  `AddItem` does. One that cannot be given yet (no player) waits; an item its data lacks is not
+  given.
+- Open: a player who joins after a reward does not get it (the ledger can name what it misses;
+  claiming needs the player's identity across sessions). Not mirrored: what a story script takes
+  from the player (`Player.RemoveItem`: a payment, a hand-in) is taken from the host's player only,
+  even when the guest said the line (the rules' `Payment` goes to the line's initiator: to do);
+  items moved to the player from a container or an NPC (`RemoveAllItems player`) are not copied.
+- With items shared (S20, `NV_COOP_ITEMS=on`) the reward path alone gives a quest's items. S20 never
+  gives a player anything on the host's word (it moves holders' contents and takes back what the host
+  refused), so the two cannot give a reward twice; but a reward reaching a guest's player in a step in
+  which a holder it has open lost the same item would read as a take, and be put to the host. S20
+  stands aside: each item reward a guest's game gives (sent by the host, or noted for a line said
+  there) is counted into that player's known items (`GuestItems::story_gave`), so it is never asked
+  for (test `a_quest_reward_is_not_read_as_a_take`).
+
+## S31: the other players on the compass (implemented; run in two headless games, not yet on a PC)
+
+The owner (2026-11-15): a marker of its own for the other players (not for companions), on the
+HUD's compass, in purple, a colour none of the game's HUD colours (amber, white, blue, green, and
+the red of a hostile tick) is near.
+
+- Each other player this game shows (their avatar, which exists while both players are in the same
+  interior or worldspace) has a tick on the compass in purple (190, 80, 255), step C-14
+  (`crates/coop-engine/src/compass.rs`, a wrap of `HUDMainMenu::UpdateCompass` `00779070`).
+- The game's own actor ticks are untouched: the avatars are kept off them for that call (the
+  player's compass list's keep-off byte, set and put back around the call), so a player is never
+  ticked twice or in an NPC's colour. The avatar's tick then goes on a tile the game left unused
+  that frame (the last one when every tile was used), placed and faded as the game places and
+  fades an actor tick, hidden while the player is outside the strip (behind, or exactly to the
+  side). Its system colour is taken away so the tile shows its own red, green and blue; the game
+  gives a tile it uses again its system colour back, so no NPC is left purple.
+- Unlike an NPC's tick, the player's is not limited by distance or by being detected.
+- Checked in two headless games (`/tmp/s_compass*.sh`, harness `compass`, which reads each shown
+  tick's traits and the colour its picture is drawn in): after loading the saves, outside the
+  saloon, inside the saloon (through its door) and at the Goodsprings Source after a fast travel,
+  each game showed the other player ahead of it in purple (drawn 0.75, 0.31, 1.00) and its NPC
+  ticks in the HUD's amber; none when the other player was behind or at the side.
 
 ## Not done: followers
 

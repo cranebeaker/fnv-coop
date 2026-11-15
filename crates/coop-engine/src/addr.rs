@@ -83,6 +83,9 @@ pub const QUEST_OBJECTIVE_LIST_OFFSET: u32 = 0x4c;
 /// `BGSQuestObjective::iIndex`: the objective number at +0x04 (`bgsquestobjective.rs`).
 pub const OBJECTIVE_INDEX_OFFSET: u32 = 0x04;
 
+/// `BGSQuestObjective::pOwnerQuest` (Xbox PDB): the objective's quest.
+pub const OBJECTIVE_QUEST_OFFSET: u32 = 0x10;
+
 /// `BGSQuestObjective::eState`: `QUEST_OBJECTIVE_STATE` at +0x20, bit 0 displayed, bit 1
 /// completed (`bgsquestobjective.rs`; the save's quest record keeps the same word, `crates/fos`).
 pub const OBJECTIVE_STATE_OFFSET: u32 = 0x20;
@@ -94,6 +97,30 @@ pub const OBJECTIVE_STATE_OFFSET: u32 = 0x20;
 /// to the player's list (`00952a20`), which is the list the Pip-Boy's quest page walks
 /// (`0079bc30`): an objective whose state is only written is not in the Pip-Boy.
 pub const OBJECTIVE_SET_STATE: u32 = 0x005e_c5d0;
+/// `PlayerCharacter::RewardExperience` (`thiscall`, player, amount; vtable +0x488;
+/// `playercharacter_p2.rs`, `fn_0094fd10`): what the script command `RewardXP` (`005d5140`) calls
+/// on the player. It hands the amount to `CharacterProgression::RewardExperience` (`008d5100`),
+/// which adds it and shows the message.
+pub const PLAYER_REWARD_EXPERIENCE: u32 = 0x0094_fd10;
+/// `TESContainer`'s constructor (`thiscall`, container): an empty list of items. `AddItem`
+/// (`005b4be0`, `tesscriptfunctions.rs`; `tescontainer.rs`) builds one of 0x10 bytes on its
+/// stack, adds the entry, hands the entries to the reference and destroys it.
+pub const CONTAINER_CONSTRUCT: u32 = 0x0048_1610;
+/// `TESContainer`'s destructor (`thiscall`, container).
+pub const CONTAINER_DESTRUCT: u32 = 0x0048_1680;
+/// Bytes a temporary container takes (as `AddItem`'s).
+pub const CONTAINER_SIZE: u32 = 0x10;
+/// Adds items to a container (`thiscall`, container, object, count, extra; `004818e0`).
+pub const CONTAINER_ADD: u32 = 0x0048_18e0;
+/// Sets every entry's health of a container as a part of the item's full health (container, f32
+/// from 0 to 1; `00482090`).
+pub const CONTAINER_SET_HEALTH: u32 = 0x0048_2090;
+/// Hands a container's items to a reference (`thiscall`, container, reference, quiet;
+/// `004821a0`): what `AddItem` gives through, a leveled list already rolled into the container.
+/// Its list of `ContainerObject`s (count, object, extra) is inline at +4, `{item, next}` nodes.
+/// An actor gets them through its slot 0x190, another reference through `00574fa0`; no message
+/// for the player when quiet.
+pub const CONTAINER_GIVE: u32 = 0x0048_21a0;
 /// The player's objective list: a `BSSimpleList` of `BGSQuestObjective *` whose first node is in
 /// the player at this offset (`0079bc30` answers `this + 0x6bc`; `mapmenu.rs` walks it for the
 /// Pip-Boy's quest page).
@@ -462,6 +489,59 @@ pub const ACTOR_IN_COMBAT: u32 = 0x0049_3bb0;
 /// `script_get_combat_target_function`).
 pub const ACTOR_COMBAT_TARGET_SLOT: u32 = 0x42c;
 
+/// `Actor::QueueAttack` (`008935f0`, `actor_p3.rs`, `actor_queue_attack`): `thiscall` on the
+/// actor with the attack's animation group. A combat procedure's way to attack: it checks the
+/// weapon, the ammunition and the animation, then queues the group in `Actor::eQueuedattack`
+/// (true), which the actor's update starts (`Actor::StartAttack`, `00893a40`, every frame until
+/// the attack is over). The player starts its attack at once.
+pub const ACTOR_QUEUE_ATTACK: u32 = 0x0089_35f0;
+/// `Actor::eQueuedattack`: the attack group queued, `0xff` for none (`actor.rs`).
+pub const ACTOR_QUEUED_ATTACK_OFFSET: u32 = 0x110;
+/// No attack queued, in [`ACTOR_QUEUED_ATTACK_OFFSET`].
+pub const NO_QUEUED_ATTACK: u32 = 0xff;
+
+/// `Actor` virtual slot `0x428`: the actor's `CombatController`, or 0 out of combat
+/// (`actor_p3.rs`, `ACTOR_SLOT_428`; `combatgroup.rs`, the target choice).
+pub const ACTOR_COMBAT_CONTROLLER_SLOT: u32 = 0x428;
+/// `CombatController::pCombatGroup` (`combatcontroller.rs`, PC offsets).
+pub const CONTROLLER_GROUP_OFFSET: u32 = 0x80;
+/// `CombatController::pAttacker`: the actor it runs.
+pub const CONTROLLER_ATTACKER_OFFSET: u32 = 0xbc;
+/// `CombatController::pTarget`: the actor it fights now (what [`ACTOR_COMBAT_TARGET_SLOT`]
+/// answers).
+pub const CONTROLLER_TARGET_OFFSET: u32 = 0xc0;
+/// `CombatController`'s change of target (`00980830`, `combatcontroller.rs`, `fn_00980830`):
+/// `thiscall` on the controller with the new target (0 for none); every change of the
+/// controller's target goes through it (the group's choice `00986c60`, `StopCombat`, the
+/// update). The target counts of the group and of the target map follow the change.
+pub const CONTROLLER_SET_TARGET: u32 = 0x0098_0830;
+/// The `CombatTarget` a `CombatGroup` keeps for an actor, or 0 when the actor is not one of its
+/// targets (`009865d0`, `combatgroup.rs`, `fn_009865d0`): `thiscall` on the group.
+pub const GROUP_TARGET_OF: u32 = 0x0098_65d0;
+/// `Actor` virtual slot `0x434`: `Actor::StopCombat(bool)` (`lowprocess.rs`,
+/// `ACTOR_STOP_COMBAT_SLOT`, called with 0).
+pub const ACTOR_STOP_COMBAT_SLOT: u32 = 0x434;
+
+/// The actor's movement flags (`008846e0`, `actor.rs`, `fn_008846e0`): the mover's
+/// `GetMoveMode` (virtual `+0x20`), 0 without a mover. Bits: `0x1` forward, `0x2` back, `0x4`
+/// left, `0x8` right, `0x100` walking, `0x200` running, `0x400` sneaking (`Actor::IsRunning`
+/// reads `0x200`).
+pub const ACTOR_MOVE_FLAGS: u32 = 0x0088_46e0;
+/// `Actor::ForceMoveMode` (`008b3a20`, `actor_p5.rs`): `thiscall` on the actor with the flags;
+/// the mover's virtual `+0xc`, which sets `uiForcedMoveMode` and `bForceMoveMode`. While forced,
+/// the mover plays those flags' movement animation and does not follow its own path
+/// (`ActorMover::IsPathing` is false). Calls through the actor's mover: an actor without one
+/// must not be asked.
+pub const ACTOR_FORCE_MOVE_MODE: u32 = 0x008b_3a20;
+/// `Actor::ClearForcedMoveMode` (`008b3a50`): the mover's virtual `+0x10`; its own path again.
+pub const ACTOR_CLEAR_FORCED_MOVE_MODE: u32 = 0x008b_3a50;
+/// `Actor::pActorMover` (`actor.rs`).
+pub const ACTOR_MOVER_OFFSET: u32 = 0x190;
+
+/// A reference's virtual slot `0x1d0`: its 3D (its scene node), 0 while it has none: a
+/// reference without one is not drawn.
+pub const REF_GET_3D_SLOT: u32 = 0x1d0;
+
 /// `Actor::pCurrentProcess`: the word at +0x68 (`leaf::word_at_68`, typed from `008d8520`).
 pub const ACTOR_PROCESS_OFFSET: u32 = 0x68;
 
@@ -577,6 +657,9 @@ pub const PLAYER_WAIT_HOUR: u32 = 0x0094_df80;
 /// What the menu runs before each hour (`sleepwaitmenu.rs`, `UpdateSleeping`): the scripts once
 /// (`thiscall` on the object at `011dea10`; `00455490`, `tes.rs`).
 pub const TES_SINGLETON: u32 = 0x011d_ea10;
+/// `TES::IsCellLoaded` (`thiscall`, the TES, a cell, 0; `004511e0`): whether the game has the cell
+/// in its loaded grid (or is the interior it shows), so that what is in it is drawn.
+pub const CELL_IS_LOADED: u32 = 0x0045_11e0;
 /// See [`TES_SINGLETON`].
 pub const TES_RUN_SCRIPTS: u32 = 0x0045_5490;
 // vats: V.A.T.S. with several players, damage outside `Actor::HitMe` (docs/coop/SPECS.md S21,
@@ -634,24 +717,6 @@ pub const CHANGES_GOLD_AMOUNT: u32 = 0x004c_b320;
 /// The form id of the caps item: the barter menu makes its caps entry of `004839c0(0xf)`
 /// (`bartermenu.rs`, `complete_transaction_body`).
 pub const CAPS_FORM_ID: u32 = 0xf;
-/// The temporary `TESContainer` the `AddItem` command fills and hands to a reference
-/// (`tesscriptfunctions.rs`, `fn_005b4be0`; `tescontainer.rs`): 0x10 bytes, its constructor
-/// (`00481610`), an entry added `(container, item, count, 0)` (`004818e0`), every entry's health
-/// set as a part of the item's full health `(container, f32 from 0 to 1)` (`00482090`), the
-/// entries given to a reference `(container, reference, quiet)` (`004821a0`: an actor through its
-/// slot 0x190, another reference through `00574fa0`; no message for the player when quiet), and
-/// its destructor (`00481680`).
-pub const TEMP_CONTAINER_SIZE: u32 = 0x10;
-/// See [`TEMP_CONTAINER_SIZE`].
-pub const TEMP_CONTAINER_CONSTRUCT: u32 = 0x0048_1610;
-/// See [`TEMP_CONTAINER_SIZE`].
-pub const TEMP_CONTAINER_ADD: u32 = 0x0048_18e0;
-/// See [`TEMP_CONTAINER_SIZE`].
-pub const TEMP_CONTAINER_SET_HEALTH: u32 = 0x0048_2090;
-/// See [`TEMP_CONTAINER_SIZE`].
-pub const TEMP_CONTAINER_GIVE: u32 = 0x0048_21a0;
-/// See [`TEMP_CONTAINER_SIZE`].
-pub const TEMP_CONTAINER_DESTRUCT: u32 = 0x0048_1680;
 /// `TESObjectREFR` virtual slot `0x17c`, the removal of an item: `(item, extra data or 0, count,
 /// 0, 0, the reference that gets it or 0, 0, 0, 1, 0)`, as the `RemoveItem` command calls it
 /// (`tesscriptfunctions.rs`, `fn_005b4e90`), the barter menu for a sale (`bartermenu.rs`) and
@@ -768,6 +833,9 @@ pub const ACTOR_START_CONVERSATION_SLOT: u32 = 0x280;
 /// reference to the target's cell or world space, at the target's place plus the offsets: the one
 /// function of the game that moves a reference from one space to another.
 pub const MOVE_TO_FUNCTION_BASE: u32 = 0x005c_cb20;
+/// `MobileObject::IsinDialogue` (`thiscall`, the actor; `009336c0`): its current package is a
+/// dialogue package (procedure type 0x1c), as a conversation a script started puts it in.
+pub const MOBILE_IS_IN_DIALOGUE: u32 = 0x0093_36c0;
 
 // Packages (docs/coop/SPECS.md S24).
 
@@ -802,6 +870,9 @@ pub const REF_GET_CURRENT_PACKAGE: u32 = 0x0093_44a0;
 /// `cdecl`, a package: its type (1 follow, 2 escort, 7 accompany; 0x1c a dialogue made while
 /// playing).
 pub const PACKAGE_TYPE: u32 = 0x0041_ca90;
+/// [`PACKAGE_TYPE`] of a Dialogue package from the data files (`PKDT` type 15): an NPC running
+/// one goes to its target and starts a conversation with it (a force greet).
+pub const PACKAGE_TYPE_DIALOGUE: u32 = 0x0f;
 /// `cdecl` (player, package): what the body does for a type-0x1c package after the slot.
 pub const PLAYER_SET_CONVERSATION_PACKAGE: u32 = 0x005c_8a30;
 /// `thiscall`, a reference: its extra-data list.
@@ -824,3 +895,62 @@ pub const PROCESS_FOLLOWED_SLOT: u32 = 0x128;
 /// `TESPackage::pPackTarg` (+0x30): a `PackageTarget` whose type (+0, 0 = a reference) and
 /// reference (+4) say whom the package is about.
 pub const PACKAGE_TARGET_OFFSET: u32 = 0x30;
+/// `HUDMainMenu::UpdateCompass` (`cdecl`: the compass, the landmark marks, the objective marks, the
+/// actor ticks; `hudmainmenu.rs`): every frame the HUD shows, it places each mark on the strip.
+pub const HUD_UPDATE_COMPASS: u32 = 0x0077_9070;
+/// `HUDMainMenu::GetCompassAngle` (`cdecl`, six floats: the mark's place, then the player's):
+/// where a place is on the compass, in the compass's degrees from straight ahead.
+pub const HUD_GET_COMPASS_ANGLE: u32 = 0x0077_8b80;
+/// The HUD (`HUDMainMenu *`), 0 when there is none.
+pub const HUD_SINGLETON: u32 = 0x011d_96c0;
+/// `HUDMainMenu::iCompassDisplayWidth` (+0x214) and `iCompassHalfAngle` (+0x218).
+pub const HUD_COMPASS_DISPLAY_WIDTH_OFFSET: u32 = 0x214;
+/// See [`HUD_COMPASS_DISPLAY_WIDTH_OFFSET`].
+pub const HUD_COMPASS_HALF_ANGLE_OFFSET: u32 = 0x218;
+/// The player's list of the actors the compass may tick (`PlayerCharacter +0xd48`, `00595d10`):
+/// nodes of (item, next), each item an actor (+0), whether it is hostile (+4, a byte: the red
+/// tick) and a byte (+5) that keeps it off the compass when set.
+pub const PLAYER_COMPASS_ACTORS_OFFSET: u32 = 0xd48;
+/// See [`PLAYER_COMPASS_ACTORS_OFFSET`].
+pub const COMPASS_ACTOR_SKIP_OFFSET: u32 = 5;
+/// The id of the compass marks' `_Heading` trait (looked up by `UpdateCompass` on its first call;
+/// 0 before).
+pub const COMPASS_HEADING_TRAIT: u32 = 0x011d_9e60;
+/// `cdecl` (a, b, low, high, x): `x` taken from `low..high` to `a..b`.
+pub const LERP: u32 = 0x004b_3ab0;
+/// `Tile::SetFloat` (`thiscall`, tile, trait, value, 1).
+pub const TILE_SET_FLOAT: u32 = 0x00a0_12d0;
+/// `Tile::SetString` (`thiscall`, tile, trait, text, 1).
+pub const TILE_SET_STRING: u32 = 0x00a0_1350;
+/// `cdecl` (tile, trait, integer): a trait set to a whole number (`run_007001f0.rs`).
+pub const TILE_SET_INT: u32 = 0x0070_0320;
+/// Tile traits: `visible`, `alpha`, `red`, `green`, `blue`, `filename`, `systemcolor`.
+pub const TRAIT_VISIBLE: u32 = 0xfa3;
+/// See [`TRAIT_VISIBLE`].
+pub const TRAIT_ALPHA: u32 = 0xfa9;
+/// See [`TRAIT_VISIBLE`].
+pub const TRAIT_RED: u32 = 0xfb2;
+/// See [`TRAIT_VISIBLE`].
+pub const TRAIT_GREEN: u32 = 0xfb3;
+/// See [`TRAIT_VISIBLE`].
+pub const TRAIT_BLUE: u32 = 0xfb4;
+/// See [`TRAIT_VISIBLE`].
+pub const TRAIT_FILENAME: u32 = 0xfcc;
+/// See [`TRAIT_VISIBLE`]. 1 is the HUD's colour, 2 its warning colour (the hostile tick); a number
+/// no system colour has (0) makes the tile take its `red`, `green` and `blue` (`tile.rs`,
+/// `update_tile_color`).
+pub const TRAIT_SYSTEM_COLOR: u32 = 0xff4;
+/// The text "Interface\HUD\glow_hud_tick_mark.dds", the actor tick's picture.
+pub const TICK_TEXTURE: u32 = 0x0107_350c;
+/// A reference's virtual `GetPos` (the compass's place of it): a pointer to three floats.
+pub const REF_GET_POS_SLOT: u32 = 0x1f4;
+/// `cdecl`, a setting: a pointer to its value.
+pub const SETTING_VALUE: u32 = 0x0040_3e20;
+/// The HUD opacity setting (a float, 0..1).
+pub const HUD_OPACITY_SETTING: u32 = 0x011d_9774;
+/// `HUDMainMenu +0x3c`: the group whose tiles are the actor ticks (the fourth word
+/// `UpdateCompass` is called with, `HUDMainMenu::DoIdle`).
+pub const HUD_ACTOR_TICKS_OFFSET: u32 = 0x3c;
+/// `NiAVObject::GetProperty` (`thiscall`, object, type): type 3 is the shader property, whose
+/// colour (four floats at +0x68) a tile's colour update writes (`Tile::SetAlphaAndColor`).
+pub const NI_OBJECT_GET_PROPERTY: u32 = 0x00a5_9d30;

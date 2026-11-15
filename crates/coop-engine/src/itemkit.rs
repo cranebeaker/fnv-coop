@@ -380,17 +380,17 @@ pub fn install(story: &mut Story, spec: &ItemKitSpec) {
             0
         })
     });
-    e.register(addr::TEMP_CONTAINER_CONSTRUCT, |e, a| {
+    e.register(addr::CONTAINER_CONSTRUCT, |e, a| {
         e.ext::<Kit>().temps.insert(a[0], Vec::new());
         eax(a[0])
     });
-    e.register(addr::TEMP_CONTAINER_ADD, |e, a| {
+    e.register(addr::CONTAINER_ADD, |e, a| {
         if let Some(t) = e.ext::<Kit>().temps.get_mut(&a[0]) {
             t.push((a[1], a[2] as i32, None));
         }
         Ret::default()
     });
-    e.register(addr::TEMP_CONTAINER_SET_HEALTH, |e, a| {
+    e.register(addr::CONTAINER_SET_HEALTH, |e, a| {
         if let Some(t) = e.ext::<Kit>().temps.get_mut(&a[0]) {
             for s in t.iter_mut() {
                 s.2 = Some(f32::from_bits(a[1]));
@@ -398,14 +398,14 @@ pub fn install(story: &mut Story, spec: &ItemKitSpec) {
         }
         Ret::default()
     });
-    e.register(addr::TEMP_CONTAINER_GIVE, |e, a| {
+    e.register(addr::CONTAINER_GIVE, |e, a| {
         let stacks = e.ext::<Kit>().temps.get(&a[0]).cloned().unwrap_or_default();
         for (form, count, condition) in stacks {
             give(e, a[1], form, count, condition);
         }
         Ret::default()
     });
-    e.register(addr::TEMP_CONTAINER_DESTRUCT, |e, a| {
+    e.register(addr::CONTAINER_DESTRUCT, |e, a| {
         e.ext::<Kit>().temps.remove(&a[0]);
         Ret::default()
     });

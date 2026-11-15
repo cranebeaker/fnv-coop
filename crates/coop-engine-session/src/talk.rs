@@ -45,12 +45,21 @@ pub struct Talker {
     pub denied: u32,
     /// Conversations the game did not start here because another player has the NPC.
     pub blocked: u32,
+    /// Conversations a copy of an actor another game runs began itself with this player, left to
+    /// the owner's game (it greets its own player).
+    pub not_greeted: u32,
     /// Lines of this player's conversations sent as picks.
     pub picks: u32,
     /// Other players' lines shown here.
     pub lines_shown: u32,
     /// Other players' lines not shown: this player is not with the NPC.
     pub lines_far: u32,
+    /// A quest of this player's own and one of its stages: until that stage is done in this game
+    /// the player is in its own opening, and its conversations are its own (each game has its own
+    /// Doc Mitchell for it): none of its lines goes to the protocol, and no NPC is refused to it.
+    pub opening: Option<(u32, u8)>,
+    /// Lines of this player's conversations kept its own because its opening runs.
+    pub opening_lines: u32,
 }
 
 /// How a watched line is shown: what the player chose, when the info has a prompt, then each of
@@ -80,6 +89,10 @@ impl Talker {
         share: &dyn Fn(&mut Engine, u32, bool) -> bool,
     ) -> Vec<DialogueMsg> {
         let mut out = Vec::new();
+        let opening = self.opening.is_some_and(|(quest, stage)| {
+            coop_engine::quest::record(e, quest).is_some_and(|r| !r.done.contains(&stage))
+        });
+        talk::set_own_opening(e, opening);
         for ev in talk::take_events(e) {
             match ev {
                 Event::Said {
@@ -88,10 +101,13 @@ impl Talker {
                     end,
                     held,
                 } => {
-                    if share(e, info, held) {
+                    if opening {
+                        self.opening_lines += 1;
+                    } else if share(e, info, held) {
                         self.queue.push_back(Said { npc, info, end });
                     }
                 }
+                Event::NotGreeted { .. } => self.not_greeted += 1,
                 Event::Blocked { .. } => {
                     self.blocked += 1;
                     talk::show(e, "Another player is talking to them.");
@@ -99,6 +115,7 @@ impl Talker {
             }
         }
         // The NPC another player talks to gets no menu here.
+        // (In this player's opening the game refuses no NPC: `talk::set_own_opening`.)
         let busy = client.view().filter(|v| v.initiator != me).map(|v| v.npc.0);
         talk::set_busy(e, busy);
         self.watch(e, me, client, &mut out);

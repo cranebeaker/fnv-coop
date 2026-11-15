@@ -19,4 +19,5 @@ coop-policy = { path = "../crates/coop-policy" }
 coop-engine = { path = "../crates/coop-engine" }
 coop-engine-session = { path = "../crates/coop-engine-session" }
 engine-core = { path = "../crates/engine-core" }
+engine-platform = { path = "../crates/engine-platform" }
 esm = { path = "../crates/esm" }

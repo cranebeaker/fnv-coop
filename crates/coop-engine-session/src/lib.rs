@@ -32,19 +32,21 @@ pub mod party;
 pub mod rest;
 pub mod social;
 pub mod talk;
+pub mod track;
 
 // vats: V.A.T.S. with several players (docs/coop/SPECS.md S21); held actors moved in steps
 // (S22).
 pub mod smooth;
 pub mod vats;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use coop_core::avatar::{AvatarMsg, AvatarSender, Sample};
 use coop_core::compat;
 use coop_core::delta::StateStore;
 use coop_core::ids::{Epoch, FormId, PlayerId, Rev, Tick};
 use coop_core::proto::{self, Hello, Msg};
+use coop_core::rules::{Gift, Notice};
 use coop_core::schema::Field;
 use coop_core::sync::{GuestLive, HostConfig, HostSync};
 use coop_core::sync::{GuestPhase, GuestSync};
@@ -79,6 +81,9 @@ pub const EVALUATE_TAG: u16 = 0x4556;
 /// [`echo`] and the heal leave it alone, and one that comes with a join or a repair is not
 /// played (it is over).
 pub const SCENE_TAG: u16 = 0x5343;
+/// A scene a guest's game asks for that played on the host less than this long ago (ms) is not
+/// played again: the guest came later to what the host had set off.
+pub const SCENE_AGAIN_MS: u64 = 10 * 60_000;
 /// The tag of a line an actor was made to say to the player (`SayTo`), on the speaker's form:
 /// a count, then the topic. The guest whose player the speaker is near says it there.
 pub const SAY_TAG: u16 = 0x5359;
@@ -105,6 +110,13 @@ fn say_of(field: &Field) -> Option<(u8, u32)> {
 pub const PACKAGE_TAG: u16 = 0x504b;
 
 /// The field for an actor's package.
+/// Host: every quest's variables are read again once in this many collect passes (a variable set
+/// by a script leaves nothing in the journal).
+pub const VAR_SWEEP_EVERY: u32 = 8;
+
+/// Host: how long the actors of a scene this game plays have their lines run here (ms).
+pub const SCENE_ACTORS_MS: u64 = 120_000;
+
 pub fn package_field(package: u32) -> Field {
     Field::Custom {
         tag: PACKAGE_TAG,
@@ -233,6 +245,30 @@ pub fn hello(plugins: Vec<String>) -> Hello {
 /// Encodes and sends `msg`; a message too large to encode, or a peer the transport does not have,
 /// is counted and dropped (coop-core's sync splits what it sends to fit; a refused send ends the
 /// session through the transport's own liveness check).
+/// A reward as the rules carry it (S30).
+fn gift_of(what: coop_engine::reward::What) -> Gift {
+    match what {
+        coop_engine::reward::What::Xp(xp) => Gift::Xp(xp),
+        coop_engine::reward::What::Item { form, count } => Gift::Item { form, count },
+    }
+}
+
+/// A reward as the game gives it (S30).
+fn what_of(gift: Gift) -> coop_engine::reward::What {
+    match gift {
+        Gift::Xp(xp) => coop_engine::reward::What::Xp(xp),
+        Gift::Item { form, count } => coop_engine::reward::What::Item { form, count },
+    }
+}
+
+/// A reward in the log's words.
+fn describe(gift: Gift) -> String {
+    match gift {
+        Gift::Xp(xp) => format!("{xp} experience"),
+        Gift::Item { form, count } => format!("{count} of item {form:08x}"),
+    }
+}
+
 fn send(net: &mut dyn Transport, to: PlayerId, msg: &Msg, failures: &mut u32) {
     match proto::encode(msg) {
         Ok(bytes) => {
@@ -261,6 +297,23 @@ pub struct HostDriver {
     /// coop-core's host sync: the replicated store, joins, deltas, hashes.
     pub sync: HostSync,
     quests: BTreeSet<u32>,
+    /// Host: collect passes so far (the variable sweep's clock).
+    collects: u32,
+    /// Host: the game's loads seen so far ([`coop_engine::saves::loads`]).
+    loads_seen: u64,
+    /// Host: [`quest::guest_completions_kept`] at the last step.
+    kept_seen: u64,
+    /// Host: the actors of the scenes started since the last step.
+    scene_started: Vec<u32>,
+    /// Host: the actors of the scenes this game plays, with when each began.
+    scene_actors: BTreeMap<u32, u64>,
+    /// Host: each scene played here (actor, target, topic), with when it last began.
+    scenes_played: BTreeMap<(u32, u32, u32), u64>,
+    /// Host: scenes guests' games asked for that were not played (they had just played, or an
+    /// actor was talking).
+    pub scenes_refused: u32,
+    /// Host: the time of this step.
+    now_ms: u64,
     globals: GlobalWatch,
     /// The game clock's globals (hour, day, month, year, days passed): sent as the clock, not as
     /// story globals.
@@ -274,6 +327,9 @@ pub struct HostDriver {
     says: std::collections::BTreeMap<u32, u8>,
     /// Stage changes of shared quests, for the log (taken by the caller).
     pub stage_notes: Vec<String>,
+    /// Host: the story's rewards this game's player got and the guests were sent (S30), each
+    /// one's number for the rules' ledger.
+    pub rewards: u32,
     /// Guests' death claims the host's game enacted.
     pub claims_enacted: u32,
     /// Guests' claims left alone: the actor is not in the host's game now, or is dead already.
@@ -348,6 +404,14 @@ impl HostDriver {
         HostDriver {
             sync,
             quests: quest_ids.into_iter().collect(),
+            collects: 0,
+            loads_seen: 0,
+            kept_seen: 0,
+            scene_started: Vec::new(),
+            scene_actors: BTreeMap::new(),
+            scenes_played: BTreeMap::new(),
+            scenes_refused: 0,
+            now_ms: 0,
             globals: GlobalWatch::new(global_ids),
             clock: Vec::new(),
             clock_sent_ms: None,
@@ -355,6 +419,7 @@ impl HostDriver {
             scenes: std::collections::BTreeMap::new(),
             says: std::collections::BTreeMap::new(),
             stage_notes: Vec::new(),
+            rewards: 0,
             claims_enacted: 0,
             claims_dropped: 0,
             triggers_kept: 0,
@@ -396,8 +461,36 @@ impl HostDriver {
                 self.enact_proposal(e, from, id, p);
                 continue;
             }
-            // A scene a guest's own script started: played here, and so for everyone.
+            // A scene a guest's own script started: played here, and so for everyone. Not one
+            // that played here a little while ago (the guest walked up later to the trigger the
+            // host had set it off with: PC run 31, Joe Cobb began his line again as he ran off),
+            // nor one with an actor already in a conversation.
             if let Some(scene) = scene_of(id, &field) {
+                let key = (scene.actor, scene.target, scene.topic);
+                let ago = self
+                    .scenes_played
+                    .get(&key)
+                    .map(|t| self.now_ms.saturating_sub(*t))
+                    .filter(|ago| *ago < SCENE_AGAIN_MS);
+                let talking = [scene.actor, scene.target]
+                    .into_iter()
+                    .find(|a| coop_engine::fight::in_dialogue(e, *a));
+                if ago.is_some() || talking.is_some() {
+                    self.scenes_refused += 1;
+                    self.claim_notes.push(format!(
+                        "player {}'s game started a scene: actor {:08x} talks to {:08x} (topic {:08x}): not played, {}",
+                        from.0,
+                        scene.actor,
+                        scene.target,
+                        scene.topic,
+                        match (ago, talking) {
+                            (Some(ago), _) => format!("it played here {} s ago", ago / 1000),
+                            (None, Some(a)) => format!("actor {a:08x} is in a conversation"),
+                            (None, None) => unreachable!(),
+                        }
+                    ));
+                    continue;
+                }
                 let played = commands::play_scene(e, &scene);
                 self.claim_notes.push(format!(
                     "player {}'s game started a scene: actor {:08x} talks to {:08x} (topic {:08x}): {}",
@@ -411,6 +504,7 @@ impl HostDriver {
                     }
                 ));
                 if played.is_ok() {
+                    self.scenes_played.insert(key, self.now_ms);
                     commands::played_for_a_guest(e, &scene);
                     let n = self.scenes.entry(scene.actor).or_insert(0);
                     *n = n.wrapping_add(1);
@@ -450,7 +544,18 @@ impl HostDriver {
     /// objective only when this game has not got there. This game's own scripts run for it (a
     /// stage's result), and the story carries the outcome to every guest.
     fn enact_proposal(&mut self, e: &mut Engine, from: PlayerId, id: u32, p: Proposal) {
-        let done = match p {
+        // A line a stage's result has an actor say to the player while the guest's doing is done
+        // here was said in that guest's game already, where the stage was set (harness,
+        // 2026-11-13: Sunny's bark after the sneak, sent back to the guest, was said twice).
+        let earlier_says = commands::drain_says(e);
+        let done = self.enact_proposal_body(e, id, p);
+        let _ = commands::drain_says(e);
+        commands::put_back_says(e, earlier_says);
+        self.note_enacted(from, id, p, done);
+    }
+
+    fn enact_proposal_body(&mut self, e: &mut Engine, id: u32, p: Proposal) -> bool {
+        match p {
             Proposal::Var {
                 index,
                 before,
@@ -504,13 +609,25 @@ impl HostDriver {
                     for o in r.objectives.iter_mut().filter(|o| o.0 == number) {
                         o.1 = state;
                     }
-                    let ok = quest::apply(e, &r);
+                    // The guest's doing, as such (an objective it takes back is taken back).
+                    let ok = coop_engine::gate::applying(e, |e| quest::apply(e, &r));
+                    if ok && state & 2 != 0 {
+                        // Not taken back by this game's own scripts, whose `Player` is the
+                        // host's player alone (S29).
+                        quest::note_guest_completed(e, id, number);
+                        self.stage_notes.push(format!(
+                            "objective {number} of {id:08x} completed by a guest: kept from this game's own scripts"
+                        ));
+                    }
                     self.write_quest(e, id);
                     ok
                 }
                 _ => false,
             },
-        };
+        }
+    }
+
+    fn note_enacted(&mut self, from: PlayerId, id: u32, p: Proposal, done: bool) {
         if done {
             self.proposals_enacted += 1;
         } else {
@@ -554,6 +671,44 @@ impl HostDriver {
             self.write_quest(e, id);
         }
         self.collect(e);
+    }
+
+    /// After this game loaded a save: the story read again from the game (PC harness, 2026-11-13:
+    /// the story was read once at the main menu; after the host loaded its save, Sunny's quest
+    /// was at stage 5 in its game and 0 in the story, and the guests were put back to 0). A load
+    /// leaves nothing in the change journal, so every quest's record and variables, and the
+    /// state of every reference the story holds one of, are written as the game has them now.
+    fn reread_after_load(&mut self, e: &mut Engine) {
+        for id in self.quests.clone() {
+            self.write_quest(e, id);
+        }
+        let refs: Vec<u32> = self
+            .sync
+            .store
+            .iter()
+            .filter(|(_, en)| matches!(en.field, Field::RefDisabled { .. }))
+            .map(|(k, _)| k.form.0)
+            .collect();
+        for id in refs {
+            if let Some(disabled) = actors::disabled(e, id) {
+                self.sync.write(FormId(id), Field::RefDisabled { disabled });
+            }
+        }
+        // Likewise every actor the story holds the life of (one dead before the load may live).
+        let lives: Vec<u32> = self
+            .sync
+            .store
+            .iter()
+            .filter(|(_, en)| life_value(&en.field).is_some())
+            .map(|(k, _)| k.form.0)
+            .collect();
+        for id in lives {
+            if let Some(dead) = actors::dead(e, id) {
+                self.sync.write(FormId(id), life_field(dead));
+            }
+        }
+        self.stage_notes
+            .push("this game loaded a save: the story is read again from it".into());
     }
 
     /// Writes quest `id`'s record and its script's variables into the replica.
@@ -636,6 +791,22 @@ impl HostDriver {
         for id in quests {
             self.write_quest(e, id);
         }
+        // A quest variable a script sets (`set Quest.var to ...`, a dialogue line's result) leaves
+        // nothing in the journal: every quest's variables are read again every few frames (PC
+        // run 28: the host's Sunny greeted its player and set `bMetSunny`, the story kept 0, the
+        // guest's own greeting was refused as already done, and its game was put back to 0, so
+        // its Sunny walked up to its player again and again).
+        self.collects = self.collects.wrapping_add(1);
+        if self.collects % VAR_SWEEP_EVERY == 0 {
+            for id in self.quests.clone() {
+                for (var, bits) in vars::quest_vars(e, id).unwrap_or_default() {
+                    if let Ok(index) = u16::try_from(var) {
+                        self.sync
+                            .write(FormId(id), Field::ScriptVar { index, bits });
+                    }
+                }
+            }
+        }
         // A placed reference a script enabled or disabled (its form flags changed): its state as
         // it is now. Kept in the story from then on, so a later change back is sent too.
         for c in &changes {
@@ -710,6 +881,9 @@ impl HostDriver {
         }
         // A conversation a script started between two actors: the guests' games play it too.
         for scene in commands::drain_scenes(e) {
+            self.scenes_played
+                .insert((scene.actor, scene.target, scene.topic), self.now_ms);
+            self.scene_started.extend([scene.actor, scene.target]);
             let n = self.scenes.entry(scene.actor).or_insert(0);
             *n = n.wrapping_add(1);
             self.stage_notes.push(format!(
@@ -744,6 +918,24 @@ impl HostDriver {
     /// One step, between two of the game's frames: the guests' messages, this frame's changes,
     /// the sends, and every [`HostDriver::hash_every`] steps the hashes.
     pub fn step(&mut self, e: &mut Engine, net: &mut dyn Transport, now_ms: u64) {
+        self.now_ms = now_ms;
+        let kept = quest::guest_completions_kept(e);
+        // Said the first time, then once in 1000 (a quest script tries again every frame).
+        if kept / 1000 != self.kept_seen / 1000 || (self.kept_seen == 0 && kept > 0) {
+            self.stage_notes.push(format!(
+                "this game's own scripts were kept from taking back a guest's objective ({} times)",
+                kept
+            ));
+            self.kept_seen = kept;
+        }
+        // A save this game loaded: the story is read again from it.
+        let loads = coop_engine::saves::loads(e);
+        if loads != self.loads_seen {
+            self.loads_seen = loads;
+            if self.sync.tick_no().0 != 0 {
+                self.reread_after_load(e);
+            }
+        }
         self.sync.set_time_ms(now_ms);
         for (from, msg) in receive(net, &mut self.bad_packets) {
             for (to, reply) in self.sync.on_msg(from, msg) {
@@ -764,6 +956,39 @@ impl HostDriver {
         social::host_step(self, e, net, now_ms);
         self.enact_claims(e);
         self.collect(e);
+        // The story's rewards (S30): this game's player has each; every guest gets the same.
+        for given in coop_engine::reward::take(e) {
+            self.rewards += 1;
+            let gift = gift_of(given.what);
+            let outs = self.sync.live.reward(gift);
+            self.stage_notes.push(format!(
+                "the story gave this game's player {} ({:08x}'s script): to {} guest(s) too",
+                describe(gift),
+                given.quest,
+                outs.len()
+            ));
+            for (to, msg) in outs {
+                send(net, to, &msg, &mut self.send_failures);
+            }
+        }
+        // Rewards a guest's game gave its player from the story (a line an NPC said there outside
+        // the conversation): this game's player gets the same; the rules sent the other guests.
+        for gift in std::mem::take(&mut self.sync.live.rules.gifts_here) {
+            if coop_engine::reward::give(e, what_of(gift)) {
+                self.stage_notes.push(format!(
+                    "a guest's game gave its player {} from the story: this game's player too",
+                    describe(gift)
+                ));
+            }
+        }
+        // The actors of a scene this game plays: their lines run here even when a guest's game
+        // runs them (the scene is the host's, and its results the story's), for SCENE_ACTORS_MS.
+        for id in std::mem::take(&mut self.scene_started) {
+            self.scene_actors.insert(id, now_ms);
+        }
+        self.scene_actors
+            .retain(|_, t| now_ms.saturating_sub(*t) < SCENE_ACTORS_MS);
+        coop_engine::gate::set_scene_actors(e, self.scene_actors.keys().copied());
         self.write_clock(e, now_ms);
         // fights
         if let Some(f) = self.fight.as_mut() {
@@ -921,6 +1146,10 @@ pub struct GuestDriver {
     /// The distinct entries healed (the first 40), for the log: what on this guest keeps changing
     /// shared state.
     pub healed_notes: Vec<String>,
+    /// The experience the story gave this game's player through the host (S30).
+    pub xp_given: u64,
+    /// The story's item rewards given to this game's player through the host (S30).
+    pub items_given: u32,
     healed_seen: BTreeSet<(u32, u8)>,
     /// The live ladder (players in the world); `None` leaves the session story-only.
     pub ladder: Option<ladder::Ladder>,
@@ -990,6 +1219,8 @@ impl GuestDriver {
             healed: 0,
             relisted: 0,
             healed_notes: Vec::new(),
+            xp_given: 0,
+            items_given: 0,
             healed_seen: BTreeSet::new(),
             ladder: None,
             fight: None, // fights
@@ -1007,6 +1238,52 @@ impl GuestDriver {
 
     /// One step, between two of the game's frames: the first makes this game a guest (its story
     /// scripts gated) and says hello; each takes the host's messages and applies what changed.
+    /// The story's rewards the host sent (S30): this game's player gets each, the game's own
+    /// way. One that cannot be given yet (no player) waits.
+    fn take_rewards(&mut self, e: &mut Engine, net: &mut dyn Transport) {
+        // The story's rewards this game gave its player (a line an NPC said here outside the
+        // conversation): the host's player and the other guests get the same.
+        for given in coop_engine::reward::take(e) {
+            let gift = gift_of(given.what);
+            if let (Some(i), Gift::Item { form, count }) = (self.items.as_mut(), gift) {
+                i.story_gave(form, count);
+            }
+            self.healed_notes.push(format!(
+                "co-op guest: the story gave this game's player {} here ({:08x}'s line): sent to the host",
+                describe(gift),
+                given.quest
+            ));
+            send(
+                net,
+                PlayerId::HOST,
+                &Msg::Rules(coop_core::rules::RulesMsg::Reward { id: 0, gift }),
+                &mut self.send_failures,
+            );
+        }
+        let notices = std::mem::take(&mut self.sync.live.rules.notices);
+        for n in notices {
+            match n {
+                Notice::Reward(gift) if coop_engine::reward::give(e, what_of(gift)) => {
+                    match gift {
+                        Gift::Xp(xp) => self.xp_given += u64::from(xp),
+                        Gift::Item { form, count } => {
+                            self.items_given += 1;
+                            // items: a quest's reward is not a take (see `story_gave`).
+                            if let Some(i) = self.items.as_mut() {
+                                i.story_gave(form, count);
+                            }
+                        }
+                    }
+                    self.healed_notes.push(format!(
+                        "co-op guest: the story gave this game's player {}",
+                        describe(gift)
+                    ));
+                }
+                other => self.sync.live.rules.notices.push(other),
+            }
+        }
+    }
+
     pub fn step(&mut self, e: &mut Engine, net: &mut dyn Transport, now_ms: u64) {
         self.sync.set_time_ms(now_ms);
         if !self.started {
@@ -1023,6 +1300,7 @@ impl GuestDriver {
                 send(net, PlayerId::HOST, &reply, &mut self.send_failures);
             }
         }
+        self.take_rewards(e, net);
         if let Some(ladder) = self.ladder.as_mut() {
             let ids: Vec<PlayerId> = self.sync.live.remote.keys().copied().collect();
             let peers: Vec<(PlayerId, Sample)> = ids

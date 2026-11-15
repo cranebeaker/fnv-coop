@@ -15,7 +15,12 @@
 //!
 //! `DialogMenu::Create` (`00761a20`) is wrapped too: an NPC another player is talking to
 //! ([`set_busy`]) gets no menu (the answer 0, the game's own for a conversation that could not
-//! start), and the refusal is noted as an [`Event::Blocked`].
+//! start), and the refusal is noted as an [`Event::Blocked`]. Nor does a copy of an actor another
+//! game runs (`puppet`) that comes to this game's player on a Dialogue package of its own (a
+//! force greet): the conversation is the owner's game's, with the player it runs the actor for
+//! (PC run 31: the guest ended Sunny's tutorial, while in the host's game her copy came to the
+//! host, and her first line there started the campfire quest for both). A player who walks up to
+//! a copy and talks to it is never refused. The refusal is noted as an [`Event::NotGreeted`].
 //!
 //! With sharing off, both wraps pass every call on untouched.
 
@@ -54,6 +59,12 @@ pub enum Event {
         /// The result script did not run here: the host is to run it.
         held: bool,
     },
+    /// A conversation a copy of an actor another game runs began itself with this game's player
+    /// was refused: the owner's game greets its own player.
+    NotGreeted {
+        /// The speaker's reference id.
+        npc: u32,
+    },
     /// A conversation with this reference was refused: another player is talking to it.
     Blocked {
         /// The speaker's reference id.
@@ -69,10 +80,15 @@ pub struct Talk {
     /// conversation.
     enacting: AtomicU32,
     busy: RwLock<BTreeSet<u32>>,
+    /// This player's own opening runs: its conversations are its own (see [`set_own_opening`]).
+    opening: AtomicBool,
     events: Mutex<Vec<Event>>,
     held: AtomicU64,
     own: AtomicU64,
     unknown: AtomicU64,
+    /// The quests of the lines whose results are running now, innermost last (a line's result
+    /// script names no owner quest: its info's quest is the one).
+    results: Mutex<Vec<u32>>,
 }
 
 impl Talk {
@@ -96,12 +112,27 @@ pub fn sharing(e: &mut Engine) -> bool {
 
 /// Names the references other players are talking to: a conversation with one of them does not
 /// start here.
+/// Says whether this player's own opening runs in this game (Doc Mitchell's house, a quest each
+/// player plays for itself). Its conversations are then its own, whoever it talks to: on a guest
+/// a line of the shared story is run here, not held for the host, and no NPC is refused as
+/// another player's (the owner, 2026-11-14: both players sat for Doc Mitchell's questions; he
+/// asked the host's and stared at the guest until the host was done). Each game has its own Doc
+/// Mitchell for it.
+pub fn set_own_opening(e: &mut Engine, on: bool) {
+    e.ext_free::<Talk>().opening.store(on, Ordering::SeqCst);
+}
+
 pub fn set_busy(e: &mut Engine, ids: impl IntoIterator<Item = u32>) {
     let t = e.ext_free::<Talk>();
     *t.busy.write().unwrap_or_else(PoisonError::into_inner) = ids.into_iter().collect();
 }
 
 /// The events since the last call, in order.
+/// Whether this game is running a guest's line ([`enact`]) now.
+pub fn enacting(e: &mut Engine) -> bool {
+    e.ext_free::<Talk>().enacting.load(Ordering::SeqCst) > 0
+}
+
 pub fn take_events(e: &mut Engine) -> Vec<Event> {
     let t = e.ext_free::<Talk>();
     std::mem::take(&mut *t.events.lock().unwrap_or_else(PoisonError::into_inner))
@@ -262,6 +293,42 @@ pub fn near(e: &mut Engine, npc: u32) -> bool {
 
 /// The wrap at `0061f170`. Its words: the info, the index, the reference.
 pub(crate) fn run_result(e: &mut Engine, a: &[u32]) -> Ret {
+    let info = a.first().copied().unwrap_or(0);
+    let quest = if info == 0 { 0 } else { quest_of(e, info) };
+    let depth = {
+        let mut r = e
+            .ext_free::<Talk>()
+            .results
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        r.push(quest);
+        r.len() - 1
+    };
+    // Unwound or not, the stack goes back to where it was.
+    let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_result_shared(e, a)));
+    e.ext_free::<Talk>()
+        .results
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .truncate(depth);
+    match out {
+        Ok(r) => r,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+/// The quest of the line whose result is running now (the innermost), 0 for a line of no quest;
+/// `None` when no line's result runs.
+pub fn result_quest(e: &mut Engine) -> Option<u32> {
+    e.ext_free::<Talk>()
+        .results
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .last()
+        .copied()
+}
+
+fn run_result_shared(e: &mut Engine, a: &[u32]) -> Ret {
     let t = e.ext_free::<Talk>();
     if !t.sharing.load(Ordering::SeqCst) || t.enacting.load(Ordering::SeqCst) > 0 {
         return e.call_next(addr::INFO_RUN_RESULT, a);
@@ -276,7 +343,8 @@ pub(crate) fn run_result(e: &mut Engine, a: &[u32]) -> Ret {
     let npc = e.mem.u32(speaker.wrapping_add(addr::FORM_ID_OFFSET));
     let id = e.mem.u32(info.wrapping_add(addr::FORM_ID_OFFSET));
     let quest = quest_of(e, info);
-    let held = gate::is_guest(e) && quest != 0 && !gate::is_own_quest(e, quest);
+    let opening = e.ext_free::<Talk>().opening.load(Ordering::SeqCst);
+    let held = gate::is_guest(e) && quest != 0 && !gate::is_own_quest(e, quest) && !opening;
     let t = e.ext_free::<Talk>();
     match (held, quest) {
         (true, _) => t.held.fetch_add(1, Ordering::SeqCst),
@@ -296,12 +364,35 @@ pub(crate) fn run_result(e: &mut Engine, a: &[u32]) -> Ret {
     }
 }
 
+/// Whether `speaker` (a pointer) runs a Dialogue package of the data files: it came to the
+/// player to talk (a force greet), rather than the player walking up to it.
+fn greets(e: &mut Engine, speaker: u32) -> bool {
+    if !e.is_registered(addr::ACTOR_GET_CURRENT_EDITOR_PACKAGE)
+        || !e.is_registered(addr::PACKAGE_TYPE)
+    {
+        return false;
+    }
+    let package = e
+        .call(addr::ACTOR_GET_CURRENT_EDITOR_PACKAGE, &args![speaker])
+        .u32();
+    package != 0
+        && e.call(addr::PACKAGE_TYPE, &args![package]).u32() & 0xff == addr::PACKAGE_TYPE_DIALOGUE
+}
+
 /// The wrap at `00761a20`. Its words: the speaker, a word for the topic manager, a target.
 pub(crate) fn create(e: &mut Engine, a: &[u32]) -> Ret {
     let speaker = a.first().copied().unwrap_or(0);
     let t = e.ext_free::<Talk>();
-    if speaker != 0 && t.sharing.load(Ordering::SeqCst) && menu_speaker(e).is_none() {
+    if speaker != 0
+        && t.sharing.load(Ordering::SeqCst)
+        && !t.opening.load(Ordering::SeqCst)
+        && menu_speaker(e).is_none()
+    {
         let npc = e.mem.u32(speaker.wrapping_add(addr::FORM_ID_OFFSET));
+        if crate::puppet::is_copy(e, npc) && greets(e, speaker) {
+            e.ext_free::<Talk>().push(Event::NotGreeted { npc });
+            return Ret::default();
+        }
         let t = e.ext_free::<Talk>();
         if t.busy
             .read()
@@ -330,12 +421,16 @@ mod tests {
     const SHARED_LINE: u32 = 0x0010_9001;
     const OWN_LINE: u32 = 0x0010_9002;
     const LOOSE_LINE: u32 = 0x0010_9003;
+    /// A force greet (a Dialogue package) and a package of another type.
+    const GREET: u32 = 0x0010_a219;
+    const WANDER: u32 = 0x0010_a21c;
 
     fn story() -> Story {
         let mut s = Story::new(&StorySpec {
             quests: vec![(MQ, vec![5, 10, 20]), (OWN, vec![5])],
             cells: vec![CELL],
             actors: vec![NPC, OTHER],
+            packages: vec![GREET, WANDER],
             ..StorySpec::default()
         });
         s.add_info(
@@ -385,6 +480,61 @@ mod tests {
             })
         );
         assert!(take_events(&mut s.e).is_empty());
+    }
+
+    /// S30 (harness, 2026-11-13): a line's result script names no owner quest, so Trudy's
+    /// `RewardXP 50` that ends VCG03 was not seen as the story's. The line's own quest is the one,
+    /// for this game's own conversation and for a guest's line the host runs.
+    #[test]
+    fn a_lines_experience_is_its_quests() {
+        let mut s = story();
+        set_sharing(&mut s.e, true);
+        s.set_info_reward_xp(SHARED_LINE, true, 50);
+        assert!(s.talk_to(NPC));
+        s.say(SHARED_LINE, true);
+        assert_eq!(
+            crate::reward::take(&mut s.e),
+            vec![crate::reward::Given {
+                quest: MQ,
+                what: crate::reward::What::Xp(50)
+            }]
+        );
+        s.leave();
+        enact(&mut s.e, NPC, SHARED_LINE, true).unwrap();
+        assert_eq!(
+            crate::reward::take(&mut s.e),
+            vec![crate::reward::Given {
+                quest: MQ,
+                what: crate::reward::What::Xp(50)
+            }]
+        );
+        assert_eq!(s.xp(), 100);
+        assert_eq!(result_quest(&mut s.e), None);
+    }
+
+    /// PC run 30: Sunny hands over her rifle at the bottles by speaking up, outside the guest's
+    /// conversation; the line's result ran in the guest's game, whose player alone got the rifle.
+    /// On a guest, a story line said outside its player's conversation is noted; its own
+    /// conversation's results are held for the host and give it nothing here.
+    #[test]
+    fn a_guests_story_line_said_outside_its_conversation_notes_its_reward() {
+        let mut s = story();
+        set_sharing(&mut s.e, true);
+        gate::set_guest(&mut s.e, true);
+        s.set_info_reward_xp(SHARED_LINE, true, 50);
+        s.say_as(NPC, SHARED_LINE, true);
+        assert_eq!(s.xp(), 50);
+        assert_eq!(
+            crate::reward::take(&mut s.e),
+            vec![crate::reward::Given {
+                quest: MQ,
+                what: crate::reward::What::Xp(50)
+            }]
+        );
+        assert!(s.talk_to(NPC));
+        s.say(SHARED_LINE, true);
+        assert_eq!(s.xp(), 50);
+        assert_eq!(crate::reward::take(&mut s.e), vec![]);
     }
 
     #[test]
@@ -470,6 +620,68 @@ mod tests {
         set_sharing(&mut s.e, false);
         set_busy(&mut s.e, [NPC]);
         assert!(s.talk_to(NPC));
+    }
+
+    /// PC run 31: the guest ended Sunny's tutorial; in the host's game her copy (the guest's game
+    /// ran her) came to the host on her Dialogue package, and the first line there started the
+    /// campfire quest for both. A copy's own force greet gets no menu; the player walking up to a
+    /// copy, or an actor this game runs coming to it, does.
+    #[test]
+    fn a_copy_does_not_greet_this_games_player_on_its_own() {
+        let mut s = story();
+        set_sharing(&mut s.e, true);
+        s.set_package_type(GREET, addr::PACKAGE_TYPE_DIALOGUE);
+        s.place(NPC, CELL);
+        s.set_own_package(NPC, GREET);
+        crate::puppet::set_copies(&mut s.e, [(NPC, 0)]);
+        assert!(!s.talk_to(NPC));
+        assert_eq!(menu_npc(&mut s.e), None);
+        assert_eq!(take_events(&mut s.e), [Event::NotGreeted { npc: NPC }]);
+        // On another package it is the player who walked up: the conversation goes on.
+        s.set_own_package(NPC, WANDER);
+        assert!(s.talk_to(NPC));
+        assert!(close_menu(&mut s.e));
+        // This game's own actor greets as ever.
+        s.set_own_package(NPC, GREET);
+        crate::puppet::set_copies(&mut s.e, []);
+        assert!(s.talk_to(NPC));
+        assert!(close_menu(&mut s.e));
+        // Without sharing the game has it as ever.
+        crate::puppet::set_copies(&mut s.e, [(NPC, 0)]);
+        set_sharing(&mut s.e, false);
+        assert!(s.talk_to(NPC));
+        assert!(close_menu(&mut s.e));
+        assert!(take_events(&mut s.e).is_empty());
+    }
+
+    /// The owner, 2026-11-14: both players sat for Doc Mitchell's questions; he asked the host's
+    /// and stared at the guest until the host was done (the host's conversation made him busy for
+    /// the guest). While this player's own opening runs its conversations are its own: no NPC is
+    /// refused it, and on a guest a line of the shared story runs here instead of being held.
+    #[test]
+    fn in_its_own_opening_a_players_conversations_are_its_own() {
+        let mut s = story();
+        gate::set_guest(&mut s.e, true);
+        gate::set_own_quests(&mut s.e, [OWN]);
+        set_sharing(&mut s.e, true);
+        set_busy(&mut s.e, [NPC]);
+        set_own_opening(&mut s.e, true);
+        assert!(s.talk_to(NPC));
+        s.say(SHARED_LINE, false);
+        assert_eq!(forms::quest_stage(&mut s.e, MQ), Some(10));
+        let held: Vec<bool> = take_events(&mut s.e)
+            .into_iter()
+            .map(|ev| matches!(ev, Event::Said { held: true, .. }))
+            .collect();
+        assert_eq!(held, [false]);
+        assert!(close_menu(&mut s.e));
+        // The opening over: refused again, and held again.
+        set_own_opening(&mut s.e, false);
+        assert!(!s.talk_to(NPC));
+        set_busy(&mut s.e, []);
+        assert!(s.talk_to(NPC));
+        s.say(SHARED_LINE, true);
+        assert_eq!(forms::quest_stage(&mut s.e, MQ), Some(10));
     }
 
     #[test]

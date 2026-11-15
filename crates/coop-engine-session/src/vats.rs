@@ -32,12 +32,14 @@ pub enum Mode {
 }
 
 impl Mode {
-    /// `off` or `slow`; anything else, or nothing, is everything this build shares.
+    /// `on` (or `live`) is everything this build shares, `slow` only the playback; anything
+    /// else, or nothing, is off: merged from another line of work and not yet run on a PC, it is
+    /// switched on one run at a time.
     pub fn parse(v: &str) -> Mode {
         match v.trim() {
-            "off" => Mode::Off,
+            "on" | "live" => Mode::Live,
             "slow" => Mode::Slow,
-            _ => Mode::Live,
+            _ => Mode::Off,
         }
     }
 }

@@ -26,6 +26,12 @@ Each of these must pass on two real Windows PCs, each with its own copy of FNV 1
 5. **Robustness.** A session survives packet loss and lets a dropped player rejoin. It refuses mismatched
    game versions or mod lists.
 
+## Priority (the owner, 2026-11-13)
+
+Gameplay first: every quest in the game can be done together, and both players see the same
+enemies and NPCs in the same places at all times. Looks and extras come after: the other player's
+customization and animation, giving items between players, and the like.
+
 ## Constraints
 
 - Every change follows from a stated need and is checked: a test, and where the checklist asks for one, a

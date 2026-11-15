@@ -304,6 +304,8 @@ pub struct Snap {
     pub loaded: bool,
     /// `Actor::GetEssential`: the game does not let it die.
     pub essential: bool,
+    /// Its movement flags ([`addr::ACTOR_MOVE_FLAGS`]; 0 where the program has no such function).
+    pub moves: u16,
 }
 
 impl Snap {
@@ -401,6 +403,11 @@ pub fn snap(e: &mut Engine, actor: u32) -> Snap {
         target,
         loaded: e.mem.u32(actor.wrapping_add(addr::REF_LOADED_OFFSET)) != 0,
         essential: e.call(addr::ACTOR_GET_ESSENTIAL, &args![actor]).bool(),
+        moves: if e.is_registered(addr::ACTOR_MOVE_FLAGS) {
+            e.call(addr::ACTOR_MOVE_FLAGS, &args![actor]).u32() as u16
+        } else {
+            0
+        },
     }
 }
 
@@ -519,6 +526,17 @@ pub fn lead(e: &mut Engine, id: u32, pos: [f32; 3], heading: f32) -> Option<[f32
         &args![a, u32::from(b'Z'), heading.to_degrees().to_bits()],
     );
     place_of(e, id)
+}
+
+/// Whether this game's actor `id` is in a conversation (its package a dialogue package: a scene a
+/// script started, or one with a player). False when it is not in this game now.
+pub fn in_dialogue(e: &mut Engine, id: u32) -> bool {
+    match actors::actor(e, id) {
+        Some(a) if e.is_registered(addr::MOBILE_IS_IN_DIALOGUE) => {
+            e.call(addr::MOBILE_IS_IN_DIALOGUE, &args![a]).bool()
+        }
+        _ => false,
+    }
 }
 
 /// Brings an actor that is in another space of this game into this game's player's space, at

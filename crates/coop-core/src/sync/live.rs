@@ -140,6 +140,16 @@ impl HostLive {
         out
     }
 
+    /// The shared story gave the host's player a reward: the other players get it too (see
+    /// [`RulesHost::reward`]).
+    pub fn reward(&mut self, gift: crate::rules::Gift) -> Outs {
+        let mut out = Vec::new();
+        for m in self.rules.reward(gift) {
+            self.route(m.aud, Msg::Rules(m.msg), &mut out);
+        }
+        out
+    }
+
     /// A player left; every open rule stops waiting for them.
     pub fn leave(&mut self, p: PlayerId, now_ms: u64) -> Outs {
         let mut out = Vec::new();

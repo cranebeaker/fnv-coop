@@ -53,12 +53,35 @@ const BOTTLE_SCRIPT: u32 = 0x0150_0600;
 /// An object script whose body is `Disable` on the reference it runs on (a trigger that spends
 /// itself).
 const SPEND_SCRIPT: u32 = 0x0150_0500;
+/// A script whose body is `RewardXP`: a stage's result when it names an owner quest, an object
+/// script when it does not.
+const REWARD_SCRIPT: u32 = 0x0150_0700;
+/// In any script's block: the experience its body gives the player (`RewardXP`), 0 for none.
+pub(crate) const SCRIPT_REWARD_XP: u32 = 0x7c;
+/// The experience the player was given in all.
+const REWARD: u32 = RAN + 0x50;
+/// Two cells (their addresses) this game does not have loaded; 0 for none.
+const UNLOADED: u32 = RAN + 0x58;
+/// In any script's block: an item its body gives (`AddItem`; its form id, 0 for none), how many,
+/// and to whom (a reference's address; 0 for the player).
+pub(crate) const SCRIPT_ADD_ITEM: u32 = 0x68;
+/// In any script's block: a second item and its count in the same container (a form list's
+/// elements, as `AddItem` gives them), 0 for none.
+const SCRIPT_ADD_ITEM_TOO: u32 = 0x60;
+/// Items: the next free byte of the arena the containers' lists take, item forms from
+/// [`BAG_FORMS`], the player's inventory (item, count pairs) from [`BAG_INVENTORY`].
+const BAG: u32 = 0x0172_0000;
+const BAG_LEN: u32 = 0x4000;
+const BAG_FORMS: u32 = BAG + 0x2000;
+const BAG_INVENTORY: u32 = BAG + 0x3000;
 /// The form id of the object script [`Story::run_object_script_setting_stage`] runs.
 pub const SETTER_SCRIPT_ID: u32 = 0x0015_0001;
 /// The form id of the target's script [`Story::shoot_target`] runs (`VCG02TargetSCRIPT`'s).
 pub const BOTTLE_SCRIPT_ID: u32 = 0x0010_a1ef;
 /// Where a reference's primitive is kept, in its own block (a trigger volume has one).
 const PRIMITIVE_OFFSET: u32 = 0xeb0;
+/// Where an actor's being in a conversation is kept, in its own block.
+const DIALOGUE_OFFSET: u32 = 0xec0;
 /// Where an actor's count of package evaluations is kept, in its own block.
 const EVALUATIONS_OFFSET: u32 = 0xe80;
 /// Where an actor's conversations are kept, in its own block: how many it started, then the
@@ -74,6 +97,8 @@ const PACKAGE_OFFSET: u32 = 0xea0;
 const PROCEDURE_OFFSET: u32 = 0x100;
 const BEGUN_OFFSET: u32 = 0x104;
 const ENDED_OFFSET: u32 = 0x108;
+/// A package's type, as `PACKAGE_TYPE` answers it (0 unless a test sets it).
+const KIND_OFFSET: u32 = 0x10c;
 /// A stand-in that answers 0, behind virtual slots whose effect no test reads.
 pub(crate) const NOTHING_FN: u32 = 0x0170_0000;
 const SCENE_ARGS: u32 = RAN + 0x60;
@@ -345,6 +370,34 @@ fn runner(e: &mut Engine, a: &[u32]) -> Ret {
         }
         e.call(addr::REF_DISABLE, &args![a[2]]);
     }
+    let item_at = a[1].wrapping_add(SCRIPT_ADD_ITEM);
+    if a[1] != 0 && e.mem.is_mapped(item_at) && e.mem.u32(item_at) != 0 {
+        let (id, count) = (e.mem.u32(item_at), e.mem.u32(item_at + 4));
+        let player = match e.mem.u32(item_at + 8) {
+            0 => e.mem.u32(addr::PLAYER_SINGLETON),
+            to => to,
+        };
+        if let Some(item) = forms::form(e, id) {
+            // As `AddItem` does: a container of its own, handed to the player.
+            e.with_stack(addr::CONTAINER_SIZE, |e, c| {
+                e.call(addr::CONTAINER_CONSTRUCT, &args![c]);
+                e.call(addr::CONTAINER_ADD, &args![c, item, count, 0u32]);
+                let too = a[1] + SCRIPT_ADD_ITEM_TOO;
+                if let Some(second) = forms::form(e, e.mem.u32(too)) {
+                    let n = e.mem.u32(too + 4);
+                    e.call(addr::CONTAINER_ADD, &args![c, second, n, 0u32]);
+                }
+                e.call(addr::CONTAINER_GIVE, &args![c, player, 0u32]);
+                e.call(addr::CONTAINER_DESTRUCT, &args![c]);
+            });
+        }
+    }
+    let xp_at = a[1].wrapping_add(SCRIPT_REWARD_XP);
+    if a[1] != 0 && e.mem.is_mapped(xp_at) && e.mem.u32(xp_at) != 0 {
+        let player = e.mem.u32(addr::PLAYER_SINGLETON);
+        let xp = e.mem.u32(xp_at);
+        e.call(addr::PLAYER_REWARD_EXPERIENCE, &args![player, xp]);
+    }
     if a[1] == SETTER_SCRIPT {
         let (quest, stage) = (e.mem.u32(SETTER + 4), e.mem.u32(SETTER + 8) as u8);
         forms::set_quest_stage(e, quest, stage);
@@ -397,6 +450,8 @@ impl Story {
                 |e, i| {
                     let o = q + 0x400 + 0x28 * i as u32;
                     e.mem.set_u32(o + addr::OBJECTIVE_INDEX_OFFSET, objs[i]);
+                    // `pOwnerQuest`.
+                    e.mem.set_u32(o + addr::OBJECTIVE_QUEST_OFFSET, q);
                     o
                 },
             );
@@ -515,6 +570,18 @@ impl Story {
             }
             eax(1)
         });
+        // An actor is in a conversation while a test says so.
+        e.register(addr::MOBILE_IS_IN_DIALOGUE, |e, a| {
+            eax(e.mem.u32(a[0] + DIALOGUE_OFFSET))
+        });
+        // A cell is loaded unless a test let it go. The game reads the cell: none is a fault.
+        e.register(addr::CELL_IS_LOADED, |e, a| {
+            let cell = a[1];
+            assert_ne!(cell, 0, "TES::IsCellLoaded of no cell");
+            eax(u32::from(
+                e.mem.u32(UNLOADED) != cell && e.mem.u32(UNLOADED + 4) != cell,
+            ))
+        });
         // The game's `MoveTo`: the reference goes to the target's cell, at its place plus the
         // offsets.
         e.register(addr::MOVE_TO_FUNCTION_BASE, |e, a| {
@@ -576,7 +643,9 @@ impl Story {
         e.register(addr::REF_GET_CURRENT_PACKAGE, |e, a| {
             eax(e.mem.u32(a[0] + PACKAGE_OFFSET))
         });
-        e.register(addr::PACKAGE_TYPE, |_, _| eax(0));
+        e.register(addr::PACKAGE_TYPE, |e, a| {
+            eax(e.mem.u32(a[0] + KIND_OFFSET))
+        });
         e.register(addr::REF_EXTRA_LIST, |_, a| eax(a[0]));
         e.register(addr::EXTRA_REMOVE_FOLLOWER, |_, _| Ret::default());
         e.register(addr::EXTRA_GET_PRIMITIVE, |e, a| {
@@ -601,6 +670,68 @@ impl Story {
             eax(u32::from(e.mem.u8(a[0] + addr::QUEST_CURRENT_STAGE_OFFSET)))
         });
         e.register(addr::SCRIPT_RUNNER_RUN, runner);
+        // A container: its list inline at +4 (`{item, next}` nodes, the items `{count, object,
+        // extra}`) in the bag's arena; handed to the player, its items go into the inventory.
+        e.map(BAG, BAG_LEN);
+        e.mem.set_u32(BAG, BAG + 0x10);
+        e.register(addr::CONTAINER_CONSTRUCT, |e, a| {
+            e.mem.set_u32(a[0] + 4, 0);
+            e.mem.set_u32(a[0] + 8, 0);
+            Ret::default()
+        });
+        e.register(addr::CONTAINER_DESTRUCT, |_, _| Ret::default());
+        e.register(addr::CONTAINER_ADD, |e, a| {
+            let (c, object, count) = (a[0], a[1], a[2]);
+            let take = |e: &mut Engine, n: u32| {
+                let at = e.mem.u32(BAG);
+                assert!(at + n <= BAG_FORMS, "the test bag's arena is full");
+                e.mem.set_u32(BAG, at + n);
+                at
+            };
+            let item = take(e, 0xc);
+            e.mem.set_u32(item, count);
+            e.mem.set_u32(item + 4, object);
+            e.mem.set_u32(item + 8, 0);
+            let mut node = c + 4;
+            if e.mem.u32(node) != 0 {
+                while e.mem.u32(node + 4) != 0 {
+                    node = e.mem.u32(node + 4);
+                }
+                let fresh = take(e, 8);
+                e.mem.set_u32(fresh + 4, 0);
+                e.mem.set_u32(node + 4, fresh);
+                node = fresh;
+            }
+            e.mem.set_u32(node, item);
+            eax(item)
+        });
+        e.register(addr::CONTAINER_GIVE, |e, a| {
+            if a[1] != e.mem.u32(addr::PLAYER_SINGLETON) {
+                return Ret::default();
+            }
+            let mut node = a[0] + 4;
+            while node != 0 {
+                let item = e.mem.u32(node);
+                if item != 0 {
+                    let (count, object) = (e.mem.u32(item), e.mem.u32(item + 4));
+                    let mut slot = BAG_INVENTORY;
+                    while e.mem.u32(slot) != 0 && e.mem.u32(slot) != object {
+                        slot += 8;
+                    }
+                    e.mem.set_u32(slot, object);
+                    let had = e.mem.u32(slot + 4);
+                    e.mem.set_u32(slot + 4, had + count);
+                }
+                node = e.mem.u32(node + 4);
+            }
+            Ret::default()
+        });
+        // `PlayerCharacter::RewardExperience`: the experience given, counted.
+        e.register(addr::PLAYER_REWARD_EXPERIENCE, |e, a| {
+            let total = e.mem.u32(REWARD);
+            e.mem.set_u32(REWARD, total + a[1]);
+            Ret::default()
+        });
         e.register(addr::SAVE_LOAD_ADD_CHANGE, |_, _| Ret::default());
         e.register(addr::SAVE_LOAD_RECORDS_CHANGE, |_, _| eax(1));
         e.register(addr::PLACE_AT_ME, place_at_me);
@@ -881,6 +1012,94 @@ impl Story {
         );
     }
 
+    /// A script of `quest` (a stage's or a line's result: no form id of its own, the quest its
+    /// owner) gives the player `xp` experience (`RewardXP`); `quest` 0: an object script with no
+    /// quest does.
+    pub fn run_script_rewarding_xp(&mut self, quest: u32, xp: u32) {
+        self.run_named_script_rewarding_xp(0, quest, xp);
+    }
+
+    /// As [`Story::run_script_rewarding_xp`], the script with form id `script` (a quest's script,
+    /// or a script the rules let a guest run itself).
+    pub fn run_named_script_rewarding_xp(&mut self, script: u32, quest: u32, xp: u32) {
+        self.e
+            .mem
+            .set_u32(REWARD_SCRIPT + addr::FORM_ID_OFFSET, script);
+        let owner = match quest {
+            0 => 0,
+            q => forms::quest(&mut self.e, q).expect("a quest of the story"),
+        };
+        self.e
+            .mem
+            .set_u32(REWARD_SCRIPT + addr::SCRIPT_OWNER_QUEST_OFFSET, owner);
+        self.e.mem.set_u32(REWARD_SCRIPT + SCRIPT_REWARD_XP, xp);
+        run(&mut self.e, REWARD_SCRIPT);
+    }
+
+    /// Makes an item form `id` of this story's data (an object a container can hold).
+    pub fn add_item_form(&mut self, id: u32) {
+        let n = self.e.mem.u32(BAG + 4);
+        self.e.mem.set_u32(BAG + 4, n + 1);
+        let form = BAG_FORMS + 0x20 * n;
+        self.e.mem.set_u32(form + addr::FORM_ID_OFFSET, id);
+        add_form(&mut self.e, id, form);
+    }
+
+    /// A script of `quest` (as [`Story::run_script_rewarding_xp`]) gives the player `count` of item
+    /// `item` (`Player.AddItem`).
+    pub fn run_script_giving_item(&mut self, quest: u32, item: u32, count: u32) {
+        self.run_script_giving_item_to(quest, item, count, 0);
+    }
+
+    /// As [`Story::run_script_giving_item`], to the reference at `to` (0: the player).
+    pub fn run_script_giving_item_to(&mut self, quest: u32, item: u32, count: u32, to: u32) {
+        self.e.mem.set_u32(REWARD_SCRIPT + SCRIPT_ADD_ITEM + 8, to);
+        self.e.mem.set_u32(REWARD_SCRIPT + SCRIPT_ADD_ITEM, item);
+        self.e
+            .mem
+            .set_u32(REWARD_SCRIPT + SCRIPT_ADD_ITEM + 4, count);
+        self.run_named_script_rewarding_xp(0, quest, 0);
+        self.e.mem.set_u32(REWARD_SCRIPT + SCRIPT_ADD_ITEM, 0);
+    }
+
+    /// A script of `quest` gives the player two items at once, in one container (as `AddItem` of
+    /// a form list does).
+    pub fn run_script_giving_two_items(
+        &mut self,
+        quest: u32,
+        first: (u32, u32),
+        second: (u32, u32),
+    ) {
+        self.e
+            .mem
+            .set_u32(REWARD_SCRIPT + SCRIPT_ADD_ITEM_TOO, second.0);
+        self.e
+            .mem
+            .set_u32(REWARD_SCRIPT + SCRIPT_ADD_ITEM_TOO + 4, second.1);
+        self.run_script_giving_item(quest, first.0, first.1);
+        self.e.mem.set_u32(REWARD_SCRIPT + SCRIPT_ADD_ITEM_TOO, 0);
+    }
+
+    /// How many of item `item` this game's player holds.
+    pub fn items(&mut self, item: u32) -> u32 {
+        let Some(form) = forms::form(&mut self.e, item) else {
+            return 0;
+        };
+        let mut slot = BAG_INVENTORY;
+        while self.e.mem.u32(slot) != 0 {
+            if self.e.mem.u32(slot) == form {
+                return self.e.mem.u32(slot + 4);
+            }
+            slot += 8;
+        }
+        0
+    }
+
+    /// The experience this game's player was given in all.
+    pub fn xp(&self) -> u32 {
+        self.e.mem.u32(REWARD)
+    }
+
     /// A script tells an actor to evaluate its package (`evp`), as a stage's result script does.
     pub fn script_evp(&mut self, actor: u32) {
         let a = crate::actors::actor(&mut self.e, actor).expect("an actor of the story");
@@ -944,6 +1163,12 @@ impl Story {
         self.e.mem.set_u32(a + PACKAGE_OFFSET + 4, p);
         self.e
             .call(addr::ACTOR_EVALUATE_PACKAGE, &args![a, 1u32, 1u32]);
+    }
+
+    /// Package `package`'s type, as the game's `PACKAGE_TYPE` answers it.
+    pub fn set_package_type(&mut self, package: u32, kind: u32) {
+        let p = forms::form(&mut self.e, package).expect("a package of the story");
+        self.e.mem.set_u32(p + KIND_OFFSET, kind);
     }
 
     /// The form id of the package `actor` runs (0 for none).
@@ -1012,6 +1237,31 @@ impl Story {
     /// Whether a placed reference is disabled (`None`: not in this game now).
     pub fn disabled(&mut self, reference: u32) -> Option<bool> {
         crate::actors::disabled(&mut self.e, reference)
+    }
+
+    /// Puts actor `id` in a conversation (its package a dialogue package), or takes it out.
+    pub fn set_in_dialogue(&mut self, id: u32, talking: bool) {
+        let a = crate::actors::actor(&mut self.e, id).expect("an actor of the story");
+        self.e.mem.set_u32(a + DIALOGUE_OFFSET, u32::from(talking));
+    }
+
+    /// Makes this game let cell `cell` go (no longer loaded; what is in it is not drawn), or load
+    /// it again. Two cells at most are let go at once.
+    pub fn set_cell_loaded(&mut self, cell: u32, loaded: bool) {
+        let c = forms::form(&mut self.e, cell).expect("a cell of the story");
+        let slots = [UNLOADED, UNLOADED + 4];
+        if loaded {
+            for s in slots {
+                if self.e.mem.u32(s) == c {
+                    self.e.mem.set_u32(s, 0);
+                }
+            }
+        } else if let Some(s) = slots
+            .into_iter()
+            .find(|s| self.e.mem.u32(*s) == 0 || self.e.mem.u32(*s) == c)
+        {
+            self.e.mem.set_u32(s, c);
+        }
     }
 
     /// Takes a form out of the game (its cell is not loaded) or puts it back.

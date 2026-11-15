@@ -99,6 +99,11 @@ pub(crate) fn host_step(h: &mut HostDriver, e: &mut Engine, net: &mut dyn Transp
         local(h, net, Msg::Dialogue(m));
     }
     for ev in h.sync.live.dialogue.take_events() {
+        if let coop_core::dialogue::DialogueEvent::RunBegin { npc, initiator, .. } = &ev {
+            if let Some(f) = h.fight.as_mut() {
+                f.engage(npc.0, *initiator);
+            }
+        }
         h.social.enactor.on_event(e, ev, &h.quests);
     }
 
