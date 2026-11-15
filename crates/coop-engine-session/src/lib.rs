@@ -47,6 +47,10 @@ pub mod vats;
 
 // voice: voice chat's frames and places (docs/coop/SPECS.md S32).
 pub mod voice;
+// voiceui: every player's name, who is speaking, the players list (SPECS.md, voice list).
+pub mod roster;
+pub mod voicelist;
+// voiceui: end
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -390,6 +394,9 @@ pub struct HostDriver {
     // voice
     /// Voice chat's frames and places; `None` leaves the session without voice.
     pub voice: Option<voice::VoiceLink>,
+    // voiceui
+    /// Every player's name, written for every game ([`roster`]).
+    pub roster: roster::HostRoster,
 }
 
 impl HostDriver {
@@ -458,7 +465,8 @@ impl HostDriver {
             social: social::HostSocial::default(),
             companions: companion::HostCompanions::default(), // companions
             social_on: true,
-            voice: None, // voice
+            voice: None,                           // voice
+            roster: roster::HostRoster::default(), // voiceui
         }
     }
 
@@ -1028,6 +1036,8 @@ impl HostDriver {
                 send(net, to, &msg, &mut self.send_failures);
             }
         }
+        // voiceui: the party's names, before the tick sends the store's changes.
+        self.roster.step(&mut self.sync);
         let mut out = self.sync.tick();
         self.steps += 1;
         if self.steps % self.hash_every.max(1) == 0 {

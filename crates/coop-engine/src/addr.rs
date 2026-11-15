@@ -1209,3 +1209,27 @@ pub const STRING_SET: u32 = 0x0040_37f0;
 /// The form type of a weapon (`actor_p2.rs`, `FORM_TYPE_WEAPON`, which `Actor::QueueEquipObject`
 /// equips).
 pub const FORM_TYPE_WEAPON: u8 = 0x28;
+
+// voiceui: the players list as the game's own message box, and the speaking players' ticks
+// (docs/coop/SPECS.md, voice list).
+/// The message box (`00703e80`, `interface.rs`, `fn_00703e80`; `cdecl`, variadic): the text, the
+/// icon (0), the title (0), the result callback (0 for none), the first button's result, the
+/// warning context, the background opacity and width override (floats, 0 for the defaults), the
+/// first button's text, the further buttons' texts and a 0. It queues a modal entry through
+/// `007a8e60` (`messagemenu.rs`), which copies every text, so the caller's buffers may be freed;
+/// false when the interface manager is not ready.
+pub const MESSAGE_BOX_SHOW: u32 = 0x0070_3e80;
+/// `Interface::GetMessageMenuResult` (`00703fa0`, `interface.rs`): the clicked button's result
+/// (the manager's byte at [`MESSAGE_MENU_RESULT_OFFSET`]), which it sets back to 0xff.
+pub const MESSAGE_MENU_RESULT: u32 = 0x0070_3fa0;
+/// The interface manager (`004b7210`, `interface.rs` `GET_MANAGER`, `messagemenu.rs`
+/// `INTERFACE_SINGLETON`; no arguments).
+pub const INTERFACE_MANAGER: u32 = 0x004b_7210;
+/// The manager's message menu result byte (+0xe4): `MessageMenu::DoClick` (`007aa070`,
+/// `messagemenu.rs`) stores the clicked button's value there, which is the entry's first
+/// button's result plus the button's index (`007a92e0`, `LoadNextMessage`).
+pub const MESSAGE_MENU_RESULT_OFFSET: u32 = 0xe4;
+/// `MessageMenu::pMe` (`011da4f0`, `messagemenu.rs` `MESSAGE_MENU`): the open message box, 0 when
+/// none is shown.
+pub const MESSAGE_MENU: u32 = 0x011d_a4f0;
+// voiceui: end

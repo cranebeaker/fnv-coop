@@ -69,6 +69,10 @@ pub mod items;
 #[cfg(any(test, feature = "testkit"))]
 pub mod statkit;
 pub mod stats;
+// voiceui: the players list in the game's message box, the speaking players' ticks
+// (docs/coop/SPECS.md, voice list).
+pub mod msgbox;
+pub mod voicemark;
 
 use std::sync::atomic::Ordering;
 
@@ -134,6 +138,8 @@ pub fn install(e: &mut Engine) {
     items::install(e);
     // the other players' ticks on the compass
     compass::install(e);
+    // voiceui: the speaking players' ticks
+    voicemark::install(e);
     // companions
     companion::install(e);
     // look: the player's attacks noted for its avatar in the other games.
