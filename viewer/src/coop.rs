@@ -4,6 +4,9 @@
 //! (`coop_engine_session`): the host sends its story's changes, a guest applies them to its game
 //! with the story's scripts gated. `NV_COOP=journal` is the change journal's log
 //! (`coop_engine::diag`), not a session.
+//! `NV_COOP=host:local` and `join:local` (split) are a session of copies on one PC (Couchlink's
+//! split-screen seats): the host listens on the loopback address with a fixed token, so the
+//! others join without a code; `local:SEAT` is the first for seat 0 and the second for the others.
 //!
 //! The live ladder (docs/coop/DECISIONS.md D3) runs with a session: `NV_COOP_LIVE=log` reads and
 //! sends the players' places only, `warp` also moves a guest to the host's cell, `avatar` (the
@@ -48,6 +51,60 @@ pub enum Ask {
     Host(u16),
     /// Join with this join code.
     Join(String),
+    // split
+    /// `host:local`: host for the other copies on this PC only ([`LOCAL_TOKEN`]).
+    HostLocal,
+}
+
+// split
+/// The token of a session on one PC (`NV_COOP=host:local` and `join:local`, Couchlink's
+/// split-screen seats): fixed, so every copy knows it without a join code. Such a host listens
+/// on the loopback address only, so nothing outside this PC can reach it.
+pub const LOCAL_TOKEN: [u8; 16] = *b"couch-on-this-pc";
+
+// split
+/// `local` after `host:` or `join:`: the session of Couchlink's seats on this PC. `local:SEAT`
+/// (Couchlink's `$SEAT`, the same setting for every copy) is `host:local` for seat 0 and
+/// `join:local` for the others.
+fn local_ask(v: &str) -> Option<Ask> {
+    let seat = v
+        .strip_prefix("local:")
+        .and_then(|s| s.trim().parse::<u8>().ok());
+    match (v, seat) {
+        ("host:local", _) | (_, Some(0)) => Some(Ask::HostLocal),
+        ("join:local", _) | (_, Some(_)) => Some(Ask::Join(
+            JoinCode::new(
+                JoinTarget::Direct(SocketAddr::from(([127, 0, 0, 1], DEFAULT_PORT))),
+                LOCAL_TOKEN,
+            )
+            .to_string(),
+        )),
+        _ => None,
+    }
+}
+
+// split
+/// Where a host listens and the token and address of its join code: every address with a new
+/// token, or for `host:local` the loopback address with [`LOCAL_TOKEN`].
+fn host_socket(ask: &Ask) -> (u16, SocketAddr, coop_net::Token, IpAddr) {
+    match ask {
+        Ask::HostLocal => {
+            let lo = IpAddr::V4(Ipv4Addr::LOCALHOST);
+            (
+                DEFAULT_PORT,
+                SocketAddr::new(lo, DEFAULT_PORT),
+                LOCAL_TOKEN,
+                lo,
+            )
+        }
+        Ask::Host(port) => (
+            *port,
+            SocketAddr::from(([0, 0, 0, 0], *port)),
+            random_token(),
+            join_ip(),
+        ),
+        Ask::Join(_) => unreachable!("a guest does not host"),
+    }
 }
 
 /// `NV_COOP`'s value as a session request; `None` for no session (unset, `0`, `journal`).
@@ -55,6 +112,10 @@ pub fn parse(v: &str) -> Result<Option<Ask>, String> {
     let v = v.trim();
     if v.is_empty() || v == "0" || v == "journal" {
         return Ok(None);
+    }
+    // split
+    if let Some(ask) = local_ask(v) {
+        return Ok(Some(ask));
     }
     if v == "host" {
         return Ok(Some(Ask::Host(DEFAULT_PORT)));
@@ -75,7 +136,7 @@ pub fn parse(v: &str) -> Result<Option<Ask>, String> {
         return Ok(Some(Ask::Join(code.to_string())));
     }
     Err(format!(
-        "NV_COOP={v}: use host, host:PORT, join:CODE or journal"
+        "NV_COOP={v}: use host, host:PORT, host:local, join:CODE, join:local, local:SEAT or journal"
     ))
 }
 
@@ -496,13 +557,12 @@ impl Coop {
         };
         let mut lines = Vec::new();
         let (ep, role) = match ask {
-            Ask::Host(port) => {
-                let token = random_token();
-                let bind = SocketAddr::from(([0, 0, 0, 0], *port));
+            Ask::Host(_) | Ask::HostLocal => {
+                // split: `host:local` listens on this PC only, with the local token.
+                let (port, bind, token, ip) = host_socket(ask);
                 let b = UdpBackend::host(bind, token, UdpConfig::default())
                     .map_err(|e| format!("co-op: UDP port {port}: {e}"))?;
-                let ip = join_ip();
-                let code = JoinCode::new(JoinTarget::Direct(SocketAddr::new(ip, *port)), token);
+                let code = JoinCode::new(JoinTarget::Direct(SocketAddr::new(ip, port)), token);
                 lines.push(format!(
                     "co-op: hosting on UDP port {port}; join code for this network: {code} (over the internet: forward UDP port {port} and give your public address)"
                 ));
@@ -972,5 +1032,30 @@ mod tests {
             parse(&format!("join:{code}")),
             Ok(Some(Ask::Join(code.clone())))
         );
+    }
+
+    // split
+    #[test]
+    fn copies_on_one_pc_meet_on_the_loopback_address_without_a_code() {
+        assert_eq!(parse("host:local"), Ok(Some(Ask::HostLocal)));
+        assert_eq!(parse("local:0"), Ok(Some(Ask::HostLocal)));
+        assert_eq!(parse("local:3"), parse("join:local"));
+        assert!(parse("local:x").is_err());
+        let Ok(Some(Ask::Join(code))) = parse(" join:local ") else {
+            panic!("join:local is a join");
+        };
+        let code: JoinCode = code.parse().unwrap();
+        let lo = SocketAddr::from(([127, 0, 0, 1], DEFAULT_PORT));
+        assert_eq!(code.target, JoinTarget::Direct(lo));
+        assert_eq!(code.token, LOCAL_TOKEN);
+        let (port, bind, token, ip) = host_socket(&Ask::HostLocal);
+        assert_eq!(
+            (port, bind, token, ip),
+            (DEFAULT_PORT, lo, LOCAL_TOKEN, lo.ip())
+        );
+        // A host for the network keeps listening everywhere with a token of its own.
+        let (port, bind, token, _) = host_socket(&Ask::Host(4000));
+        assert_eq!((port, bind.ip().is_unspecified()), (4000, true));
+        assert_ne!(token, LOCAL_TOKEN);
     }
 }

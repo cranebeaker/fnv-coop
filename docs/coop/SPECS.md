@@ -1026,3 +1026,48 @@ Replaces the earlier note "Not done: followers". Bridge: `crates/coop-engine/src
   that sets the companion's own script variables runs in the host's game only, so a package that reads
   them may differ until the next hire or switch. No test drives a real guest's line through
   `Enactor` to the hire (the tests call `with_hirer`; the last-speaker rule covers the same case).
+
+<!-- split -->
+## S34: split-screen on one PC with Couchlink (implemented with unit tests; never run)
+
+Couchlink (github.com/cranebeaker/couchlink) runs one copy of a game per player on one PC, puts
+each window on its part of a screen, gives each copy only its own controller or keyboard and
+mouse, and keeps each copy's files apart. Its recipe `fallout-new-vegas-nvrs-coop` (in its
+`core/recipes/`) starts this package; the older `fallout-new-vegas-coop` stays for the older
+co-op build.
+
+- **A package copy per seat.** Couchlink's copy of the package folder is a tree of hardlinks
+  (`<state>/instances/<recipe>/<seat>/`). The launcher's mutex is per folder, so each copy runs
+  one game. The recipe leaves `userdata\game` (the game's Documents, saves, settings and AppData),
+  `userdata\mods`, `modgame`, `logs`, `reports` and `coop-party` out of the copies: each seat's
+  Play.exe makes its own on its first start, and they stay in that seat's copy between sessions.
+  The game writes nothing outside the package folder (the launcher points its Documents and
+  AppData into `userdata`), so no save folder needs redirecting. The machine's tables and
+  `game-folder.txt` are linked from the package (the package must have run once alone).
+- **The window.** `Play.exe --window WIDTHxHEIGHT` (the seat's size, Couchlink's
+  `$WIDTH`/`$HEIGHT`) sets the game's own window to that size, not full screen
+  (`bFull Screen=0`, `iSize W`, `iSize H`), and framed (`NV_BORDERLESS=0`, over settings.ini and
+  Fallout.ini): the launcher's borderless window covers the whole primary monitor and sizes the
+  game's drawing window to it, which a seat's smaller region would cut. Couchlink takes the frame
+  off and moves the window onto the seat's region (`window.borderless`, kept in place), and
+  Direct3D stretches the picture over it. The engine's framed window is not DPI aware, so with
+  display scaling Windows may scale its picture.
+- **Input.** The engine reads no controller: its `XInputGetState` answers that none is connected.
+  A seat's pad plays through the recipe's `controls` profile (keys and the mouse: left stick WASD,
+  right stick the mouse, triggers the mouse buttons), which Couchlink's input hook gives the copy
+  as window messages (`WM_KEYDOWN`/`UP` with the scan code, `WM_INPUT` for the mouse the window
+  registered) and as answers to the cursor calls. The engine reads its keys and mouse from those
+  messages. The hook also fakes the focus (`WM_ACTIVATE` inactive and `WM_KILLFOCUS` never
+  arrive), so a window that is not in front keeps its player's input. A player with a keyboard
+  and mouse of their own gets them the same way.
+- **Sound.** Every copy plays through WASAPI in shared mode; nothing in the engine stops sound
+  when its window is not in front.
+- **Joining.** `NV_COOP=host:local` hosts on the loopback address (UDP 27961) with a fixed token
+  (`LOCAL_TOKEN`), `join:local` joins it, and `local:SEAT` is the first for seat 0 and the second
+  for any other seat, so one setting (`local:$SEAT`) serves every copy and nobody reads a join
+  code. A guest that starts before the host listens tries again until it answers. Such a host
+  cannot be reached from another PC: friends elsewhere need a normal `host` session.
+- Tests: the launcher's `--window` reading and the seat's prefs lines (scripts/launcher), the
+  `local` values and the host's socket (viewer/src/coop.rs), and the recipe's values in
+  Couchlink's built-in recipe test. Not run: the game under Couchlink, two copies on one PC, the
+  hook's input reaching the engine's window, the window's placement.
