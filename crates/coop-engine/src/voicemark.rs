@@ -22,9 +22,11 @@ pub struct Speaking {
     ids: RwLock<Vec<u32>>,
 }
 
-/// Makes the slot (before the game's threads start; [`crate::install`]).
+/// Makes the slots (before the game's threads start; [`crate::install`]).
 pub(crate) fn install(e: &mut Engine) {
     let _ = e.ext_free::<Speaking>();
+    // The HUD text's slot too (the live list, the head labels).
+    crate::hudtext::install(e);
 }
 
 /// The avatars (form ids) whose players speak now; every other avatar is ticked in purple.

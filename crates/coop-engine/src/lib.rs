@@ -71,6 +71,7 @@ pub mod statkit;
 pub mod stats;
 // voiceui: the players list in the game's message box, the speaking players' ticks
 // (docs/coop/SPECS.md, voice list).
+pub mod hudtext;
 pub mod msgbox;
 pub mod voicemark;
 

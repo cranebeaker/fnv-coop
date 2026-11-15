@@ -200,6 +200,14 @@ fn the_speaking_player_s_avatar_is_marked_for_the_compass() {
         .iter()
         .find(|(q, _)| *q == PlayerId::HOST)
         .expect("the host's avatar in the guest's game");
+    // The voice link has the avatars too (the head labels' places).
+    assert!(p.guests[0]
+        .gd
+        .voice
+        .as_ref()
+        .unwrap()
+        .avatars
+        .contains(&(PlayerId::HOST, host_avatar)));
     let e = &mut p.guests[0].story.e;
     assert!(!coop_engine::voicemark::speaking(e, host_avatar));
     p.hd.voice.as_mut().unwrap().queue(vec![1]);

@@ -8,7 +8,7 @@
 //! - [`Prefs`]: mutes and volumes by name (any case), from the environment's `NV_COOP_VOICE_MUTE`
 //!   and `NV_COOP_VOICE_VOLUMES` and from `Player=` lines of the launcher's `coop.ini`, written
 //!   back there when changed in the game.
-//! - [`PlayerList`]: the players list the players key opens (`NV_COOP_PLAYERS_KEY`, F9), as the
+//! - [`PlayerList`]: the players list the players key opens (`NV_COOP_PLAYERS_KEY`, F11), as the
 //!   game's own message box (`coop_engine::msgbox`): each player with ping, speaking, mute and
 //!   volume; a player's page to mute, turn up or down, and (the host) kick.
 
@@ -30,8 +30,10 @@ pub const MAX_VOLUME: f32 = 2.0;
 pub const ANNOUNCE_EVERY_MS: u64 = 10_000;
 /// The players the list shows as buttons at most (the rest are named in its text).
 pub const MAX_BUTTONS: usize = 8;
-/// The default players key: F9 (DirectInput code, `voice`'s key table).
-pub const DEFAULT_PLAYERS_KEY: u8 = 0x43;
+/// The default players key: F11 (DirectInput code, `voice`'s key table). Not F9: the game binds F9
+/// (quick load) and F5 (quick save) by default (the keyboard defaults `fn_00a24b70` writes,
+/// `run_00a237f0.rs`); F11 is in none of them.
+pub const DEFAULT_PLAYERS_KEY: u8 = 0x57;
 
 /// Who is speaking now.
 #[derive(Clone, Debug, Default)]
@@ -145,12 +147,65 @@ fn name_or_slot(names: &BTreeMap<PlayerId, String>, p: PlayerId) -> String {
         .unwrap_or_else(|| format!("player {}", p.0))
 }
 
+/// A voice's loudness (RMS of a frame, 0 to 1) as a level for a bar (0 to 1): speech's RMS is
+/// mostly under a quarter of full scale, so it is shown four times larger (a display choice).
+pub fn display_level(rms: f32) -> f32 {
+    if rms.is_finite() {
+        (rms * 4.0).clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+/// The live list's lines: each player speaking now (this player first, as "You"), with a level
+/// bar when the level is known.
+pub fn live_lines(
+    names: &BTreeMap<PlayerId, String>,
+    speaking: &[PlayerId],
+    local: Option<f32>,
+    levels: &BTreeMap<PlayerId, f32>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(l) = local {
+        out.push(format!("You {}", level_bar(l)));
+    }
+    for p in speaking {
+        let name = name_or_slot(names, *p);
+        out.push(match levels.get(p) {
+            Some(l) => format!("{name} {}", level_bar(*l)),
+            None => name,
+        });
+    }
+    out
+}
+
+/// The head labels: each speaking player's avatar in this game and the text over it.
+pub fn head_marks(
+    names: &BTreeMap<PlayerId, String>,
+    speaking: &[PlayerId],
+    avatars: &[(PlayerId, u32)],
+) -> Vec<(u32, String)> {
+    speaking
+        .iter()
+        .filter_map(|p| {
+            let (_, id) = avatars.iter().find(|(q, _)| q == p)?;
+            Some((
+                *id,
+                format!("{} (speaking)", box_text(&name_or_slot(names, *p))),
+            ))
+        })
+        .collect()
+}
+
 /// The list's own settings, from the environment.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListSettings {
-    /// `NV_COOP_PLAYERS_KEY`: opens and closes the players list (default F9).
+    /// `NV_COOP_PLAYERS_KEY`: opens and closes the players list (default F11).
     pub players_key: u8,
-    /// `NV_COOP_SPEAKING=off` keeps the "is speaking" messages off the HUD (default on).
+    /// `NV_COOP_SPEAKING`: the live list and the head labels on the HUD (`live`, the default; off
+    /// with `off`).
+    pub live: bool,
+    /// `NV_COOP_SPEAKING=messages`: also the game's own "is speaking" messages (off by default).
     pub announce: bool,
 }
 
@@ -158,7 +213,8 @@ impl Default for ListSettings {
     fn default() -> ListSettings {
         ListSettings {
             players_key: DEFAULT_PLAYERS_KEY,
-            announce: true,
+            live: true,
+            announce: false,
         }
     }
 }
@@ -177,8 +233,15 @@ impl ListSettings {
                 )),
             }
         }
-        if let Some(v) = var("NV_COOP_SPEAKING") {
-            s.announce = !matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "0");
+        if let Some(v) = var("NV_COOP_SPEAKING").filter(|v| !v.trim().is_empty()) {
+            match v.trim().to_ascii_lowercase().as_str() {
+                "off" | "0" => (s.live, s.announce) = (false, false),
+                "live" | "on" => (s.live, s.announce) = (true, false),
+                "messages" | "all" => (s.live, s.announce) = (true, true),
+                _ => notes.push(format!(
+                    "co-op players list: NV_COOP_SPEAKING={v}: use live, messages or off; live it is"
+                )),
+            }
         }
         (s, notes)
     }
@@ -186,9 +249,13 @@ impl ListSettings {
     /// The line for the log.
     pub fn line(&self) -> String {
         format!(
-            "co-op players list: {} opens it (NV_COOP_PLAYERS_KEY); who begins to speak is {} on the HUD (NV_COOP_SPEAKING)",
+            "co-op players list: {} opens it (NV_COOP_PLAYERS_KEY); who speaks is {} on the HUD (NV_COOP_SPEAKING)",
             key_name(self.players_key),
-            if self.announce { "said" } else { "not said" }
+            match (self.live, self.announce) {
+                (false, _) => "not shown",
+                (true, false) => "listed and marked over their heads",
+                (true, true) => "listed, marked over their heads and said in messages",
+            }
         )
     }
 }
@@ -389,7 +456,8 @@ pub struct Row {
     pub volume: f32,
     /// This game's own player.
     pub me: bool,
-    /// The microphone's level (this player's row only), 0 to 1.
+    /// The voice's level while speaking, 0 to 1 (this player's microphone, or the other player's
+    /// voice as heard here).
     pub level: Option<f32>,
 }
 
@@ -720,24 +788,58 @@ mod tests {
     }
 
     #[test]
-    fn list_settings_read_the_key_and_the_messages() {
+    fn list_settings_read_the_key_and_what_the_hud_shows() {
         let (s, n) = ListSettings::read(|_| None);
         assert_eq!(s, ListSettings::default());
-        assert_eq!(s.players_key, 0x43);
+        assert_eq!(s.players_key, 0x57, "F11: the game binds F9");
+        assert!(s.live && !s.announce);
         assert!(n.is_empty());
         let (s, n) = ListSettings::read(|k| match k {
             "NV_COOP_PLAYERS_KEY" => Some("F10".into()),
             "NV_COOP_SPEAKING" => Some("off".into()),
             _ => None,
         });
-        assert_eq!((s.players_key, s.announce), (0x44, false));
+        assert_eq!((s.players_key, s.live, s.announce), (0x44, false, false));
         assert!(n.is_empty());
-        let (s, n) = ListSettings::read(|k| (k == "NV_COOP_PLAYERS_KEY").then(|| "huge".into()));
-        assert_eq!(s.players_key, 0x43);
-        assert_eq!(n.len(), 1);
-        assert!(s.line().contains("F9"));
+        let (s, _) = ListSettings::read(|k| (k == "NV_COOP_SPEAKING").then(|| "messages".into()));
+        assert!(s.live && s.announce);
+        let (s, n) = ListSettings::read(|k| match k {
+            "NV_COOP_PLAYERS_KEY" => Some("huge".into()),
+            "NV_COOP_SPEAKING" => Some("loud".into()),
+            _ => None,
+        });
+        assert_eq!(s.players_key, 0x57);
+        assert!(s.live);
+        assert_eq!(n.len(), 2);
+        assert!(s.line().contains("F11"));
     }
 
+    #[test]
+    fn the_live_list_and_the_head_labels_name_who_speaks() {
+        let mut names = BTreeMap::new();
+        names.insert(PlayerId(1), "Bo".to_string());
+        names.insert(PlayerId(2), "Cy;".to_string());
+        let mut levels = BTreeMap::new();
+        levels.insert(PlayerId(1), display_level(0.125));
+        let lines = live_lines(&names, &[PlayerId(1), PlayerId(2)], Some(1.0), &levels);
+        assert_eq!(lines, vec!["You [||||||||||]", "Bo [|||||.....]", "Cy;"]);
+        assert!(live_lines(&names, &[], None, &levels).is_empty());
+        let marks = head_marks(
+            &names,
+            &[PlayerId(1), PlayerId(2), PlayerId(3)],
+            &[(PlayerId(1), 0xff00_0001), (PlayerId(3), 0xff00_0003)],
+        );
+        assert_eq!(
+            marks,
+            vec![
+                (0xff00_0001, "Bo (speaking)".to_string()),
+                (0xff00_0003, "player 3 (speaking)".to_string())
+            ],
+            "a player with no avatar here has no label"
+        );
+        assert_eq!(display_level(0.5), 1.0);
+        assert_eq!(display_level(f32::NAN), 0.0);
+    }
     #[test]
     fn prefs_come_from_the_environment_and_the_file_and_go_back_to_the_file() {
         let (settings, _) = Settings::read(|k| match k {
