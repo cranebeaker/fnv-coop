@@ -1,8 +1,8 @@
 //! The `WorldBackend` adapter: what coop-core needs from a game world.
 
 use coop_core::delta::{Delta, SnapEntry, StateStore};
-use coop_core::hash::{record_hash, ShardHashes};
-use coop_core::ids::{shard_of, FormId as CForm, SHARD_COUNT};
+use coop_core::hash::ShardHashes;
+use coop_core::ids::FormId as CForm;
 use coop_core::schema::{Field, Key};
 
 use super::apply::{self, ApplyReport, Change, Opts};
@@ -39,12 +39,7 @@ pub fn normalized_hashes(store: &StateStore) -> ShardHashes {
 }
 
 fn hashes_of(f: &Fields) -> ShardHashes {
-    let mut shards = vec![0u64; SHARD_COUNT];
-    for (k, field) in f {
-        let s = shard_of(k.form) as usize;
-        shards[s] = shards[s].wrapping_add(record_hash(k.form, field));
-    }
-    ShardHashes::from_vec(shards).expect("shard count")
+    ShardHashes::of_fields(f.iter().map(|(k, field)| (k.form, field)))
 }
 
 impl WorldBackend for GameState {

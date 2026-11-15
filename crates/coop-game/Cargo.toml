@@ -1,0 +1,11 @@
+[package]
+name = "coop-game"
+version = "0.1.0"
+description = "The engine interface of co-op: what a session needs from one running game, as traits that name no engine type"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coop-core = { path = "../coop-core" }
+coop-policy = { path = "../coop-policy" }

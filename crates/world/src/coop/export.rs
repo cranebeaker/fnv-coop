@@ -14,59 +14,9 @@ use super::{quantize_clock, Domain};
 use crate::dialogue::PLAYER_REF;
 use crate::scripting::GameState;
 
-/// Custom tags (sub-index of `Field::Custom`).
-pub mod tag {
-    /// `said` line.
-    pub const SAID: u16 = 1;
-    /// `talked_to` person.
-    pub const TALKED: u16 = 2;
-    /// `notes`.
-    pub const NOTE: u16 = 3;
-    /// `destroyed`.
-    pub const DESTROYED: u16 = 4;
-    /// `stocked` holder.
-    pub const STOCKED: u16 = 5;
-    /// `map_markers`.
-    pub const MARKER: u16 = 6;
-    /// `perks` (data: rank).
-    pub const PERK: u16 = 7;
-    /// Player level (data: u16 le), on `PLAYER_REF`.
-    pub const LEVEL: u16 = 8;
-    /// Reputation (data: fame f32 bits, infamy f32 bits).
-    pub const REPUTATION: u16 = 9;
-    /// A dead actor (not a player): in the shared hash, so a lost kill
-    /// message is noticed and repaired.
-    pub const DEAD: u16 = 10;
-    /// A faction's relations (`SetEnemy`, `SetAlly`), on the faction (data:
-    /// other faction u32 le and reaction u8, per entry, sorted).
-    pub const RELATION: u16 = 11;
-    /// A faction's crime, on the faction (data: minor u32 le, major u32 le,
-    /// holds the player as an enemy u8).
-    pub const CRIME: u16 = 12;
-    /// The player's crime, on `PLAYER_REF` (data: minor u32 le, major u32
-    /// le, steal warnings u32 le, murderer u8).
-    pub const PLAYER_CRIME: u16 = 13;
-    /// Done stages of a quest: `STAGES_BASE + stage / STAGES_CHUNK`.
-    pub const STAGES_BASE: u16 = 0x1000;
-    /// Stages per chunk (2 bytes each, well under the 512 byte limit).
-    pub const STAGES_CHUNK: u16 = 200;
-    /// Faction members: `FACTION_BASE + (person & 0xFF)`.
-    pub const FACTION_BASE: u16 = 0x2000;
-    /// Entries kept per faction chunk (5 bytes each).
-    pub const FACTION_MAX: usize = 100;
-}
-
-/// Quest flag bits.
-pub mod flag {
-    /// In `running`.
-    pub const RUNNING: u32 = 1;
-    /// In `completed`.
-    pub const COMPLETED: u32 = 2;
-    /// In `failed`.
-    pub const FAILED: u32 = 4;
-    /// In `quests_announced`.
-    pub const ANNOUNCED: u32 = 8;
-}
+// The custom tags and the quest flag bits are the same for each game adapter
+// (`coop_core::schema`).
+pub use coop_core::schema::{flag, tag};
 
 /// The exported fields.
 pub type Fields = BTreeMap<Key, Field>;
@@ -85,45 +35,16 @@ fn custom(tag: u16, data: Vec<u8>) -> Field {
     Field::Custom { tag, data }
 }
 
-/// True when the field is the default ("absent") value of its slot.
+/// True when the field is the default ("absent") value of its slot
+/// ([`Field::is_tombstone`], shared by each game adapter).
 pub fn is_tombstone(f: &Field) -> bool {
-    match f {
-        Field::QuestFlags { flags } => *flags == 0,
-        Field::Objective { state, .. } => *state == 0,
-        Field::Topic { known } => !known,
-        Field::ItemCount { count, .. } => *count == 0,
-        Field::ScriptVar { bits, .. } => *bits == 0,
-        Field::Karma { value } | Field::ActorValue { value, .. } => *value == 0,
-        Field::Custom { data, .. } => data.is_empty(),
-        _ => false,
-    }
+    f.is_tombstone()
 }
 
-/// The default-valued field a tombstone write uses for the slot of `f`.
+/// The default-valued field a tombstone write uses for the slot of `f`
+/// ([`Field::tombstone`]).
 pub fn tombstone_of(f: &Field) -> Field {
-    match f {
-        Field::QuestFlags { .. } => Field::QuestFlags { flags: 0 },
-        Field::Objective { index, .. } => Field::Objective {
-            index: *index,
-            state: 0,
-        },
-        Field::Topic { .. } => Field::Topic { known: false },
-        Field::ItemCount { item, .. } => Field::ItemCount {
-            item: *item,
-            count: 0,
-        },
-        Field::ScriptVar { index, .. } => Field::ScriptVar {
-            index: *index,
-            bits: 0,
-        },
-        Field::Karma { .. } => Field::Karma { value: 0 },
-        Field::ActorValue { av, .. } => Field::ActorValue { av: *av, value: 0 },
-        Field::Custom { tag, .. } => Field::Custom {
-            tag: *tag,
-            data: Vec::new(),
-        },
-        other => other.clone(),
-    }
+    f.tombstone()
 }
 
 /// Which domain a key belongs to.

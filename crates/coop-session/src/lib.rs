@@ -9,7 +9,8 @@
 //!    changes into the replicated store; run the protocol clock; send).
 //!
 //! The session owns the transport, coop-core's `HostSync` / `GuestSync` and
-//! the world crate's `HostBridge` / `GuestBridge`. It also carries a few
+//! the mirrors of the game's shared state (the host's diff and the guest's
+//! reconcile, which reach the game through `coop_game::Shared`). It also carries a few
 //! session-level messages that are not replicated state (see [`ext`]): the
 //! host's place (so a guest loads the same cell), script commands from
 //! guests, names and ping figures.
@@ -30,6 +31,7 @@ mod live_combat;
 pub mod live_extra;
 mod live_loot;
 mod live_roam;
+mod mirror;
 pub mod net;
 pub mod out;
 pub mod party;

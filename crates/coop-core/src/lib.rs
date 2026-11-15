@@ -44,6 +44,7 @@ pub mod loot;
 pub mod once;
 pub mod proto;
 pub mod roam;
+pub mod rows;
 pub mod rules;
 pub mod scene;
 pub mod schema;

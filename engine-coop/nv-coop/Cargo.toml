@@ -1,0 +1,13 @@
+[package]
+name = "nv-coop"
+version = "0.1.0"
+description = "The game on the upstream engine with the co-op session in its frame loop: one program for each player, as the host or as a guest"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coop-app = { path = "../coop-app" }
+coop-engine = { path = "../coop-engine" }
+coop-engine-glue = { path = "../glue" }
+coop-session = { path = "../../crates/coop-session" }
