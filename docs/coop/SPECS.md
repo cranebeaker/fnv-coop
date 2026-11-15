@@ -1052,14 +1052,15 @@ co-op build.
   off and moves the window onto the seat's region (`window.borderless`, kept in place), and
   Direct3D stretches the picture over it. The engine's framed window is not DPI aware, so with
   display scaling Windows may scale its picture.
-- **Input.** The engine reads no controller: its `XInputGetState` answers that none is connected.
-  A seat's pad plays through the recipe's `controls` profile (keys and the mouse: left stick WASD,
-  right stick the mouse, triggers the mouse buttons), which Couchlink's input hook gives the copy
-  as window messages (`WM_KEYDOWN`/`UP` with the scan code, `WM_INPUT` for the mouse the window
-  registered) and as answers to the cursor calls. The engine reads its keys and mouse from those
-  messages. The hook also fakes the focus (`WM_ACTIVATE` inactive and `WM_KILLFOCUS` never
-  arrive), so a window that is not in front keeps its player's input. A player with a keyboard
-  and mouse of their own gets them the same way.
+- **Input.** The engine reads the PC's controllers through XInput (S39, "controllers"): a seat
+  with a pad gets `NV_PAD=$SEAT` and the game reads that controller directly, with the game's own
+  controller buttons and rumble, also while another seat's window is in front. The recipe's
+  `controls` profile (left stick WASD, right stick the mouse, triggers the mouse buttons, given as
+  window messages by Couchlink's input hook) is then not used for a pad seat, or the pad would
+  play twice. A player with a keyboard and mouse of their own still gets them through the hook
+  (`WM_KEYDOWN`/`UP` with the scan code, `WM_INPUT` for the mouse the window registered, answers
+  to the cursor calls), which also fakes the focus (`WM_ACTIVATE` inactive and `WM_KILLFOCUS`
+  never arrive), so a window that is not in front keeps its player's keys.
 - **Sound.** Every copy plays through WASAPI in shared mode; nothing in the engine stops sound
   when its window is not in front.
 - **Joining.** `NV_COOP=host:local` hosts on the loopback address (UDP 27961) with a fixed token
@@ -1212,3 +1213,72 @@ character creation (a barber, a surgeon) is read again within a second and gives
 - Tests: `scripts/launcher` `coop::tests` (the file read back, the environment of each button, Steam
   without the library refused, codes cleaned and refused, the codes read from a game log). The window
   itself (`coop_ui.rs`) has never been shown.
+
+## S39: controllers (implemented with unit tests; not run on a PC)
+
+- **What the game asks.** `Controls::Poll` (`00a23010`) calls `XInputGetState(0, 011f35a8)` every
+  frame and counts the pad as connected when it answers 0; the rumble (`00a255b0`) calls
+  `XInputSetState(0, vibration)`. Both are `XINPUT1_3.dll` imports by ordinal (2, 3). The game only
+  names user index 0. Until now the platform answered `ERROR_DEVICE_NOT_CONNECTED` to both.
+- **The answer.** `engine-platform`'s `pads` module loads the system's XInput in the engine's
+  process (`xinput1_4.dll`, else `xinput1_3.dll`, else `xinput9_1_0.dll`) and passes the calls on:
+  the 16 bytes of `XINPUT_STATE`, the 4 of `XINPUT_VIBRATION` and the 20 of `XINPUT_CAPABILITIES`
+  (ordinal 4, added to the table although no translated code calls it) are the same in a 32-bit
+  and a 64-bit process, so they are copied as they are. `engine-core` keeps its answers for ordinals
+  2 and 3 and asks the layer through a hook (`units::platform::Pads`); without the layer (a part
+  crate's tests) nothing is connected, as before.
+- **The list of controllers**, in this order: the XInput controllers that answer (by user index 0
+  to 3), then the DirectInput game controllers that are not XInput ones, in DirectInput's order.
+  It is made when the game first asks (connect the controllers before starting the game).
+- **Which controller.** `NV_PAD`: unset, every controller (the first XInput one that answers, kept
+  while it answers, and every DirectInput one), read only while one of the engine's windows is in
+  front; `0` to `15`, the controller at that place in the list, also in the background (an XInput
+  one is the game's XInput pad, a DirectInput one the game's only joystick); `any`, as unset, also
+  in the background; `none`, no controller. A bad value reads none and says so, and the log says
+  which controller `NV_PAD=N` is. The game's XInput user 0 is the XInput controller; its users 1 to
+  3 have none. An XInput controller that does not answer is asked again after 60 of the game's
+  calls (asking for a missing one is slow in XInput). When the default setting stops reading
+  because the window went to the back, the motors are stopped.
+- **DirectInput game controllers** (`engine-platform` `joysticks`). The game reads them: its input
+  start-up (`00a252d0`, when the setting at `011f35d0` is on; start-up value 1) enumerates all
+  devices with the callback `00a24830`, which takes types 0x14 and 0x15, creates each by its
+  instance GUID, sets `DISCL_NONEXCLUSIVE | DISCL_FOREGROUND`, the data format at `01100ebc` (0x50
+  bytes), reads `GetCapabilities`, `EnumObjects`, and sets `DIPROP_RANGE` (-100 to 100) and
+  `DIPROP_DEADZONE`; `Controls::Poll` acquires, polls and reads each every frame. The platform's
+  `EnumDevices` now lists, after the mouse and the keyboard, the game controllers the setting
+  shows, each with the system's own `DIDEVICEINSTANCEA`, and `CreateDevice` on one makes a device
+  backed by a system DirectInput 8 device. The game's 32-bit `DIDATAFORMAT` is read and made again
+  in the 64-bit layout with the same GUIDs, offsets, types and flags, so the system fills the
+  state in the game's layout; `DIDEVCAPS`, the object records and the property blocks are copied as
+  they are. The cooperative level is checked, not passed on: the system device stays in
+  DirectInput's default (non-exclusive, background) and, with the default `NV_PAD` and no window of
+  the engine in front, `Acquire` answers `DIERR_OTHERAPPHASPRIO` and `GetDeviceState`
+  `DIERR_INPUTLOST` (the game then clears that joystick's state). An Xbox pad's own DirectInput
+  side is left out (the `IG_` mark in its `DIPROP_GUIDANDPATH` path, Microsoft's documented
+  check), so it is read once, through XInput.
+- **Not connected** (the state left as it is, no joystick listed): no controller, no XInput DLL
+  (DirectInput ones are still read), `NV_REPEATABLE` (two runs stay equal), and a scripted run (`NV_MOVE_KEYS` or `NV_MOVE_MOUSE`) unless
+  `NV_MOVE_REAL_INPUT=1`, as for the real keyboard and mouse. With no controller the game runs as
+  before.
+- **In the background.** Nothing gates input on the focus for a seat: XInput is read whatever
+  window is in front, and the engine's game never hears that its window went to the back (the real
+  window's messages do not reach the game's window procedure `0086a0a0`, so its `WM_ACTIVATE`
+  pause menu and `Main::SetActive(0)` never run here). Only the default setting (`NV_PAD` unset)
+  waits for the window to be in front, so one pad does not move two copies.
+- **Couchlink.** A pad seat runs with `NV_PAD=$SEAT` (the launcher passes its environment on to the
+  game unchanged) and without the recipe's pad-to-keys profile. This assumes the seat number is the
+  pad's place in the list above (XInput pads first, then the others); if Couchlink numbers seats
+  and pads apart, or hooks XInput in the copy, the recipe gives that pad's place instead.
+- **Other pads.** A pad Steam Input shows as an Xbox controller is an XInput one (its virtual pad
+  has the `IG_` mark). The real pad behind it is still a DirectInput game controller, so with the
+  default setting such a pad is read twice; a seat (`NV_PAD=N`) reads
+  only the one it names. A non-Xbox pad without Steam Input is a DirectInput one: what the game
+  makes of its buttons and axes is the game's own joystick code (its bindings for device 2).
+- Tests: `engine-platform` `pads::tests` (the setting, scripted runs, no controller, a seat's own
+  controller, the list's order with an Xbox pad's DirectInput side left out, the first one kept,
+  the wait for a missing one, the rumble, the capabilities, the background rule and the motors
+  stopped, `NV_REPEATABLE`, the imports at their slots) and `joysticks::tests` (a fake DirectInput:
+  the listing after the system devices with the system's records, the game's whole use of a
+  joystick from creation to release, the Xbox pad's side not created, the foreground rule, no
+  listing in `NV_REPEATABLE` or with `NV_PAD=none`). Not run: a real controller of either kind, the
+  system DirectInput calls, two copies on one PC, Couchlink.

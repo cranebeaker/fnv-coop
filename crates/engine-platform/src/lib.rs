@@ -105,6 +105,9 @@ pub mod mixer;
 pub mod mmio;
 pub mod nls;
 pub mod nvapi;
+// pads
+pub mod joysticks;
+pub mod pads;
 pub mod process;
 pub mod resampler;
 pub mod sound_out;
@@ -130,6 +133,9 @@ pub struct State {
     pub disk: files::Disk,
     /// The process side: the ANSI command line and the environment blocks ([`process`]).
     pub process: process::Process,
+    // pads
+    /// The game's XInput controller from the PC's ([`pads`]).
+    pub pads: pads::Pads,
 }
 
 /// The [`State`] in an engine's `Kernel::platform`.
@@ -221,6 +227,8 @@ pub mod units {
     /// engines made from now on (`Engine::new` runs this before it makes the kernel).
     pub fn funcs(out: &mut Vec<(u32, crate::AbiFn)>) {
         crate::install_layer(&crate::LAYER);
+        // pads: the game's XInput imports answered from the PC's controllers.
+        crate::install_pads(&crate::pads::HOOK);
         out.extend(crate::layer_funcs());
     }
 }
@@ -868,6 +876,8 @@ fn layer_imports() -> Vec<(&'static str, &'static str, AbiFn)> {
             entry!(0, d3dxreal::assemble_shader(Ptr, u32, Ptr, Ptr, u32, Ptr, Ptr) -> u32).1,
         ),
     ]);
+    // pads: XInputGetCapabilities (the core answers XInputGetState and XInputSetState).
+    imports.extend(pads::imports());
     imports
 }
 
@@ -881,6 +891,8 @@ engine_core::assemble!(units::funcs);
 #[cfg(test)]
 pub fn imports() -> Vec<(&'static str, &'static str, AbiFn)> {
     install_layer(&LAYER);
+    // pads
+    install_pads(&pads::HOOK);
     engine_core::units::platform::imports()
 }
 
@@ -902,7 +914,8 @@ mod tests {
         }
         // The 195 of the table before the layer moved out of `engine-core` (6 are Windows only),
         // `GlobalMemoryStatus(Ex)`, and `MultiByteToWideChar` and `LCMapStringW` (Windows only).
-        assert_eq!(table.len(), if cfg!(windows) { 199 } else { 191 });
+        // pads: and `XInputGetCapabilities`.
+        assert_eq!(table.len(), if cfg!(windows) { 200 } else { 192 });
     }
 
     /// Not a check: the rows of `engine-core`'s `allocations_per_operation_of_the_kernel` whose
