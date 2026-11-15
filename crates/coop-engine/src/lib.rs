@@ -22,6 +22,8 @@
 pub mod actors;
 pub mod addr;
 pub mod commands;
+// companions: a companion follows the player who hired it (docs/coop/SPECS.md S32).
+pub mod companion;
 pub mod compass;
 pub mod diag;
 // fights
@@ -126,6 +128,8 @@ pub fn install(e: &mut Engine) {
     items::install(e);
     // the other players' ticks on the compass
     compass::install(e);
+    // companions
+    companion::install(e);
 }
 
 // The unit tests' own program: no other crate's functions are linked in.
