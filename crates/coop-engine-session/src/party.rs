@@ -190,7 +190,6 @@ pub struct Part {
     // character
     /// The player's character (`None`: not read, or a part written before this section).
     pub sheet: Option<stats::Sheet>,
-        }
     // companions
     /// The companions the player keeps: each one's reference id and the wheel's four switches.
     pub companions: Vec<(u32, [f32; 4])>,
@@ -286,6 +285,7 @@ impl Part {
         // character
         if let Some(sheet) = &self.sheet {
             section(&mut out, SECTION_SHEET, &crate::sheet::encode(sheet));
+        }
         // companions
         if !self.companions.is_empty() {
             let mut body = (self.companions.len() as u16).to_le_bytes().to_vec();
@@ -312,8 +312,8 @@ impl Part {
             key: c.u64()?,
             place: None,
             quests: Vec::new(),
-            pack: None,  // items
-            sheet: None, // character
+            pack: None,             // items
+            sheet: None,            // character
             companions: Vec::new(), // companions
         };
         while !c.0.is_empty() {
@@ -396,8 +396,6 @@ impl Part {
             quests,
             pack: Pack::read(e),   // items
             sheet: stats::read(e), // character
-        }
-            pack: Pack::read(e), // items
             // companions
             companions: coop_engine::companion::mine(e)
                 .into_iter()
@@ -440,6 +438,7 @@ impl Part {
         // character: after the pack, so that what was worn is carried.
         if let Some(sheet) = &self.sheet {
             out.character = stats::apply(e, sheet);
+        }
         // companions: claimed of the host by the session (`companion::GuestCompanions`).
         if !self.companions.is_empty() {
             coop_engine::companion::restore_kept(e, &self.companions);
