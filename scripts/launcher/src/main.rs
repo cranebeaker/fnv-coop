@@ -1164,6 +1164,10 @@ fn play(
                 None => command.env_remove(name),
             };
         }
+        // voiceui: the game keeps the players list's mutes and volumes in this file.
+        if p.mode != coop::Mode::Alone {
+            command.env("NV_COOP_INI", package.userdata.join(coop::FILE));
+        }
         package.log(&format!("co-op: {:?} as {}", p.mode, p.choice.name.trim()));
     }
     if settings.borderless() {

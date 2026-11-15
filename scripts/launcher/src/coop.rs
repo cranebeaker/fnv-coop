@@ -13,7 +13,7 @@ pub const STEAM_DLL: &str = "steam_api64.dll";
 
 /// The switches the co-op window sets or clears; one left from settings.ini or an earlier
 /// console never mixes into a run the window started.
-pub const SWITCHES: [&str; 11] = [
+pub const SWITCHES: [&str; 14] = [
     "NV_COOP",
     "NV_COOP_NAME",
     "NV_COOP_ADDRESS",
@@ -25,6 +25,10 @@ pub const SWITCHES: [&str; 11] = [
     "NV_COOP_VATS",
     "NV_COOP_HARM",
     "NV_COOP_INVITE_KEY",
+    // voiceui
+    "NV_COOP_PLAYERS_KEY",
+    "NV_COOP_MUTE_KEY",
+    "NV_COOP_DEAFEN_KEY",
 ];
 
 /// The keys the push-to-talk list offers (the game program's names, `coop_engine_session::voice`;
@@ -48,6 +52,54 @@ pub const PTT_KEYS: [&str; 16] = [
     "NUMPAD0",
     "INSERT",
 ];
+
+// voiceui
+/// The keys the players list, mute and deafen lists offer (the game program's names; F9, F8 and
+/// F7 are the game program's defaults for them).
+pub const LIST_KEYS: [&str; 18] = [
+    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "INSERT", "DELETE",
+    "HOME", "END", "PAGEUP", "PAGEDOWN",
+];
+
+// voiceui
+/// One other player's voice as this player set it (in the game's players list or this window),
+/// by name: Player=name;muted;volume in coop.ini, the game program's own lines.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlayerVoice {
+    pub name: String,
+    pub muted: bool,
+    /// Percent, 0 to 200 (100 is as sent).
+    pub volume: u32,
+}
+
+impl PlayerVoice {
+    /// A Player= line's value; None when it is not one.
+    fn parse(v: &str) -> Option<PlayerVoice> {
+        let mut parts = v.split(';');
+        let name = parts.next()?.trim();
+        let muted = flag(parts.next()?);
+        let volume = parts
+            .next()?
+            .trim()
+            .trim_end_matches('%')
+            .parse::<f32>()
+            .ok()?;
+        (!name.is_empty() && volume.is_finite()).then(|| PlayerVoice {
+            name: name.to_string(),
+            muted,
+            volume: volume.clamp(0.0, 200.0).round() as u32,
+        })
+    }
+
+    fn line(&self) -> String {
+        format!(
+            "Player={};{};{}\r\n",
+            one_line(&self.name).replace(';', "_"),
+            u8::from(self.muted),
+            self.volume.min(200)
+        )
+    }
+}
 
 /// What the player pressed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +168,13 @@ pub struct Choice {
     pub items: bool,
     pub vats: bool,
     pub harm: bool,
+    // voiceui
+    /// The key that opens the players list in the game, and the mute and deafen keys.
+    pub players_key: String,
+    pub mute_key: String,
+    pub deafen_key: String,
+    /// The other players' voices by name.
+    pub players: Vec<PlayerVoice>,
 }
 
 impl Default for Choice {
@@ -130,6 +189,11 @@ impl Default for Choice {
             items: false,
             vats: false,
             harm: false,
+            // voiceui
+            players_key: "F9".into(),
+            mute_key: "F8".into(),
+            deafen_key: "F7".into(),
+            players: Vec::new(),
         }
     }
 }
@@ -158,6 +222,16 @@ impl Choice {
                 "items" => c.items = flag(v),
                 "vats" => c.vats = flag(v),
                 "harm" => c.harm = flag(v),
+                // voiceui
+                "playerskey" if !v.is_empty() => c.players_key = v.into(),
+                "mutekey" if !v.is_empty() => c.mute_key = v.into(),
+                "deafenkey" if !v.is_empty() => c.deafen_key = v.into(),
+                "player" => {
+                    if let Some(p) = PlayerVoice::parse(v) {
+                        c.players.retain(|q| !q.name.eq_ignore_ascii_case(&p.name));
+                        c.players.push(p);
+                    }
+                }
                 _ => {}
             }
         }
@@ -167,7 +241,7 @@ impl Choice {
     /// The text of `coop.ini`.
     pub fn to_ini(&self) -> String {
         let b = |on: bool| if on { "1" } else { "0" };
-        format!(
+        let mut text = format!(
             "; The co-op window's choices (Play Co-op.exe). Delete this file to start again.\r\nName={}\r\nAddress={}\r\nCode={}\r\nSteam={}\r\nVoice={}\r\nPushToTalkKey={}\r\nItems={}\r\nVats={}\r\nHarm={}\r\n",
             one_line(&self.name),
             one_line(&self.address),
@@ -178,7 +252,20 @@ impl Choice {
             b(self.items),
             b(self.vats),
             b(self.harm)
-        )
+        );
+        // voiceui
+        text.push_str(&format!(
+            "PlayersKey={}\r\nMuteKey={}\r\nDeafenKey={}\r\n",
+            one_line(&self.players_key),
+            one_line(&self.mute_key),
+            one_line(&self.deafen_key)
+        ));
+        for p in &self.players {
+            if p.muted || p.volume != 100 {
+                text.push_str(&p.line());
+            }
+        }
+        text
     }
 
     /// The game's environment for `mode`: each switch set (`Some`) or cleared (`None`). `dll` is
@@ -239,6 +326,12 @@ impl Choice {
             Mode::JoinSteamFriend => set("NV_COOP", "steam".into()),
         }
         set("NV_COOP_VOICE", self.voice.word().into());
+        // voiceui
+        set("NV_COOP_PLAYERS_KEY", one_line(&self.players_key));
+        if self.voice != Voice::Off {
+            set("NV_COOP_MUTE_KEY", one_line(&self.mute_key));
+            set("NV_COOP_DEAFEN_KEY", one_line(&self.deafen_key));
+        }
         if self.voice == Voice::PushToTalk {
             set("NV_COOP_PTT_KEY", one_line(&self.ptt_key));
         }
@@ -344,6 +437,42 @@ pub fn codes_message(c: &Codes) -> Option<String> {
     Some(text)
 }
 
+// voiceui
+/// The volume list's entries: 0% to 200% in steps of 10.
+pub fn volume_labels() -> Vec<String> {
+    (0..=20).map(|i| format!("{}%", i * 10)).collect()
+}
+
+/// The volume list's entry for `volume` percent.
+pub fn volume_index(volume: u32) -> usize {
+    ((volume.min(200) + 5) / 10) as usize
+}
+
+/// The players as the window holds them: the first `shown` of `known` with the mute box and the
+/// volume entry `read(i)` gives, the rest as the file had them.
+pub fn players_from_window(
+    known: &[PlayerVoice],
+    shown: usize,
+    read: impl Fn(usize) -> (bool, usize),
+) -> Vec<PlayerVoice> {
+    known
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            if i < shown {
+                let (muted, at) = read(i);
+                PlayerVoice {
+                    name: p.name.clone(),
+                    muted,
+                    volume: (at.min(20) * 10) as u32,
+                }
+            } else {
+                p.clone()
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,6 +495,22 @@ mod tests {
             items: true,
             vats: false,
             harm: true,
+            // voiceui
+            players_key: "F10".into(),
+            mute_key: "F4".into(),
+            deafen_key: "F3".into(),
+            players: vec![
+                PlayerVoice {
+                    name: "Bo Ek".into(),
+                    muted: true,
+                    volume: 100,
+                },
+                PlayerVoice {
+                    name: "Cy".into(),
+                    muted: false,
+                    volume: 150,
+                },
+            ],
         };
         assert_eq!(Choice::parse(&c.to_ini()), c);
         assert_eq!(Choice::parse(""), Choice::default());
@@ -493,5 +638,90 @@ mod tests {
         s.sort();
         s.dedup();
         assert_eq!(s.len(), SWITCHES.len());
+    }
+
+    // voiceui
+    #[test]
+    fn the_players_voices_and_list_keys_go_to_the_file_and_the_game() {
+        // The game program's own lines read back; a default player gets no line.
+        let text = "Name=Ann\r\nPlayer=Bo;1;100\r\nPlayer=cy;0;250\r\nPlayer=Dee;0;100\r\nPlayer=bad\r\nPlayer=bo;0;40\r\n";
+        let c = Choice::parse(text);
+        assert_eq!(
+            c.players,
+            vec![
+                PlayerVoice {
+                    name: "cy".into(),
+                    muted: false,
+                    volume: 200
+                },
+                PlayerVoice {
+                    name: "Dee".into(),
+                    muted: false,
+                    volume: 100
+                },
+                PlayerVoice {
+                    name: "bo".into(),
+                    muted: false,
+                    volume: 40
+                },
+            ],
+            "the last line of a name wins, a volume is held within 0 and 200"
+        );
+        let ini = c.to_ini();
+        assert!(ini.contains("Player=cy;0;200\r\n") && ini.contains("Player=bo;0;40\r\n"));
+        assert!(!ini.contains("Player=Dee"));
+        assert!(ini.contains("PlayersKey=F9\r\nMuteKey=F8\r\nDeafenKey=F7\r\n"));
+        // The keys reach the game; without voice only the players list's.
+        let env = c.environment(Mode::Host, None).unwrap();
+        assert_eq!(get(&env, "NV_COOP_PLAYERS_KEY"), Some("F9"));
+        assert_eq!(get(&env, "NV_COOP_MUTE_KEY"), Some("F8"));
+        assert_eq!(get(&env, "NV_COOP_DEAFEN_KEY"), Some("F7"));
+        let off = Choice {
+            voice: Voice::Off,
+            ..c.clone()
+        };
+        let env = off.environment(Mode::Host, None).unwrap();
+        assert_eq!(get(&env, "NV_COOP_PLAYERS_KEY"), Some("F9"));
+        assert_eq!(get(&env, "NV_COOP_MUTE_KEY"), None);
+        let alone = c.environment(Mode::Alone, None).unwrap();
+        assert_eq!(get(&alone, "NV_COOP_PLAYERS_KEY"), None);
+    }
+
+    #[test]
+    fn the_window_s_player_rows_set_mute_and_volume() {
+        let labels = volume_labels();
+        assert_eq!((labels[0].as_str(), labels[20].as_str()), ("0%", "200%"));
+        assert_eq!(volume_index(150), 15);
+        assert_eq!(volume_index(999), 20);
+        assert_eq!(labels[volume_index(70)], "70%");
+        let known = vec![
+            PlayerVoice {
+                name: "Bo".into(),
+                muted: false,
+                volume: 100,
+            },
+            PlayerVoice {
+                name: "Cy".into(),
+                muted: true,
+                volume: 30,
+            },
+        ];
+        let out = players_from_window(&known, 1, |_| (true, 12));
+        assert_eq!(
+            out[0],
+            PlayerVoice {
+                name: "Bo".into(),
+                muted: true,
+                volume: 120
+            }
+        );
+        assert_eq!(out[1], known[1], "a player past the rows keeps the file's");
+        let mut keys = LIST_KEYS.to_vec();
+        keys.sort();
+        keys.dedup();
+        assert_eq!(keys.len(), LIST_KEYS.len());
+        assert!(
+            LIST_KEYS.contains(&"F9") && LIST_KEYS.contains(&"F8") && LIST_KEYS.contains(&"F7")
+        );
     }
 }
