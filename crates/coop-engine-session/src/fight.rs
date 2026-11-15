@@ -1229,7 +1229,14 @@ impl Fight {
                 self.engaged.remove(&s.id);
             }
             let engaged = engaged.filter(|_| !s.dead());
-            let pin = if !self.handoff || keeps_company {
+            // companions: a companion a guest hired is that guest's game's to run (its follow
+            // package there is about that guest's own player).
+            let kept_by = coop_engine::companion::kept_by(e, s.id)
+                .filter(|p| *p != 0)
+                .map(PlayerId);
+            let pin = if let (true, Some(g)) = (self.handoff, kept_by) {
+                Some(g)
+            } else if !self.handoff || keeps_company {
                 Some(PlayerId::HOST)
             } else if engaged.is_some() {
                 engaged

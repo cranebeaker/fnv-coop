@@ -291,7 +291,10 @@ impl Enactor {
             ));
             return;
         }
-        match talk::enact(e, npc.0, choice, end) {
+        // companions: a hire in this line is that player's.
+        let enacted =
+            coop_engine::companion::with_hirer(e, from.0, |e| talk::enact(e, npc.0, choice, end));
+        match enacted {
             Ok(()) => self.enacted += 1,
             Err(why) => {
                 self.left += 1;

@@ -103,6 +103,8 @@ pub(crate) fn host_step(h: &mut HostDriver, e: &mut Engine, net: &mut dyn Transp
             if let Some(f) = h.fight.as_mut() {
                 f.engage(npc.0, *initiator);
             }
+            // companions: who last spoke with it (a hire outside a line is that player's).
+            h.companions.on_talk(npc.0, *initiator);
         }
         h.social.enactor.on_event(e, ev, &h.quests);
     }
