@@ -39,6 +39,9 @@ pub mod track;
 pub mod smooth;
 pub mod vats;
 
+// voice: voice chat's frames and places (docs/coop/SPECS.md S32).
+pub mod voice;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use coop_core::avatar::{AvatarMsg, AvatarSender, Sample};
@@ -375,6 +378,9 @@ pub struct HostDriver {
     /// Whether conversations, party saves and the rest vote are shared (on unless the caller
     /// turns it off: none of it has run on a PC yet, and it is switched on by itself).
     pub social_on: bool,
+    // voice
+    /// Voice chat's frames and places; `None` leaves the session without voice.
+    pub voice: Option<voice::VoiceLink>,
 }
 
 impl HostDriver {
@@ -442,6 +448,7 @@ impl HostDriver {
             // social
             social: social::HostSocial::default(),
             social_on: true,
+            voice: None, // voice
         }
     }
 
@@ -1013,6 +1020,8 @@ impl HostDriver {
             send(net, to, &msg, &mut self.send_failures);
         }
         self.live_step(e, net, now_ms);
+        // voice
+        voice::host_step(self, e, net, now_ms);
     }
 
     /// The live ladder's frame: the other players' states into the host's view, the ladder's
@@ -1176,6 +1185,9 @@ pub struct GuestDriver {
     pub social: social::GuestSocial,
     /// See [`HostDriver::social_on`].
     pub social_on: bool,
+    // voice
+    /// See [`HostDriver::voice`].
+    pub voice: Option<voice::VoiceLink>,
 }
 
 impl GuestDriver {
@@ -1233,6 +1245,7 @@ impl GuestDriver {
             // social
             social: social::GuestSocial::default(),
             social_on: true,
+            voice: None, // voice
         }
     }
 
@@ -1329,6 +1342,8 @@ impl GuestDriver {
         }
         // social
         social::guest_step(self, e, net, now_ms);
+        // voice
+        voice::guest_step(self, e, net, now_ms);
         self.now_ms = now_ms;
         self.claim_deaths(e, net);
         self.apply(e);

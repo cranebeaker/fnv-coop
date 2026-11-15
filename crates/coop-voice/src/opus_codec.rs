@@ -1,5 +1,6 @@
-//! Opus codec behind the `opus` feature. Not compiled by default or in tests;
-//! NOT yet built or verified. Mono, 48 kHz, 20 ms frames (960 samples).
+//! Opus codec behind the `opus` feature (nv-viewer's `voice` feature turns it on). Not compiled
+//! by default; `cargo test -p coop-voice --features opus` runs the pipeline's tests through it
+//! (libopus is built from source with CMake). Mono, 48 kHz, 20 ms frames (960 samples).
 
 use crate::codec::{Codec, CodecError, CODEC_OPUS};
 
