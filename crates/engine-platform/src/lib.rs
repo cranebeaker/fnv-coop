@@ -106,6 +106,7 @@ pub mod mmio;
 pub mod nls;
 pub mod nvapi;
 // pads
+pub mod joysticks;
 pub mod pads;
 pub mod process;
 pub mod resampler;

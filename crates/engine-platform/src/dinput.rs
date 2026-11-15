@@ -15,7 +15,7 @@
 //! `SetDataFormat`, `SetProperty(DIPROP_BUFFERSIZE)`, `GetCapabilities`), the joystick search
 //! `00a252d0` (`EnumDevices`), `Controls::Poll` `00a23010` (`Acquire`, `Poll`,
 //! `GetDeviceState`), the key reader `00a23820` (`GetDeviceData`) and the releases (`Unacquire`,
-//! `Release`). There is no joystick: `EnumDevices` lists the keyboard and the mouse only.
+//! `Release`). The PC's game controllers (joysticks) are `super::joysticks`' (pads).
 
 use crate::{Engine, Ptr};
 
@@ -317,6 +317,11 @@ fn create_device(e: &mut Engine, _this: Ptr, guid: Ptr, out: Ptr, outer: u32) ->
     } else if id == GUID_SYS_MOUSE {
         false
     } else {
+        // pads: a game controller of the PC that `joysticks::instances` listed.
+        if let Some(object) = crate::joysticks::create(e, &id) {
+            e.mem.set_u32(out.addr(), object);
+            return DI_OK;
+        }
         e.mem.set_u32(out.addr(), 0);
         return DIERR_DEVICENOTREG;
     };
@@ -380,13 +385,26 @@ fn enum_devices(
         DI8DEVCLASS_GAMECTRL => {}
         _ => return DIERR_INVALIDPARAM,
     }
+    let mut go_on = DIENUM_CONTINUE;
     for (guid, kind, name) in listed {
-        let go_on = e.with_stack(DEVICE_INSTANCE_SIZE, |e, record| {
+        go_on = e.with_stack(DEVICE_INSTANCE_SIZE, |e, record| {
             device_instance(e, record.addr(), guid, kind, name);
             e.call(callback, &[record.addr(), reference]).u32()
         });
         if go_on != DIENUM_CONTINUE {
             break;
+        }
+    }
+    // pads: then the PC's game controllers (`joysticks::instances`), their own records.
+    if go_on == DIENUM_CONTINUE && matches!(class, DI8DEVCLASS_ALL | DI8DEVCLASS_GAMECTRL) {
+        for record in crate::joysticks::instances(e) {
+            let answer = e.with_stack(DEVICE_INSTANCE_SIZE, |e, at| {
+                e.mem.write(at.addr(), &record);
+                e.call(callback, &[at.addr(), reference]).u32()
+            });
+            if answer != DIENUM_CONTINUE {
+                break;
+            }
         }
     }
     DI_OK

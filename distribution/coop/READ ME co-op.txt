@@ -85,9 +85,10 @@ or their own keyboard and mouse.
 3. Put the players on their seats and screens, and start it. Player 1 hosts and the others join
    on this PC by themselves: no join code is needed.
 4. Everybody presses New Game.
-- The game reads each player's controller itself (Couchlink gives each copy NV_PAD=$SEAT, the
-  seat's controller), with the game's own controller buttons and rumble. Keyboard and mouse
-  players play as before.
+- The game reads each player's controller itself, an Xbox controller or another game controller
+  (Couchlink gives each copy NV_PAD=$SEAT, the seat's controller). An Xbox controller gets the
+  game's own controller buttons and rumble. Connect the controllers before starting. Keyboard
+  and mouse players play as before.
 - Each player gets their own copy of the package in Couchlink's folder, with their own saves and
   settings. The saves of this package folder are not used there.
 - Friends on other PCs cannot join a Couchlink session: host a normal session for them,
