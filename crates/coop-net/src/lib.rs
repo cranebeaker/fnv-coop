@@ -42,6 +42,8 @@
 
 pub mod backend;
 pub mod clock;
+// steam: a host on UDP and Steam at once; a boxed backend.
+pub mod dual;
 pub mod endpoint;
 pub mod framing;
 pub mod join;
@@ -55,6 +57,7 @@ pub mod steam;
 
 pub use backend::{Backend, BackendError, BackendEvent, Lane, PeerKey, Readiness};
 pub use clock::{Clock, ManualClock};
+pub use dual::Dual; // steam
 pub use endpoint::{Endpoint, EndpointConfig, LeaveReason, NetEvent, Token};
 pub use join::{random_token, JoinCode, JoinError, JoinTarget};
 pub use liveness::{Ctl, RejectCode};
