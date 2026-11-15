@@ -840,9 +840,13 @@ const ERROR_DEVICE_NOT_CONNECTED: u32 = 0x48f;
 
 // Platform: replaces XINPUT1_3.DLL XInputGetState (import by ordinal 2; `Controls::Poll`
 // `00a23010` calls it through the thunk `009f996e`)
-/// No controller is connected (the platform offers no XInput pad): `ERROR_DEVICE_NOT_CONNECTED`
+/// No controller is connected (without the platform layer's [`Pads`]): `ERROR_DEVICE_NOT_CONNECTED`
 /// for every user index, the state left as it is.
-fn xinput_get_state(_e: &mut Engine, _user: u32, _state: Ptr) -> u32 {
+fn xinput_get_state(e: &mut Engine, user: u32, state: Ptr) -> u32 {
+    // pads: the platform layer's controllers, when it installed them ([`install_pads`]).
+    if let Some(pads) = PADS.get() {
+        return (pads.get_state)(e, user, state);
+    }
     ERROR_DEVICE_NOT_CONNECTED
 }
 
@@ -850,9 +854,33 @@ fn xinput_get_state(_e: &mut Engine, _user: u32, _state: Ptr) -> u32 {
 // controller rumble `00a255b0` calls it through the thunk `00ee820a`, e.g. when the player fires)
 /// No controller is connected, as for [`xinput_get_state`]: `ERROR_DEVICE_NOT_CONNECTED` for every
 /// user index (documented for a controller that is not connected), the vibration not read.
-fn xinput_set_state(_e: &mut Engine, _user: u32, _vibration: Ptr) -> u32 {
+fn xinput_set_state(e: &mut Engine, user: u32, vibration: Ptr) -> u32 {
+    // pads: the platform layer's controllers, when it installed them ([`install_pads`]).
+    if let Some(pads) = PADS.get() {
+        return (pads.set_state)(e, user, vibration);
+    }
     ERROR_DEVICE_NOT_CONNECTED
 }
+
+// pads
+/// The platform layer's answers to the game's two XInput imports from the PC's real controllers
+/// (`engine-platform`'s `pads`), installed once for the program ([`install_pads`]). Without them
+/// (an engine part crate's tests) [`xinput_get_state`] and [`xinput_set_state`] answer that no
+/// controller is connected.
+pub struct Pads {
+    /// `XInputGetState(user, state)`.
+    pub get_state: fn(&mut Engine, u32, Ptr) -> u32,
+    /// `XInputSetState(user, vibration)`.
+    pub set_state: fn(&mut Engine, u32, Ptr) -> u32,
+}
+
+static PADS: std::sync::OnceLock<&'static Pads> = std::sync::OnceLock::new();
+
+/// Installs the platform layer's [`Pads`] for every engine (the first call wins).
+pub fn install_pads(pads: &'static Pads) {
+    let _ = PADS.set(pads);
+}
+// pads end
 
 // Platform: replaces USER32.DLL GetActiveWindow (import)
 /// The game's main window ([`create_window`]), 0 before there is one.
