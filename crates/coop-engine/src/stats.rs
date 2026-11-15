@@ -74,6 +74,9 @@ pub struct Sheet {
     pub condition: Option<Condition>,
     /// The form ids of the items worn.
     pub worn: Option<Vec<u32>>,
+    // anim: the player's face, hair, race, sex, body and name (docs/coop/SPECS.md S41).
+    /// See [`crate::look::Face`].
+    pub look: Option<crate::look::Face>,
 }
 
 /// What [`apply`] changed, by part.
@@ -85,12 +88,15 @@ pub struct Changed {
     pub condition: u32,
     /// Items put on or taken off.
     pub worn: u32,
+    // anim
+    /// 1 when the look was written onto the player.
+    pub look: u32,
 }
 
 impl Changed {
     /// All the changes.
     pub fn total(&self) -> u32 {
-        self.character + self.condition + self.worn
+        self.character + self.condition + self.worn + self.look
     }
 }
 
@@ -511,10 +517,18 @@ pub fn read(e: &mut Engine) -> Option<Sheet> {
     let worn = e
         .is_registered(addr::REF_INVENTORY_CHANGES)
         .then(|| worn(e, player));
+    // anim: the look, in a game with the face functions.
+    let look = if e.is_registered(addr::NPC_FACE_COORD) {
+        crate::look::base_of(e, crate::actors::PLAYER_REF_ID)
+            .and_then(|base| crate::look::face_of_id(e, base))
+    } else {
+        None
+    };
     Some(Sheet {
         character: Some(read_character(e, player)),
         condition: Some(read_condition(e, player)),
         worn,
+        look,
     })
 }
 
@@ -529,6 +543,11 @@ pub fn apply(e: &mut Engine, sheet: &Sheet) -> Changed {
     let Some(player) = live::player(e) else {
         return out;
     };
+    // anim: the look first, as character creation sets it first; the values after it are the
+    // saved ones whatever a race does to them.
+    if let Some(f) = &sheet.look {
+        out.look = u32::from(crate::look::restore(e, f).is_some_and(|r| r.face));
+    }
     if let Some(c) = &sheet.character {
         out.character = apply_character(e, player, c);
     }
@@ -599,6 +618,7 @@ mod tests {
             character: Some(Character::default()),
             condition: Some(Condition::default()),
             worn: Some(vec![ARMOR]),
+            look: None, // anim
         };
         assert_eq!(apply(&mut s.e, &sheet), Changed::default());
     }

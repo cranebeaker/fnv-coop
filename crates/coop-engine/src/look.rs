@@ -576,6 +576,172 @@ pub fn base_of(e: &mut Engine, id: u32) -> Option<u32> {
     (base != 0).then(|| id_of(e, base))
 }
 
+// anim: an actor's head built again, and a saved look written onto this game's player
+// (docs/coop/SPECS.md S41).
+
+/// Builds the head of the actor at `actor` again from its base form `npc`'s face, as the game
+/// does when a loaded save's face differs (`TESNPC::LoadFaceGen`, `tesnpc.rs`, `fn_00609f60`):
+/// its two head nodes taken out of the palette and the scene, the head cleared
+/// (`TESNPC::ClearHead`), built and attached again (`TESNPC::LinearFaceGenHeadLoad`), and the
+/// race's face-gen parameters for the face applied to both head nodes. False when the program
+/// lacks the functions.
+fn rebuild_head_of(e: &mut Engine, actor: u32, npc: u32) -> bool {
+    if !e.is_registered(addr::NPC_HEAD_LOAD) || !e.is_registered(addr::NPC_CLEAR_HEAD) {
+        return false;
+    }
+    let node = e.call(addr::REF_NODE, &args![actor]).u32();
+    let root = match node {
+        0 => 0,
+        n => e.vcall(n, 0xc, &args![]).u32(),
+    };
+    if root != 0 {
+        let mut palette = 0;
+        let data = e.call(addr::ACTOR_ANIM_DATA, &args![actor]).u32();
+        if data != 0 {
+            let object = e.call(addr::ANIM_DATA_OBJECT, &args![data]).u32();
+            if object != 0 {
+                palette = e.call(addr::OBJECT_PALETTE, &args![object]).u32();
+            }
+        }
+        for slot in addr::ACTOR_HEAD_SLOTS {
+            let head = e.vcall(actor, slot, &args![0u32]).u32();
+            let parent = match head {
+                0 => 0,
+                h => e.call(addr::NODE_PARENT, &args![h]).u32(),
+            };
+            if parent != 0 {
+                e.call(addr::PALETTE_REMOVE, &args![head, palette]);
+                e.vcall(parent, addr::NODE_DETACH_SLOT, &args![head]);
+            }
+        }
+    }
+    e.call(addr::NPC_CLEAR_HEAD, &args![npc]);
+    let biped = e.call(addr::ACTOR_BIPED, &args![actor]).u32();
+    if biped != 0 {
+        e.call(addr::NPC_HEAD_LOAD, &args![npc, actor, biped]);
+    }
+    let [second, first] = addr::ACTOR_HEAD_SLOTS.map(|s| e.vcall(actor, s, &args![0u32]).u32());
+    if first != 0 && second != 0 {
+        let race = e.mem.u32(npc + addr::NPC_RACE_OFFSET);
+        e.with_stack(addr::FACE_PARAMS_SIZE, |e, params| {
+            let params = params.addr();
+            e.call(addr::FACE_PARAMS_CONSTRUCT, &args![params]);
+            e.call(
+                addr::RACE_FACE_GEN_DATA,
+                &args![race, npc, params, 0u32, 0u32],
+            );
+            e.call(addr::APPLY_FACE_PARAMS, &args![first, params]);
+            e.call(addr::APPLY_FACE_PARAMS, &args![second, params]);
+            e.call(addr::FACE_PARAMS_DESTROY, &args![params]);
+        });
+    }
+    true
+}
+
+/// Builds the head of avatar (or any actor) `id` again from its base form's face (see
+/// [`rebuild_head_of`]). False when it is not here, has no 3D or the program lacks the
+/// functions.
+pub fn rebuild_head(e: &mut Engine, id: u32) -> bool {
+    let Some(a) = forms::form(e, id) else {
+        return false;
+    };
+    let base = e.mem.u32(a + addr::REF_BASE_FORM_OFFSET);
+    if base == 0 || e.vcall(a, addr::REF_GET_3D_SLOT, &args![]).u32() == 0 {
+        return false;
+    }
+    rebuild_head_of(e, a, base)
+}
+
+/// What [`restore`] did.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Restored {
+    /// The race changed (through the race menu's calls).
+    pub race: bool,
+    /// The sex changed.
+    pub sex: bool,
+    /// The face, hair, eyes, body or name changed.
+    pub face: bool,
+    /// The head was built again.
+    pub head: bool,
+}
+
+/// Makes `face` this game's player's look, on a player already in the world, through the race
+/// and sex menu's own calls (`racesexmenu.rs`, `race_sex_menu_do_click`): a new race as the
+/// menu's race list sets it (the old race's EGT data dropped, the player told, then the base
+/// form's race), a new sex as its sex buttons set it (and the player's 3D refreshed), the hair
+/// and eyes through the base form's setters; then everything else [`set_face`] writes; the stats
+/// menu's name as the menu's close updates it; and the head built again as a loaded save's is
+/// ([`rebuild_head_of`]), the 3D updated after a race or sex change (`TESNPC`'s 3D update,
+/// `0060a890`). Forms this game lacks are left as they are. `None` with no player or when its
+/// base form is not an NPC; nothing is asked of the game when the look is the player's already.
+pub fn restore(e: &mut Engine, face: &Face) -> Option<Restored> {
+    let player = live::player(e)?;
+    let base = e.mem.u32(player + addr::REF_BASE_FORM_OFFSET);
+    if base == 0 || e.mem.u8(base + addr::FORM_TYPE_OFFSET) != addr::FORM_TYPE_NPC {
+        return None;
+    }
+    let mut out = Restored::default();
+    let old = face_of(e, base);
+    if old == *face {
+        return Some(out);
+    }
+    if face.race != old.race && e.is_registered(addr::NPC_SET_RACE) {
+        if let Some(race) = forms::form(e, face.race) {
+            let old_race = e.mem.u32(base + addr::NPC_RACE_OFFSET);
+            if old_race != 0 {
+                e.call(addr::RACE_KILL_EGT_DATA, &args![old_race]);
+            }
+            e.call(addr::PLAYER_RACE_CHANGED, &args![player]);
+            e.call(
+                addr::PLAYER_RECALCULATE,
+                &args![player + addr::PLAYER_RECALCULATE_OFFSET, 0u32],
+            );
+            e.call(addr::PLAYER_UPDATE, &args![player]);
+            e.call(addr::NPC_SET_RACE, &args![base, race, 0u32]);
+            out.race = true;
+        }
+    }
+    if face.female != old.female && e.is_registered(addr::ACTOR_BASE_SET_FLAG_BIT) {
+        e.call(
+            addr::ACTOR_BASE_SET_FLAG_BIT,
+            &args![
+                base + addr::NPC_ACTOR_BASE_DATA_OFFSET,
+                addr::NPC_FLAG_FEMALE,
+                u32::from(face.female),
+                1u32
+            ],
+        );
+        out.sex = true;
+    }
+    for (want, had, setter) in [
+        (face.hair, old.hair, addr::NPC_SET_HAIR),
+        (face.eyes, old.eyes, addr::NPC_SET_EYES),
+    ] {
+        if want != had && want != 0 && e.is_registered(setter) {
+            if let Some(f) = forms::form(e, want) {
+                e.call(setter, &args![base, f]);
+            }
+        }
+    }
+    let id = id_of(e, base);
+    set_face(e, id, face);
+    // The player's base form names its own face (`TESNPC::Copy` never makes one its face NPC).
+    out.face = true;
+    if face.name != old.name && !face.name.is_empty() && e.is_registered(addr::UPDATE_PLAYER_NAME) {
+        e.call(addr::UPDATE_PLAYER_NAME, &args![]);
+    }
+    if out.sex && e.is_registered(addr::PLAYER_REFRESH_3D) {
+        e.call(addr::PLAYER_REFRESH_3D, &args![player, 1u32]);
+    }
+    if e.vcall(player, addr::REF_GET_3D_SLOT, &args![]).u32() != 0 {
+        out.head = rebuild_head_of(e, player, base);
+        if (out.race || out.sex) && e.is_registered(addr::NPC_UPDATE_3D) {
+            e.call(addr::NPC_UPDATE_3D, &args![base, player]);
+        }
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 #[path = "look_tests.rs"]
 mod tests;

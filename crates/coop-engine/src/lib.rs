@@ -21,6 +21,8 @@
 
 pub mod actors;
 pub mod addr;
+// anim: every animation the other player plays, on its avatar (docs/coop/SPECS.md S41).
+pub mod anim;
 pub mod commands;
 // companions: a companion follows the player who hired it (docs/coop/SPECS.md S33).
 pub mod companion;

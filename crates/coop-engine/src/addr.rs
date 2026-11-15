@@ -1281,3 +1281,221 @@ pub const SCREEN_EPSILON: u32 = 0x0107_18c0;
 /// height above its place without one.
 pub const ACTOR_EYE_POSITION: u32 = 0x008a_2fa0;
 // voiceui: end
+// anim: every animation the other player plays, on its avatar, and a guest's look restored on
+// its own player (docs/coop/SPECS.md S41). Each fact is read from this tree's translation, named
+// below.
+
+/// An actor's animation (`Animation *`): its virtual `0x1e4` (`actor_p3.rs`,
+/// `ACTOR_SLOT_GET_ANIMATION`, "`Actor::GetAnimation` in the `Character` vtable"; the `PlayGroup`
+/// command asks it, `tesscriptfunctions_p2.rs`, `script_play_group_function`).
+pub const ACTOR_GET_ANIMATION_SLOT: u32 = 0x1e4;
+/// `PlayerCharacter::GetAnimation` (`00950a60`, `playercharacter_p2.rs`,
+/// `player_character_get_animation`): `thiscall` with a byte, the first-person animation when it
+/// is not 0, else the player's own (third-person) one.
+pub const PLAYER_GET_ANIMATION: u32 = 0x0095_0a60;
+/// The animation group id playing in a section of an animation (`004301b0`, `actor_p3.rs`,
+/// `ANIMATION_GROUP_OF_SLOT`; `tesscriptfunctions_p2.rs`, `ANIMATION_SLOT_GROUP`): `thiscall`
+/// with the section; the `u16` at `+0x4c + 2 * section`, `0xff` for none.
+pub const ANIMATION_GROUP_OF_SLOT: u32 = 0x0043_01b0;
+/// The sections of an animation (`animation.rs`, the `Animation` layout: `group`, `u16[8]`).
+pub const ANIMATION_SECTIONS: u32 = 8;
+/// The movement section (`animation.rs`: "Slot 1 is the movement slot"; `ShouldBeMoving` and
+/// `Actor::PickAnimations`, `actor_p3.rs`, play walking, running, turning, jumping and landing
+/// there).
+pub const ANIMATION_MOVEMENT_SECTION: u32 = 1;
+/// A section with no group (`animation.rs`, `animation_add_group`: `0xff`).
+pub const ANIM_GROUP_NONE: u16 = 0xff;
+/// `Animation::spAnimIdle` (+0x124, `animation.rs`, the `Animation` layout) and
+/// `AnimIdle::pIdleForm` (+0x2c, the `AnimIdle` layout): the idle playing and its form.
+pub const ANIMATION_IDLE_OFFSET: u32 = 0x124;
+/// See [`ANIMATION_IDLE_OFFSET`].
+pub const ANIM_IDLE_FORM_OFFSET: u32 = 0x2c;
+/// `Actor::GetAnimGroup` (`00897910`, `tesscriptfunctions_p2.rs`, `ACTOR_GET_ANIM_GROUP`):
+/// `thiscall(group, 0, 0, 0)`, the actor's own animation group id for a group's type (its weapon
+/// and movement bits added), in `AX`.
+pub const ACTOR_GET_ANIM_GROUP: u32 = 0x0089_7910;
+/// `Animation::PlayGroup` (`00494740`, `animation.rs`, `animation_play_group`): `thiscall(group,
+/// mode, loops, section)`; the `PlayGroup` command plays with `(group, value, -1, -1)`.
+pub const ANIMATION_PLAY_GROUP: u32 = 0x0049_4740;
+/// `Actor::SetAnimAction` (`008a73e0`, `tesscriptfunctions_p2.rs`, `ACTOR_SET_ANIM_ACTION`):
+/// `thiscall(action, sequence)`.
+pub const ACTOR_SET_ANIM_ACTION: u32 = 0x008a_73e0;
+/// The sequence in a section of an animation (`00491040`, `tesscriptfunctions_p2.rs`,
+/// `ANIMATION_SLOT_OBJECT`; `actor_p3.rs`, `ANIMATION_GET_SEQUENCE`): `thiscall(section)`.
+pub const ANIMATION_SECTION_SEQUENCE: u32 = 0x0049_1040;
+/// The animation action the `PlayGroup` command gives an actor for a group it plays (`0xe`,
+/// `tesscriptfunctions_p2.rs`, `script_play_group_function`), with section 1's sequence.
+pub const ANIM_ACTION_SCRIPT: u32 = 0xe;
+/// `TESAnimGroup::IsAttackAction` and `IsAimAction` (`005f2540`, `005f2630`, `animation.rs`,
+/// `GROUP_ID_IS_ATTACK`, `GROUP_ID_IS_AIM`): `cdecl` with a group id, a byte.
+pub const ANIM_GROUP_IS_ATTACK: u32 = 0x005f_2540;
+/// See [`ANIM_GROUP_IS_ATTACK`].
+pub const ANIM_GROUP_IS_AIM: u32 = 0x005f_2630;
+/// The group types `Actor::PickAnimations` plays to draw a weapon (`0x18`, action 0) and to put
+/// it away (`0x19`, action 1) (`actor_p3.rs`, `actor_pick_animations`); the low byte of a group
+/// id is its type (`animation.rs`, `GROUP_ID_TYPE`: "`GetType` (the low byte)").
+pub const ANIM_GROUP_TYPE_DRAW: u8 = 0x18;
+/// See [`ANIM_GROUP_TYPE_DRAW`].
+pub const ANIM_GROUP_TYPE_HOLSTER: u8 = 0x19;
+/// The movement flags of turning on the spot (`detailedactorpathhandler.rs`,
+/// `detailed_actor_path_handler_no_path_update`: "0x20 left, 0x10 right", its test turning the
+/// heading up with 0x20); `Actor::PickAnimations` plays the turn groups `0xf` and `0x10` for them
+/// and walks or runs only for the direction bits `0xf` (`actor_p3.rs`).
+pub const MOVE_TURN_LEFT: u16 = 0x20;
+/// See [`MOVE_TURN_LEFT`].
+pub const MOVE_TURN_RIGHT: u16 = 0x10;
+/// See [`MOVE_TURN_LEFT`].
+pub const MOVE_DIRECTIONS: u16 = 0xf;
+/// `PlayIdle`'s way to play an idle form on an actor (`tesscriptfunctions_p4.rs`, `start_idle`):
+/// the process's virtual `0x71c` with the idle, then its virtual `0x614` with `0x80` (the flag
+/// `fn_008ba600`, `actor_p6.rs`, plays an idle for).
+pub const PROCESS_SET_IDLE_SLOT: u32 = 0x71c;
+/// See [`PROCESS_SET_IDLE_SLOT`].
+pub const PROCESS_QUEUE_FLAGS_SLOT: u32 = 0x614;
+/// See [`PROCESS_SET_IDLE_SLOT`].
+pub const PROCESS_FLAG_PLAY_IDLE: u32 = 0x80;
+/// `MobileObject::GetCharController` (`009306d0`, `actor_p3.rs`,
+/// `MOBILE_OBJECT_GET_CHAR_CONTROLLER`): `thiscall`, the character controller or 0.
+pub const MOBILE_GET_CHAR_CONTROLLER: u32 = 0x0093_06d0;
+/// A character controller's state (`005c0880`, `tesscriptfunctions_p2.rs`, `fn_005c0880`):
+/// `thiscall`; `Actor::PickAnimations` (`actor_p3.rs`) plays its landing at 0, its jump at 1 and
+/// its fall at 2.
+pub const CONTROLLER_STATE: u32 = 0x005c_0880;
+/// See [`CONTROLLER_STATE`]: in a jump.
+pub const CONTROLLER_JUMPING: u32 = 1;
+/// A mobile object's jump (`00930640`, `mobileobject.rs`, `fn_00930640`): `thiscall`; the jump
+/// height setting scaled by the reference's scale, handed to the controller's jump
+/// (`bhkcharactercontroller.rs`, `fn_00c6d4b0`: its wanted state 1).
+pub const MOBILE_JUMP: u32 = 0x0093_0640;
+/// The process's sit and sleep state, knock state and current furniture: its virtuals `0x4bc`
+/// (`MiddleHighProcess::GetSitSleepState`), `0x40c` (`GetKnockState`) and `0x4c8`
+/// (`GetCurrentFurniture`) (`actor_p3.rs`, `PROCESS_SLOT_SIT_SLEEP_STATE` and the slots `Kill`
+/// uses).
+pub const PROCESS_SIT_SLEEP_STATE_SLOT: u32 = 0x4bc;
+/// See [`PROCESS_SIT_SLEEP_STATE_SLOT`].
+pub const PROCESS_KNOCK_STATE_SLOT: u32 = 0x40c;
+/// See [`PROCESS_SIT_SLEEP_STATE_SLOT`].
+pub const PROCESS_CURRENT_FURNITURE_SLOT: u32 = 0x4c8;
+/// `Actor::GetIronSights` (`008bbc10`, `actor_p5.rs`) and `Actor::SetIronSights` (`008bb650`,
+/// `actor_p6.rs`, `actor_set_iron_sights`: `thiscall(sights, force, skip_if_kind_one)`).
+pub const ACTOR_GET_IRON_SIGHTS: u32 = 0x008b_bc10;
+/// See [`ACTOR_GET_IRON_SIGHTS`].
+pub const ACTOR_SET_IRON_SIGHTS: u32 = 0x008b_b650;
+/// `Actor::GetWalkSpeed` and `Actor::GetRunSpeed` (`00884dc0`, `00884eb0`, `actor_p2.rs`): the
+/// speeds `Actor::PickAnimations` scales the walking and running groups by (`actor_p3.rs`).
+pub const ACTOR_GET_WALK_SPEED: u32 = 0x0088_4dc0;
+/// See [`ACTOR_GET_WALK_SPEED`].
+pub const ACTOR_GET_RUN_SPEED: u32 = 0x0088_4eb0;
+/// The process's store of the walking and running speed (`00884ce0`, `00884d80`, `actor_p2.rs`:
+/// "Stores the walk speed in the process's cached values and marks it valid"): `thiscall` on the
+/// process with the speed; `GetWalkSpeed` and `GetRunSpeed` answer it while it is valid.
+pub const PROCESS_SET_WALK_SPEED: u32 = 0x0088_4ce0;
+/// See [`PROCESS_SET_WALK_SPEED`].
+pub const PROCESS_SET_RUN_SPEED: u32 = 0x0088_4d80;
+/// The fatigue actor value (`actor_p2.rs`, `RESTORED_VALUE_FATIGUE`; `actor_p3.rs`,
+/// `Actor::GetFatiguePercentage`: "actor value `0x16`"). Below zero the process knocks its actor
+/// down and gets it up again once it is not (`middlehighprocess.rs`,
+/// `middle_high_process_update_knock_state`).
+pub const ACTOR_VALUE_FATIGUE: u32 = 0x16;
+/// `PlayerCharacter::InitiateSitSleepPackage`'s package (`00953d80`, `playercharacter_p2.rs`): of
+/// type 6 (`TESPackage::CreatePackage` `00670b90`, `SetPackType` `00670fc0`, then `00826b40(0)`,
+/// `00826b90(1)`), located at the furniture (a `PackageLocation`, [`PACKAGE_LOCATION_SIZE`]
+/// bytes: [`PACKAGE_LOCATION_CONSTRUCT`], [`PACKAGE_LOCATION_SET_REFERENCE`] with the reference,
+/// handed over by `00671d30`, destroyed by `00670b30(1)`),
+/// `00984f60(0)`, run through the actor's virtual `0x2f4(package, 0, 1)`.
+pub const PACKAGE_CREATE: u32 = 0x0067_0b90;
+/// See [`PACKAGE_CREATE`].
+pub const PACKAGE_SET_TYPE: u32 = 0x0067_0fc0;
+/// See [`PACKAGE_CREATE`].
+pub const PACKAGE_SET_826B40: u32 = 0x0082_6b40;
+/// See [`PACKAGE_CREATE`].
+pub const PACKAGE_SET_826B90: u32 = 0x0082_6b90;
+/// See [`PACKAGE_CREATE`].
+pub const PACKAGE_SET_LOCATION: u32 = 0x0067_1d30;
+/// See [`PACKAGE_CREATE`].
+pub const LOCATION_DELETE: u32 = 0x0067_0b30;
+/// See [`PACKAGE_CREATE`].
+pub const PACKAGE_SET_984F60: u32 = 0x0098_4f60;
+/// See [`PACKAGE_CREATE`].
+pub const ACTOR_PUT_PACKAGE_SLOT: u32 = 0x2f4;
+/// See [`PACKAGE_CREATE`].
+pub const PACKAGE_TYPE_SIT_SLEEP: u32 = 6;
+/// The package `PlayerCharacter::InitiateGetUpPackage` gives (`00953ee0`, `playercharacter_p2.rs`,
+/// after its player's own step): `008a75a0` (`actor_p4.rs`, `fn_008a75a0`), `thiscall` on any
+/// actor.
+pub const ACTOR_GET_UP_PACKAGE: u32 = 0x008a_75a0;
+
+// anim: the race and sex menu's calls on the player (`racesexmenu.rs`,
+// `race_sex_menu_do_click` and `race_sex_menu_close`).
+/// A race change: `TESRace::KillEGTData` on the old race (`00613fd0`), then on the player
+/// `0095e5f0`, `008249d0` on `player + 0x94` with 0, `008c2b60`, and the base form's race set
+/// with `0060b240(race, 0)`.
+pub const RACE_KILL_EGT_DATA: u32 = 0x0061_3fd0;
+/// See [`RACE_KILL_EGT_DATA`].
+pub const PLAYER_RACE_CHANGED: u32 = 0x0095_e5f0;
+/// See [`RACE_KILL_EGT_DATA`].
+pub const PLAYER_RECALCULATE: u32 = 0x0082_49d0;
+/// See [`RACE_KILL_EGT_DATA`]: the offset it is called on.
+pub const PLAYER_RECALCULATE_OFFSET: u32 = 0x94;
+/// See [`RACE_KILL_EGT_DATA`].
+pub const PLAYER_UPDATE: u32 = 0x008c_2b60;
+/// See [`RACE_KILL_EGT_DATA`].
+pub const NPC_SET_RACE: u32 = 0x0060_b240;
+/// A sex change: `TESActorBaseData::SetFlagBit(1, female, 1)` on the base form's actor data
+/// (`0047dd50`, `+0x30`; `tesnpc.rs`, `COMPONENT_ACTOR_BASE_DATA`, and `fn_00609f60` sets the
+/// bit the same way), then `008b78c0(player, 1)`.
+pub const ACTOR_BASE_SET_FLAG_BIT: u32 = 0x0047_dd50;
+/// See [`ACTOR_BASE_SET_FLAG_BIT`].
+pub const NPC_ACTOR_BASE_DATA_OFFSET: u32 = 0x30;
+/// See [`ACTOR_BASE_SET_FLAG_BIT`].
+pub const PLAYER_REFRESH_3D: u32 = 0x008b_78c0;
+/// The base form's hair and eyes (`006031e0`, `00603200`, `thiscall` with the form; the menu's
+/// hair and eye lists, ids `0x1b` and `0x21`).
+pub const NPC_SET_HAIR: u32 = 0x0060_31e0;
+/// See [`NPC_SET_HAIR`].
+pub const NPC_SET_EYES: u32 = 0x0060_3200;
+/// `StatsMenu::UpdatePlayerName` (`007df4e0`, no arguments), which the menu's close runs.
+pub const UPDATE_PLAYER_NAME: u32 = 0x007d_f4e0;
+
+// anim: an actor's head built again from its base form's face (`tesnpc.rs`, `fn_00609f60`,
+// `TESNPC::LoadFaceGen`, the steps after "when anything changed").
+/// The actor's 3D node (`0043fcd0`) and its root (the node's virtual `0xc`).
+pub const REF_NODE: u32 = 0x0043_fcd0;
+/// The palette: the actor's animation data (`008b70d0`), its object (`00496940`), that object's
+/// palette (`00537bd0`).
+pub const ACTOR_ANIM_DATA: u32 = 0x008b_70d0;
+/// See [`ACTOR_ANIM_DATA`].
+pub const ANIM_DATA_OBJECT: u32 = 0x0049_6940;
+/// See [`ACTOR_ANIM_DATA`].
+pub const OBJECT_PALETTE: u32 = 0x0053_7bd0;
+/// The actor's two head nodes: its virtuals `0x1b0` and `0x1ac` with 0.
+pub const ACTOR_HEAD_SLOTS: [u32; 2] = [0x1b0, 0x1ac];
+/// A node's parent (`009611e0`, the same function as [`PACKAGE_PROCEDURE_TYPE`]: a word of its
+/// object) and the parent's removal of a child (its virtual `0xe8`).
+pub const NODE_PARENT: u32 = PACKAGE_PROCEDURE_TYPE;
+/// See [`NODE_PARENT`].
+pub const NODE_DETACH_SLOT: u32 = 0xe8;
+/// A node taken out of a palette (`00a6e8e0`, `cdecl(node, palette)`).
+pub const PALETTE_REMOVE: u32 = 0x00a6_e8e0;
+/// `TESNPC::ClearHead` (`005dd560`).
+pub const NPC_CLEAR_HEAD: u32 = 0x005d_d560;
+/// The actor's biped (`005d9f90`).
+pub const ACTOR_BIPED: u32 = 0x005d_9f90;
+/// `TESNPC::LinearFaceGenHeadLoad` (`00606820`, `tesnpc.rs`,
+/// `tesnpc_linear_face_gen_head_load`): `thiscall(actor, biped)`, the head built and attached.
+pub const NPC_HEAD_LOAD: u32 = 0x0060_6820;
+/// The face-gen parameters (`0xf0` bytes, `005dd590` builds them, `005dd6f0` destroys them),
+/// filled by `TESRace::GetFaceGenData` (`006141f0`, `thiscall(npc, params, 0, 0)` on the race)
+/// and applied to each head node (`00655fa0(node, params)`).
+pub const FACE_PARAMS_SIZE: u32 = 0xf0;
+/// See [`FACE_PARAMS_SIZE`].
+pub const FACE_PARAMS_CONSTRUCT: u32 = 0x005d_d590;
+/// See [`FACE_PARAMS_SIZE`].
+pub const FACE_PARAMS_DESTROY: u32 = 0x005d_d6f0;
+/// See [`FACE_PARAMS_SIZE`].
+pub const RACE_FACE_GEN_DATA: u32 = 0x0061_41f0;
+/// See [`FACE_PARAMS_SIZE`].
+pub const APPLY_FACE_PARAMS: u32 = 0x0065_5fa0;
+/// The 3D update `TESNPC` runs for an actor (`0060a890`, `tesnpc.rs`, `fn_0060a890`): the
+/// process's virtual `0x464(actor)` with the rebuild flag set.
+pub const NPC_UPDATE_3D: u32 = 0x0060_a890;

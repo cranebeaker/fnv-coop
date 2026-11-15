@@ -964,6 +964,7 @@ mod tests {
                 }),
                 condition: None,
                 worn: Some(vec![0x0000_4333]),
+                look: None, // anim
             }),
             companions: vec![(0x0004_0001, [1.0, 0.0, 1.0, 0.0])], // companions
         }

@@ -25,6 +25,8 @@ pub mod fight;
 pub mod ladder;
 // look: the other players' avatars as those players (docs/coop/SPECS.md S35).
 pub mod look;
+// anim: every other animation of the other players' avatars (docs/coop/SPECS.md S41).
+pub mod anim;
 pub mod record;
 // items: loot taken once and barter through the host (docs/coop/SPECS.md S20).
 pub mod items;

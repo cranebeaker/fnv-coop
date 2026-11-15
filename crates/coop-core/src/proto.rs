@@ -19,7 +19,8 @@ use crate::schema::Field;
 use crate::social::SocialMsg;
 
 /// Wire protocol version; bump on any incompatible message change.
-pub const PROTOCOL_VERSION: u16 = 8;
+// anim: 9 adds the animation action events (`avatar::ActionKind::Group` and on).
+pub const PROTOCOL_VERSION: u16 = 9;
 /// Largest datagram on the unreliable channel (fits a typical MTU).
 pub const MAX_UNRELIABLE_BYTES: usize = 1200;
 /// Largest single message on the reliable channel.
