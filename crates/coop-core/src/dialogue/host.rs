@@ -65,6 +65,11 @@ impl DialogueHost {
         std::mem::take(&mut self.events)
     }
 
+    /// Whether a conversation with `npc` is open.
+    pub fn is_talking(&self, npc: FormId) -> bool {
+        self.npc_lock.contains_key(&npc)
+    }
+
     /// Open sessions.
     pub fn open_sessions(&self) -> usize {
         self.sessions.len()

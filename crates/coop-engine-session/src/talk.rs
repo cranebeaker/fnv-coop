@@ -48,8 +48,13 @@ pub struct Talker {
     /// Conversations a copy of an actor another game runs began itself with this player, left to
     /// the owner's game (it greets its own player).
     pub not_greeted: u32,
+    /// The actors whose copies came to greet this player since the last read: asked of the host,
+    /// which has this player's game run them (it talks to whichever player comes to it).
+    pub greet_asks: Vec<u32>,
     /// Lines of this player's conversations sent as picks.
     pub picks: u32,
+    /// Other players' lines marked as said in this game.
+    pub lines_marked: u32,
     /// Other players' lines shown here.
     pub lines_shown: u32,
     /// Other players' lines not shown: this player is not with the NPC.
@@ -107,7 +112,12 @@ impl Talker {
                         self.queue.push_back(Said { npc, info, end });
                     }
                 }
-                Event::NotGreeted { .. } => self.not_greeted += 1,
+                Event::NotGreeted { npc } => {
+                    self.not_greeted += 1;
+                    if !self.greet_asks.contains(&npc) {
+                        self.greet_asks.push(npc);
+                    }
+                }
                 Event::Blocked { .. } => {
                     self.blocked += 1;
                     talk::show(e, "Another player is talking to them.");
@@ -139,6 +149,11 @@ impl Talker {
         };
         if self.shown != Some((v.session, v.step)) {
             self.shown = Some((v.session, v.step));
+            // Said in the story once, for every player: a line the game says once is not said
+            // again to this player.
+            if talk::mark_said(e, choice) {
+                self.lines_marked += 1;
+            }
             if talk::near(e, v.npc.0) {
                 if let Some((text, prompt)) = talk::line(e, choice) {
                     for m in messages(v.initiator, &text, &prompt) {

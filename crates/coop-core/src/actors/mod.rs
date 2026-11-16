@@ -194,6 +194,13 @@ pub enum ActorMsg {
         /// Health afterwards.
         health: u16,
     },
+    /// A game's copy of the actor came to greet that game's own player (a force greet) while
+    /// another game runs the actor: the host is asked to have the sender's game run it, so
+    /// that it talks to whichever player comes to it. Sent by that player's game.
+    Greet {
+        /// Actor.
+        actor: FormId,
+    },
 }
 
 impl ActorMsg {

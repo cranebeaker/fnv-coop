@@ -98,6 +98,24 @@ pub(crate) fn host_step(h: &mut HostDriver, e: &mut Engine, net: &mut dyn Transp
     for m in msgs {
         local(h, net, Msg::Dialogue(m));
     }
+    // An actor another game runs came to greet a player: that player's game runs it now, unless
+    // it is talking with someone (the owner, 2026-11-16: Sunny waited for the player whose game
+    // ran her while the other stood in front of her).
+    let mut asks: Vec<(u32, PlayerId)> = std::mem::take(&mut h.social.talker.greet_asks)
+        .into_iter()
+        .map(|npc| (npc, PlayerId::HOST))
+        .collect();
+    asks.extend(
+        std::mem::take(&mut h.sync.live.actors.greets)
+            .into_iter()
+            .map(|(a, p)| (a.0, p)),
+    );
+    for (npc, p) in asks {
+        let talking = h.sync.live.dialogue.is_talking(coop_core::ids::FormId(npc));
+        if let Some(f) = h.fight.as_mut() {
+            f.greet_asked(npc, p, talking, now_ms);
+        }
+    }
     for ev in h.sync.live.dialogue.take_events() {
         if let coop_core::dialogue::DialogueEvent::RunBegin { npc, initiator, .. } = &ev {
             if let Some(f) = h.fight.as_mut() {
@@ -141,6 +159,12 @@ pub(crate) fn guest_step(
         .step(e, me, &mut g.sync.live.dialogue, &share);
     for m in msgs {
         send(net, PlayerId::HOST, &Msg::Dialogue(m), &mut g.send_failures);
+    }
+    for npc in std::mem::take(&mut g.social.talker.greet_asks) {
+        let m = Msg::Actor(coop_core::actors::ActorMsg::Greet {
+            actor: coop_core::ids::FormId(npc),
+        });
+        send(net, PlayerId::HOST, &m, &mut g.send_failures);
     }
     let (msgs, _) = g.social.rester.step(e, &mut g.sync.live.rules);
     for m in msgs {
