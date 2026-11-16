@@ -50,28 +50,40 @@ F7 the other players' voices. You hear each player from where they stand, quiete
 The game uses Windows' default microphone and speakers.
 
 
-Experimental parts
-------------------
-The window's check boxes turn on parts that are off unless ticked: loot and barter through the
-host, V.A.T.S. with several players, falls and traps decided by the host. Every player ticks the
-same ones.
+Parts you can turn off
+----------------------
+Every part of co-op is on. The window's check boxes start ticked: loot and barter through the
+host, V.A.T.S. with several players, falls and traps decided by the host. Untick one to turn it
+off; every player should tick the same ones.
 
 
 What is shared
 --------------
 - The story: quests, stages, objectives and quest variables. Each Pip-Boy lists the same quests.
+  A quest reward (caps, experience, items) goes to every player.
 - The clock and the calendar.
-- Where each player is: you see the other players as figures, also after a door or a fast travel.
-- Deaths of the people and creatures that the game placed in the world.
-- Each player has their own character, inventory, opening and pack items.
+- The world: doors and locks, what the host's game changes on objects and in containers,
+  factions and reputation, and the deaths of the people and creatures the game placed.
+- Fights: the same people in the same places fight the same targets. Hits go through the host,
+  enemies go for any player, and a player who falls is downed and can be revived by another.
+  V.A.T.S. does not stop the game for the other players.
+- Loot is taken once: what one player takes is gone for everyone. Barter goes through the host.
+- Conversations: their results happen once, and the other players nearby see the lines.
+- Companions follow the player who hired them, through doors and fast travel.
+- Party saves: when the host saves, each player's place, own quests, inventory, caps, SPECIAL,
+  skills, perks, level, experience, condition, worn items, face, hair and name are kept, and come
+  back when the host loads. A player who drops can rejoin, and a friend can join a running game.
+- Sleeping and waiting: everybody agrees by pressing Rest in their own menu.
 
 
-Not shared in this version
---------------------------
-- Fights: each game runs its own enemies. A placed person that dies in one game dies in all.
-- Loot, containers, barter, and what people say to the other player.
-- Saves of a party. Start a session from a new game, or from the same save on each PC.
-- The other player's figure slides. It does not walk, and it has the base look.
+Seeing each other
+-----------------
+- Each player makes their own character at Doc Mitchell's. You see each other once outside.
+- The other players walk, run, sneak, jump, swim, sit, fight, reload and get knocked down with the
+  game's own animations, wear what they wear, and have their own face, hair and name.
+- A purple tick on the compass and a mark on the map show where they are.
+- F11 opens the players list: names, who is speaking, mute and volume per player. The host can
+  also remove a player there.
 
 
 Split-screen on one PC (Couchlink)

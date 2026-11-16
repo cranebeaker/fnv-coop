@@ -1,7 +1,7 @@
 //! The co-op window (docs/coop/SPECS.md S38): `Play Co-op.exe` (the package's second copy of
 //! Play.exe) or `Play.exe --coop` shows it before the game starts. The player types a name, a
 //! join code or the address for their own code, picks voice chat and its key and the parts that
-//! are off unless ticked, and presses Play alone, Host, Join, Invite a Steam friend or Join a
+//! are on unless unticked, and presses Play alone, Host, Join, Invite a Steam friend or Join a
 //! Steam friend. The choices are kept in `userdata\coop.ini` ([`crate::coop`]). Once a host's game
 //! has written its join code to its log, [`CodeWatch`] puts it on the clipboard and shows it.
 //!
@@ -467,7 +467,7 @@ unsafe fn show(saved: &Choice, steam: bool) {
         y += 4;
     }
     label(
-        "Experimental parts, off unless ticked (every player ticks the same):",
+        "Parts on for everyone, untick to turn off (all players tick the same):",
         [16, y, full, 18],
     );
     check(
