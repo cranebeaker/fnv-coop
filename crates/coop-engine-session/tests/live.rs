@@ -463,3 +463,26 @@ fn an_avatar_there_and_not_drawn_is_placed_again() {
     p.frames(3 * (coop_engine_session::ladder::UNSEEN_MS / 50) as u32);
     assert_eq!(live(&mut p)[0].0, far);
 }
+
+/// The owner, 2026-11-16 (the opening is each player's own): in Doc Mitchell's house the other
+/// player's avatar took the couch's seat as its player sat, and this game's player could not sit
+/// for its own questions. While a game's own opening runs no other player is shown in it; once it
+/// is done they are.
+#[test]
+fn no_other_player_is_shown_while_this_games_own_opening_runs() {
+    let mut p = Pair::new(Cap::Avatar, &spec());
+    p.hd.ladder.as_mut().unwrap().follow_after = Some((MQ, 20));
+    p.host.move_player(HOUSE, [1.0, 2.0, 3.0], 0.0);
+    p.guest.move_player(HOUSE, [9.0, 9.0, 9.0], 0.0);
+    p.frames(40);
+    // The host's opening runs: nobody placed in its game. The guest's game (no opening of its
+    // own running) shows the host.
+    assert!(p.host.placed().iter().all(|a| a.4), "{:?}", p.host.placed());
+    assert!(p.hd.ladder.as_ref().unwrap().avatar_ids().is_empty());
+    assert_eq!(p.gd.ladder.as_ref().unwrap().avatar_ids().len(), 1);
+    // The opening's last stage is done: the guest is shown.
+    assert!(p.host.set_stage(MQ, 20));
+    p.frames(40);
+    assert_eq!(p.hd.ladder.as_ref().unwrap().avatar_ids().len(), 1);
+    assert!(p.host.placed().iter().any(|a| !a.4));
+}

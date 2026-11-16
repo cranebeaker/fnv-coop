@@ -119,6 +119,8 @@ pub const PLAYER_TARGET_BASE: u32 = 0xfe00_0000;
 /// How near a guest's avatar an actor the host's game has loaded must be to be tracked (and
 /// so be run by the nearest player's game).
 pub const HANDOFF_RADIUS: f32 = 4096.0;
+/// Host: at least this long between two changes of who an actor that greets players is run by.
+pub const GREET_HOLD_MS: u64 = 5000;
 
 /// How long an actor must have been in the host's close-actors list without a break before it
 /// counts as run in full by the host's game (ms). The game's list leaves an actor out and takes
@@ -387,6 +389,10 @@ pub struct Fight {
     /// Host: the player each actor last spoke with (a conversation's first line), whose game runs
     /// it while that player is near it.
     engaged: BTreeMap<u32, PlayerId>,
+    /// Host: when each actor was last given to the player it came to greet.
+    greeted_at: BTreeMap<u32, u64>,
+    /// Host: actors given to the player they came to greet.
+    pub greets_given: u32,
     /// Host: when the game's close-actors list last left each tracked actor out.
     left_out_at: BTreeMap<u32, u64>,
     /// Guest: frames an actor fighting on the host was kept at the host's place.
@@ -522,6 +528,8 @@ impl Fight {
             owned_before: BTreeSet::new(),
             left_out_at: BTreeMap::new(),
             engaged: BTreeMap::new(),
+            greeted_at: BTreeMap::new(),
+            greets_given: 0,
             fight_leads: 0,
             left_told: 0,
             published: 0,
@@ -1414,6 +1422,31 @@ impl Fight {
                 p.0
             ));
         }
+    }
+
+    /// Host: a copy of actor `npc` came to greet player `p` in that player's game (a force greet
+    /// the copy's game refused, because another game runs the actor). `p`'s game runs it from
+    /// now, as after a conversation ([`Self::engage`]), so that the actor greets whichever
+    /// player comes to it; not while it is `talking` with someone, and not within
+    /// [`GREET_HOLD_MS`] of the last such change (two players both in front of it).
+    pub fn greet_asked(&mut self, npc: u32, p: PlayerId, talking: bool, now_ms: u64) {
+        if talking || self.engaged.get(&npc) == Some(&p) {
+            return;
+        }
+        if self
+            .greeted_at
+            .get(&npc)
+            .is_some_and(|t| now_ms.saturating_sub(*t) < GREET_HOLD_MS)
+        {
+            return;
+        }
+        self.greeted_at.insert(npc, now_ms);
+        self.engaged.insert(npc, p);
+        self.greets_given += 1;
+        self.say(format!(
+            "co-op fights: actor {npc:08x} came to greet player {}: that player's game runs it while near",
+            p.0
+        ));
     }
 
     /// The host's part of the damage: what the ledger accepted of the guests' hits goes into

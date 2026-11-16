@@ -46,6 +46,9 @@ pub struct ActorHost {
     /// Actors the host's game runs that a guest's copy went for the guest with, and the guest
     /// (`ActorMsg::Engage`; the host's session reads and clears it; bounded).
     pub engages: Vec<(FormId, PlayerId)>,
+    /// Actors a guest's copy came to greet that guest with (`ActorMsg::Greet`; the host's
+    /// session reads and clears it; bounded as `engages`).
+    pub greets: Vec<(FormId, PlayerId)>,
 }
 
 /// Most engagements kept between two reads.
@@ -111,6 +114,12 @@ impl ActorHost {
             }
             ActorMsg::Hit { actor, hit, amount } => {
                 self.on_hit(from, actor, hit, amount, now_ms, attacker_cell)
+            }
+            ActorMsg::Greet { actor } => {
+                if self.own.get(actor).is_some() && self.greets.len() < ENGAGES_MAX {
+                    self.greets.push((actor, from));
+                }
+                vec![]
             }
             ActorMsg::Engage { actor, player } => {
                 // A game asks only for its own player.

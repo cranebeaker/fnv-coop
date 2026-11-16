@@ -636,7 +636,11 @@ impl Coop {
                 host.set_clock(clock);
                 // social
                 host.social.party.dir = Some(party_dir());
-                let (ladder, line) = Self::ladder(false);
+                let (mut ladder, line) = Self::ladder(false);
+                // The host's own opening too: no other player is shown in its game meanwhile.
+                if let Some(l) = ladder.as_mut() {
+                    l.follow_after = opening_quest(&plugins);
+                }
                 host.ladder = ladder;
                 lines.push(line);
                 // world

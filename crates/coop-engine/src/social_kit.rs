@@ -211,6 +211,10 @@ pub(crate) fn register(e: &mut Engine) {
     e.mem
         .set_u32(SLEEP_MENU + addr::SLEEP_WAIT_HOURS_TILE_OFFSET, HOURS_TILE);
     e.register(addr::INFO_RUN_RESULT, run_result);
+    e.register(addr::INFO_MARK_SAID, |e, a| {
+        e.mem.set_u8(a[0] + addr::INFO_SAID_OFFSET, 1);
+        Ret::default()
+    });
     e.register(addr::DIALOG_MENU_CREATE, menu_create);
     e.register(addr::DIALOG_MENU_CLOSE, menu_close);
     e.register(addr::TOPIC_GET_OWNER_TOPIC, owner_topic);

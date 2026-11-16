@@ -1499,3 +1499,17 @@ pub const APPLY_FACE_PARAMS: u32 = 0x0065_5fa0;
 /// The 3D update `TESNPC` runs for an actor (`0060a890`, `tesnpc.rs`, `fn_0060a890`): the
 /// process's virtual `0x464(actor)` with the rebuild flag set.
 pub const NPC_UPDATE_3D: u32 = 0x0060_a890;
+/// The menu the game has queued to open (`Interface::HandleQueuedMenuOpen`, `interface_p2.rs`):
+/// its kind (4 a dialogue) and its first word (a dialogue's speaker). The game tries a queued
+/// menu again on every frame until it is made.
+pub const QUEUED_MENU_KIND: u32 = 0x011d_8950;
+/// See [`QUEUED_MENU_KIND`].
+pub const QUEUED_MENU_FIRST: u32 = 0x011d_8954;
+/// See [`QUEUED_MENU_KIND`].
+pub const QUEUED_MENU_DIALOGUE: u32 = 4;
+/// `0061f220` (`thiscall` on an info): the info is marked as said (its byte at +0x22, and its
+/// changed flag), as `TESTopicInfo::RunResult` does each time a line is said. The game's
+/// conditions leave out a "say once" line that is marked.
+pub const INFO_MARK_SAID: u32 = 0x0061_f220;
+/// See [`INFO_MARK_SAID`].
+pub const INFO_SAID_OFFSET: u32 = 0x22;

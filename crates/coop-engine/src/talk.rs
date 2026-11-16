@@ -232,6 +232,23 @@ pub fn enact(e: &mut Engine, npc: u32, info_id: u32, end: bool) -> Result<(), Re
     }
 }
 
+/// Marks info `id` as said in this game, as the game does when the line is said in it (the
+/// owner, 2026-11-16: Sunny's "say once" line after the bottles, said to the host, was said
+/// again to the guest at the well instead of her line about the geckos, because the guest's
+/// game had never said it). False when this game has no such info.
+pub fn mark_said(e: &mut Engine, id: u32) -> bool {
+    let Some(f) = info(e, id) else {
+        return false;
+    };
+    e.call(addr::INFO_MARK_SAID, &args![f]);
+    true
+}
+
+/// Whether info `id` is marked as said in this game.
+pub fn said(e: &mut Engine, id: u32) -> bool {
+    info(e, id).is_some_and(|f| e.mem.u8(f + addr::INFO_SAID_OFFSET) != 0)
+}
+
 /// The text of info `id`'s responses as the game builds it (`" | "` between two responses), and
 /// its prompt (what the player chose) when the info has one. `None`: not an info.
 pub fn line(e: &mut Engine, id: u32) -> Option<(String, String)> {
@@ -390,6 +407,7 @@ pub(crate) fn create(e: &mut Engine, a: &[u32]) -> Ret {
     {
         let npc = e.mem.u32(speaker.wrapping_add(addr::FORM_ID_OFFSET));
         if crate::puppet::is_copy(e, npc) && greets(e, speaker) {
+            unqueue(e, speaker);
             e.ext_free::<Talk>().push(Event::NotGreeted { npc });
             return Ret::default();
         }
@@ -400,10 +418,27 @@ pub(crate) fn create(e: &mut Engine, a: &[u32]) -> Ret {
             .contains(&npc)
         {
             t.push(Event::Blocked { npc });
+            unqueue(e, speaker);
             return Ret::default();
         }
     }
     e.call_next(addr::DIALOG_MENU_CREATE, a)
+}
+
+/// Takes a refused conversation with `speaker` out of the game's queue of menus to open. The
+/// game tries a queued menu again on every frame until it is made, so a refused one stayed
+/// queued and opened later, when what refused it had changed: Sunny, told to walk outside
+/// after her talk with one player, then greeted the other with the menu her force greet had
+/// queued, and stood there in both games until that player answered (the owner, 2026-11-16);
+/// Doc Mitchell turned to the second player the moment the first was done.
+fn unqueue(e: &mut Engine, speaker: u32) {
+    if e.mem.is_mapped(addr::QUEUED_MENU_FIRST + 3)
+        && e.mem.u32(addr::QUEUED_MENU_KIND) == addr::QUEUED_MENU_DIALOGUE
+        && e.mem.u32(addr::QUEUED_MENU_FIRST) == speaker
+    {
+        e.mem.set_u32(addr::QUEUED_MENU_KIND, 0);
+        e.mem.set_u32(addr::QUEUED_MENU_FIRST, 0);
+    }
 }
 
 #[cfg(test)]
@@ -652,6 +687,51 @@ mod tests {
         assert!(s.talk_to(NPC));
         assert!(close_menu(&mut s.e));
         assert!(take_events(&mut s.e).is_empty());
+    }
+
+    /// The owner, 2026-11-16: a refused conversation stayed in the game's queue of menus and
+    /// opened later (Sunny greeted the second player after her talk with the first, and stood in
+    /// both games). A refused one is taken out of the queue; another speaker's, or another kind
+    /// of menu, is left.
+    #[test]
+    fn a_refused_conversation_does_not_stay_queued() {
+        let mut s = story();
+        s.e.mem.map(addr::QUEUED_MENU_KIND & !0xfff, 0x1000);
+        set_sharing(&mut s.e, true);
+        s.set_package_type(GREET, addr::PACKAGE_TYPE_DIALOGUE);
+        s.place(NPC, CELL);
+        s.place(OTHER, CELL);
+        s.set_own_package(NPC, GREET);
+        crate::puppet::set_copies(&mut s.e, [(NPC, 0)]);
+        let queue = |s: &mut Story, kind: u32, who: u32| {
+            let p = crate::forms::form(&mut s.e, who).unwrap();
+            s.e.mem.set_u32(addr::QUEUED_MENU_KIND, kind);
+            s.e.mem.set_u32(addr::QUEUED_MENU_FIRST, p);
+        };
+        let queued = |s: &mut Story| s.e.mem.u32(addr::QUEUED_MENU_KIND);
+        // The copy's force greet, queued by the game: refused and no longer queued.
+        queue(&mut s, addr::QUEUED_MENU_DIALOGUE, NPC);
+        assert!(!s.talk_to(NPC));
+        assert_eq!(queued(&mut s), 0);
+        assert_eq!(s.e.mem.u32(addr::QUEUED_MENU_FIRST), 0);
+        // Another speaker's queued conversation, and another kind of menu, are left.
+        queue(&mut s, addr::QUEUED_MENU_DIALOGUE, OTHER);
+        assert!(!s.talk_to(NPC));
+        assert_eq!(queued(&mut s), addr::QUEUED_MENU_DIALOGUE);
+        queue(&mut s, 1, NPC);
+        assert!(!s.talk_to(NPC));
+        assert_eq!(queued(&mut s), 1);
+        // An NPC another player talks to: this player's click is dropped, not kept for later.
+        crate::puppet::set_copies(&mut s.e, []);
+        set_busy(&mut s.e, [NPC]);
+        queue(&mut s, addr::QUEUED_MENU_DIALOGUE, NPC);
+        assert!(!s.talk_to(NPC));
+        assert_eq!(queued(&mut s), 0);
+        // A conversation that opens is the game's to take out of its queue.
+        set_busy(&mut s.e, []);
+        queue(&mut s, addr::QUEUED_MENU_DIALOGUE, NPC);
+        assert!(s.talk_to(NPC));
+        assert_eq!(queued(&mut s), addr::QUEUED_MENU_DIALOGUE);
     }
 
     /// The owner, 2026-11-14: both players sat for Doc Mitchell's questions; he asked the host's

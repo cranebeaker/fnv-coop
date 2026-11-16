@@ -2811,6 +2811,11 @@ fn get_render_target_data(e: &mut Engine, this: Ptr, source: u32, destination: u
         return D3D_OK;
     }
     let _ = this;
+    // `NV_HEADLESS_SHOTS=blank` (a test aid, co-op's two-game harness): nothing is drawn, so the
+    // picture read back (a save's thumbnail) is the destination as it is.
+    if std::env::var("NV_HEADLESS_SHOTS").as_deref() == Ok("blank") {
+        return D3D_OK;
+    }
     panic!(
         "IDirect3DDevice9::GetRenderTargetData without NV_D3D9=real (nothing is drawn, so no \
          pixels to read back) is not provided"

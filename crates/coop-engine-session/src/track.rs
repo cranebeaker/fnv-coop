@@ -30,6 +30,8 @@ pub const SEND_MS: i64 = 50;
 pub const GAP_MS: i64 = 3 * SEND_MS;
 /// Two states further apart than this (units) are a jump.
 pub const JUMP_DIST: f32 = 1024.0;
+/// A state this much older than the newest one is not a late arrival but another game's clock.
+pub const BACK_MS: i64 = 2000;
 /// How fast the matched clock difference may rise (ms per second of this clock).
 const DRIFT_PER_S: i64 = 2;
 /// Most states kept.
@@ -123,8 +125,19 @@ impl Track {
             _ => i64::from(s.ms),
         };
         if self.points.back().is_some_and(|p| t <= p.t) {
-            // Old or the same: states can arrive out of order.
-            return;
+            if self.points.back().is_some_and(|p| p.t - t <= BACK_MS) {
+                // Old or the same: states can arrive out of order.
+                return;
+            }
+            // Far back: another game's clock. An actor's first state after it changes hands is
+            // the old owner's, on the old owner's clock; a game that joined later has a clock
+            // far behind, and every state of its own was left out as old, so the copy stood
+            // where the hand-off left it for as long as that game ran it (the owner,
+            // 2026-11-16: Sunny walked to the well in the guest's game, which ran her, and
+            // stayed behind in the host's; Cheyenne followed the one that stayed). The track
+            // starts again from this state.
+            self.clear();
+            return self.push(now_ms, s);
         }
         self.last_ms = Some(s.ms);
         let now = now_ms as i64;
@@ -319,6 +332,26 @@ mod tests {
         }
         let (base, _) = t.base.unwrap();
         assert!((10..=20).contains(&base), "{base}");
+    }
+
+    /// The owner, 2026-11-16: an actor's first state after it changes hands is the old owner's,
+    /// on that game's clock. The new owner's clock was far behind (its game joined later), every
+    /// state of its own was dropped as old, and the copy stood still for as long as that game
+    /// ran the actor.
+    #[test]
+    fn states_on_a_clock_far_behind_start_the_track_again() {
+        let mut t = Track::new();
+        // The old owner's last state, on its clock (400 s).
+        t.push(1000, &state(400_000, 0.0, 1));
+        // The new owner's states, on a clock 300 s behind.
+        t.push(1050, &state(100_000, 100.0, 1));
+        t.push(1100, &state(100_050, 110.0, 1));
+        t.push(1150, &state(100_100, 120.0, 1));
+        assert_eq!(x(&mut t, 1200), 110.0);
+        assert_eq!(x(&mut t, 1300), 120.0);
+        // A state a little late is still only late.
+        t.push(1310, &state(100_060, 999.0, 1));
+        assert_eq!(x(&mut t, 1320), 120.0);
     }
 
     #[test]

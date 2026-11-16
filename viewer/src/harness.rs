@@ -141,6 +141,12 @@ impl Harness {
         match word {
             "con" => vec![console(e, rest)],
             "load" => vec![load(e, rest)],
+            // `saveout DIR`: the saves this game has written (kept in memory) copied to DIR.
+            "saveout" => host::save_out::copy_changed(
+                e,
+                std::path::Path::new(rest),
+                &mut std::collections::HashMap::new(),
+            ),
             "key" => {
                 let mut p = rest.split_whitespace();
                 match (
@@ -612,6 +618,155 @@ impl Harness {
                     c.no_tile
                 )]
             }
+            // Any menu. `menus`: the open menus' types. `tiles TYPE`: that menu's tiles (depth,
+            // name, id, shown, texts). `click TYPE ID [N]`: the menu's click on its Nth tile with
+            // that id (0 the first). `clicktext TYPE TEXT`: the click on the tile showing TEXT
+            // (its nearest tile with an id).
+            "menus" => {
+                let open: Vec<String> = (1001u32..1100)
+                    .filter(|&t| menu_of(e, t).is_some())
+                    .map(|t| t.to_string())
+                    .collect();
+                vec![format!("menus open: {}", open.join(" "))]
+            }
+            // `clicklist TYPE LISTHEX TEXT`: as `clicktext`, the tile first made the highlighted
+            // item of the menu's list box at that offset (as the pointer over it does).
+            "tiles" | "click" | "clicktext" | "clicklist" => {
+                let (first, more) = rest.split_once(' ').unwrap_or((rest, ""));
+                let (list, more) = if word == "clicklist" {
+                    let (l, m) = more.split_once(' ').unwrap_or((more, ""));
+                    (hex(l), m)
+                } else {
+                    (None, more)
+                };
+                let Some((root, menu)) = first.parse().ok().and_then(|t| menu_of(e, t)) else {
+                    return vec![format!("{word}: menu {first} is not open")];
+                };
+                let mut all = Vec::new();
+                walk_tiles(e, root, 0, &mut all);
+                match word {
+                    "tiles" => {
+                        let mut out = vec![format!("tiles of {first}: {}", all.len())];
+                        for &(tile, depth) in all.iter() {
+                            let texts = tile_texts(e, tile);
+                            let id = tile_id(e, tile);
+                            let said = texts.iter().any(|t| t.starts_with("fc4="));
+                            let all_asked = more.contains("all");
+                            if !all_asked && (!tile_shown(e, tile) || (!said && id < 0)) {
+                                continue;
+                            }
+                            out.push(format!(
+                                "tile {depth} {} id {id} shown {} {}",
+                                guest_str(e, e.mem.u32(tile + 0x20)),
+                                tile_shown(e, tile),
+                                texts
+                                    .iter()
+                                    .filter(|t| more.contains("all") || t.starts_with("fc4="))
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                                    .join(" | ")
+                            ));
+                        }
+                        out
+                    }
+                    "click" => {
+                        let mut p = more.split_whitespace();
+                        let id: i32 = p.next().and_then(|v| v.parse().ok()).unwrap_or(-2);
+                        let n: usize = p.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+                        let hits: Vec<u32> = all
+                            .iter()
+                            .map(|&(t, _)| t)
+                            .filter(|&t| tile_id(e, t) == id)
+                            .collect();
+                        match hits.get(n) {
+                            Some(&tile) => {
+                                e.vcall(menu, 0xc, &args![id as u32, tile]);
+                                vec![format!(
+                                    "click {first} {id} {n}: clicked ({} such)",
+                                    hits.len()
+                                )]
+                            }
+                            None => {
+                                vec![format!("click {first} {id} {n}: {} such tiles", hits.len())]
+                            }
+                        }
+                    }
+                    _ => {
+                        let want = more.trim().to_lowercase();
+                        let hit = all.iter().map(|&(t, _)| t).find(|&t| {
+                            tile_shown(e, t)
+                                && tile_texts(e, t)
+                                    .iter()
+                                    .any(|x| x.to_lowercase().contains(&want))
+                        });
+                        let Some(tile) = hit else {
+                            return vec![format!("{word} {first} {more}: not shown")];
+                        };
+                        // As the game's click: the id of the nearest tile that has one, and the
+                        // tile clicked.
+                        let mut up = tile;
+                        for _ in 0..8 {
+                            if tile_id(e, up) >= 0 || up == root {
+                                break;
+                            }
+                            up = e.mem.u32(up + 0x28);
+                        }
+                        let id = tile_id(e, up);
+                        // The pointer over it first (`HandleMouseover`), as lists need.
+                        e.vcall(menu, 0x10, &args![id as u32, tile]);
+                        if let Some(list) = list {
+                            e.mem.set_u32(menu + list + 0x10, tile);
+                        }
+                        e.vcall(menu, 0xc, &args![id as u32, tile]);
+                        vec![format!("clicktext {first} {more}: clicked id {id}")]
+                    }
+                }
+            }
+            // `sheet`: the player's S.P.E.C.I.A.L. (base values), tagged skills and perks.
+            "sheet" => {
+                let player = e.mem.u32(coop_engine::addr::PLAYER_SINGLETON);
+                let special: Vec<String> = (5u32..12)
+                    .map(|c| format!("{}", coop_engine::stats::base_value(e, player, c)))
+                    .collect();
+                let tags = coop_engine::stats::tags(e, player);
+                let perks = coop_engine::stats::perks(e, player);
+                vec![format!(
+                    "sheet special {} tags {tags:?} perks {perks:x?}",
+                    special.join(" ")
+                )]
+            }
+            // `peek ADDRHEX [WORDS]`: words of the game's memory. `flags REFHEX`: a form's flags.
+            "peek" => {
+                let mut p = rest.split_whitespace();
+                let at = p.next().and_then(hex).unwrap_or(0);
+                let n: u32 = p.next().and_then(|v| v.parse().ok()).unwrap_or(1).min(32);
+                let words: Vec<String> = (0..n)
+                    .map(|i| at + i * 4)
+                    .map(|a| {
+                        if e.mem.is_mapped(a) && e.mem.is_mapped(a + 3) {
+                            format!("{:08x}", e.mem.u32(a))
+                        } else {
+                            "--------".into()
+                        }
+                    })
+                    .collect();
+                vec![format!("peek {at:08x}: {}", words.join(" "))]
+            }
+            "flags" => match hex(rest).and_then(|id| coop_engine::forms::form(e, id)) {
+                Some(r) => vec![format!(
+                    "flags {rest}: {:08x} at {r:08x}, player bytes {:02x} {:02x}",
+                    e.mem.u32(r + 8),
+                    {
+                        let p = e.mem.u32(coop_engine::addr::PLAYER_SINGLETON);
+                        e.mem.u8(p + 0x64a)
+                    },
+                    {
+                        let p = e.mem.u32(coop_engine::addr::PLAYER_SINGLETON);
+                        e.mem.u8(p + 0x64c)
+                    }
+                )],
+                None => vec![format!("flags {rest}: not here")],
+            },
             "say" => vec![rest.to_string()],
             "menu" => vec![match coop_engine::talk::menu_npc(e) {
                 Some(npc) => format!("dialogue open with {npc:08x}"),
@@ -730,6 +885,101 @@ fn watch_frame(e: &mut Engine) {
 
 fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The open menu of a type: its root tile and the menu (`011f3508`'s tiles by type - 1001, a
+/// tile's menu at +0x3c; `011f308f` the open bytes by type).
+fn menu_of(e: &mut Engine, kind: u32) -> Option<(u32, u32)> {
+    if !(1001..1100).contains(&kind) || e.mem.u8(0x011f_308f + kind) == 0 {
+        return None;
+    }
+    let tiles = e.mem.u32(0x011f_350c);
+    let root = e.mem.u32(tiles + (kind - 1001) * 4);
+    if root == 0 || !e.mem.is_mapped(root + 0x3f) {
+        return None;
+    }
+    let menu = e.mem.u32(root + 0x3c);
+    (menu != 0).then_some((root, menu))
+}
+
+fn walk_tiles(e: &mut Engine, tile: u32, depth: u32, out: &mut Vec<(u32, u32)>) {
+    if out.len() > 4000 || depth > 24 {
+        return;
+    }
+    out.push((tile, depth));
+    let mut kids = Vec::new();
+    let mut node = e.mem.u32(tile + 4);
+    while node != 0 && kids.len() < 512 {
+        let t = e.mem.u32(node + 8);
+        if t != 0 {
+            kids.push(t);
+        }
+        node = e.mem.u32(node);
+    }
+    for t in kids {
+        walk_tiles(e, t, depth + 1, out);
+    }
+}
+
+/// A tile's values (`Tile +0x14` the array's data, `+0x18` how many): (id, number, text).
+fn tile_values(e: &mut Engine, tile: u32) -> Vec<(u32, f32, u32)> {
+    let data = e.mem.u32(tile + 0x14);
+    let n = e.mem.u32(tile + 0x18).min(256);
+    (0..n)
+        .filter_map(|i| {
+            let v = e.mem.u32(data + i * 4);
+            (v != 0).then(|| (e.mem.u32(v), e.mem.f32(v + 8), e.mem.u32(v + 0xc)))
+        })
+        .collect()
+}
+
+fn tile_id(e: &mut Engine, tile: u32) -> i32 {
+    tile_values(e, tile)
+        .into_iter()
+        .find(|v| v.0 == 0xfaa)
+        .map_or(-1, |v| v.1 as i32)
+}
+
+/// Whether a tile and every tile above it is shown.
+fn tile_shown(e: &mut Engine, tile: u32) -> bool {
+    let mut t = tile;
+    for _ in 0..32 {
+        if t == 0 || !e.mem.is_mapped(t + 0x2b) {
+            break;
+        }
+        let hidden = tile_values(e, t)
+            .into_iter()
+            .find(|v| v.0 == 0xfa3)
+            .is_some_and(|v| v.1 == 0.0);
+        if hidden {
+            return false;
+        }
+        t = e.mem.u32(t + 0x28);
+    }
+    true
+}
+
+fn tile_texts(e: &mut Engine, tile: u32) -> Vec<String> {
+    tile_values(e, tile)
+        .into_iter()
+        .filter(|v| v.2 != 0)
+        .map(|v| format!("{:x}={}", v.0, guest_str(e, v.2)))
+        .filter(|t| !t.ends_with('='))
+        .collect()
+}
+
+fn guest_str(e: &mut Engine, at: u32) -> String {
+    let mut out = Vec::new();
+    let mut p = at;
+    while at != 0 && out.len() < 90 && e.mem.is_mapped(p) {
+        let b = e.mem.u8(p);
+        if b == 0 {
+            break;
+        }
+        out.push(b);
+        p += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Installs the main thread's part (`engine_core::thread_host::set_end_frame_hook`).

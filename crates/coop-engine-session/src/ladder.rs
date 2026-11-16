@@ -243,8 +243,20 @@ impl Ladder {
                 me = live::local(e);
             }
         }
-        // No avatar is placed or moved while this player's own move to another cell is under way.
-        if self.cap >= Cap::Avatar && self.warp == Warp::Idle {
+        // The opening is each player's own (the owner, 2026-11-14 and 16): while this game's own
+        // opening runs, no other player is shown in it. An avatar in Doc Mitchell's house took
+        // the couch's seat as its player sat, and this game's player could not sit for its own
+        // questions.
+        let own_opening = self.follow_after.is_some_and(|(quest, stage)| {
+            coop_engine::quest::record(e, quest).is_some_and(|r| !r.done.contains(&stage))
+        });
+        if own_opening {
+            for p in self.peers.keys().copied().collect::<Vec<_>>() {
+                self.remove(e, p, "is not shown while this player's own opening runs");
+            }
+        } else if self.cap >= Cap::Avatar && self.warp == Warp::Idle {
+            // No avatar is placed or moved while this player's own move to another cell is under
+            // way.
             self.avatars(e, now_ms, me, peers);
         }
         // The other players' ticks on the compass: each avatar this game has now.

@@ -198,6 +198,11 @@ fn a_guests_line_runs_once_on_the_host_and_the_others_see_it() {
     assert_eq!(w.guests[1].driver.social.talker.lines_shown, 1);
     assert!(w.host.messages().is_empty());
     assert_eq!(w.hd.social.talker.lines_far, 1);
+    // The line counts as said in every game, near or far (the owner, 2026-11-16: a line the
+    // game says once was said again to the player whose game had not said it).
+    assert!(talk::said(&mut w.guests[1].game.e, SHARED_LINE));
+    assert!(talk::said(&mut w.host.e, SHARED_LINE));
+    assert!(!talk::said(&mut w.guests[1].game.e, SHARED_LINE + 1));
     assert!(w.guests[0].game.messages().is_empty());
     // The line ends, then the conversation: the end result runs once, the NPC is free again.
     w.guests[0].game.say(SHARED_LINE, true);
