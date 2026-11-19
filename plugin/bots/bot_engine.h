@@ -211,7 +211,9 @@ inline int alwaysRunState(IEngine& e) {
 // box lists its buttons) is in the button list and has a tile. Then HandleClick(7, tile): what the engine does for a mouse click and for its
 // own Enter / hotkey path, so the engine records the button value, runs the message callback and closes the box (or shows the next one).
 // On success `out` gets {menu, button, value, buttons}: value is what the engine records (GetButtonPressed), buttons is how many the box has.
-inline bool pressNativeMessageButton(IEngine& e, int button, Value* out, std::string* err, bool* applies) {
+// byValue: `button` is the button's value (what GetButtonPressed returns), not its place in the box's list; the list order does not
+// follow the values (a two-button box can list value 1 first).
+inline bool pressNativeMessageButton(IEngine& e, int button, Value* out, std::string* err, bool* applies, bool byValue = false) {
     *applies = false;
     if (!FNV_MUT(41)) {
         if (!e.onMainThread()) { *applies = true; *err = "the native message press must run on the game main thread"; return false; }
@@ -256,6 +258,12 @@ inline bool pressNativeMessageButton(IEngine& e, int button, Value* out, std::st
             bs.push_back({tile, (int32_t)value});
         }
         node = next;
+    }
+    if (byValue) {
+        int at = -1;
+        for (size_t i = 0; i < bs.size(); ++i) if (bs[i].value == button) at = (int)i;
+        if (at < 0) { *err = "no button has value " + std::to_string(button); return false; }
+        button = at;
     }
     if (button < 0 || button >= (int)bs.size()) {
         *err = "button " + std::to_string(button) + " is not shown (the box has " + std::to_string(bs.size()) + " buttons)";

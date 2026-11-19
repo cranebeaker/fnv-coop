@@ -13,6 +13,7 @@
 
 #include "common/nvcoop_api.h"
 #include "engine_hooks.h"
+#include "talk_gate.h"
 #include "extract_pad.h"   // plugin/hooks: every ExtractArgs call gets spare out slots (issue #33)
 #include "ui_addrs.h"
 
@@ -234,7 +235,9 @@ Fn_GetTopicInfo o_GetTopicInfo;
 // TESTopicInfo has no back pointer, so this is how L8's topicOf works. Installed on guests too: the initiator builds the lists.
 std::unordered_map<uint32_t, uint32_t> g_topicOfInfo;
 constexpr size_t kMaxTopicCache = 400000;
+uint32_t g_forceTopic = 0, g_forceInfo = 0;   // sayInfo: the INFO the engine must pick for this topic (0 = no override)
 int __cdecl h_GetTopicInfo(int topic, uint8_t* flag, void* speaker, void* target, char p5, int p6, int p7) {
+    if (g_forceInfo && uint32_t(topic) == g_forceTopic) return int(g_forceInfo);   // another player's spoken line: exactly that one
     int info = o_GetTopicInfo(topic, flag, speaker, target, p5, p6, p7);
     if (info && topic && g_topicOfInfo.size() < kMaxTopicCache) g_topicOfInfo[uint32_t(info)] = uint32_t(topic);
     if (g_forcedDepth > 0 && info) g_lastInfo = uint32_t(info);
@@ -524,6 +527,7 @@ bool openDialogMenu(uint32_t speakerRefID, const FormRef& topic) {
     if (!speakerRefID || !t) return false;
     char line[64];
     std::snprintf(line, sizeof line, "StartConversation player %08X", t);
+    nvhooks::talkGate().expect(speakerRefID, GetTickCount64());
     return nvhooks::execConsoleLineOn(line, speakerRefID);
 }
 
@@ -560,9 +564,26 @@ bool sayTopic(uint32_t npcRefID, const FormRef& topic) {
     return nvhooks::execConsoleLineOn(line, npcRefID);
 }
 
+bool sayInfo(uint32_t npcRefID, const FormRef& topic, const FormRef& info) {
+    const uint32_t t = nvhooks::resolver().fromRef(topic), i = nvhooks::resolver().fromRef(info);
+    void* tf = t ? nvhooks::resolver().lookup(t) : nullptr;
+    void* inf = i ? nvhooks::resolver().lookup(i) : nullptr;
+    if (!npcRefID || !tf || !inf) return false;
+    char line[64];
+    std::snprintf(line, sizeof line, "Say %08X 1", t);   // 1: show the subtitle even with subtitles off
+    nvhooks::markEchoLine(i, npcRefID, 60000);   // its result scripts belong to the talking player's machine: never run them here
+    g_forceTopic = uint32_t(reinterpret_cast<uintptr_t>(tf));
+    g_forceInfo = uint32_t(reinterpret_cast<uintptr_t>(inf));
+    const bool ok = nvhooks::execConsoleLineOn(line, npcRefID);
+    g_forceTopic = g_forceInfo = 0;
+    return ok;
+}
+
 bool resumeTalk(uint32_t npcRefID) {
     // the vanilla Activate was deferred by the activate observer; StartConversation opens the DialogMenu on the GREETING topic directly
-    return npcRefID && nvhooks::execConsoleLineOn("StartConversation player GREETING", npcRefID);
+    if (!npcRefID) return false;
+    nvhooks::talkGate().expect(npcRefID, GetTickCount64());
+    return nvhooks::execConsoleLineOn("StartConversation player GREETING", npcRefID);
 }
 
 void setControlsLocked(bool locked) { nvhooks::SetPlayerControlsLocked(locked); }

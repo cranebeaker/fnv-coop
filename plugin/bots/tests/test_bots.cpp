@@ -726,6 +726,20 @@ TEST(native_message_box_is_pressed_when_the_ui_layer_has_none) {
     CHECK(lastCall(r.g) == msgClick(FakeGame::msgTile(1)));
 }
 
+// bot.menu.press {value}: the button whose engine value matches, wherever the box lists it (a Yes/No box can list value 1 first)
+TEST(native_message_box_is_pressed_by_value) {
+    GlueRig r;
+    r.e.uiBox = false;
+    r.g.buildMessageBox({1, 0});
+    CHECK(r.call("bot.menu.press", "{\"value\":0}"));
+    CHECK(r.out.find("\"value\":0") != std::string::npos && r.out.find("\"path\":\"native\"") != std::string::npos);
+    CHECK(lastCall(r.g) == msgClick(FakeGame::msgTile(1)));          // the 2nd listed button holds value 0
+    CHECK(r.e.uiTries == 0);                                         // a value only means something to the native box
+    r.g.calls.clear();
+    CHECK(!r.call("bot.menu.press", "{\"value\":5}") && r.out.find("no button has value 5") != std::string::npos);
+    CHECK(!anyMsgClick(r.g));
+}
+
 TEST(native_message_press_refuses_with_a_reason) {
     GlueRig r;
     r.e.uiBox = false;
@@ -1330,6 +1344,7 @@ int main() {
     run("vats_pins_agree", vats_pins_agree);
     run("consent_and_press_answer_the_right_button", consent_and_press_answer_the_right_button);
     run("native_message_box_is_pressed_when_the_ui_layer_has_none", native_message_box_is_pressed_when_the_ui_layer_has_none);
+    run("native_message_box_is_pressed_by_value", native_message_box_is_pressed_by_value);
     run("native_message_press_refuses_with_a_reason", native_message_press_refuses_with_a_reason);
     run("ui_path_wins_and_consent_is_unchanged", ui_path_wins_and_consent_is_unchanged);
     run("native_press_pins_agree", native_press_pins_agree);

@@ -764,6 +764,39 @@ TEST(nested_scopes_merge_into_outermost_txn) {
     CHECK(std::holds_alternative<StartQuest>(out[0].effects[3]));
 }
 
+TEST(refused_stage_is_retracted_and_never_emitted) {
+    // TTW: the engine refuses SetStage 0 on hundreds of quests that have no stage 0. The hook records on entry, so a refused stage
+    // must be taken back, or every guest is asked to replay it and answers EngineRejected (662 per load, in game 2026-10-27).
+    CaptureHub h;
+    h.setEnabled(true);
+    std::vector<EffectTxn> out;
+    h.setSink([&](EffectTxn&& t) { out.push_back(std::move(t)); });
+    h.begin(qcause(0x104C, 0));
+    CHECK(h.record(stage(0x104C, 0)));
+    CHECK(h.retract(stage(0x104C, 0)));
+    CHECK(!h.retract(stage(0x104C, 0)));   // only once
+    h.end();
+    CHECK(out.empty());                     // nothing left: no txn at all
+    CHECK(h.stats().retracted == 1);
+    // an accepted stage around a refused one keeps its place and its consequences
+    h.begin(qcause(0x104C, 10));
+    CHECK(h.record(stage(0x104C, 10)));
+    CHECK(h.record(stage(0x2000, 0)));
+    CHECK(h.retract(stage(0x2000, 0)));
+    CHECK(h.record(EnableRef{FormRef("falloutnv.esm", 1)}));
+    h.end();
+    CHECK(out.size() == 1 && out[0].effects.size() == 2);
+    CHECK(out.size() == 1 && std::holds_alternative<SetStage>(out[0].effects[0]) && std::get<SetStage>(out[0].effects[0]).stage == 10);
+    CHECK(out.size() == 1 && std::holds_alternative<EnableRef>(out[0].effects[1]));
+    // the same stage recorded again after a retract is captured normally (the collapse memory was cleared)
+    h.begin(qcause(0x104C, 20));
+    CHECK(h.record(stage(0x104C, 20)));
+    CHECK(h.retract(stage(0x104C, 20)));
+    CHECK(h.record(stage(0x104C, 20)));
+    h.end();
+    CHECK(out.size() == 2 && out[1].effects.size() == 1);
+}
+
 TEST(echo_guard_blocks_capture_of_remote_apply) {
     CaptureHub h;
     h.setEnabled(true);
@@ -1651,6 +1684,14 @@ int main() {
     run("no_scope_no_record", no_scope_no_record);
     run("scope_emits_one_txn_with_cause_and_order", scope_emits_one_txn_with_cause_and_order);
     run("nested_scopes_merge_into_outermost_txn", nested_scopes_merge_into_outermost_txn);
+    run("refused_stage_is_retracted_and_never_emitted", refused_stage_is_retracted_and_never_emitted);
+    run("muted_hub_ignores_quest_var_of_guest_local_quest_owner", muted_hub_ignores_quest_var_of_guest_local_quest_owner);
+    run("every_hooked_condition_function_has_a_rule_in_rules_json", every_hooked_condition_function_has_a_rule_in_rules_json);
+    run("party_conditions_reduce_through_the_rules_engine", party_conditions_reduce_through_the_rules_engine);
+    run("per_machine_quest_vars_are_not_shared", per_machine_quest_vars_are_not_shared);
+    run("guest_local_run_two_game_diff_quests_are_per_machine", guest_local_run_two_game_diff_quests_are_per_machine);
+    run("muted_hub_captures_nothing_for_guest_local_scripts", muted_hub_captures_nothing_for_guest_local_scripts);
+    run("ref_angle_json_and_capture", ref_angle_json_and_capture);
     run("echo_guard_blocks_capture_of_remote_apply", echo_guard_blocks_capture_of_remote_apply);
     run("disabled_hub_is_inert", disabled_hub_is_inert);
     run("unbalanced_end_is_ignored", unbalanced_end_is_ignored);

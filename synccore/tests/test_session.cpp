@@ -192,6 +192,31 @@ TEST(session, rejoin_resumes_by_replay_and_after_compaction_by_snapshot) {
     CHECK(a.s->stats().replays >= 1);
 }
 
+TEST(session, snapshot_for_a_lagging_client_is_paced_not_sent_every_tick) {
+    // Real host 2026-11-17: a joined guest's Acks stopped while the log compacted past its cursor; the host then sent a whole-snapshot
+    // Welcome on every tick (126 KB per frame), ENet queued them all and the game ran out of memory.
+    Rig r;
+    auto& a = r.add(1);
+    r.connect(a);
+    r.run(100);
+    r.host.commit(0, quest(), {SetStage{Q(1), 10}});
+    r.run(100);
+    CHECK(a.s->applied() == 1);
+
+    r.net.setConnected(1, false);   // the link stalls; the host still counts the guest as joined
+    for (int i = 2; i <= 6; ++i) r.host.commit(0, quest(), {SetStage{Q(1), uint32_t(i * 10)}});
+    r.host.mutableLog().compact(0);
+    const uint64_t before = r.host.stats().snapshots;
+    r.run(3000);   // 600 ticks
+    const uint64_t sent = r.host.stats().snapshots - before;
+    CHECK_MSG(sent >= 1 && sent <= 6, "snapshots in 3 s of stall: " + std::to_string(sent));
+
+    r.net.setConnected(1, true);    // the link comes back: the next paced snapshot brings the guest up to date
+    r.run(3000);
+    CHECK(a.s->applied() == 6);
+    CHECK(a.s->state() == r.host.state());
+}
+
 TEST(session, same_player_gets_same_slot_and_server_full_is_rejected) {
     SharePolicy p; p.maxPlayers = 2;  // host + 1
     Rig r(p);

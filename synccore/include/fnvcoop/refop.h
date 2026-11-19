@@ -68,6 +68,8 @@ enum RefOp : uint16_t {
     kOpUseWeapon = 78,
     // full-screen videos (Fallout 3's ending, TTW's train): every player watches
     kOpPlayBink = 79,
+    // an actor value given back (a doctor's radiation cure: player.RestoreAV RadiationRads 1000 runs for the player who paid)
+    kOpRestoreActorValue = 80,
     kOpCount_
 };
 
@@ -135,7 +137,7 @@ inline constexpr RefOpInfo kRefOps[] = {
     FNV_RO_E(kOpSetPCSleepHours, "SetPCSleepHours", kRcpOrigin),
     FNV_RO_E(kOpWakeUpPC, "WakeUpPC", kRcpOrigin),
     FNV_RO_E(kOpSetHardcore, "SetHardcore", kRcpOrigin),
-    FNV_RO_E(kOpSetInChargen, "SetInChargen", kRcpOrigin),
+    FNV_RO_E(kOpSetInChargen, "SetInChargen", kRcpAll),   // a story-wide state: a guest left in chargen by the host's CG04 never levelled up (TTW, 2026-10-27)
     FNV_RO_E(kOpOpenTeammateContainer, "OpenTeammateContainer", kRcpOrigin),
     FNV_RO_E(kOpAddAchievement, "AddAchievement", kRcpAll),
     FNV_RO_E(kOpIncrementScriptedChallenge, "IncrementScriptedChallenge", kRcpAll),
@@ -154,6 +156,7 @@ inline constexpr RefOpInfo kRefOps[] = {
     FNV_RO_S(kOpSetActorFullName, "SetActorFullName", kKeyRef, kRcpDefault),
     FNV_RO_E(kOpUseWeapon, "UseWeapon", kRcpDefault),
     FNV_RO_E(kOpPlayBink, "PlayBink", kRcpAll),
+    FNV_RO_E(kOpRestoreActorValue, "RestoreActorValue", kRcpOrigin),   // only the player who paid (a host's cure cleared the guest's rads)
 };
 #undef FNV_RO_E
 #undef FNV_RO_S

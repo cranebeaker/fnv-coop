@@ -63,6 +63,9 @@ enum class IntentKind : uint8_t { AppliedEffects = 0, ActivateRef = 1, TriggerEn
                              ReportCell = 5,   // the player is now in cell `ref` (party tether / presence)
                              ReportNear = 6,   // the player is now within the tether radius of anchor ref `ref`
                              ReportFar = 7,    // the player left the tether radius of anchor ref `ref`
+                             ReportKill = 8,   // the player's own attack killed actor `ref` on their machine: the host kills it too
+                             DialogueResult = 9,   // the player's own conversation reached INFO `ref`'s result script (cause.source = the speaker,
+                                                   // cause.aux = 0 begin / 1 end): the host runs it for them (a guest never runs one)
                              Count_ };
 // Client-reported local action (at-most-once, in order, durable across reconnects).
 struct Intent { uint32_t session = 0; uint32_t epoch = 0; uint32_t id = 0; Cause cause; std::vector<Effect> effects;

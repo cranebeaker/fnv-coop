@@ -89,7 +89,7 @@ endif()
 # ---- story-capture (docs/tools/story-capture.md): the RefCommand op table, its console-line builder and the capture decoder. Game-free. Twins are
 # RUNTIME-switchable (tools/mut/fnvcoop_mut.h, FNVCOOP_MUT=<n>): the test binary links the _rt copy; the game glue (nvcoop_hooks_game) compiles
 # ref_ops.cpp itself, with the twins compiled out. ----
-set(NVH_STORY_TWINS 1 2 3 4 5 6 7 8 9 10 11)
+set(NVH_STORY_TWINS 1 2 3 4 5 6 7 8 9 10 11 15 16 17 18)
 add_library(nvcoop_story_core_rt STATIC ${NVH_DIR}/ref_ops.cpp)
 target_include_directories(nvcoop_story_core_rt PUBLIC ${NVH_DIR} ${NVH_DIR}/.. ${NVH_SYNCCORE_INC} ${NVH_DIR}/../../tools/mut)
 target_compile_definitions(nvcoop_story_core_rt PUBLIC FNVCOOP_RUNTIME_MUT)

@@ -11,6 +11,10 @@
 #include "baseline_file.h"
 #include "change_tracker.h"
 #include "udp_transport.h"
+#include "talk_subs.h"
+#include "shared_xp.h"
+#include "container_sync.h"
+#include "player_stats.h"
 
 using namespace nvcoop::coop;
 using namespace nvcoop::coop::test;
@@ -353,6 +357,140 @@ static void testActions() {
     for (int i = 0; i < 50; ++i) fr();
     CHECK(actingEvents.size() == actingBefore);               // the executor did not run
     CHECK(host.rt->counters().reportsDropped == 1);
+}
+
+static void testSharedXp() {
+    std::printf("shared XP (0xD6 wire, outbox batching)\n");
+    namespace sx = nvcoop::coop::sharedxp;
+    sx::Share s; s.slot = 2; s.xp = 1234567 % sx::kMaxShare;
+    std::vector<uint8_t> b = sx::encode(s);
+    sx::Share d;
+    CHECK(b.size() == 7 && b[0] == sx::kChannel && sx::decode(b.data(), b.size(), &d) && d.slot == 2 && d.xp == s.xp);
+    for (size_t cut = 0; cut < b.size(); ++cut) CHECK(!sx::decode(b.data(), cut, &d));   // truncated
+    s.xp = 0; b = sx::encode(s); CHECK(!sx::decode(b.data(), b.size(), &d));              // nothing to give
+    s.xp = -5; b = sx::encode(s); CHECK(!sx::decode(b.data(), b.size(), &d));             // never takes XP away
+    s.xp = sx::kMaxShare + 1; b = sx::encode(s); CHECK(!sx::decode(b.data(), b.size(), &d));   // a bogus amount
+    b = sx::encode(sx::Share{1, 10}); b[1] = 9; CHECK(!sx::decode(b.data(), b.size(), &d));   // other version
+    sx::Outbox o;
+    CHECK(o.take(1000) == 0);
+    o.earned(20); o.earned(15); o.earned(-3); o.earned(0);
+    CHECK(o.take(1000) == 35 && o.pending() == 0);   // a burst goes out as one message
+    o.earned(5);
+    CHECK(o.take(1100) == 0);                        // within the gap: held
+    CHECK(o.take(1250) == 5);
+    o.earned(sx::kMaxShare + 50);
+    CHECK(o.take(2000) == sx::kMaxShare && o.pending() == 50 && o.take(2300) == 50);   // split, nothing lost
+    // whole-XP totals and the catch-up after a respawn (NV:MP puts the character back to its last save)
+    b = sx::encodeTotal(3, 4567);
+    uint8_t ts = 0; int32_t tt = 0;
+    CHECK(sx::decodeTotal(b.data(), b.size(), &ts, &tt) && ts == 3 && tt == 4567 && !sx::decode(b.data(), b.size(), &d));
+    CHECK(!sx::decodeTotal(sx::encode(sx::Share{1, 10}).data(), 7, &ts, &tt));   // a share is not a total
+    sx::CatchUp cu;
+    CHECK(cu.check(1000, 1010) == 0 && cu.check(1000, 1010) == 0);            // within the slack: shares on the way
+    CHECK(cu.check(1, 221) == 0 && cu.check(1, 221) == 220);                   // a respawn: seen twice, then topped up
+    CHECK(cu.check(221, 221) == 0);
+    CHECK(cu.check(1, 500) == 0 && cu.check(480, 500) == 0);                   // the gap closed (within the slack) before the second look
+    CHECK(cu.check(500, 400) == 0 && cu.check(500, 400) == 0);                 // ahead of the others: nothing
+}
+
+static void testContainerSync() {
+    std::printf("container contents (0xD7 wire, diff / apply)\n");
+    namespace cs = nvcoop::coop::containers;
+    const fnvcoop::FormRef caps("fallout3.esm", 0xF), stim("falloutnv.esm", 0x15169), pistol("falloutnv.esm", 0x431E);
+    cs::Items before{{caps, 25}, {stim, 2}};
+    cs::Items after{{caps, 5}, {pistol, 1}};   // took 20 caps and both stimpaks, put a pistol in
+    cs::Items d = cs::diff(before, after);
+    CHECK(d.size() == 3 && d[caps] == -20 && d[stim] == -2 && d[pistol] == 1);
+    CHECK(cs::diff(before, before).empty());
+    cs::Items copy = before;
+    cs::apply(copy, d);
+    CHECK(copy == after);                      // the other copy ends where the taker's did
+    cs::Items small{{caps, 3}};
+    cs::apply(small, cs::Items{{caps, -10}});
+    CHECK(small.empty());                      // never below zero
+    cs::Change c; c.slot = 1; c.container = fnvcoop::FormRef("fallout3.esm", 0x77785); c.delta = d;
+    std::vector<uint8_t> b = cs::encode(c);
+    cs::Change r;
+    CHECK(b[0] == cs::kChannel && cs::decode(b.data(), b.size(), &r) && r.slot == 1 && r.container == c.container && r.delta == d);
+    for (size_t cut = 0; cut < b.size(); ++cut) CHECK(!cs::decode(b.data(), cut, &r));   // truncated
+    c.delta.clear(); b = cs::encode(c); CHECK(!cs::decode(b.data(), b.size(), &r));        // an empty change is not sent
+    c.delta = cs::Items{{caps, 0}}; b = cs::encode(c); CHECK(!cs::decode(b.data(), b.size(), &r));   // a zero entry is malformed
+    c.container = fnvcoop::FormRef(); c.delta = d; b = cs::encode(c); CHECK(!cs::decode(b.data(), b.size(), &r));   // no container
+    {   // a guest's SPECIAL / skills for the host's stand-in runs (player_stats.h)
+        namespace ps = nvcoop::coop::pstats;
+        ps::Values v{{35, 42.0f}, {5, 6.0f}, {45, 100.0f}};
+        std::vector<uint8_t> pb = ps::encode(v);
+        ps::Values back;
+        CHECK(pb[0] == ps::kChannel && ps::decode(pb.data(), pb.size(), &back) && back == v);
+        for (size_t cut = 0; cut < pb.size(); ++cut) CHECK(!ps::decode(pb.data(), cut, &back));
+        CHECK(std::string(ps::avName(35)) == "Explosives" && std::string(ps::avName(5)) == "Strength" && !ps::avName(16));
+        CHECK(ps::trackedValues().size() == 21);
+        pb[3] = 16; CHECK(!ps::decode(pb.data(), pb.size(), &back));   // health is not a tracked value
+    }
+    // the first opener's whole contents: counts, may be empty, never negative
+    cs::Change f; f.slot = 0; f.container = fnvcoop::FormRef("fallout3.esm", 0x8833F); f.full = true; f.delta = after;
+    b = cs::encode(f);
+    CHECK(cs::decode(b.data(), b.size(), &r) && r.full && r.delta == after && r.base.plugin.empty());
+    f.base = fnvcoop::FormRef("fallout3.esm", 0x3D2C1); b = cs::encode(f);   // what the corpse is on the sender's machine travels along
+    CHECK(cs::decode(b.data(), b.size(), &r) && r.base == f.base && r.delta == after);
+    f.base = fnvcoop::FormRef();
+    f.delta.clear(); b = cs::encode(f);
+    CHECK(cs::decode(b.data(), b.size(), &r) && r.full && r.delta.empty());
+    f.delta = cs::Items{{caps, -1}}; b = cs::encode(f); CHECK(!cs::decode(b.data(), b.size(), &r));
+    // the receiver's own roll differs: diff(own, snapshot) turns its copy into the snapshot
+    cs::Items own{{stim, 3}, {caps, 7}};
+    cs::Items fix = cs::diff(own, after);
+    cs::apply(own, fix);
+    CHECK(own == after);
+}
+
+static void testTalkSubtitles() {
+    std::printf("conversation subtitles (0xD5 wire, new-line watch, HUD chunks)\n");
+    namespace ts = nvcoop::coop::talksubs;
+    ts::Line l;
+    l.slot = 1; l.npc = fnvcoop::FormRef("fallout3.esm", 0x3B46); l.speaker = "Lucas Simms"; l.player = "Guest";
+    l.text = "Staying out of trouble, I hope? Don't want to have to waste good bullets on your sorry hide.";
+    l.topic = fnvcoop::FormRef("falloutnv.esm", 0xC8); l.info = fnvcoop::FormRef("fallout3.esm", 0x3DA20);
+    std::vector<uint8_t> b = ts::encode(l);
+    ts::Line d;
+    CHECK(b[0] == ts::kChannel && ts::decode(b.data(), b.size(), &d));
+    CHECK(d.slot == 1 && d.npc == l.npc && d.speaker == l.speaker && d.player == l.player && d.text == l.text);
+    CHECK(d.topic == l.topic && d.info == l.info);
+    for (size_t cut = 0; cut < b.size(); ++cut) CHECK(!ts::decode(b.data(), cut, &d));   // every truncation is refused
+    std::vector<uint8_t> extra = b; extra.push_back(0); CHECK(!ts::decode(extra.data(), extra.size(), &d));
+    std::vector<uint8_t> ver = b; ver[1] = 9; CHECK(!ts::decode(ver.data(), ver.size(), &d));
+    ts::Line big = l; big.text.assign(5000, 'x'); big.speaker.assign(300, 'n');
+    std::vector<uint8_t> bb = ts::encode(big);
+    CHECK(ts::decode(bb.data(), bb.size(), &d) && d.text.size() == ts::kMaxText && d.speaker.size() == ts::kMaxName);
+
+    ts::Watch w;
+    CHECK(!w.update(true, 0x3B46, ""));                 // the menu is building its first line
+    CHECK(w.update(true, 0x3B46, "Hello."));            // new line
+    CHECK(!w.update(true, 0x3B46, "Hello."));           // still shown: sent once
+    CHECK(w.update(true, 0x3B46, "The bomb?"));         // next line
+    CHECK(!w.update(false, 0, ""));                     // menu closed
+    CHECK(w.update(true, 0x3B46, "Hello."));            // the same greeting in a new conversation is new
+    CHECK(w.update(true, 0x1234, "Hello."));            // same words, another speaker
+
+    std::vector<std::string> c = ts::chunks(l, 40);
+    CHECK(ts::chunks(l).size() == 1);   // a whole line is one HUD message by default
+    CHECK(c.size() >= 3 && c[0].rfind("Lucas Simms (to Guest): ", 0) == 0);
+    std::string joined;
+    for (const auto& x : c) { CHECK(x.size() <= 40 && !x.empty() && x[0] != ' '); joined += (joined.empty() ? "" : " ") + x; }
+    CHECK(joined == "Lucas Simms (to Guest): " + l.text);
+    ts::Line word = l; word.speaker.clear(); word.player.clear(); word.text.assign(100, 'z');
+    CHECK(ts::chunks(word, 40).size() == 3);            // one long word: hard cuts
+    CHECK(ts::seconds("Hi.") == 2.0f && ts::seconds(std::string(140, 'a')) == 10.0f && ts::seconds("Hi.", true) == 1.5f);
+
+    ts::ReplyWatch r;
+    CHECK(!r.update(true, 0x1000, ""));                 // the greeting: no text the player clicked
+    CHECK(r.update(true, 0x2000, "What's the deal with the bomb?"));
+    CHECK(!r.update(true, 0x2000, "What's the deal with the bomb?"));   // same pick, polled again
+    CHECK(r.update(true, 0x3000, "I'll disarm it."));
+    CHECK(!r.update(false, 0, ""));
+    CHECK(r.update(true, 0x3000, "I'll disarm it."));   // the same reply in a new conversation
+    ts::Line pick; pick.speaker = "Guest"; pick.text = "I'll disarm it.";
+    CHECK(ts::chunks(pick).size() == 1 && ts::chunks(pick)[0] == "Guest: I'll disarm it.");
 }
 
 static void testDialogue() {
@@ -1112,6 +1250,9 @@ int main(int argc, char** argv) {
     testConvergence("udp");
     testActions();
     testDialogue();
+    testTalkSubtitles();
+    testSharedXp();
+    testContainerSync();
     testBaseline();
     testSaveLoad();
     testNoFlood();

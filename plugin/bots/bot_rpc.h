@@ -217,6 +217,16 @@ public:
             ok = g ? closeOpenMenu(*g, p.get("kind").asString(""), &o, &out) : (out = "unsupported: engine glue not wired", false);
         } else if (method == "bot.menu.press" || method == "bot.consent") {
             int button = (int)p.get("button").asInt(-1);
+            const int value = (int)p.get("value").asInt(-1);   // bot.menu.press {value}: the native box's button with that value
+            if (method == "bot.menu.press" && button < 0 && value >= 0) {
+                IEngine* g = e_.engine();
+                bool applies = false;
+                ok = g && pressNativeMessageButton(*g, value, &o, &out, &applies, true);
+                if (ok) o.set("path", "native");
+                else if (!g) out = "unsupported: engine glue not wired";
+                if (ok) out = o.dump();
+                return ok;
+            }
             if (method == "bot.consent") {
                 const std::string a = p.get("answer").asString("");
                 if (FNV_MUT(21)) {

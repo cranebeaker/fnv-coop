@@ -14,6 +14,8 @@
 #include "../move_queue.h"
 #include "../ref_ops.h"
 #include "../said_once.h"
+#include "../talk_gate.h"
+#include "../echo_lines.h"
 #include "../story_addrs.h"
 #include "../story_animgroups.h"
 #include "common/minijson.h"
@@ -166,13 +168,13 @@ TEST(argument_layout_matches_the_engine_command_table) {
         for (size_t k = 0; k < params.size() && k < std::strlen(s.sig); ++k) {
             const int type = (int)params[k].items()[0].asInt();
             const bool optional = params[k].items()[1].asInt() != 0;
-            CHECK(classOfEngineType(type) == s.sig[k]);
+            CHECK(classOfEngineType(type) == (s.sig[k] == 'q' ? 's' : s.sig[k]));   // 'q' = a string the console line quotes (PlayBink)
             CHECK(optional == (k >= s.minArgs));                         // minArgs = the number of non-optional parameters
             const char d = s.slots[k];
             const bool wide = fnvcoop::refOpIsWide(s.op);                 // the second shape also has the forms c d and the integer m
             if (s.sig[k] == 'o') CHECK(d == 'a' || d == 'b' || (wide && (d == 'c' || d == 'd')));
             else if (s.sig[k] == 'f') CHECK(d == 'f');
-            else if (s.sig[k] == 's') CHECK(d == 's');
+            else if (s.sig[k] == 's' || s.sig[k] == 'q') CHECK(d == 's');
             else CHECK(d == 'i' || d == 'j' || d == 'k' || d == 'l' || (wide && d == 'm'));
             CHECK(!usedSlot[(unsigned char)d]);                          // two parameters never share a slot
             usedSlot[(unsigned char)d] = true;
@@ -316,6 +318,22 @@ TEST(activate_is_limited_to_object_types_without_a_menu) {
     CHECK(!activateTypeSafe(0));
 }
 
+TEST(an_activation_by_the_player_stays_with_that_player) {
+    CHECK(activatedByPlayer(FormRef("falloutnv.esm", 0x14)));      // `MegatonBombREF.Activate player` on the host
+    CHECK(!activatedByPlayer(FormRef("fallout3.esm", 0x3B46)));    // an NPC working a switch: every machine animates it
+    CHECK(!activatedByPlayer(FormRef()));                            // no activator given
+}
+
+TEST(an_activated_door_is_recorded_where_it_ends_up) {
+    bool open = false;
+    CHECK(doorEndsOpen(2, &open) && open);     // opening
+    CHECK(doorEndsOpen(1, &open) && open);
+    CHECK(doorEndsOpen(4, &open) && !open);    // closing
+    CHECK(doorEndsOpen(3, &open) && !open);
+    CHECK(!doorEndsOpen(0, &open));            // not a door / no state: the Activate is recorded as is
+    CHECK(!doorEndsOpen(5, &open));
+}
+
 TEST(animation_groups_come_from_the_engine_table_and_play_as_names) {
     CHECK(kAnimGroupCount == 245);
     CHECK(std::string(kAnimGroupNames[0]) == "Idle" && std::string(kAnimGroupNames[3]) == "Forward" && std::string(kAnimGroupNames[244]) == "JumpLandRight");
@@ -410,6 +428,7 @@ TEST(capture_and_apply_agree_for_every_op) {
         for (size_t k = 0; k < std::strlen(s.sig); ++k) {
             if (s.sig[k] == 'o') a[k].form = 0x00001000u + (uint32_t)k;
             else if (s.sig[k] == 's') a[k].s = "IdleStretch";
+            else if (s.sig[k] == 'q') a[k].s = "2 weeks later.bik";
             else if (s.sig[k] == 'f') a[k].f = 2.5f;
             else if (s.sig[k] == 'x') a[k].i = 'X';
             else if (s.sig[k] == 'v') a[k].i = 33;
@@ -491,6 +510,56 @@ TEST(an_applier_without_its_own_executor_uses_the_process_wide_one) {
     CHECK(forceActiveQuestCmd(0x00ABCDEF) == "ForceActiveQuest 00ABCDEF");
 }
 
+// A guest's conversation opens only for an NPC its own player just activated; one the NPC starts (forced greet replicated from the host) is
+// refused and counted once however often the engine retries it.
+TEST(guest_talk_gate_opens_only_what_the_player_asked_for) {
+    TalkGate g;
+    CHECK(g.allow(0x1234, 0));                 // off (host, or [hooks] guest_npc_talk=1): everything opens
+    g.setEnabled(true);
+    CHECK(!g.allow(0x1234, 100));              // Amata walks up and greets: refused
+    CHECK(!g.allow(0x1234, 116));              // the same request next frame: refused, not counted again
+    CHECK(g.blocked() == 1);
+    g.noteActivate(0x5678, 1000);              // the player talks to Simms
+    CHECK(!g.allow(0x1234, 1010));             // ... the NPC's pending request is still refused
+    CHECK(g.allow(0x5678, 1020));              // Simms opens
+    CHECK(!g.allow(0x5678, 1040));             // one activation opens one conversation (a second refusal: counted)
+    g.noteActivate(0x5678, 2000);
+    CHECK(!g.allow(0x5678, 2000 + TalkGate::kAskWindowMs + 1));   // stale activation
+    g.noteActivate(0x5678, 9000);
+    CHECK(g.allow(0x5678, 9000 + TalkGate::kAskWindowMs));
+    CHECK(!g.allow(0, 9001));                  // no speaker never matches
+    CHECK(g.opened() == 2 && g.blocked() == 2);
+}
+
+// The OnActivate block of the object the player just activated hands the activation back with `Activate`: that one runs on a guest.
+TEST(guest_own_activation_hand_back_is_recognised) {
+    TalkGate g;
+    CHECK(!g.ownActivation(0x3B46, 0));
+    g.noteActivate(0x3B46, 1000);                                   // the player activates Lucas Simms
+    CHECK(g.ownActivation(0x3B46, 1000));                           // his OnActivate block, same frame
+    CHECK(g.ownActivation(0x3B46, 1000 + TalkGate::kOwnActivationMs));
+    CHECK(!g.ownActivation(0x3B46, 1001 + TalkGate::kOwnActivationMs));   // a later script Activate of him is shared state again
+    CHECK(!g.ownActivation(0x1234, 1000));                          // another object's script
+    CHECK(g.allow(0x3B46, 1050));                                   // the conversation opening does not end the hand-back window
+    CHECK(g.ownActivation(0x3B46, 1060));
+}
+
+// A line replayed from another player's conversation never runs its result scripts here, unless this player talks to that NPC themselves.
+TEST(replayed_lines_do_not_run_their_result_scripts) {
+    EchoLines e;
+    CHECK(!e.isEcho(0x1E366, 0x3B46, 0, 0));
+    e.add(0x1E366, 0x3B46, 60000);
+    CHECK(e.isEcho(0x1E366, 0x3B46, 100, 0));        // begin script while the watcher's Simms says it
+    CHECK(e.isEcho(0x1E366, 0x3B46, 59000, 0));      // end script when the voice finishes
+    CHECK(!e.isEcho(0x1E366, 0x3B46, 60001, 0));     // expired
+    CHECK(!e.isEcho(0x1E366, 0x3B46, 100, 0x3B46));  // the watcher's own conversation with Simms: real
+    CHECK(!e.isEcho(0x1E367, 0x3B46, 100, 0));       // another INFO
+    CHECK(!e.isEcho(0x1E366, 0x1234, 100, 0));       // another speaker
+    for (uint32_t i = 1; i <= 20; ++i) e.add(i, 0x99, 1000 + i);   // the oldest slots are reused
+    CHECK(e.isEcho(20, 0x99, 1000, 0) && !e.isEcho(1, 0x99, 1000, 0));
+    CHECK(e.skipped() == 3);
+}
+
 TEST(a_said_once_effect_sets_the_flag_byte_of_the_info) {
     // door_terminal_container_matrix / pnr_vote / fast_travel_tether 2026-10-22: the client could not apply SayOnceFlag, so its dump never held the
     // host's said-once INFOs and the digest resent them every round. The flag is TESTopicInfo + 0x22.
@@ -521,6 +590,8 @@ int main() {
     run("commands_become_exact_console_lines", commands_become_exact_console_lines);
     run("only_the_owner_performs_actor_ai_orders", only_the_owner_performs_actor_ai_orders);
     run("activate_is_limited_to_object_types_without_a_menu", activate_is_limited_to_object_types_without_a_menu);
+    run("an_activation_by_the_player_stays_with_that_player", an_activation_by_the_player_stays_with_that_player);
+    run("an_activated_door_is_recorded_where_it_ends_up", an_activated_door_is_recorded_where_it_ends_up);
     run("animation_groups_come_from_the_engine_table_and_play_as_names", animation_groups_come_from_the_engine_table_and_play_as_names);
     run("text_arguments_travel_as_plain_words", text_arguments_travel_as_plain_words);
     run("critical_stages_come_from_the_engine_table", critical_stages_come_from_the_engine_table);
@@ -531,6 +602,9 @@ int main() {
     run("parked_moves_keep_the_newest_and_give_up", parked_moves_keep_the_newest_and_give_up);
     run("an_applier_without_its_own_executor_uses_the_process_wide_one", an_applier_without_its_own_executor_uses_the_process_wide_one);
     run("a_said_once_effect_sets_the_flag_byte_of_the_info", a_said_once_effect_sets_the_flag_byte_of_the_info);
+    run("replayed_lines_do_not_run_their_result_scripts", replayed_lines_do_not_run_their_result_scripts);
+    run("guest_talk_gate_opens_only_what_the_player_asked_for", guest_talk_gate_opens_only_what_the_player_asked_for);
+    run("guest_own_activation_hand_back_is_recognised", guest_own_activation_hand_back_is_recognised);
     run("the_opcode_base_given_to_nvse_is_one_a_release_nvse_serializes", the_opcode_base_given_to_nvse_is_one_a_release_nvse_serializes);
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;

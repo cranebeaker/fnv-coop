@@ -3,6 +3,7 @@
 #include "engine_hooks.h"
 
 #include <Windows.h>
+#include <intrin.h>
 
 #include <array>
 #include <cmath>
@@ -28,7 +29,10 @@
 #include "fnvcoop/policy.h"
 #include "guest_objvars.h"
 #include "ref_ops.h"
+#include "said_once.h"
 #include "story_addrs.h"
+#include "talk_gate.h"
+#include "echo_lines.h"
 
 using namespace fnvcoop;
 
@@ -77,7 +81,51 @@ Win32Memory g_mem;
 std::unique_ptr<HookRegistry> g_reg;
 int g_gate = 0;
 SuppressPolicy g_pol;  // all guest-suppression decisions (unit-tested in suppress_policy.cpp)
-inline bool blockedNow() { return g_pol.blockMutation(); }
+
+// Is NV:MP the one calling? NV:MP runs engine commands itself to sync its world (doors: SetOpenState / Activate, inventories: AddItem /
+// RemoveItem / RemoveAllItems, saves). Recording those as story effects replayed them on the guests, whose NV:MP sent them back: doors flapped
+// shut under a guest ("can't open the shelter"), every replay was an activation NV:MP saves on (save spam), inventories doubled. And the
+// guest gate must not drop NV:MP's own sync. The first stack frame outside nvcoop.dll is the caller: NV:MP's client.dll means it is NV:MP's
+// call (the game's script engine calls through FalloutNV.exe; NV:MP's main-loop hook sits much deeper on the stack).
+struct ModuleRange { uintptr_t lo = 0, hi = 0; };
+ModuleRange rangeOf(HMODULE m) {
+    ModuleRange r;
+    if (!m) return r;
+    const auto base = reinterpret_cast<uintptr_t>(m);
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+    r.lo = base;
+    r.hi = base + nt->OptionalHeader.SizeOfImage;
+    return r;
+}
+ModuleRange g_self, g_nvmp;
+int g_nvmpLookups = 0;
+bool nvmpCaller() {
+    if (!g_self.lo) {
+        HMODULE me = nullptr;
+        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCSTR>(&nvmpCaller), &me);
+        g_self = rangeOf(me);
+    }
+    if (!g_nvmp.lo && g_nvmpLookups < 2000) {   // NV:MP's client.dll loads after us: look again until it is there
+        ++g_nvmpLookups;
+        HMODULE h = GetModuleHandleA("client.dll");
+        char path[MAX_PATH] = {};
+        if (h && GetModuleFileNameA(h, path, MAX_PATH)) {
+            std::string p = path;
+            for (auto& c : p) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+            if (p.size() >= 16 && p.compare(p.size() - 16, 16, "\\nvmp\\client.dll") == 0) g_nvmp = rangeOf(h);
+        }
+    }
+    if (!g_nvmp.lo) return false;
+    void* frames[12] = {};
+    const USHORT n = RtlCaptureStackBackTrace(1, 12, frames, nullptr);
+    for (USHORT i = 0; i < n; ++i) {
+        const auto a = reinterpret_cast<uintptr_t>(frames[i]);
+        if (a >= g_self.lo && a < g_self.hi) continue;   // our own hook frames
+        return a >= g_nvmp.lo && a < g_nvmp.hi;
+    }
+    return false;
+}
+inline bool blockedNow() { return g_pol.blockMutation() && !nvmpCaller(); }
 ScriptStats g_sstats;
 int g_applierExec = 0;
 Unmapped g_unmapped;
@@ -87,7 +135,7 @@ constexpr Addr kThePlayerPtr = 0x11DEA3C;
 constexpr Addr kDataHandlerPtr = 0x11C3F2C;
 
 inline void* thePlayer() { return *reinterpret_cast<void**>(kThePlayerPtr); }
-inline bool capturing() { return g_hub && g_hub->active(); }
+inline bool capturing() { return g_hub && g_hub->active() && !nvmpCaller(); }
 inline uint32_t refIdOf(const void* form) { return form ? static_cast<const TESForm*>(form)->refID : 0; }
 
 bool formRef(const void* form, FormRef* out) {
@@ -239,14 +287,98 @@ bool __fastcall h_SetStage(TESQuest* q, void*, UInt8 stage) {
     bool have = formRef(q, &qr);
     if (have) c.source = qr;
     ScopedCapture sc(*g_hub, c);
-    if (have) g_hub->record(SetStage{qr, stage});  // on ENTRY: replicas replay stage first, then its consequences
-    return o_SetStage(q, stage);
+    const bool rec = have && g_hub->record(SetStage{qr, stage});  // on ENTRY: replicas replay stage first, then its consequences
+    const bool ok = o_SetStage(q, stage);
+    // The engine refused (a quest with no such stage: TTW starts hundreds of quests that have no stage 0). Nothing happened here, so
+    // nothing is sent; a guest would only answer EngineRejected (in game 2026-10-27: 662 rejected SetStage 0 per load on the guest).
+    if (rec && !ok) g_hub->retract(SetStage{qr, stage});
+    return ok;
 }
 
 using Fn_TopicRun = void(__thiscall*)(void*, UInt32, void*);
 Fn_TopicRun o_TopicRun;
+DialogueResultObserver g_dlgResultObs;
+TalkGate g_talkGate;
+std::unordered_map<uint32_t, uint64_t> g_nvmpOpenDoors;   // doors NV:MP opened here (see h_SetOpenState)
+std::unordered_map<uint32_t, uint64_t> g_doorLocalAct;    // last activation of a ref on THIS machine (player or NPC), for h_SetOpenState
+uint64_t g_nvmpDoorCalls = 0, g_doorClosesHeld = 0, g_doorStatesNotSent = 0;
+constexpr uint64_t kNvmpDoorHoldMs = 10 * 60 * 1000;   // how long a door NV:MP / the host opened for the other player is held open
+inline bool isDoor(const void* ref) {
+    auto* r = static_cast<const TESObjectREFR*>(ref);
+    return r && r->baseForm && r->baseForm->typeID == 0x1C;   // TESObjectDOOR
+}
+// NV:MP (nvmp\client.dll) runs in this game: it syncs doors itself, so their open state is not ours to send (both did: the copies fought, a
+// door opened by one player slammed shut on both, 2026-11-12).
+bool nvmpPresent() {
+    static int known = -1;
+    if (known < 0) {
+        char path[MAX_PATH] = {};
+        HMODULE m = GetModuleHandleA("client.dll");
+        known = 0;
+        if (m && GetModuleFileNameA(m, path, MAX_PATH)) {
+            std::string p = path;
+            for (auto& c : p) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+            known = p.find("\\nvmp\\client.dll") != std::string::npos ? 1 : 0;
+        }
+    }
+    return known == 1;
+}
+constexpr uint32_t kDialogMenuSingleton = 0x11D9510;   // DialogMenu*, null while no conversation is open
+constexpr uint32_t kInfoSpokenPtr = 0x11D9518;         // TESTopicInfo* the player clicked last (kept for its END result script)
+uint32_t g_ownTalkActor = 0;                           // the NPC of this player's last own result script, and when
+uint64_t g_ownTalkAt = 0;
+int g_guestResultRun = 0;                              // > 0 while runInfoResultFor runs a guest's line here
+EchoLines g_echo;
+// Guest: a line not of this player's own talk (a bark, NPC to NPC) whose script is skipped here. The same line coming back again and again
+// is a conversation loop on this copy (the playtest's "GOB!" loop): kept (last 16) for guest.stats, with its speaker.
+struct RepeatSeen { uint32_t count = 0; uint64_t since = 0; };
+std::unordered_map<uint64_t, RepeatSeen> g_repeats;
+std::vector<RepeatedLine> g_repeatLog;
+void noteRepeatedLine(uint32_t info, uint32_t speaker, uint64_t now) {
+    if (!info) return;
+    if (g_repeats.size() > 512) g_repeats.clear();
+    RepeatSeen& r = g_repeats[(uint64_t)info << 32 | speaker];
+    if (now - r.since > 60000) { r.since = now; r.count = 0; }
+    if (++r.count < 4) return;
+    for (auto& x : g_repeatLog)
+        if (x.info == info && x.speaker == speaker) { x.perMinute = r.count; x.atMs = now; return; }
+    if (g_repeatLog.size() >= 16) g_repeatLog.erase(g_repeatLog.begin());
+    g_repeatLog.push_back({info, speaker, r.count, now});
+}
 void __fastcall h_TopicRun(void* info, void*, UInt32 onEnd, void* actor) {
-    if (g_pol.blockResultScript()) return;  // guests never run INFO result scripts
+    const uint32_t menu = *reinterpret_cast<uint32_t*>(kDialogMenuSingleton);
+    const uint32_t partner = menu ? *reinterpret_cast<uint32_t*>(menu + 0x80) : 0;   // DialogMenu partner ref (dialog_layout.h kPartnerRef)
+    // The echo guard is for the engine's own run at the end of a REPLAYED line (the NPC says the other player's line here for its voice).
+    // The host running a guest's line on purpose is never an echo: with the replay still in the window, the guest's END script was skipped
+    // (Doc Church's "setav Variable01 1": the guest paid and was never treated, 2026-11-12).
+    if (!g_guestResultRun && g_echo.isEcho(refIdOf(info), refIdOf(actor), GetTickCount64(), partner ? refIdOf(reinterpret_cast<void*>(partner)) : 0)) return;
+    if (g_pol.blockResultScript()) {   // guests never run INFO result scripts ...
+        // ... but one from this player's OWN conversation (the DialogMenu is open with the NPC they talked to) is theirs: the host runs it
+        // for them (IntentKind::DialogueResult). Barks, NPC-to-NPC chatter and host txns being applied stay local and dropped.
+        FormRef ir, nr;
+        // A goodbye line (Doc Church's "hold still": he ends the talk to treat you) runs its script just AFTER the DialogMenu closed: it was
+        // dropped and a guest paid for nothing, now and then (2026-11-12). Still this player's: the line they clicked last (the click handler
+        // keeps it at 0x11D9518), within a few seconds of their conversation's previous line.
+        const uint64_t now = GetTickCount64();
+        const bool open = menu != 0;
+        const bool justClosed = !open && info == *reinterpret_cast<void**>(kInfoSpokenPtr) && refIdOf(actor) == g_ownTalkActor &&
+                                now - g_ownTalkAt <= 8000;
+        if (g_dlgResultObs && !g_pol.applying() && actor && (open || justClosed) &&
+            refIdOf(actor) == g_talkGate.current() && formRef(info, &ir) && formRef(actor, &nr)) {
+            g_ownTalkActor = refIdOf(actor);
+            g_ownTalkAt = now;
+            // The skipped engine call is also what marks the line as said (the reply greys out in the list): a guest never saw its
+            // replies fade (playtest 2026-10-28). Its own conversation's line is marked here; the script still runs on the host.
+            if (!onEnd) markInfoSaidOnce(info);
+            g_dlgResultObs(ir, nr, onEnd != 0);
+        } else if (!onEnd) {
+            // Not ours, but said HERE: the skipped call would have marked it said too. Unmarked, a "say once" line came back every time (Gob's
+            // radio rant: the same "Aggh! Come on, you piece of junk!" five times a minute on the guest, the playtest's Gob loop).
+            markInfoSaidOnce(info);
+            noteRepeatedLine(refIdOf(info), refIdOf(actor), now);
+        }
+        return;
+    }
     if (!g_hub || !g_hub->enabled()) return o_TopicRun(info, onEnd, actor);
     Cause c;
     c.kind = CauseKind::DialogueResult;
@@ -461,15 +593,49 @@ bool __fastcall h_ScriptExec(void* script, void*, void* thisObj, void* ev, void*
 }
 
 ActivateObserver g_activateObs;
+DoorUseObserver g_doorUseObs;
+bool calledByNvmp(const void* ret);   // below, with the command detours
 using Fn_Activate = UInt32(__thiscall*)(void*, void*, UInt8, UInt32, UInt32);
 Fn_Activate o_Activate;
 UInt32 __fastcall h_Activate(void* ref, void*, void* activator, UInt8 a, UInt32 b, UInt32 c) {
-    if (g_activateObs && g_pol.guest() && !g_pol.applying() && g_pol.scriptDepth() == 0 && activator &&
-        refIdOf(activator) == kPlayerRefID) {
+    if (ref && calledByNvmp(_ReturnAddress())) {   // NV:MP replays the other player's activation (a door they opened): see h_SetOpenState
+        ++g_nvmpDoorCalls;
+        g_nvmpOpenDoors[refIdOf(ref)] = GetTickCount64();
+        return o_Activate(ref, activator, a, b, c);
+    }
+    if (ref && activator) g_doorLocalAct[refIdOf(ref)] = GetTickCount64();
+    if (g_doorLocalAct.size() > 4096) g_doorLocalAct.clear();
+    const bool byPlayer = g_pol.guest() && !g_pol.applying() && g_pol.scriptDepth() == 0 && activator && refIdOf(activator) == kPlayerRefID;
+    if (byPlayer) g_talkGate.noteActivate(refIdOf(ref), GetTickCount64());   // before the observer: its deferred talk reopens the same NPC
+    if (byPlayer) g_nvmpOpenDoors.erase(refIdOf(ref));   // this player's own use of the door: its script is in charge again
+    if (g_activateObs && byPlayer) {
         FormRef fr;
         if (formRef(ref, &fr) && g_activateObs(fr) == ActivateAction::Suppress) return 0;
     }
+    // This player's own use of an ordinary door (host or guest): where it ends up goes to the others (DoorUseObserver).
+    const bool ownDoorUse = g_doorUseObs && ref && activator && refIdOf(activator) == kPlayerRefID && !g_pol.applying() && g_pol.scriptDepth() == 0 &&
+                            ::nvhooks::isForwardableDoor(refIdOf(ref));
+    const int pre = ownDoorUse ? ::nvhooks::doorOpenStateNow(refIdOf(ref)) : 0;
+    if (ownDoorUse && pre >= 1 && pre <= 4) {
+        const UInt32 r = o_Activate(ref, activator, a, b, c);
+        const bool opened = !(pre == 1 || pre == 2);   // closed / closing -> opened, open / opening -> closed
+        // A door the player opened does not close behind them: TenpennyDoorScript clears its "the player opened me" flag on a frame where the
+        // door still reads closed and then shut the player's own door within 3 s (two-copy test). Its auto-close is held, as for NV:MP's.
+        if (opened) g_nvmpOpenDoors[refIdOf(ref)] = GetTickCount64();
+        else g_nvmpOpenDoors.erase(refIdOf(ref));
+        g_doorUseObs(refIdOf(ref), opened);
+        return r;
+    }
     return o_Activate(ref, activator, a, b, c);
+}
+
+// Guest: the pending dialogue request (0x705070, run from the main loop) opens the DialogMenu. A null result is the engine's own
+// "could not open" path (taken when the interface is busy). TalkGate refuses conversations the NPC started (talk_gate.h).
+using Fn_DialogOpen = void*(__cdecl*)(void*, void*, void*);
+Fn_DialogOpen o_DialogOpen;
+void* __cdecl h_DialogOpen(void* speaker, void* topic, void* alt) {
+    if (g_pol.guest() && speaker && !g_talkGate.allow(refIdOf(speaker), GetTickCount64())) return nullptr;
+    return o_DialogOpen(speaker, topic, alt);
 }
 
 // CompleteAllObjectives: Cmd_CompleteAllObjectives (0x5C9740) -> TESQuest::CompleteAllObjectives(quest, 1) @0x60C950, ret 4.
@@ -555,10 +721,33 @@ Fn_Cmd o_SetFactionRank, o_ModFactionRank, o_AddToFaction, o_RemoveFromFaction, 
     o_SystemSave, o_ForceSave, o_RemoveAllItems, o_PlaceAtMe, o_PlaceLeveled,
         o_AddScriptPackage, o_RemoveScriptPackage, o_StartCombat, o_StopCombat, o_ActivateCmd;
 Fn_Cmd o_RemoveAllTyped, o_MoveToFade, o_SetPos, o_SetAngle, o_EnableCmd, o_DisableCmd;
-Fn_Cmd o_AddItem, o_RemoveItem, o_RewardXP, o_Kill, o_Resurrect, o_MoveTo, o_ModAV, o_SetAV, o_ForceAV, o_DamageAV;
+Fn_Cmd o_AddItem, o_RemoveItem, o_RewardXP, o_Kill, o_Resurrect, o_MoveTo, o_ModAV, o_SetAV, o_ForceAV, o_DamageAV, o_RestoreAV;
 
 #define CMD_ARGS void* pi, void* sd, void* thisObj, void* contObj, void* script, void* ev, double* res, UInt32* opc
 #define CMD_FWD(o) o(pi, sd, thisObj, contObj, script, ev, res, opc)
+
+// NV:MP calls some command handlers itself (its own inventory sync of NPCs and players: RemoveAllItems, AddItem, RemoveItem). Those calls are
+// NV:MP's business, not a script's: the guest gate must not drop them and the host must not capture them as story effects (a captured NV:MP
+// inventory sync was replayed on the guests). They go straight to the game. In game 2026-10-28 the host crashed inside the game's
+// RemoveAllItems (0x5B5746) during such a call, with our hook as the caller's caller.
+bool calledByNvmp(const void* ret) {
+    HMODULE m = nullptr;
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, static_cast<LPCSTR>(ret), &m) || !m) return false;
+    static HMODULE s_nvmp = nullptr, s_other[8] = {};
+    if (m == s_nvmp) return true;
+    for (HMODULE h : s_other) if (h == m) return false;
+    char path[MAX_PATH] = {};
+    GetModuleFileNameA(m, path, MAX_PATH);
+    std::string p = path;
+    for (auto& c : p) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    const bool nvmp = p.size() >= 16 && p.compare(p.size() - 16, 16, "\\nvmp\\client.dll") == 0;
+    if (nvmp) s_nvmp = m;
+    else for (HMODULE& h : s_other) if (!h) { h = m; break; }
+    return nvmp;
+}
+
+uint64_t g_nvmpItemCalls = 0;   // command calls made by NV:MP that went straight to the game
+
 
 #define BLOCK_CMD(name)                                                      \
     bool __cdecl h_##name(CMD_ARGS) {                                        \
@@ -568,6 +757,28 @@ Fn_Cmd o_AddItem, o_RemoveItem, o_RewardXP, o_Kill, o_Resurrect, o_MoveTo, o_Mod
 
 // ---- story capture: the generic RefCommand hooks (ref_ops.h) --------------------------------------------------------------------------
 bool g_storyOn = false;
+std::function<int(uint32_t)> g_doorState;
+int g_doorBefore = 0;   // the door's GetOpenState before the Activate being recorded (h_ActivateCmd)
+// Activate on a door toggles it: record where it ended up (ObjectState open) so every machine lands on the host's state.
+bool recordDoorActivate(void* thisObj) {
+    if (nvmpPresent() && isDoor(thisObj)) { ++g_doorStatesNotSent; return true; }   // NV:MP carries the door (see nvmpPresent)
+    auto* r = static_cast<TESObjectREFR*>(thisObj);
+    FormRef rr;
+    bool open = false;
+    if (!g_doorState || !r || !r->baseForm || r->baseForm->typeID != 0x1C || !formRef(r, &rr)) return false;   // 0x1C TESObjectDOOR
+    const int after = g_doorState(r->refID);
+    if (!doorEndsOpen(after, &open)) return false;
+    // A script's Activate is handled a frame later: the door still reads as it was. Recorded as is, a door being opened went out as
+    // "closed", the other copy shut, NV:MP carried that back, and the door slammed for the player who opened it (Tenpenny, 2026-11-12).
+    if (after == g_doorBefore) open = !(g_doorBefore == 1 || g_doorBefore == 2);
+    g_doorBefore = 0;
+    ObjectState os;
+    os.ref = rr;
+    os.mask = kObjOpen;
+    os.open = open;
+    g_hub->record(os);
+    return true;
+}
 // One detour for every story command. Arguments are decoded BEFORE the original runs (a command may delete what it was given), the command is
 // recorded after it succeeded. With story capture off the three shared handlers (StartCombat, StopCombat, Activate) behave as they always did.
 bool storyCmd(const RefOpSpec* s, Fn_Cmd o, void* pi, void* sd, void* thisObj, void* contObj, void* script, void* ev, double* res, UInt32* opc) {
@@ -598,6 +809,7 @@ bool storyCmd(const RefOpSpec* s, Fn_Cmd o, void* pi, void* sd, void* thisObj, v
         if (have && rc.to.mode == Recipient::Default && !isPlayer(thisObj)) rc.to = Recipient::all();
     }
     const bool ok = CMD_FWD(o);
+    if (ok && have && capturing() && s->op == kOpActivate && recordDoorActivate(thisObj)) return ok;
     if (ok && have && capturing()) g_hub->record(rc);
     else if (ok && parsed) ++g_unmapped.storyDropped;
     return ok;
@@ -653,7 +865,22 @@ bool __cdecl h_ModFactionRank(CMD_ARGS) { return storyCmd(storySpecFor(kOpModFac
 // StartCombat / StopCombat / Activate: blocked on a guest's local script as before; with story capture on they are also recorded.
 bool __cdecl h_StartCombat(CMD_ARGS) { return storyCmd(storySpecFor(kOpStartCombat), o_StartCombat, pi, sd, thisObj, contObj, script, ev, res, opc); }
 bool __cdecl h_StopCombat(CMD_ARGS) { return storyCmd(storySpecFor(kOpStopCombat), o_StopCombat, pi, sd, thisObj, contObj, script, ev, res, opc); }
-bool __cdecl h_ActivateCmd(CMD_ARGS) { return storyCmd(storySpecFor(kOpActivate), o_ActivateCmd, pi, sd, thisObj, contObj, script, ev, res, opc); }
+bool __cdecl h_ActivateCmd(CMD_ARGS) {
+    if (calledByNvmp(_ReturnAddress())) {   // NV:MP's own door / activator sync: straight to the game, never recorded
+        ++g_nvmpDoorCalls;
+        if (thisObj) g_nvmpOpenDoors[refIdOf(thisObj)] = GetTickCount64();
+        return CMD_FWD(o_ActivateCmd);
+    }
+    // Guest: `Activate` on the object the local player just activated is its OnActivate block handing the player's own activation back to the
+    // engine (talk, open). It is this player's interaction, not shared state: blocked, every NPC with an OnActivate block refused to talk.
+    if (g_pol.guest() && !g_pol.applying() && thisObj && g_talkGate.ownActivation(refIdOf(thisObj), GetTickCount64())) {
+        ++g_sstats.ownActivations;
+        return CMD_FWD(o_ActivateCmd);
+    }
+    auto* tr = static_cast<TESObjectREFR*>(thisObj);
+    g_doorBefore = tr && g_doorState && tr->baseForm && tr->baseForm->typeID == 0x1C ? g_doorState(tr->refID) : 0;
+    return storyCmd(storySpecFor(kOpActivate), o_ActivateCmd, pi, sd, thisObj, contObj, script, ev, res, opc);
+}
 
 // ---- command-level captures for the census backlog (ExtractArgs re-parses the same script data on a COPY of the offset) ----
 template <class... Out>
@@ -720,9 +947,67 @@ bool objectStateCmd(Fn_Cmd o, int kind /*0 lock 1 unlock 2 open 3 destroyed*/, C
     }
     return ok;
 }
-bool __cdecl h_Lock(CMD_ARGS) { return objectStateCmd(o_Lock, 0, pi, sd, thisObj, contObj, script, ev, res, opc); }
+bool __cdecl h_Lock(CMD_ARGS) {
+    // the auto-close script locks the door again after shutting it (TenpennyDoorScript): held with the close (scriptCloseOfNvmpDoor)
+    if (thisObj && script && !g_pol.applying() && isDoor(thisObj)) {
+        auto it = g_nvmpOpenDoors.find(refIdOf(thisObj));
+        auto* xs = static_cast<ExtraScript*>(static_cast<TESObjectREFR*>(thisObj)->extraDataList.GetByType(kExtraData_Script));
+        if (it != g_nvmpOpenDoors.end() && GetTickCount64() - it->second <= kNvmpDoorHoldMs && xs && xs->script == script) {
+            ++g_doorClosesHeld;
+            return true;
+        }
+    }
+    return objectStateCmd(o_Lock, 0, pi, sd, thisObj, contObj, script, ev, res, opc);
+}
 bool __cdecl h_UnLock(CMD_ARGS) { return objectStateCmd(o_UnLock, 1, pi, sd, thisObj, contObj, script, ev, res, opc); }
-bool __cdecl h_SetOpenState(CMD_ARGS) { return objectStateCmd(o_SetOpenState, 2, pi, sd, thisObj, contObj, script, ev, res, opc); }
+// Doors NV:MP opened here because the OTHER player opened their copy (refID -> when). Many FO3 doors carry an auto-close script
+// (TenpennyDoorScript: "opened, but not by the player? an NPC did it: close it again"): on the second machine the open is NV:MP's, the script
+// shuts the door at once, NV:MP carries the close back, and the player who opened it sees it slam (playtest: a Chevy Chase shelter the guest
+// could not open; Tenpenny's doors in the two-copy test). A SCRIPT's close of such a door is held; NV:MP's own close and players' go through.
+bool scriptCloseOfNvmpDoor(void* thisObj, void* script, int open) {
+    if (open != 0 || !thisObj || !script || g_pol.applying()) return false;
+    const uint32_t sid = refIdOf(script);
+    if (sid == 0 || (sid >> 24) == 0xFF) return false;   // a console line (the bridge, a player): not a door script
+    auto it = g_nvmpOpenDoors.find(refIdOf(thisObj));
+    if (it != g_nvmpOpenDoors.end()) {
+        if (GetTickCount64() - it->second <= kNvmpDoorHoldMs) return true;
+        g_nvmpOpenDoors.erase(it);
+    }
+    // NV:MP opens a door without going through a command or the engine's Activate here (counted 0 in the two-copy test), so that case is
+    // recognised the other way round: the door's OWN script closes it, it is open, and nobody here activated it in the last minute (an NPC
+    // that opens a Tenpenny door activates it, and its script closes it 10 s later as it should).
+    if (!nvmpPresent() || !isDoor(thisObj)) return false;
+    auto* xs = static_cast<ExtraScript*>(static_cast<TESObjectREFR*>(thisObj)->extraDataList.GetByType(kExtraData_Script));
+    if (!xs || xs->script != script) return false;
+    const int st = g_doorState ? g_doorState(refIdOf(thisObj)) : 0;
+    if (st != 1 && st != 2) return false;
+    auto la = g_doorLocalAct.find(refIdOf(thisObj));
+    return la == g_doorLocalAct.end() || GetTickCount64() - la->second > 60000;
+}
+bool __cdecl h_SetOpenState(CMD_ARGS) {
+    if (calledByNvmp(_ReturnAddress())) {   // NV:MP's door sync: straight to the game, never recorded
+        ++g_nvmpDoorCalls;
+        int a = -1;
+        UInt32 off = *opc;
+        if (thisObj && extractPadded(extractArgs(), pi, sd, &off, thisObj, contObj, script, ev, {&a})) {
+            if (a != 0) g_nvmpOpenDoors[refIdOf(thisObj)] = GetTickCount64();
+            else g_nvmpOpenDoors.erase(refIdOf(thisObj));
+        }
+        return CMD_FWD(o_SetOpenState);
+    }
+    int a = -1;
+    UInt32 off = *opc;
+    if (thisObj && script && extractPadded(extractArgs(), pi, sd, &off, thisObj, contObj, script, ev, {&a}) && scriptCloseOfNvmpDoor(thisObj, script, a)) {
+        ++g_doorClosesHeld;
+        return true;
+    }
+    if (nvmpPresent() && isDoor(thisObj)) {   // runs here; NV:MP carries it to the others (sending it too made the copies fight)
+        if (blockedNow()) return true;
+        ++g_doorStatesNotSent;
+        return CMD_FWD(o_SetOpenState);
+    }
+    return objectStateCmd(o_SetOpenState, 2, pi, sd, thisObj, contObj, script, ev, res, opc);
+}
 bool __cdecl h_SetDestroyed(CMD_ARGS) { return objectStateCmd(o_SetDestroyed, 3, pi, sd, thisObj, contObj, script, ev, res, opc); }
 
 // Journal / weather / time / scripted saves
@@ -802,7 +1087,353 @@ bool __cdecl h_ForceSave(CMD_ARGS) { return saveCmdHook(o_ForceSave, kSaveForce,
 // hand-back (`box.RemoveAllItems player` / into a second container) or the player-only clear of character creation. Each recipient machine then
 // moves its own player's items through its own copy of the container. Before, the player was skipped and a target was ignored, so only the
 // host lost its gear and a replicated hand-back cleared the guest's copy of the stash (measured in The Pitt, 2026-10-26).
+// NV:MP's own RemoveAllItems on its copy of an NPC crashed the game twice inside the engine's remove-all (0x4CE380, called at 0x5B5746):
+// the host 2026-10-28 (Nathan, Megaton), a guest test copy 2026-11-17 (Cerberus, Underworld). Both C0000409 from a frame handler's cookie
+// check, so the crash logs miss the first fault. While NV:MP's call runs, a vectored handler sees that first fault before any frame
+// handler: it reports it (code, address, registers, game return addresses on the stack, the NPC) and resumes right after the call as if
+// the command had failed. That NPC's copy may keep some items (NV:MP re-sends its inventory); the game goes on instead of crashing.
+DWORD g_igEsp, g_igEbp, g_igEbx, g_igEsi, g_igEdi, g_igResume, g_igSeh, g_igThread;
+volatile LONG g_igArmed = 0;
+uint32_t g_igRef = 0;
+uint64_t g_igCaught = 0;
+void (*g_igReport)(const char*) = nullptr;
+
+LONG CALLBACK nvmpItemVeh(EXCEPTION_POINTERS* ep) {
+    if (!g_igArmed || GetCurrentThreadId() != g_igThread) return EXCEPTION_CONTINUE_SEARCH;
+    const DWORD code = ep->ExceptionRecord->ExceptionCode;
+    if (code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_ILLEGAL_INSTRUCTION && code != EXCEPTION_PRIV_INSTRUCTION &&
+        code != EXCEPTION_INT_DIVIDE_BY_ZERO && code != EXCEPTION_ARRAY_BOUNDS_EXCEEDED)
+        return EXCEPTION_CONTINUE_SEARCH;
+    CONTEXT* c = ep->ContextRecord;
+    g_igArmed = 0;
+    ++g_igCaught;
+    if (g_igReport && g_igCaught <= 20) {
+        char buf[768];
+        int n = std::snprintf(buf, sizeof buf, "hooks: NV:MP's RemoveAllItems on %08X faulted (%08lX at %08lX, data %08lX): eax=%08lX ebx=%08lX ecx=%08lX "
+                              "edx=%08lX esi=%08lX edi=%08lX ebp=%08lX esp=%08lX; game return addresses on the stack:", g_igRef, code,
+                              c->Eip, ep->ExceptionRecord->NumberParameters > 1 ? (DWORD)ep->ExceptionRecord->ExceptionInformation[1] : 0,
+                              c->Eax, c->Ebx, c->Ecx, c->Edx, c->Esi, c->Edi, c->Ebp, c->Esp);
+        int found = 0;
+        for (DWORD p = c->Esp; p + 4 <= g_igEsp && found < 24 && n > 0 && n < (int)sizeof buf - 12; p += 4) {
+            const DWORD v = *reinterpret_cast<const DWORD*>(p);
+            if (v >= 0x401000 && v < 0x1000000) { n += std::snprintf(buf + n, sizeof buf - n, " %06lX", v); ++found; }
+        }
+        g_igReport(buf);
+        g_igReport("hooks: ... the call was abandoned (returns false), the game goes on");
+    }
+    c->Eip = g_igResume; c->Esp = g_igEsp; c->Ebp = g_igEbp; c->Ebx = g_igEbx; c->Esi = g_igEsi; c->Edi = g_igEdi; c->Eax = 0;
+    __writefsdword(0, g_igSeh);   // the SEH chain as it was at the call: the engine frames above are gone
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+// Inventory of a reference as the engine keeps it: ExtraContainerChanges (extra type 0x15) -> data -> list of EntryData {extendData list of
+// ExtraDataList*, countDelta, type}. Counts the entries and the per-item ExtraDataLists whose vtable is not ExtraDataList's (0x10143E8).
+struct InvScan { int entries = 0, lists = 0, bad = 0, dup = 0, multi = 0; uint32_t multiItem = 0; char detail[160] = {}; bool unreadable = false; };
+InvScan scanInventory(void* ref) {
+    InvScan r;
+    void* seen[256];
+    int seenN = 0;
+    __try {
+        void* xc = reinterpret_cast<void*(__thiscall*)(void*, UInt32)>(0x410220)(static_cast<char*>(ref) + 0x44, 0x15);
+        void* data = xc ? *reinterpret_cast<void**>(static_cast<char*>(xc) + 0xC) : nullptr;
+        struct Node { void* item; Node* next; };
+        Node* n = data ? *reinterpret_cast<Node**>(data) : nullptr;
+        for (int guard = 0; n && guard < 4096; n = n->next, ++guard) {
+            if (!n->item) continue;
+            ++r.entries;
+            int here = 0;
+            for (Node* x = *reinterpret_cast<Node**>(n->item); x && guard < 4096; x = x->next, ++guard) {
+                if (!x->item) continue;
+                ++r.lists; ++here;
+                if (*reinterpret_cast<uint32_t*>(x->item) != 0x10143E8u) ++r.bad;
+                for (int i = 0; i < seenN; ++i) if (seen[i] == x->item) { ++r.dup; break; }
+                if (seenN < 256) seen[seenN++] = x->item;
+            }
+            if (here > 1 && ++r.multi == 1) {
+                r.multiItem = refIdOf(*reinterpret_cast<void**>(static_cast<char*>(n->item) + 8));
+                int len = _snprintf_s(r.detail, sizeof r.detail, _TRUNCATE, " count %d:", *reinterpret_cast<int*>(static_cast<char*>(n->item) + 4));
+                for (Node* x = *reinterpret_cast<Node**>(n->item); x && len > 0 && len < (int)sizeof r.detail - 24; x = x->next) {
+                    if (!x->item) continue;
+                    len += _snprintf_s(r.detail + len, sizeof r.detail - len, _TRUNCATE, " [%p", x->item);
+                    int k = 0;   // BSExtraData chain: {vtbl, type byte at +4, next at +8}
+                    for (char* d = *reinterpret_cast<char**>(static_cast<char*>(x->item) + 4); d && k < 6 && len > 0 && len < (int)sizeof r.detail - 8; d = *reinterpret_cast<char**>(d + 8), ++k)
+                        len += _snprintf_s(r.detail + len, sizeof r.detail - len, _TRUNCATE, " %02X", static_cast<uint8_t>(d[4]));
+                    if (len > 0 && len < (int)sizeof r.detail - 2) len += _snprintf_s(r.detail + len, sizeof r.detail - len, _TRUNCATE, "]");
+                }
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { r.unreadable = true; }
+    return r;
+}
+
+__declspec(noinline) bool nvmpRemoveAllGuarded(CMD_ARGS) {
+    static PVOID veh = AddVectoredExceptionHandler(1, nvmpItemVeh);
+    if (!veh || g_igArmed) return CMD_FWD(o_RemoveAllItems);
+    volatile bool ok = false;
+    WORD fcw = 0;
+    // Test copies only (NVCOOP_LOG_ITEM_SYNC): the reference's state at each NV:MP strip, to tell the calls that fault from the ones that don't.
+    static const bool logSync = GetEnvironmentVariableA("NVCOOP_LOG_ITEM_SYNC", nullptr, 0) > 0;
+    if (logSync && g_igReport && reinterpret_cast<uintptr_t>(thisObj) > 0xFFFF) {
+        static int lines = 0;
+        if (++lines <= 400) {
+            char* r = static_cast<char*>(thisObj);
+            void* node = reinterpret_cast<void*(__thiscall*)(void*)>(0x43FCD0)(thisObj);   // TESObjectREFR::Get3D
+            void* render = *reinterpret_cast<void**>(r + 0x64);
+            const InvScan inv = scanInventory(thisObj);
+            char buf[420];
+            _snprintf_s(buf, sizeof buf, _TRUNCATE, "hooks: item sync strip %08X t=%llu flags=%08X 3d=%p render=%p process=%p inv %d entries %d lists %d bad %d dup %d multi (first %08X%s)%s",
+                        refIdOf(thisObj), GetTickCount64(), *reinterpret_cast<uint32_t*>(r + 8), node, render, *reinterpret_cast<void**>(r + 0x68),
+                        inv.entries, inv.lists, inv.bad, inv.dup, inv.multi, inv.multiItem, inv.detail, inv.unreadable ? " UNREADABLE" : "");
+            g_igReport(buf);
+        }
+    }
+    g_igThread = GetCurrentThreadId();
+    g_igRef = reinterpret_cast<uintptr_t>(thisObj) > 0xFFFF ? refIdOf(thisObj) : 0;   // the test fault's reference is unreadable
+    g_igSeh = __readfsdword(0);
+    __asm {
+        fnstcw fcw
+        mov g_igEsp, esp
+        mov g_igEbp, ebp
+        mov g_igEbx, ebx
+        mov g_igEsi, esi
+        mov g_igEdi, edi
+        lea eax, nvmp_remove_all_resume
+        mov g_igResume, eax
+    }
+    g_igArmed = 1;
+    ok = CMD_FWD(o_RemoveAllItems);
+    g_igArmed = 0;
+    __asm {
+        jmp nvmp_remove_all_done
+    nvmp_remove_all_resume:
+        fninit
+        fldcw fcw
+    nvmp_remove_all_done:
+    }
+    return ok;
+}
+
+// TESObjectREFR::IsDestructible (0x452370) only reads form flag 0x01000000. The game sets it from the base form (SetBaseForm 0x575690:
+// flag = base has destruction data, 0x4753D0), so all 17 callers then use the base's BGSDestructibleObjectForm without a null check.
+// NV:MP's client also sets the flag on references whose base has none (client.dll+4D9E2 / +4DA16). Example: the other player's copy of a
+// note that one player picked up. When the game frees such a reference with its 3D loaded, the destructor reads a null pointer at 0x4778AA
+// (real crashes 2026-11-16 21:58 and 22:00, "Notice From Winthrop" 10005041). The detour answers "not destructible" for those references.
+using Fn_IsDestructible = bool(__thiscall*)(void*);
+Fn_IsDestructible o_IsDestructible = nullptr;
+volatile LONG g_bogusDestructible = 0;
+bool __fastcall h_IsDestructible(void* form, void*) {
+    if (!o_IsDestructible(form)) return false;
+    const uint8_t type = *reinterpret_cast<const uint8_t*>(reinterpret_cast<const char*>(form) + 4);   // TESForm::typeID
+    if (type < 0x3A || type > 0x40) return true;   // not a reference (REFR, ACHR, ACRE, PGRE, PMIS, PBEA, PFLA)
+    void* base = *reinterpret_cast<void**>(reinterpret_cast<char*>(form) + 0x20);
+    if (base && reinterpret_cast<bool(__cdecl*)(void*)>(0x4753D0)(base)) return true;
+    if (InterlockedIncrement(&g_bogusDestructible) <= 10 && g_igReport) {
+        char buf[160];
+        _snprintf_s(buf, sizeof buf, _TRUNCATE, "hooks: reference %08X is flagged destructible but its base %08X has no destruction data "
+                    "(NV:MP sets that flag); treated as not destructible", refIdOf(form), refIdOf(base));
+        g_igReport(buf);
+    }
+    return false;
+}
+
+// The actor movement update (0x92F260, run on the AI linear task threads) reads the actor's character controller once at its start
+// (0x9306D0, from the actor's process) and near its end calls 0xC70B60 on it with no null check. When the controller is gone by then
+// (a ghoul's physics torn down while its movement is updated), 0xC70B60 reads [0 + 0x3E0 + 0x10] at 0xCA9600: crashes 2026-11-15 and
+// twice 2026-11-17 in test copies, ghouls near the Museum of History offices, every time 0xCA9600 <- 0x8A633E (call 0x92F260). The call
+// at 0x9303C3 goes through a stub that skips that block (the two calls after it use the controller as well) when the controller is null.
+constexpr Addr kMoveCtrlCallSite = 0x9303C3, kMoveCtrlCallee = 0xC70B60, kMoveCtrlBlockEnd = 0x9303E7;
+volatile LONG g_nullMoveCtrl = 0;
+void __stdcall noteNullMoveCtrl() { InterlockedIncrement(&g_nullMoveCtrl); }
+__declspec(naked) void moveCtrlStub() {
+    __asm {
+        test ecx, ecx
+        jz null_ctrl
+        mov eax, 0C70B60h       // kMoveCtrlCallee (inline asm would load a constexpr from memory, not use it as an immediate)
+        jmp eax
+    null_ctrl:
+        call noteNullMoveCtrl
+        add esp, 0Ch            // the return address and the two arguments 0xC70B60 would have popped
+        mov eax, 09303E7h       // kMoveCtrlBlockEnd
+        jmp eax
+    }
+}
+uint8_t g_moveCtrlOrig[5] = {};
+bool g_moveCtrlPatched = false;
+PatchStatus patchMoveCtrlCall() {
+    uint8_t cur[5], want[5] = {0xE8}, mine[5] = {0xE8};
+    const uint32_t relWant = static_cast<uint32_t>(kMoveCtrlCallee - (kMoveCtrlCallSite + 5));
+    const uint32_t relMine = static_cast<uint32_t>(reinterpret_cast<Addr>(&moveCtrlStub) - (kMoveCtrlCallSite + 5));
+    std::memcpy(want + 1, &relWant, 4);
+    std::memcpy(mine + 1, &relMine, 4);
+    if (!g_mem.read(kMoveCtrlCallSite, cur, 5)) return PatchStatus::ReadFailed;
+    if (std::memcmp(cur, mine, 5) == 0) return PatchStatus::AlreadyInstalled;
+    if (std::memcmp(cur, want, 5) != 0) return PatchStatus::PrologueMismatch;   // another exe build, or another mod's patch: leave it
+    if (!g_mem.write(kMoveCtrlCallSite, mine, 5)) return PatchStatus::WriteFailed;
+    std::memcpy(g_moveCtrlOrig, cur, 5);
+    g_moveCtrlPatched = true;
+    return PatchStatus::Ok;
+}
+void unpatchMoveCtrlCall() {
+    if (!g_moveCtrlPatched) return;
+    g_mem.write(kMoveCtrlCallSite, g_moveCtrlOrig, 5);
+    g_moveCtrlPatched = false;
+}
+
+// ---- NV:MP's inventory resync of an NPC, made incremental ----
+// Every time an NPC comes into view, NV:MP re-syncs its inventory: RemoveAllItems, then one AddItem per item it should have. Throwing the
+// whole inventory away while the game still points into it (the worn items, the NPC's model being rebuilt in the background) corrupted it:
+// in tests 2026-11-17 the guest's next entry into the Underworld Concourse found the entries changed (a count of 6 read 65533) and the
+// strip faulted (Cerberus, Quinn, Tulip...), then froze or crashed, about 3 runs in 4. Skipping the strip: 4 of 4 clean. (A real strip
+// moved 1.5 s later, once the cell had settled, faulted the same way: the strip itself is the problem, not only its timing.)
+// Instead the strip only notes what the NPC holds (full counts, base container included). A short while later the units NV:MP did not
+// ask for again are removed one item at a time.
+// NV:MP's adds (Actor::AddItem, the vtable call at client.dll's "item added", not the AddItem command) carry the item's FULL count (Cerberus:
+// x85 while holding 85), and NV:MP also sends them at later updates without a strip. Plain NV:MP (0.3.22, real strips) therefore doubled
+// and tripled NPC inventories on both sides in tests 2026-11-17. An update's adds are summed per item and only the shortfall against what
+// the NPC held when the update began is added, so a repeated update changes nothing.
+struct NvmpResync { uint32_t id; std::map<void*, int> left; ULONGLONG at; };
+// One NV:MP item update of one NPC: its adds arrive in a burst (the same frame); a gap of kAddBatchGapMs starts a new update.
+struct AddState { int base = 0, desired = 0, forwarded = 0; };   // base: units held when the update began
+struct AddBatch { ULONGLONG last = 0, first = 0; std::map<void*, AddState> items; };
+std::map<uint32_t, AddBatch> g_addBatches;
+constexpr ULONGLONG kAddBatchGapMs = 1000;
+uint64_t g_addsAbsorbed = 0, g_addsTrimmed = 0;
+std::vector<NvmpResync> g_resyncs;
+uint64_t g_resyncsStarted = 0, g_resyncRemoved = 0;
+int g_resyncFlushing = 0;
+constexpr ULONGLONG kResyncSettleMs = 1500;   // NV:MP sends its AddItems in the same frame as the strip; leave it some slack
+// Test copies only (NVCOOP_LOG_ITEM_SYNC): every step of every resync in nvcoop.log.
+bool resyncLogOn() {
+    static const bool on = GetEnvironmentVariableA("NVCOOP_LOG_ITEM_SYNC", nullptr, 0) > 0;
+    return on && g_igReport;
+}
+void resyncLog(const char* what, uint32_t id, const std::map<void*, int>& items) {
+    if (!resyncLogOn()) return;
+    char buf[900];
+    int len = _snprintf_s(buf, sizeof buf, _TRUNCATE, "hooks: resync %s %08X t=%llu:", what, id, GetTickCount64());
+    for (auto& [f, n] : items)
+        if (n && len > 0 && len < (int)sizeof buf - 24) len += _snprintf_s(buf + len, sizeof buf - len, _TRUNCATE, " %08X=%d", refIdOf(f), n);
+    g_igReport(buf);
+}
+
+bool isInventoryItemType(uint8_t t) {
+    switch (t) {
+    case 0x18: case 0x19: case 0x1A: case 0x1F: case 0x28: case 0x29: case 0x2E: case 0x2F: case 0x31: case 0x32: case 0x1D: case 0x1E:   // as loot_engine_real.cpp
+        return true;
+    default: return false;
+    }
+}
+
+// Full counts (base container + changes, equipped items included) of every plain item `ref` holds: 0x4BF220 cdecl(ref) -> container data,
+// 0x4C8F30 thiscall(data, form) -> total, 0x4BFFB0 thiscall(data) -> the base form's TESContainer (formCountList tList at +4).
+struct ItemNode { void* item; ItemNode* next; };
+bool heldItemsRaw(void* ref, std::vector<void*>& forms, std::vector<int>& totals) {
+    __try {
+        void* data = reinterpret_cast<void*(__cdecl*)(void*)>(0x4BF220)(ref);
+        if (!data) return false;
+        void* raw[8192];
+        size_t n = 0;
+        for (ItemNode* x = *reinterpret_cast<ItemNode**>(data); x && n < 4096; x = x->next)
+            if (x->item && *reinterpret_cast<void**>(static_cast<char*>(x->item) + 8)) raw[n++] = *reinterpret_cast<void**>(static_cast<char*>(x->item) + 8);
+        if (char* cont = static_cast<char*>(reinterpret_cast<void*(__thiscall*)(void*)>(0x4BFFB0)(data)))
+            for (ItemNode* x = reinterpret_cast<ItemNode*>(cont + 4); x && n < 8192; x = x->next)
+                if (x->item && *reinterpret_cast<void**>(static_cast<char*>(x->item) + 4)) raw[n++] = *reinterpret_cast<void**>(static_cast<char*>(x->item) + 4);
+        for (size_t i = 0; i < n; ++i) {
+            bool seen = false;
+            for (size_t j = 0; j < i && !seen; ++j) seen = raw[j] == raw[i];
+            if (seen || !isInventoryItemType(static_cast<TESForm*>(raw[i])->typeID)) continue;
+            forms.push_back(raw[i]);
+            totals.push_back(reinterpret_cast<int(__thiscall*)(void*, void*)>(0x4C8F30)(data, raw[i]));
+        }
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+std::map<void*, int> heldItems(void* ref) {
+    std::vector<void*> forms;
+    std::vector<int> totals;
+    std::map<void*, int> out;
+    if (!heldItemsRaw(ref, forms, totals)) return out;
+    for (size_t i = 0; i < forms.size(); ++i) if (totals[i] > 0) out[forms[i]] = totals[i];
+    return out;
+}
+
+void flushResync(NvmpResync r) {
+    void* ref = g_res ? g_res->lookup(r.id) : nullptr;
+    if (!ref) return;
+    auto b = g_addBatches.find(r.id);   // what NV:MP asked for after the strip: keep that much of each item
+    if (b != g_addBatches.end() && b->second.first >= r.at)
+        for (auto& [item, st] : b->second.items) {
+            auto it = r.left.find(item);
+            if (it != r.left.end()) it->second -= st.desired;
+        }
+    resyncLog("end, removing", r.id, r.left);
+    ApplyScope allow;   // not a script: a guest must not drop it
+    ++g_resyncFlushing;
+    for (auto& [form, n] : r.left) {
+        if (n <= 0) continue;
+        char line[64];
+        _snprintf_s(line, sizeof line, _TRUNCATE, "RemoveItem %08X %d 1", refIdOf(form), n);
+        if (execConsoleLineOn(line, r.id)) g_resyncRemoved += n;
+    }
+    --g_resyncFlushing;
+}
+
+NvmpResync* pendingResync(uint32_t id) {
+    for (auto& r : g_resyncs) if (r.id == id) return &r;
+    return nullptr;
+}
+
+// Actor::AddItem (0x892520, the TESObjectREFR vtable slot +0x190 of Character / Creature / PlayerCharacter): thiscall(item, extra list, count).
+using Fn_ActorAddItem = void*(__thiscall*)(void*, void*, void*, UInt32);
+Fn_ActorAddItem o_ActorAddItem = nullptr;
+int itemTotal(void* ref, void* item) {
+    __try {
+        void* data = reinterpret_cast<void*(__cdecl*)(void*)>(0x4BF220)(ref);
+        return data ? reinterpret_cast<int(__thiscall*)(void*, void*)>(0x4C8F30)(data, item) : 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+void* __fastcall h_ActorAddItem(void* actor, void*, void* item, void* extra, UInt32 count) {
+    const uint32_t id = refIdOf(actor);
+    if (!item || count == 0 || count > 0x7FFFFFFF || isPlayer(actor) || (id >> 24) == 0xFFu || !calledByNvmp(_ReturnAddress()))
+        return o_ActorAddItem(actor, item, extra, count);
+    const ULONGLONG now = GetTickCount64();
+    AddBatch& batch = g_addBatches[id];
+    if (now - batch.last > kAddBatchGapMs) { batch.items.clear(); batch.first = now; }   // a new update
+    batch.last = now;
+    auto [it, fresh] = batch.items.try_emplace(item);
+    AddState& st = it->second;
+    if (fresh) st.base = itemTotal(actor, item);
+    st.desired += static_cast<int>(count);
+    const int forward = (std::max)(st.base, st.desired) - (st.base + st.forwarded);
+    if (resyncLogOn()) {
+        char buf[200];
+        _snprintf_s(buf, sizeof buf, _TRUNCATE, "hooks: resync NV:MP AddItem %08X item %08X x%u: held %d, update wants %d, adding %d", id, refIdOf(item),
+                    count, st.base, st.desired, forward > 0 ? forward : 0);
+        g_igReport(buf);
+    }
+    if (forward <= 0) { ++g_addsAbsorbed; return nullptr; }   // NV:MP's ExtraDataList goes with the call: NV:MP made it, the NPC never held it
+    if (forward < static_cast<int>(count)) ++g_addsTrimmed;
+    st.forwarded += forward;
+    return o_ActorAddItem(actor, item, extra, static_cast<UInt32>(forward));
+}
+
 bool __cdecl h_RemoveAllItems(CMD_ARGS) {
+    if (calledByNvmp(_ReturnAddress())) {   // NV:MP's own inventory sync
+        ++g_nvmpItemCalls;
+        const uint32_t id = refIdOf(thisObj);
+        if (thisObj && !isPlayer(thisObj) && (id >> 24) != 0xFFu) {   // an NPC (players' avatars are created refs and keep the plain strip)
+            if (NvmpResync* old = pendingResync(id)) { flushResync(*old); *old = {id, heldItems(thisObj), GetTickCount64()}; }
+            else g_resyncs.push_back({id, heldItems(thisObj), GetTickCount64()});
+            resyncLog("start, holds", id, pendingResync(id)->left);
+            ++g_resyncsStarted;
+            return true;
+        }
+        return nvmpRemoveAllGuarded(pi, sd, thisObj, contObj, script, ev, res, opc);
+    }
+    // Test copies only: NVCOOP_TEST_ITEM_FAULT=1 sends a console RemoveAllItems through the guard with an unreadable reference, so the
+    // engine faults inside it the way it did under NV:MP (the guard must report it and return false).
+    static const bool testFault = GetEnvironmentVariableA("NVCOOP_TEST_ITEM_FAULT", nullptr, 0) > 0;
+    if (testFault && thisObj) return nvmpRemoveAllGuarded(pi, sd, reinterpret_cast<void*>(0x10), contObj, script, ev, res, opc);
     if (blockedNow()) return true;
     if (!capturing() || !thisObj) return CMD_FWD(o_RemoveAllItems);
     void* target = nullptr;
@@ -928,10 +1559,21 @@ bool __cdecl h_RemoveAllTyped(CMD_ARGS) {
     if (ok) recordInventoryDelta(thisObj, before, false, true);
     return ok;
 }
-bool __cdecl h_AddItem(CMD_ARGS) { return itemCmd(o_AddItem, true, pi, sd, thisObj, contObj, script, ev, res, opc); }
-bool __cdecl h_RemoveItem(CMD_ARGS) { return itemCmd(o_RemoveItem, false, pi, sd, thisObj, contObj, script, ev, res, opc); }
+bool __cdecl h_AddItem(CMD_ARGS) {
+    if (calledByNvmp(_ReturnAddress())) {
+        ++g_nvmpItemCalls;
+        return CMD_FWD(o_AddItem);
+    }
+    return itemCmd(o_AddItem, true, pi, sd, thisObj, contObj, script, ev, res, opc);
+}
+bool __cdecl h_RemoveItem(CMD_ARGS) {
+    if (calledByNvmp(_ReturnAddress())) { ++g_nvmpItemCalls; return CMD_FWD(o_RemoveItem); }
+    if (g_resyncFlushing) return CMD_FWD(o_RemoveItem);   // the end of an NV:MP resync: NV:MP's business, never captured
+    return itemCmd(o_RemoveItem, false, pi, sd, thisObj, contObj, script, ev, res, opc);
+}
 
 constexpr uint32_t kPseudoAV_XP = fnvcoop::kAvExperience;  // XP is not a real actor value (L4 contract: 0x10000)
+int g_rewardXpCmd = 0;   // a RewardXP script command is running (its XP is shared as a captured reward, not by the shared-XP watch)
 bool __cdecl h_RewardXP(CMD_ARGS) {
     if (blockedNow()) return true;
     int amount = 0;
@@ -940,8 +1582,11 @@ bool __cdecl h_RewardXP(CMD_ARGS) {
         UInt32 off = *opc;
         parsed = extractPadded(extractArgs(), pi, sd, &off, thisObj, contObj, script, ev, {&amount});
     }
+    ++g_rewardXpCmd;
     bool ok = CMD_FWD(o_RewardXP);
-    if (ok && parsed && amount) g_hub->record(ModActorValue{kPseudoAV_XP, amount, Recipient::dflt()});
+    --g_rewardXpCmd;
+    // XP is shared: every player gets a scripted XP reward, whatever caused the script (a quest, a dialogue, an object)
+    if (ok && parsed && amount) g_hub->record(ModActorValue{kPseudoAV_XP, amount, Recipient::all()});
     return ok;
 }
 
@@ -1053,7 +1698,7 @@ bool __cdecl h_SetAngle(CMD_ARGS) {
 
 // ActorValue commands (Set/Force/Mod/Damage): record the NET change on the player as an integer delta.
 NonPlayerAvObserver g_npAvObs;
-bool avCmd(Fn_Cmd o, int kind /*0 set 1 mod 2 force 3 damage*/, CMD_ARGS) {
+bool avCmd(Fn_Cmd o, int kind /*0 set 1 mod 2 force 3 damage 4 restore*/, CMD_ARGS) {
     if (blockedNow()) return true;
     if (!capturing() || !isPlayer(thisObj)) {
         if (capturing() && thisObj) {
@@ -1091,6 +1736,13 @@ bool __cdecl h_ModAV(CMD_ARGS) { return avCmd(o_ModAV, 1, pi, sd, thisObj, contO
 bool __cdecl h_SetAV(CMD_ARGS) { return avCmd(o_SetAV, 0, pi, sd, thisObj, contObj, script, ev, res, opc); }
 bool __cdecl h_ForceAV(CMD_ARGS) { return avCmd(o_ForceAV, 2, pi, sd, thisObj, contObj, script, ev, res, opc); }
 bool __cdecl h_DamageAV(CMD_ARGS) { return avCmd(o_DamageAV, 3, pi, sd, thisObj, contObj, script, ev, res, opc); }
+// A doctor's radiation cure run for a guest took the HOST's rads away and never the guest's (2026-11-16, Doc Church). On the player it is the
+// command itself that travels (each machine restores its own player; a net delta replayed as ModActorValue left a guest at -1e9 rads and
+// crashed it); on an NPC hooks_world's observer turns it into a SetActorValueRef as before.
+bool __cdecl h_RestoreAV(CMD_ARGS) {
+    if (isPlayer(thisObj)) return storyCmd(storySpecFor(kOpRestoreActorValue), o_RestoreAV, pi, sd, thisObj, contObj, script, ev, res, opc);
+    return avCmd(o_RestoreAV, 4, pi, sd, thisObj, contObj, script, ev, res, opc);
+}
 
 // ------------------------------------------------------------------ party-aware condition evaluators
 // Evaluator = bool(thisObj, param1, param2, double* result), cdecl. When the local player is an operand of a party-aware function and the
@@ -1192,6 +1844,7 @@ const Entry kEntries[] = {
     HK(Cmd_SetActorValue, h_SetAV, o_SetAV, true),
     HK(Cmd_ForceActorValue, h_ForceAV, o_ForceAV, true),
     HK(Cmd_DamageActorValue, h_DamageAV, o_DamageAV, true),
+    HK(Cmd_RestoreActorValue, h_RestoreAV, o_RestoreAV, true),
     HK(QuestSetFailed, h_SetFailed, o_SetFailed, true),
     HK(ActorSetTeammate, h_Teammate, o_Teammate, true),
     // xNVSE's EventManager writes `jmp MarkEventHook` here the first time anything registers a game-event handler (our own OnDrop
@@ -1200,7 +1853,9 @@ const Entry kEntries[] = {
     {&addr::MarkScriptEvent, reinterpret_cast<void*>(&h_MarkEvent), reinterpret_cast<void*>(&o_MarkEvent), true, true, true},
     HK(PlayerSetControlsDisabled, h_Controls, o_Controls, true),
     HK(QuestCompleteAllObjectives, h_CompleteAll, o_CompleteAll, true),
-    {&addr::RefActivate, reinterpret_cast<void*>(&h_Activate), reinterpret_cast<void*>(&o_Activate), true, true},
+    // on the host too: its own door use goes out on the door channel (DoorUseObserver); the guest-only parts check the role themselves
+    {&addr::RefActivate, reinterpret_cast<void*>(&h_Activate), reinterpret_cast<void*>(&o_Activate), true, false},
+    {&addr::DialogRequestOpen, reinterpret_cast<void*>(&h_DialogOpen), reinterpret_cast<void*>(&o_DialogOpen), true, true},
     HK(Cmd_SetFactionRank, h_SetFactionRank, o_SetFactionRank, true),
     HK(Cmd_ModFactionRank, h_ModFactionRank, o_ModFactionRank, true),
     HK(Cmd_AddToFaction, h_AddToFaction, o_AddToFaction, true),
@@ -1239,6 +1894,8 @@ const Entry kEntries[] = {
     HK(Cmd_RemoveAllTypedItems, h_RemoveAllTyped, o_RemoveAllTyped, true),
     HK(Cmd_PlaceAtMe, h_PlaceAtMe, o_PlaceAtMe, true),
     HK(Cmd_PlaceLeveledActorAtMe, h_PlaceLeveled, o_PlaceLeveled, true),
+    HK(RefIsDestructible, h_IsDestructible, o_IsDestructible, false),
+    HK(ActorAddItem, h_ActorAddItem, o_ActorAddItem, false),
 };
 
 // ------------------------------------------------------------------ calling-convention pins
@@ -1269,15 +1926,17 @@ PIN_F(RepSet, h_RepSet);
 PIN_F(RepAddExact, h_RepAddExact);
 PIN_F(PlayerRewardKarma, h_Karma);
 PIN_F(RefSetDisabled, h_SetDisabled);
+PIN_F(RefIsDestructible, h_IsDestructible);
+PIN_F(ActorAddItem, h_ActorAddItem);
 PIN_C(Cmd_Enable); PIN_C(Cmd_Disable);
 PIN_F(RefActivate, h_Activate);
 PIN_C(Cmd_AddItem); PIN_C(Cmd_RemoveItem); PIN_C(Cmd_RewardXP); PIN_C(Cmd_KillActor); PIN_C(Cmd_ResurrectActor);
 PIN_C(Cmd_MoveToMarker); PIN_C(Cmd_ModActorValue); PIN_C(Cmd_SetActorValue); PIN_C(Cmd_ForceActorValue);
-PIN_C(Cmd_DamageActorValue); PIN_C(Cmd_SetFactionRank); PIN_C(Cmd_ModFactionRank); PIN_C(Cmd_AddToFaction);
+PIN_C(Cmd_DamageActorValue); PIN_C(Cmd_RestoreActorValue); PIN_C(Cmd_SetFactionRank); PIN_C(Cmd_ModFactionRank); PIN_C(Cmd_AddToFaction);
 PIN_C(Cmd_RemoveFromFaction); PIN_C(Cmd_AddPerk); PIN_C(Cmd_RemovePerk); PIN_C(Cmd_AddScriptPackage);
 PIN_C(Cmd_RemoveScriptPackage); PIN_C(Cmd_StartCombat); PIN_C(Cmd_StopCombat); PIN_C(Cmd_Lock); PIN_C(Cmd_UnLock);
 PIN_C(MarkScriptEvent); PIN_C(Cmd_Activate); PIN_C(Cmd_SetOpenState); PIN_C(Cmd_SetDestroyed); PIN_C(Cmd_AddNote); PIN_C(Cmd_ShowMap); PIN_C(Cond_GetDistance); PIN_C(Cond_GetInCell); PIN_C(Cond_GetInSameCell); PIN_C(Cond_IsInCombat); PIN_C(Cond_GetDetected); PIN_C(Cond_GetHealthPercentage); PIN_C(Cond_GetItemCount); PIN_C(Cond_GetActorValue); PIN_C(Cmd_EnableFastTravel); PIN_C(Cmd_RemoveNote);
-PIN_C(Cmd_AddTopic); PIN_C(Cmd_SetWeather); PIN_C(Cmd_ForceWeather); PIN_C(Cmd_SetGlobalTimeMultiplier); PIN_C(Cmd_Autosave);
+PIN_C(DialogRequestOpen); PIN_C(Cmd_AddTopic); PIN_C(Cmd_SetWeather); PIN_C(Cmd_ForceWeather); PIN_C(Cmd_SetGlobalTimeMultiplier); PIN_C(Cmd_Autosave);
 PIN_C(Cmd_SystemSave); PIN_C(Cmd_ForceSave); PIN_C(Cmd_RemoveAllItems); PIN_C(Cmd_RemoveAllTypedItems); PIN_C(Cmd_PlaceAtMe); PIN_C(Cmd_PlaceLeveledActorAtMe); PIN_C(Cmd_MoveToMarkerWithFade); PIN_C(Cmd_SetPos); PIN_C(Cmd_SetAngle);
 
 }  // namespace
@@ -1312,9 +1971,15 @@ InitReport Init(CaptureHub& h, Role role, FormResolver* res) {
     });
     if (role == Role::Host) h.setScopeObservers(globalsBegin, globalsEnd);
     if (!g_reg) g_reg = std::make_unique<HookRegistry>(g_mem);
+    // Test copies only: NVCOOP_SKIP_HOOKS="name;name" leaves those hooks out (A/B of one hook against a game bug).
+    static char skipBuf[8192] = {};
+    GetEnvironmentVariableA("NVCOOP_SKIP_HOOKS", skipBuf, sizeof skipBuf);
+    const std::string skip = std::string(";") + skipBuf + ";";
+    auto skipped = [&](const char* name) { return skipBuf[0] && skip.find(std::string(";") + name + ";") != std::string::npos; };
     for (const Entry& e : kEntries) {
         if (e.hostOnly && role == Role::Client) continue;
         if (e.guestOnly && role != Role::Guest) continue;
+        if (skipped(e.spec->name)) { rep.hooks.push_back({e.spec->name, PatchStatus::NotInstalled}); continue; }   // "NotInstalled" in the log: left out on purpose
         Addr tramp = 0;
         PatchStatus st = g_reg->acquire(*e.spec, reinterpret_cast<Addr>(e.detour), &tramp, reinterpret_cast<Addr*>(e.origOut), e.chainForeign);
         if (installed(st)) {
@@ -1324,6 +1989,11 @@ InitReport Init(CaptureHub& h, Role role, FormResolver* res) {
             ++rep.failed;
         }
         rep.hooks.push_back({e.spec->name, st});
+    }
+    {
+        const PatchStatus st = patchMoveCtrlCall();
+        (installed(st) ? rep.ok : rep.failed) += 1;
+        rep.hooks.push_back({"ActorMove null controller", st});
     }
     if (g_storyOn && role != Role::Client) {   // story-capture: the RefCommand hooks + ForceActiveQuest (the three shared handlers are in kEntries)
         auto install = [&](const HookSpec& spec, void* detour, void* origOut) {
@@ -1377,6 +2047,7 @@ std::string chainedHookTargets() {
 void Shutdown() {
     if (g_hub) g_hub->setEnabled(false);
     g_reg.reset();  // destructor restores every patched entry that is still ours
+    unpatchMoveCtrlCall();
     g_hub = nullptr;
     g_pol.setGuest(false);
 }
@@ -1443,9 +2114,94 @@ bool execConsoleLine(const std::string& line) { return g_consoleExec && g_consol
 bool execConsoleLineOn(const std::string& line, uint32_t refID) { return g_consoleExec && g_consoleExec(line, refID); }
 
 void setActivateObserver(ActivateObserver obs) { g_activateObs = std::move(obs); }
+namespace {
+// Compiled script code (Script::data +0x30, Script::info.dataLength +0x20): ScriptName, then statements of [opcode u16][length u16][length
+// bytes]; a block starts with Begin (0x10) whose first parameter is the block type (2 = OnActivate).
+bool scriptHasOnActivateSEH(const void* script) {
+    __try {
+        const uint8_t* d = *reinterpret_cast<const uint8_t* const*>(reinterpret_cast<const char*>(script) + 0x30);
+        const uint32_t n = *reinterpret_cast<const uint32_t*>(reinterpret_cast<const char*>(script) + 0x20);
+        if (!d || n < 4 || n > 0x100000) return false;
+        for (uint32_t at = 0; at + 4 <= n;) {
+            const uint16_t op = static_cast<uint16_t>(d[at] | d[at + 1] << 8), len = static_cast<uint16_t>(d[at + 2] | d[at + 3] << 8);
+            if (op == 0x10 && len >= 2 && at + 6 <= n && (d[at + 4] | d[at + 5] << 8) == 2) return true;
+            at += 4 + len;
+        }
+        return false;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+}  // namespace
+
+// Under NV:MP a guest's open of an ordinary door is put back by the host's copy (also with co-op off: NV:MP alone, 2026-11-12), so the host
+// opens it for the guest. Load doors (they take the player somewhere) and locked doors (lockpicking, keys) stay the guest's own.
+namespace {
+// 0 = not a door a guest's use goes to the host for, 1 = such a door, unlocked here, 2 = such a door, locked here.
+int plainDoorState(uint32_t refID) {
+    auto* r = static_cast<TESObjectREFR*>(refID && g_res ? g_res->lookup(refID) : nullptr);
+    if (!r || !isDoor(r) || !nvmpPresent()) return 0;
+    if (r->extraDataList.GetByType(kExtraData_Teleport)) return 0;
+    if (auto* xl = static_cast<ExtraLock*>(r->extraDataList.GetByType(kExtraData_Lock)))
+        if (xl->data && (xl->data->flags & 1)) return 2;
+    return 1;
+}
+}  // namespace
+bool isForwardableDoor(uint32_t refID) { return plainDoorState(refID) == 1; }
+int doorOpenStateNow(uint32_t refID) { return g_doorState ? g_doorState(refID) : 0; }
+void setDoorUseObserver(DoorUseObserver obs) { g_doorUseObs = std::move(obs); }
+void holdDoorForGuest(uint32_t refID) { if (refID) g_nvmpOpenDoors[refID] = GetTickCount64(); }
+bool isLockedPlainDoor(uint32_t refID) { return plainDoorState(refID) == 2; }
+
+bool isScriptedActivator(uint32_t refID) {
+    auto* r = static_cast<TESObjectREFR*>(refID && g_res ? g_res->lookup(refID) : nullptr);
+    if (!r || !r->baseForm) return false;
+    auto* xs = static_cast<ExtraScript*>(r->extraDataList.GetByType(kExtraData_Script));
+    if (!xs) return false;
+    const uint8_t t = r->baseForm->typeID;
+    if (t == kFormType_TESObjectACTI || t == kFormType_BGSTalkingActivator) return true;
+    // Anything else with its own OnActivate block (a holotape whose script hands out the note through a quest stage: MS08's clue tapes, Doc
+    // Church's among them, did nothing for a guest). Doors, containers and actors keep their own sync.
+    if (t == kFormType_TESObjectDOOR || t == kFormType_TESObjectCONT || t == kFormType_TESNPC || t == kFormType_TESCreature) return false;
+    return xs->script && scriptHasOnActivateSEH(xs->script);
+}
+TalkGate& talkGate() { return g_talkGate; }
+void setDialogueResultObserver(DialogueResultObserver obs) { g_dlgResultObs = std::move(obs); }
+void markEchoLine(uint32_t infoRefID, uint32_t npcRefID, uint32_t forMs) { g_echo.add(infoRefID, npcRefID, GetTickCount64() + forMs); }
+uint64_t echoLinesSkipped() { return g_echo.skipped(); }
+const std::vector<RepeatedLine>& repeatedLines() { return g_repeatLog; }
+DoorSyncStats doorSyncStats() { return {g_nvmpDoorCalls, g_doorClosesHeld, static_cast<uint64_t>(g_nvmpOpenDoors.size()), g_doorStatesNotSent}; }
+
+
+namespace {
+bool topicRunSEH(void* info, uint32_t onEnd, void* npc) {
+    __try {
+        reinterpret_cast<void(__thiscall*)(void*, uint32_t, void*)>(addr::TopicInfoRunResult.target)(info, onEnd, npc);   // through h_TopicRun: captured
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+}  // namespace
+
+bool runInfoResultFor(uint32_t actorRefID, uint8_t slot, uint32_t infoRefID, uint32_t npcRefID, bool onEnd) {
+    if (g_pol.guest() || !trampolineOfAny(addr::TopicInfoRunResult.target)) return false;   // uncaptured, it would change only the host
+    void* info = infoRefID ? g_res->lookup(infoRefID) : nullptr;
+    void* npc = npcRefID ? g_res->lookup(npcRefID) : nullptr;
+    if (!info || !actorRefID) return false;
+    if (*reinterpret_cast<uint8_t*>(reinterpret_cast<char*>(info) + 4) != kFormType_TESTopicInfo) return false;
+    if (actorRefID != kPlayerRefID) registerPlayerSlot(actorRefID, slot);
+    ActingPlayerScope acting(actorRefID);
+    ++g_guestResultRun;
+    const bool ok = topicRunSEH(info, onEnd ? 1u : 0u, npc);
+    --g_guestResultRun;
+    return ok;
+}
+void setDoorStateQuery(std::function<int(uint32_t refID)> f) { g_doorState = std::move(f); }
 void setEventObserver(EventObserver obs) { g_eventObs = std::move(obs); }
 void setNonPlayerAvObserver(NonPlayerAvObserver obs) { g_npAvObs = std::move(obs); }
 bool blockMutationNow() { return g_pol.blockMutation(); }
+bool isNvmpCaller(const void* ret) { return calledByNvmp(ret); }
 
 void enableStatePolling(bool on, bool prime) {
     g_statePolling = on;
@@ -1517,9 +2273,32 @@ void setGuestQuestGate(bool on) { g_pol.setQuestGate(on); }
 const Suppressed& suppressed() { return g_pol.stats(); }
 const ScriptStats& scriptStats() { return g_sstats; }
 bool applying() { return g_pol.applying(); }
+bool inRewardXpCommand() { return g_rewardXpCmd > 0; }
+uint64_t nvmpItemCalls() { return g_nvmpItemCalls; }
+uint64_t nvmpItemFaults() { return g_igCaught; }
+void tickNvmpResync() {
+    const ULONGLONG now = GetTickCount64();
+    for (size_t i = 0; i < g_resyncs.size();) {
+        if (now - g_resyncs[i].at < kResyncSettleMs) { ++i; continue; }
+        const NvmpResync r = g_resyncs[i];
+        g_resyncs.erase(g_resyncs.begin() + i);
+        flushResync(r);
+    }
+}
+std::vector<std::pair<uint32_t, int>> heldItemCounts(void* ref) {
+    std::vector<std::pair<uint32_t, int>> out;
+    for (auto& [f, n] : heldItems(ref)) out.emplace_back(refIdOf(f), n);
+    return out;
+}
+NvmpResyncStats nvmpResyncStats() { return {g_resyncsStarted, g_addsAbsorbed, g_addsTrimmed, g_resyncRemoved}; }
+uint64_t bogusDestructibleRefs() { return static_cast<uint64_t>(g_bogusDestructible); }
+uint64_t nullMoveControllers() { return static_cast<uint64_t>(g_nullMoveCtrl); }
+void setNvmpItemGuardReport(void (*report)(const char*)) { g_igReport = report; }
 
 ScriptGate::ScriptGate() { ++g_gate; }
 ScriptGate::~ScriptGate() { --g_gate; }
 int scriptGateDepth() { return g_gate; }
+ScriptGateLift::ScriptGateLift() : saved_(g_gate) { g_gate = 0; }
+ScriptGateLift::~ScriptGateLift() { g_gate += saved_; }
 
 }  // namespace nvhooks

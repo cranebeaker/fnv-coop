@@ -386,6 +386,16 @@ void PuppetManager::Tick(uint32_t now) {
     ++tickNo_;
     for (Slot slot : order) {
         Puppet& p = puppets_[slot];
+        // A slot that gave up gets a fresh round after failedRetryMs: the attempts often fail only because this machine was still
+        // loading a save or changing cells (in game 2026-10-26: a guest gave up on the host's puppet during its own load, for good).
+        if (p.phase == Phase::Failed && cfg_.failedRetryMs && !avatarFaults().noFailedRetry &&
+            static_cast<int32_t>(now - p.nextSpawnAt) >= static_cast<int32_t>(cfg_.failedRetryMs)) {
+            p.phase = Phase::Absent;
+            p.attempts = 0;
+            p.backoffMs = 0;
+            p.nextSpawnAt = now;
+            Log("avatar: retrying slot " + std::to_string((int)p.slot));
+        }
         if (p.phase == Phase::Failed || !p.havePose) continue;
         if (p.poseFresh) {
             p.poseFresh = false;

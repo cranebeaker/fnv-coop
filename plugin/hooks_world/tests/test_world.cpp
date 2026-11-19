@@ -234,6 +234,11 @@ TEST(av_names_and_lines) {
     CHECK(std::strcmp(avName(5), "Strength") == 0);
     CHECK(std::strcmp(avName(41), "Guns") == 0);
     CHECK(std::strcmp(avName(45), "Unarmed") == 0);
+    CHECK(std::strcmp(avName(46), "InventoryWeight") == 0);
+    CHECK(std::strcmp(avName(62), "Variable01") == 0);
+    CHECK(std::strcmp(avName(71), "Variable10") == 0);
+    CHECK(std::strcmp(avName(76), "DamageThreshold") == 0);
+    CHECK(std::strcmp(avName(77), "") == 0);
     CHECK(std::strcmp(avName(999), "") == 0);
     SetActorValueRef x{esm(1), 16, 250, AvMode::Set};
     CHECK(avLine(x) == "SetActorValue Health 250");
@@ -263,6 +268,23 @@ TEST(console_lines) {
     CHECK(scriptPackageLine(false, 0xAB) == "RemoveScriptPackage 000000AB");
     CHECK(placeAtMeLine(0x1234, 3) == "PlaceAtMe 00001234 3");
     CHECK(setPosLine('X', 1.5f) == "SetPos X 1.5");
+}
+
+TEST(world_log_drops_repeated_state) {
+    // a script that sets the same state every frame (Megaton Clinic's SetCellPublicFlag) sends it once, not once per frame
+    WorldLog l;
+    l.push(SetCellPublic{esm(0x3A2E), false});
+    CHECK(l.drain().size() == 1);
+    for (int i = 0; i < 100; ++i) l.push(SetCellPublic{esm(0x3A2E), false});
+    CHECK(l.size() == 0 && l.repeats() == 100);
+    l.push(SetCellPublic{esm(0x3A2E), true});   // a real change still goes
+    l.push(SetCellPublic{esm(0x3A2F), false});  // another cell is another key
+    CHECK(l.drain().size() == 2);
+    l.push(SetCellPublic{esm(0x3A2E), false});  // and back
+    CHECK(l.drain().size() == 1);
+    l.push(SetActorValueRef{esm(1), 16, 5, AvMode::Damage});   // actor values are never dropped: deltas repeat on purpose
+    l.push(SetActorValueRef{esm(1), 16, 5, AvMode::Damage});
+    CHECK(l.drain().size() == 2);
 }
 
 TEST(world_log_coalesce) {
@@ -1125,6 +1147,7 @@ TEST(query_table) {
         CHECK(f && f->addr == t[i].addr);
     }
     CHECK(findEvaluator("NoSuchFunction") == nullptr);
+    CHECK(findEvaluator("GetDead") && findEvaluator("GetDead")->addr == 0x59D840);   // the death watch asks the engine's own IsDead
     CHECK(findEvaluator("getactorvalue") == nullptr);  // exact names, like the console grammar the callers use
     // the two evaluators our capture hooks patch must be in the table at the same addresses (that is the case the fix is for)
     CHECK(findEvaluator("GetActorValue") && findEvaluator("GetActorValue")->addr == nvhooks::addr::Cond_GetActorValue.target);
@@ -1232,6 +1255,24 @@ TEST(world_actors_type_filter_reads_creatures_from_the_reference) {
     CHECK(actorTypeMatches(kRefr, kRefr, 0x28));                        // 0x3A asks for plain references
 }
 
+TEST(death_watch_reports_alive_to_dead_once) {
+    DeathWatch w;
+    CHECK(w.update({{0x100, false}, {0x200, true}}).empty());          // 0x200: a corpse from the save, never reported
+    CHECK(w.update({{0x200, true}}).empty());
+    auto d = w.update({{0x100, true}, {0x200, true}});
+    CHECK(d.size() == 1 && d[0] == 0x100);                             // seen alive, now dead
+    CHECK(w.update({{0x100, true}}).empty());                          // once
+    CHECK(w.update({}).empty());                                       // unloaded: nothing
+    CHECK(w.update({{0x300, false}}).empty() && w.update({}).empty());
+    d = w.update({{0x300, true}});                                     // died while out of sight, seen dead later
+    CHECK(d.size() == 1 && d[0] == 0x300);
+    w.update({{0x100, false}});                                        // resurrected
+    d = w.update({{0x100, true}});
+    CHECK(d.size() == 1 && d[0] == 0x100);
+    w.reset();
+    CHECK(w.tracked() == 0 && w.update({{0x100, true}}).empty());     // a load starts over: corpses are not news
+}
+
 int main() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     run("query_table", query_table);
@@ -1284,6 +1325,7 @@ int main() {
     run("world_baseline_folds_net_state", world_baseline_folds_net_state);
     run("baseline_replay_on_client_is_idempotent", baseline_replay_on_client_is_idempotent);
     run("world_actors_type_filter_reads_creatures_from_the_reference", world_actors_type_filter_reads_creatures_from_the_reference);
+    run("death_watch_reports_alive_to_dead_once", death_watch_reports_alive_to_dead_once);
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

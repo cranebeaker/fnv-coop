@@ -160,6 +160,8 @@ public:
     // A guest asked the host to run a real activation / trigger / pickup. The host plugin executes it with its capture
     // open and commits the resulting effects (commit(slot, cause, effects)). Called exactly once per request.
     std::function<void(PlayerId slot, IntentKind kind, const FormRef& ref, uint32_t epoch, uint32_t id)> onAction;
+    // The cause the guest attached to the action being run (valid inside onAction; empty for kinds that carry none).
+    const Cause& actionCause() const { return actionCause_; }
     // Optional hook run on every committed txn BEFORE policy normalization (the quest rules engine rewrites recipients here).
     std::function<void(EffectTxn&)> txnFilter;
     // Desync repair, issue #25: a client reported quest running states the host's shared world has no entry for. A quest's running
@@ -190,6 +192,7 @@ public:
     void reset(const StoryLog& restored) { log_ = restored; }
 
 private:
+    Cause actionCause_;   // see actionCause()
     static constexpr PeerId kNoPeer = ~PeerId(0);
     struct Job;
     struct Sync;
@@ -256,7 +259,8 @@ public:
     // resetState), delivered in order exactly once. Returns the intent id (0 if the client never connected).
     uint32_t submitIntent(const Cause& cause, std::vector<Effect> effects);
     // Ask the host to perform ActivateRef / TriggerEnter / PickUp on `ref` (nothing is applied locally).
-    uint32_t submitAction(IntentKind kind, const FormRef& ref);
+    // `cause` travels with it (DialogueResult: the speaker and the phase); the host hands it to onAction as actionCause().
+    uint32_t submitAction(IntentKind kind, const FormRef& ref, const Cause& cause = Cause());
 
     // Join a game in progress: give the session the client's OWN world (engine dump, same layout as the host's baseline)
     // before connect(). The Hello then asks for a baseline transfer; the sink receives the differences with

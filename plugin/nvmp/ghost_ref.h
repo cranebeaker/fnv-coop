@@ -11,6 +11,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace nvmp {
 
@@ -22,5 +23,15 @@ void BindSlotToNetId(uint8_t coopSlot, uint32_t netId);
 
 // netId of the NV:MP character whose display name equals `name` (case-insensitive, non-local only); 0 if none.
 uint32_t NetIdByName(const std::string& name);
+
+// Whether `ref` is another player's NV:MP character in this game (any of them, whatever its coop slot). The character list is
+// walked at most twice a second; game main thread only.
+bool IsRemotePlayerRef(uint32_t ref);
+
+// The first other player's NV:MP character in the list (on a guest: the host, who joins first); 0 if none.
+uint32_t FirstRemotePlayerRef();
+
+// Host: the co-op slots of the guests connected now, ascending. GhostRefOfPlayer maps slot k to the k-th of them (a reconnect gets a new slot).
+void SetConnectedGuestSlots(const std::vector<uint8_t>& slots);
 
 }  // namespace nvmp

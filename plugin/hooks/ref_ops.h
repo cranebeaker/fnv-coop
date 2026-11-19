@@ -84,6 +84,14 @@ LineResult buildRefCommandLine(const fnvcoop::RefCommand& c, const FormToRef& fr
 bool opPerformedHere(const RefOpSpec& s, uint32_t callingRef, const std::function<bool(uint32_t refID)>& remoteDriven);
 // Activate is performed only on object types where it cannot open a menu or start a conversation on a machine that did not ask for it.
 bool activateTypeSafe(unsigned formTypeId);
+// An Activate whose activator is the player (`Activate player`: the host's own use of the Megaton bomb) is that player's interaction: the
+// object's script asks THEM (a skill check box, a choice). A guest replaying it ran the script for its own player and got the box too; the shared
+// results of the activation reach it as the host's captured effects anyway.
+bool activatedByPlayer(const fnvcoop::FormRef& activator);
+// A door's state after an activation, from GetOpenState (1 open, 2 opening, 3 closed, 4 closing): Activate toggles a door, so the
+// host records where the door ends up instead of the toggle (a guest whose door already differed would toggle it the wrong way).
+// False when the engine gave no state (0 or anything else).
+bool doorEndsOpen(int openState, bool* open);
 
 // ForceActiveQuest <quest>: the quest the player's journal focuses on (an existing Effect type, ForceActiveQuest).
 std::string forceActiveQuestCmd(uint32_t questRefID);

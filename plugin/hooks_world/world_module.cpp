@@ -61,6 +61,10 @@ void TryInit() {
     g_inited = true;
     char role[32] = {};
     GetPrivateProfileStringA("coop", "role", "host", role, sizeof role, IniPath().c_str());
+    // the NV:MP launcher (TTW-CoOp.cmd) passes the role: it wins over the ini, like in coop_module.cpp LoadConfig
+    char envRole[32] = {};
+    const DWORD envN = GetEnvironmentVariableA("NVCOOP_ROLE", envRole, sizeof envRole);
+    if (envN > 0 && envN < sizeof envRole) std::snprintf(role, sizeof role, "%s", std::string(envRole) == "join" ? "client" : envRole);
     std::string r = role;
     g_role = (r == "client" || r == "guest") ? nvhooks::Role::Guest : r == "gateonly" ? nvhooks::Role::Client : nvhooks::Role::Host;
     g_report = nvworld::Init(*hub, g_role);

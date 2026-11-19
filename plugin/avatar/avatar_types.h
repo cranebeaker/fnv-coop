@@ -84,7 +84,8 @@ struct Config {
     uint32_t spawnBackoffMs = 500;           // doubled per failure, capped at spawnBackoffMaxMs
     uint32_t spawnBackoffMaxMs = 8000;
     uint32_t load3DTimeoutMs = 5000;         // a spawned ref that never gets 3D is deleted and respawned
-    unsigned maxSpawnAttempts = 8;           // then the slot is Failed until AddPlayer is called for it again
+    unsigned maxSpawnAttempts = 8;           // then the slot is Failed for failedRetryMs (or until AddPlayer is called for it again)
+    uint32_t failedRetryMs = 30000;          // a Failed slot starts a fresh round of attempts after this (0 = never)
     uint32_t parkDelayMs = 500;              // remote's cell must stay unloaded this long before the puppet is deleted
     uint32_t staleMs = 3000;                 // no SetPose for this long: treat as frozen (stop locomotion)
 

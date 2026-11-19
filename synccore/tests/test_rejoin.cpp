@@ -153,6 +153,30 @@ TEST(rejoin, late_joiner_during_open_barrier_passes_first) {
 }
 
 // ---- mutation twins: each re-introduces the bug and the scenario must notice ----
+// A guest's DialogueResult action carries the speaker and the phase in its cause; the host sees them inside onAction, and only there.
+TEST(rejoin, action_cause_reaches_the_host_inside_on_action) {
+    Rig r(7);
+    r.addClient(1);
+    r.joinOnly(0); r.run(1200);
+    CHECK(r.cl[0]->cs->joined());
+    std::vector<std::pair<IntentKind, Cause>> seen;
+    r.host.onAction = [&](PlayerId, IntentKind k, const FormRef&, uint32_t, uint32_t) { seen.push_back({k, r.host.actionCause()}); };
+    Cause c;
+    c.kind = CauseKind::DialogueResult;
+    c.source = FormRef("fallout3.esm", 0x14E4C);   // the speaker
+    c.aux = 1;                                       // end phase
+    CHECK(r.cl[0]->cs->submitAction(IntentKind::DialogueResult, FormRef("fallout3.esm", 0x2B1F3), c) != 0);
+    r.run(300);
+    CHECK(r.cl[0]->cs->submitAction(IntentKind::ActivateRef, FormRef("fallout3.esm", 0x1234)) != 0);
+    r.run(300);
+    CHECK(seen.size() == 2);
+    if (seen.size() == 2) {
+        CHECK(seen[0].first == IntentKind::DialogueResult && seen[0].second == c);
+        CHECK(seen[1].first == IntentKind::ActivateRef && seen[1].second == Cause());
+    }
+    CHECK(r.host.actionCause() == Cause());   // cleared after the call
+}
+
 TEST(twin, rejoin_no_epoch_bump) {
     MutationScope m([] { Mutations x; x.noEpochBump = true; return x; }());
     std::string why;

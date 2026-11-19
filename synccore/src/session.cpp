@@ -258,7 +258,7 @@ void HostSession::sendSnapshotWelcome(Client& c) {
     w.rewards = grants_[c.slot];
     ++stats_.snapshots;
     c.lastSend = now_;
-    sendTo(c.peer, w);
+    sendBulk(c, w);   // counts against the bulk budget like every other snapshot
 }
 
 void HostSession::handle(PeerId from, const Message& m) {
@@ -611,7 +611,9 @@ void HostSession::handle(PeerId from, const Message& m) {
         } else if (in->kind != IntentKind::AppliedEffects) {
             c->lastIntent = std::max(c->lastIntent, in->id);
             ++stats_.actionsExecuted;
+            actionCause_ = in->cause;
             if (onAction) onAction(c->slot, in->kind, in->ref, in->epoch, in->id);
+            actionCause_ = Cause();
         } else {
             Cause cause = in->cause;
             if (isQuestRewardCause(cause.kind)) cause.kind = CauseKind::Intent;  // clients cannot claim host-run scripts
@@ -910,8 +912,17 @@ void HostSession::tick(uint64_t nowMs) {
     for (auto& [tok, c] : clients_) {
         if (!c.joined || c.acked >= log_.head()) { c.retxBackoff = 0; continue; }
         if (!c.sendNow && now_ < c.lastRetx + (uint64_t(opt_.rtoMs) << c.retxBackoff)) continue;
-        if (!log_.canReplayFrom(c.acked)) {
-            sendSnapshotWelcome(c);  // the txns this client still needs were compacted away
+        if (!log_.canReplayFrom(c.acked)) {   // the txns this client still needs were compacted away: a snapshot instead
+            // Paced like a batch retransmit (rto, backing off to 8x) and through the bulk budget. It used to go out on EVERY tick until the
+            // client's Ack arrived: real host 2026-11-17 21:28, 126 KB Welcomes once per frame (15 MB/s) queued behind each other in ENet,
+            // so the Ack never came, the process heap grew 15-20 MB/s and the game ran out of address space within minutes.
+            if (!c.sendNow && c.lastRetx != 0 && now_ < c.lastRetx + (uint64_t(opt_.rtoMs) << c.retxBackoff)) continue;
+            if (!bulkOk(c)) { ++stats_.welcomesThrottled; continue; }
+            sendSnapshotWelcome(c);
+            c.lastRetx = now_ ? now_ : 1;
+            c.sendNow = false;
+            if (c.acked == c.retxAcked) { if (c.retxBackoff < 3) ++c.retxBackoff; } else c.retxBackoff = 0;
+            c.retxAcked = c.acked;
             continue;
         }
         TxnBatch b;
@@ -1306,10 +1317,10 @@ void ClientSession::resetSession() {
     slot_ = kNoPlayer;
 }
 
-uint32_t ClientSession::submitAction(IntentKind kind, const FormRef& ref) {
+uint32_t ClientSession::submitAction(IntentKind kind, const FormRef& ref, const Cause& cause) {
     if (epoch_ == 0 || kind == IntentKind::AppliedEffects) return 0;
     uint32_t id = nextIntent_++;
-    PendingIntent pi{id, Cause(), {}, false, kind, ref};
+    PendingIntent pi{id, cause, {}, false, kind, ref};
     intents_.push_back(std::move(pi));
     if (joined_ && std::count_if(intents_.begin(), intents_.end(), [](const PendingIntent& p) { return !p.acked; }) == 1)
         sendHeadIntent();

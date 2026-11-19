@@ -112,6 +112,8 @@ const RefOpSpec kStorySpecs[] = {
     {fnvcoop::kOpUseWeapon, "useweapon", S_(Cmd_UseWeapon), "oooiiiiio", "abcijklmd", 4, REF | AI},
     // ---- full-screen video: the file name may hold spaces ("2 weeks later.bik"), so it travels as quoted text
     {fnvcoop::kOpPlayBink, "playbink", S_(Cmd_PlayBink), "qiiii", "sijkl", 1, 0},
+    // ---- an actor value given back on the player (L5 owns the handler; on an NPC it stays a hooks_world SetActorValueRef)
+    {fnvcoop::kOpRestoreActorValue, "restoreactorvalue", E_(Cmd_RestoreActorValue), "vf", "if", 2, PLY | SHARED},
 };
 const size_t kStorySpecCount = sizeof(kStorySpecs) / sizeof(kStorySpecs[0]);
 
@@ -256,6 +258,24 @@ const char* skillNameOf(int32_t av) {
     if (FNV_MUT(6)) av += 1;   // twin 6: off by one
     return av >= 32 && av <= 45 ? kSkills[av - 32] : nullptr;
 }
+// Any actor value's console name (RestoreActorValue RadiationRads ...); nullptr for codes past the table. NVSE ActorValueCode order, the
+// same list as hooks_world's avName.
+const char* avConsoleName(int32_t av) {
+    if (const char* s = skillNameOf(av)) return s;
+    if (av >= 32 && av <= 45) return nullptr;   // a skill code the mutation twin shifted: stays unprintable
+    static const char* const kNames[] = {
+        "Aggression", "Confidence", "Energy", "Responsibility", "Mood", "Strength", "Perception", "Endurance", "Charisma",
+        "Intelligence", "Agility", "Luck", "ActionPoints", "CarryWeight", "CritChance", "HealRate", "Health", "MeleeDamage",
+        "DamageResist", "PoisonResist", "RadResist", "SpeedMult", "Fatigue", "Karma", "XP", "PerceptionCondition",
+        "EnduranceCondition", "LeftAttackCondition", "RightAttackCondition", "LeftMobilityCondition", "RightMobilityCondition",
+        "BrainCondition", "Barter", "BigGuns", "EnergyWeapons", "Explosives", "Lockpick", "Medicine", "MeleeWeapons", "Repair",
+        "Science", "Guns", "Sneak", "Speech", "Survival", "Unarmed", "InventoryWeight", "Paralysis", "Invisibility", "Chameleon",
+        "NightEye", "Turbo", "FireResist", "WaterBreathing", "RadiationRads", "BloodyMess", "UnarmedDamage", "Assistance",
+        "ElectricResist", "FrostResist", "EnergyResist", "EmpResist", "Variable01", "Variable02", "Variable03", "Variable04",
+        "Variable05", "Variable06", "Variable07", "Variable08", "Variable09", "Variable10", "IgnoreCrippledLimbs", "Dehydration",
+        "Hunger", "SleepDeprivation", "DamageThreshold"};
+    return av >= 0 && av < static_cast<int32_t>(sizeof(kNames) / sizeof(kNames[0])) ? kNames[av] : nullptr;
+}
 
 LineResult buildRefCommandLine(const fnvcoop::RefCommand& c, const FormToRef& fromForm) {
     LineResult r;
@@ -312,7 +332,7 @@ LineResult buildRefCommandLine(const fnvcoop::RefCommand& c, const FormToRef& fr
             if (g < 0 || g >= kAnimGroupCount) { r.why = "animation group out of range"; return r; }
             std::snprintf(buf, sizeof buf, " %s", kAnimGroupNames[g]);
         } else if (t == 'v') {
-            const char* nm = skillNameOf(intOf(c, d));
+            const char* nm = c.op == fnvcoop::kOpRestoreActorValue ? avConsoleName(intOf(c, d)) : skillNameOf(intOf(c, d));
             if (!nm) { r.why = "actor value has no console name"; return r; }
             std::snprintf(buf, sizeof buf, " %s", nm);
         } else if (t == 'x') {
@@ -342,6 +362,17 @@ bool activateTypeSafe(unsigned t) {
     // and the base of an NPC / creature reference (0x2A / 0x2B) talks: all of them stay with the machine whose player used them.
     if (FNV_MUT(3)) return true;                        // twin 3: anything may be activated
     return t == 0x15 || t == 0x1C;
+}
+
+bool activatedByPlayer(const fnvcoop::FormRef& activator) {
+    if (FNV_MUT(17)) return false;                      // twin 17: a guest replays the host player's activation (its own box opens)
+    return activator.localId == 0x14 && activator.plugin == "falloutnv.esm";   // PlayerRef (index 0 is FalloutNV.esm, TTW included)
+}
+
+bool doorEndsOpen(int openState, bool* open) {
+    if (openState < 1 || openState > 4) return false;
+    *open = FNV_MUT(14) ? openState == 1 : (openState == 1 || openState == 2);   // MUTANT 14: a door still opening counts as closed
+    return true;
 }
 
 }  // namespace nvhooks

@@ -51,4 +51,8 @@ private:
     std::function<RefId(uint32_t)> newestOf_;
 };
 
+// Every item in the inventory of `ref` (a container, a corpse, any actor) by the engine's own totals: base container + changes. exact=false
+// when something could not be read (an unresolved leveled list, a created form). Game main thread.
+bool readRefContents(uint32_t ref, Items& out, bool& exact);
+
 }  // namespace nvcoop::loot

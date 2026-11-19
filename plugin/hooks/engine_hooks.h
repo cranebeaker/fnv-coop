@@ -64,6 +64,17 @@ public:
     ScriptGate& operator=(const ScriptGate&) = delete;
 };
 int scriptGateDepth();
+// Lifts every ScriptGate alive on this thread for its own lifetime. A console line IS a script: an applier that runs one inside a
+// gate (WorldApplier: the plan's console steps) must lift it, or Script::Execute skips the line and the command reports success.
+class ScriptGateLift {
+public:
+    ScriptGateLift();
+    ~ScriptGateLift();
+    ScriptGateLift(const ScriptGateLift&) = delete;
+    ScriptGateLift& operator=(const ScriptGateLift&) = delete;
+private:
+    int saved_;
+};
 
 // Non-host suppression (Role::Guest). A local script that mutates shared state is blocked when a script is running
 // (Script::Execute depth > 0) and no host txn is being applied. INFO result scripts never run locally on a guest.
@@ -83,6 +94,23 @@ public:
 void setGuestQuestGate(bool on);
 const Suppressed& suppressed();
 bool applying();
+// A RewardXP script command is running on this thread (main thread): its XP travels as a captured reward.
+bool inRewardXpCommand();
+// AddItem / RemoveItem / RemoveAllItems calls made by NV:MP itself (they bypass the guest gate and the capture).
+uint64_t nvmpItemCalls();
+// NV:MP's RemoveAllItems calls that faulted inside the engine and were abandoned instead of crashing (engine_hooks.cpp), and where to report them.
+uint64_t nvmpItemFaults();
+void setNvmpItemGuardReport(void (*report)(const char*));
+// NV:MP's NPC inventory resyncs (RemoveAllItems + AddItems) done incrementally (engine_hooks.cpp): call once per frame to finish them.
+void tickNvmpResync();
+struct NvmpResyncStats { uint64_t resyncs = 0, addsAbsorbed = 0, addsTrimmed = 0, removed = 0; };   // removed: item units
+NvmpResyncStats nvmpResyncStats();
+// Full item counts (base container + changes) of every plain item `ref` holds: (item refID, count).
+std::vector<std::pair<uint32_t, int>> heldItemCounts(void* ref);
+// Calls of TESObjectREFR::IsDestructible answered "no" because NV:MP flagged a reference whose base has no destruction data.
+uint64_t bogusDestructibleRefs();
+// Actor movement updates whose character controller was gone (the call at 0x9303C3 skipped instead of crashing at 0xCA9600).
+uint64_t nullMoveControllers();
 
 
 
@@ -95,6 +123,7 @@ struct ScriptStats {
     uint64_t applierLines = 0;      // console lines the applier itself executed (kill/resurrect/move); not counted above
     uint64_t questVarRollbacks = 0; // guest: shared quest vars an object / NPC / effect script wrote and that were put back (host is authoritative)
     uint64_t questVarGuarded = 0;   // guest: executions of scripts known to write a shared quest var
+    uint64_t ownActivations = 0;    // guest: OnActivate hand-backs (`Activate` on what the player just activated) let through
 };
 const ScriptStats& scriptStats();
 // Distinct GuestLocalRun script refIDs that ran, with run counts (diagnostic; at most 64 entries).
@@ -141,6 +170,44 @@ size_t pollHostState(StateSink& sink);
 enum class ActivateAction { Proceed, Suppress };
 using ActivateObserver = std::function<ActivateAction(const fnvcoop::FormRef& target)>;
 void setActivateObserver(ActivateObserver obs);
+// An activator (ACTI / talking activator) with a script attached: what it does lives in its OnActivate block (a repair check, a quest step).
+bool isScriptedActivator(uint32_t refID);
+// Under NV:MP: an unlocked door that is not a load door. A guest's use of it is the host's to run (NV:MP puts a guest's open back).
+bool isForwardableDoor(uint32_t refID);
+// The same kind of door, locked on this machine (a guest who picked the lock sends its use while the host's copy is still locked).
+bool isLockedPlainDoor(uint32_t refID);
+// This player opened / closed an ordinary door (unlocked, not a load door, NV:MP present), host or guest: refID and where it ends up.
+// NV:MP keeps only one copy's door state (the cell's "owner", either player) and puts the other's change back, so the plugin sends the
+// result to the other players, who set their copy the same way (coop_module.cpp, channel 0xD9).
+using DoorUseObserver = std::function<void(uint32_t refID, bool open)>;
+void setDoorUseObserver(DoorUseObserver obs);
+int doorOpenStateNow(uint32_t refID);   // GetOpenState of a loaded door (1 open, 2 opening, 3 closed, 4 closing; 0 = unknown)
+// The host opened this door for a guest: its own script's auto-close / re-lock is held for a while (TenpennyDoorScript took the console
+// activation for an NPC's and shut and locked the door again; a guest's door opened by NV:MP gets the same).
+void holdDoorForGuest(uint32_t refID);
+// Guest: conversations open only when the local player activated the NPC (talk_gate.h; hook 0x705070, Role::Guest only). Off until enabled.
+class TalkGate;
+TalkGate& talkGate();
+// Guest: this player's own conversation reached an INFO result script (blocked here; guests never run one). The observer asks the host
+// to run it (IntentKind::DialogueResult). Only for the DialogMenu the local player opened, never for barks or replicated scripts.
+using DialogueResultObserver = std::function<void(const fnvcoop::FormRef& info, const fnvcoop::FormRef& npc, bool onEnd)>;
+void setDialogueResultObserver(DialogueResultObserver obs);
+// A line this machine replays from another player's conversation (echo_lines.h): its result scripts are skipped for `forMs` (begin and end),
+// unless the local player is in their own conversation with that NPC.
+void markEchoLine(uint32_t infoRefID, uint32_t npcRefID, uint32_t forMs);
+uint64_t echoLinesSkipped();
+// Host: run INFO `infoRefID`'s begin/end result script with `npcRefID` as the speaker, captured, while `actorRefID` (a guest's NV:MP ghost,
+// or the host player as stand-in) is the acting player of party slot `slot`. False when the hook is missing or the forms are not loaded.
+bool runInfoResultFor(uint32_t actorRefID, uint8_t slot, uint32_t infoRefID, uint32_t npcRefID, bool onEnd);
+// Guest: lines of other conversations (barks, NPC to NPC) that came 4+ times within a minute here: a conversation loop on this copy.
+struct RepeatedLine { uint32_t info = 0, speaker = 0, perMinute = 0; uint64_t atMs = 0; };
+const std::vector<RepeatedLine>& repeatedLines();
+// NV:MP's door calls (SetOpenState / Activate) seen here, door scripts' closes held on doors NV:MP opened, doors held open now.
+struct DoorSyncStats { uint64_t nvmpCalls = 0, closesHeld = 0, held = 0, notSent = 0; };   // notSent: door states left to NV:MP
+DoorSyncStats doorSyncStats();
+// Story capture of Activate on a door: the door's GetOpenState after the activation (0 = unknown). Set by the plugin (the world module
+// owns the condition evaluator); unset = the Activate is recorded as the command, as before.
+void setDoorStateQuery(std::function<int(uint32_t refID)> f);
 
 // Player control lock (v1 for the baseline transfer): DisablePlayerControls / EnablePlayerControls (0x5CAE30 / 0x5CAD20) with all
 // seven flags, issued as console lines through the executor injected by the plugin (hooks_module sets it). Idempotent: only the
@@ -222,8 +289,10 @@ constexpr uint32_t kEvOnAdd = 0x1, kEvOnDrop = 0x4, kEvOnHit = 0x80, kEvOnOpen =
 
 // Host-side guard for other lanes' mutation hooks: true = a local script on a guest is mutating shared state, drop it (counts as suppressed).
 bool blockMutationNow();
+// True when `ret` (a return address) is inside NV:MP's client.dll: the command call is NV:MP's own sync, not a script's.
+bool isNvmpCaller(const void* ret);
 // Non-player actor values (SetActorValue/ModActorValue/ForceActorValue/DamageActorValue on an actor that is not the player), reported after the
-// original ran with the actor value before/after, only while capturing. kind: 0 set, 1 mod, 2 force, 3 damage. The observer turns it into
+// original ran with the actor value before/after, only while capturing. kind: 0 set, 1 mod, 2 force, 3 damage, 4 restore (hooks_world AvCmdKind). The observer turns it into
 // effects (hub()->record). Unset = only counted in unmapped().avOnNonPlayer.
 using NonPlayerAvObserver = std::function<void(const fnvcoop::FormRef& actor, uint32_t av, uint8_t kind, float before, float after)>;
 void setNonPlayerAvObserver(NonPlayerAvObserver obs);

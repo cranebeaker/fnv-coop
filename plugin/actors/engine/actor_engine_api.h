@@ -184,6 +184,7 @@ struct Config {
     bool stopCombatOnRestrain = true;
     bool startCombatOnTakeover = true;        // new owner re-targets from the last known combat target
     bool persistLedger = true;                // write the list of actors this machine restrained, so a save/load cannot leave them frozen
+    bool standIns = true;                     // make a clone for an actor the owner reports but this machine does not have (0 = never)
     uint32_t maxStandIns = 64;
     bool swapLeveled = true;                  // leveled pick differs from the local roll: replace the body with a clone of the pick (unverified in game)
     uint32_t saveGraceMs = 3000;              // after beforeSave(): no new clones for this long, so the save does not contain them

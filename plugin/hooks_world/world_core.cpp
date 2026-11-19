@@ -391,7 +391,11 @@ const char* avName(uint32_t av) {
         "DamageResist", "PoisonResist", "RadResist", "SpeedMult", "Fatigue", "Karma", "XP", "PerceptionCondition",
         "EnduranceCondition", "LeftAttackCondition", "RightAttackCondition", "LeftMobilityCondition", "RightMobilityCondition",
         "BrainCondition", "Barter", "BigGuns", "EnergyWeapons", "Explosives", "Lockpick", "Medicine", "MeleeWeapons", "Repair",
-        "Science", "Guns", "Sneak", "Speech", "Survival", "Unarmed"};
+        "Science", "Guns", "Sneak", "Speech", "Survival", "Unarmed", "InventoryWeight", "Paralysis", "Invisibility", "Chameleon",
+        "NightEye", "Turbo", "FireResist", "WaterBreathing", "RadiationRads", "BloodyMess", "UnarmedDamage", "Assistance",
+        "ElectricResist", "FrostResist", "EnergyResist", "EmpResist", "Variable01", "Variable02", "Variable03", "Variable04",
+        "Variable05", "Variable06", "Variable07", "Variable08", "Variable09", "Variable10", "IgnoreCrippledLimbs", "Dehydration",
+        "Hunger", "SleepDeprivation", "DamageThreshold"};   // 46..76: FO3/TTW scripts drive NPCs through Variable01..10
     return av < sizeof(kNames) / sizeof(kNames[0]) ? kNames[av] : "";
 }
 
@@ -488,8 +492,46 @@ std::string placeAtMeLine(uint32_t baseID, int count) {
 
 std::string setPosLine(char axis, float v) { return std::string("SetPos ") + axis + " " + num(v); }
 
+// ------------------------------------------------------------------------------------------------ DeathWatch
+std::vector<uint32_t> DeathWatch::update(const std::vector<std::pair<uint32_t, bool>>& seen) {
+    std::vector<uint32_t> died;
+    for (const auto& [id, dead] : seen) {
+        auto it = alive_.find(id);
+        if (!dead) { alive_[id] = true; continue; }
+        if (it != alive_.end() && it->second) { died.push_back(id); it->second = false; }
+        else if (it == alive_.end()) alive_[id] = FNV_MUT(53);   // MUTANT 53: a corpse seen for the first time counts as alive (reported)
+    }
+    return died;
+}
+
 // ------------------------------------------------------------------------------------------------ WorldLog
+namespace {
+// Same target of a state effect (cell, ref, actor, faction pair...): a later write of it replaces an earlier one. Never for actor values.
+bool sameStateKey(const WorldEffect& w, const WorldEffect& e) {
+    if (w.index() != e.index()) return false;
+    if (auto* x = std::get_if<SetEssential>(&e)) return std::get<SetEssential>(w).actor == x->actor && std::get<SetEssential>(w).refOnly == x->refOnly;
+    if (auto* x = std::get_if<SetRestrained>(&e)) return std::get<SetRestrained>(w).actor == x->actor;
+    if (auto* x = std::get_if<SetIgnoreCrime>(&e)) return std::get<SetIgnoreCrime>(w).actor == x->actor;
+    if (auto* x = std::get_if<SetFactionPlayerEnemy>(&e)) return std::get<SetFactionPlayerEnemy>(w).faction == x->faction;
+    if (auto* x = std::get_if<SetOwner>(&e)) return std::get<SetOwner>(w).ref == x->ref;
+    if (auto* x = std::get_if<SetCellOwner>(&e)) return std::get<SetCellOwner>(w).cell == x->cell;
+    if (auto* x = std::get_if<SetCellPublic>(&e)) return std::get<SetCellPublic>(w).cell == x->cell;
+    if (auto* x = std::get_if<SetRelation>(&e)) return std::get<SetRelation>(w).a == x->a && std::get<SetRelation>(w).b == x->b;
+    if (auto* x = std::get_if<SetScriptPackage>(&e))
+        return std::get<SetScriptPackage>(w).actor == x->actor && std::get<SetScriptPackage>(w).package == x->package;
+    return false;
+}
+}  // namespace
+
 void WorldLog::push(const WorldEffect& e) {
+    // A script that sets the same state every frame (Megaton Clinic's "SetCellPublicFlag MegatonClinic 0" ran each frame on the host) sent
+    // it every frame: 10 000 applies on the guest in a few minutes. A state write equal to the last one pushed for its key is dropped.
+    if (!std::holds_alternative<SetActorValueRef>(e)) {
+        auto it = std::find_if(sent_.begin(), sent_.end(), [&](const WorldEffect& w) { return sameStateKey(w, e); });
+        if (it != sent_.end() && *it == e) { ++repeats_; return; }
+        if (it != sent_.end()) *it = e;
+        else sent_.push_back(e);
+    }
     if (!FNV_MUT(18)) {
         for (auto& q : q_) {
             if (q.index() != e.index()) continue;

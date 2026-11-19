@@ -17,6 +17,7 @@
 #include "common/nvcoop_api.h"
 #include "effect_json.h"
 #include "engine_hooks.h"
+#include "talk_gate.h"
 #include "guest_local_run.h"
 #include "guest_objvars.h"
 #include "reload/reload_state.h"
@@ -103,12 +104,19 @@ void InitHooks() {
     g_inited = true;
     char role[32] = {};
     GetPrivateProfileStringA("coop", "role", "host", role, sizeof role, IniPath().c_str());
+    // the NV:MP launcher (TTW-CoOp.cmd) passes the role: it wins over the ini, like in coop_module.cpp LoadConfig
+    char envRole[32] = {};
+    const DWORD envN = GetEnvironmentVariableA("NVCOOP_ROLE", envRole, sizeof envRole);
+    if (envN > 0 && envN < sizeof envRole) std::snprintf(role, sizeof role, "%s", std::string(envRole) == "join" ? "client" : envRole);
     std::string r = role;
     g_role = (r == "client" || r == "guest") ? nvhooks::Role::Guest : r == "gateonly" ? nvhooks::Role::Client : nvhooks::Role::Host;
     g_hub.addSink([](fnvcoop::EffectTxn&& t) { g_txns.push_back(nvhooks::txnToJson(t)); });
     // story-capture (docs/tools/story-capture.md): ~75 more script commands become RefCommand effects. OFF unless [hooks] story_capture=1.
     nvhooks::setStoryCapture(GetPrivateProfileIntA("hooks", "story_capture", 0, IniPath().c_str()) != 0);
+    // Guest: a conversation an NPC starts (forced greet) belongs to the host's player; [hooks] guest_npc_talk=1 lets it open here too.
+    nvhooks::talkGate().setEnabled(g_role == nvhooks::Role::Guest && GetPrivateProfileIntA("hooks", "guest_npc_talk", 0, IniPath().c_str()) == 0);
     if (g_role == nvhooks::Role::Guest) PrimeXnvseEventHook();   // before Init: MarkScriptEvent is a guest-only hook
+    nvhooks::setNvmpItemGuardReport([](const char* line) { nvcoop::Log("%s", line); });
     g_report = nvhooks::Init(g_hub, g_role);
     if (const std::string ch = nvhooks::chainedHookTargets(); !ch.empty()) nvcoop::Log("hooks: chained on top of another patcher: %s", ch.c_str());
     LoadGuestLocalRun();
@@ -218,6 +226,9 @@ bool MExecRef(const std::string& params, std::string& out) {
         }
         nvhooks::ScopedCapture sc(g_hub, c);
         ok = nvhooks::execConsoleLineOn(p.get("cmd").asString(""), id);
+    } else if (p.get("apply").asBool(false)) {  // as if a host txn were applied: a guest's gate lets shared mutators through
+        nvhooks::ApplyScope as;
+        ok = nvhooks::execConsoleLineOn(p.get("cmd").asString(""), id);
     } else {
         ok = nvhooks::execConsoleLineOn(p.get("cmd").asString(""), id);
     }
@@ -242,6 +253,26 @@ bool MRefInfo(const std::string& params, std::string& out) {
         .set("lifeState", (int64_t)*reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(ref) + 0x108))
         .set("flags", (int64_t)ref->flags).set("type", (int64_t)ref->typeID)
         .set("cell", (int64_t)(ref->parentCell ? ref->parentCell->refID : 0));
+    out = o.dump();
+    return true;
+}
+
+// ref.items {ref}: every plain item the reference holds with its full count (base container + changes), as {"<item refID hex>": n}.
+bool MRefItems(const std::string& params, std::string& out) {
+    Value p;
+    std::string err;
+    if (!nvcoop::json::parse(params, p, err)) { out = "bad params: " + err; return false; }
+    fnvcoop::FormRef r;
+    if (!nvhooks::strToRef(p.get("ref").asString(""), &r)) { out = "bad ref"; return false; }
+    uint32_t id = nvhooks::resolver().fromRef(r);
+    void* ref = id ? nvhooks::resolver().lookup(id) : nullptr;
+    if (!ref) { out = "reference not loaded"; return false; }
+    Value o = Value::object();
+    for (auto& [item, n] : nvhooks::heldItemCounts(ref)) {
+        char k[16];
+        std::snprintf(k, sizeof k, "%08X", item);
+        o.set(k, (int64_t)n);
+    }
     out = o.dump();
     return true;
 }
@@ -441,7 +472,26 @@ bool MGuestStats(const std::string&, std::string& out) {
         .set("questScriptsSkipped", (int64_t)sp.questScripts).set("mutationsBlocked", (int64_t)sp.mutations)
         .set("resultScriptsBlocked", (int64_t)sp.resultScripts).set("perScript", per)
         .set("questVarGuarded", (int64_t)s.questVarGuarded).set("questVarRollbacks", (int64_t)s.questVarRollbacks)
-        .set("objVarScripts", (int64_t)nvhooks::ObjectVarWrites::builtin().scripts()).set("objVarRows", (int64_t)nvhooks::ObjectVarWrites::builtin().rows());
+        .set("objVarScripts", (int64_t)nvhooks::ObjectVarWrites::builtin().scripts()).set("objVarRows", (int64_t)nvhooks::ObjectVarWrites::builtin().rows())
+        .set("talkGate", nvhooks::talkGate().enabled()).set("talksOpened", (int64_t)nvhooks::talkGate().opened())
+        .set("npcTalksRefused", (int64_t)nvhooks::talkGate().blocked()).set("ownActivations", (int64_t)s.ownActivations)
+        .set("nvmpItemCalls", (int64_t)nvhooks::nvmpItemCalls()).set("nvmpItemFaults", (int64_t)nvhooks::nvmpItemFaults())
+        .set("bogusDestructible", (int64_t)nvhooks::bogusDestructibleRefs())
+        .set("nullMoveControllers", (int64_t)nvhooks::nullMoveControllers())
+        .set("nvmpResyncs", (int64_t)nvhooks::nvmpResyncStats().resyncs).set("nvmpAddsAbsorbed", (int64_t)nvhooks::nvmpResyncStats().addsAbsorbed)
+        .set("nvmpAddsTrimmed", (int64_t)nvhooks::nvmpResyncStats().addsTrimmed).set("nvmpResyncRemoved", (int64_t)nvhooks::nvmpResyncStats().removed);
+    Value rep = Value::array();
+    for (const auto& r : nvhooks::repeatedLines()) {
+        char b[40];
+        Value e = Value::object();
+        std::snprintf(b, sizeof b, "%08X", r.info); e.set("info", std::string(b));
+        std::snprintf(b, sizeof b, "%08X", r.speaker); e.set("speaker", std::string(b));
+        e.set("perMinute", (int64_t)r.perMinute).set("agoMs", (int64_t)(GetTickCount64() - r.atMs));
+        rep.push(e);
+    }
+    o.set("repeatedLines", rep);
+    const auto ds = nvhooks::doorSyncStats();
+    o.set("nvmpDoorCalls", (int64_t)ds.nvmpCalls).set("doorClosesHeld", (int64_t)ds.closesHeld).set("doorsHeldOpen", (int64_t)ds.held).set("doorStatesLeftToNvmp", (int64_t)ds.notSent);
     out = o.dump();
     return true;
 }
@@ -550,6 +600,7 @@ void OnLoad(void* nvse) {
     nvcoop::RegisterMethod("controls.lock", MControls, true);
     nvcoop::RegisterMethod("exec.ref", MExecRef, true);
     nvcoop::RegisterMethod("ref.info", MRefInfo, true);
+    nvcoop::RegisterMethod("ref.items", MRefItems, true);
     nvcoop::RegisterMethod("vars.dump", MVarsDump, true);
     nvcoop::RegisterMethod("guest.stats", MGuestStats, true);
     nvcoop::RegisterMethod("observe.set", MObserveSet, true);
@@ -570,6 +621,7 @@ void OnMessage(uint32_t type, void*, uint32_t) {
 
 // Per main-loop frame (outside any script): close capture scopes whose end() never ran.
 void OnFrame() {
+    if (g_inited) nvhooks::tickNvmpResync();   // NV:MP NPC inventory resyncs whose re-adds are in
     if (g_inited) nvhooks::RemoteApplier::tickAll();   // parked MoveRefs whose destination cell has loaded since (about once a second)
     if (g_inited && g_hub.enabled()) {
         size_t n = g_hub.reapStale();

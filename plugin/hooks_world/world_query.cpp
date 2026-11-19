@@ -12,6 +12,7 @@ const Evaluator kEval[] = {
     {"GetOpenState", 0x5A1C30, false},          {"GetDestroyed", 0x5A2330, false},   {"GetItemCount", 0x59D8E0, true},
     {"GetIgnoreCrime", 0x5A59A0, false},        {"GetPCEnemyofFaction", 0x5A21F0, false},
     {"GetActorFactionPlayerEnemy", 0x5A49F0, false},
+    {"GetDead", 0x59D840, false},               // command table 0x1191040 (opcode 0x102E), read in game 2026-10-27
 };
 
 bool cleanPrologue(const unsigned char* b) { return b[0] == 0x55 && b[1] == 0x8B && b[2] == 0xEC; }

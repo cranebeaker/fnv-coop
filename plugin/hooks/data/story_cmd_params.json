@@ -299,6 +299,32 @@
   "params": [],
   "parent": 1
  },
+ "PlayBink": {
+  "execute": "0x5d15d0",
+  "params": [
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "parent": 0
+ },
  "PlayGroup": {
   "execute": "0x5c0df0",
   "params": [
@@ -394,6 +420,20 @@
  "ResetInventory": {
   "execute": "0x5dac60",
   "params": [],
+  "parent": 1
+ },
+ "RestoreActorValue": {
+  "execute": "0x5be080",
+  "params": [
+   [
+    5,
+    0
+   ],
+   [
+    2,
+    0
+   ]
+  ],
   "parent": 1
  },
  "ResetQuest": {

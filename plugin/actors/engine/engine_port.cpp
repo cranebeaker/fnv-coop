@@ -578,6 +578,7 @@ void EnginePort::dropClone(Entry& e, bool reenableReal, bool immediate) {
 bool EnginePort::spawnStandIn(const ActorMeta& meta, const live::ActorSnapshot& at) {
     if (!meta.netId) return false;
     if (cloneHold()) return false;   // a save is being written
+    if (!cfg_.standIns) { ++st_.standInsRefused; return false; }
     if (cfg_.maxStandIns && standInCount() >= cfg_.maxStandIns && !FNV_MUT(32)) { ++st_.standInsRefused; return false; }   // twin 32: no cap
     Entry* ex = find(meta.netId);
     if (ex && ex->real && !FNV_MUT(33)) return false;   // twin 33: a clone although the real actor is here

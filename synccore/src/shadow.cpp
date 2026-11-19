@@ -300,6 +300,9 @@ void ShadowState::applyEffect(const Effect& eff, PlayerId origin, PlayerId me, s
             if (e.mask & kObjDestroyed) o.destroyed = mut.stickyObjectsReset ? e.destroyed : (o.destroyed || e.destroyed);       // sticky
             if (e.mask & kObjActivated) o.activated = mut.stickyObjectsReset ? e.activatedOnce : (o.activated || e.activatedOnce);   // sticky
             if (!(o == before)) changed = true;
+            // Closed is the shadow's default, so "closed" and "never seen" look the same: a close of an object the shadow does not hold
+            // open is still applied (the world may hold it open: a save, an NPC walking through, a script the guest ran itself).
+            if ((e.mask & kObjOpen) && !e.open && !before.open && !mut.closeOnlyOnChange) changed = true;
             if (e.mask & kObjLock)
                 if (foldLock(locks, origins, e.ref, e.locked, e.level, e.hasBefore, e.beforeLocked, e.beforeLevel)) changed = true;
             if (o.isDefault()) objects.erase(e.ref); else objects[e.ref] = o;

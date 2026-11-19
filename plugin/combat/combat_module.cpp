@@ -149,13 +149,14 @@ uint64_t NowMs() { return static_cast<uint64_t>(GetTickCount64()); }
 uint32_t RefOfSlot(uint8_t slot) {
     if (slot == g_self) return eng::kLocalPlayerRef;
     if (g_refOfSlot) return g_refOfSlot(slot);
-    return slot != 0 ? nvmp::GhostRefOfPlayer(slot) : 0;
+    if (slot == 0) return g_self != kNoPlayer ? nvmp::FirstRemotePlayerRef() : 0;   // on a guest the host is the first other NV:MP character
+    return nvmp::GhostRefOfPlayer(slot);
 }
 bool SlotOfRef(uint32_t ref, uint8_t& slot) {
     if (ref == eng::kLocalPlayerRef) { slot = g_self; return g_self != kNoPlayer; }
     if (g_slotOfRef) return g_slotOfRef(ref, slot);
-    for (uint8_t s = 1; s < kMaxSlots; ++s)
-        if (s != g_self && nvmp::GhostRefOfPlayer(s) == ref) { slot = s; return true; }
+    for (uint8_t s = 0; s < kMaxSlots; ++s)
+        if (s != g_self && RefOfSlot(s) == ref) { slot = s; return true; }
     return false;
 }
 
@@ -441,8 +442,29 @@ bool IsProjectileType(uint8_t t) {
            t == addr::form::kTypeContinuousBeam;
 }
 
+// A player's character: this game's own player, or another player's NV:MP character.
+bool IsPlayerChar(const void* actor) {
+    if (!actor) return false;
+    uint32_t self = 0;
+    Rd32(reinterpret_cast<const void*>(0x011DEA3C), 0, &self);   // g_thePlayer (1.4.0.525)
+    return reinterpret_cast<uintptr_t>(actor) == self || nvmp::IsRemotePlayerRef(FormIdOf(actor));
+}
+uint64_t g_pvpBlocked = 0, g_thunkCalls = 0, g_playerVictimHits = 0;
+
 int __fastcall HitGateThunk(void* victim, void*, void* hd, int flag) {
     ApplyHitFn orig = reinterpret_cast<ApplyHitFn>(addr::kApplyHit);
+    // Players cannot hurt each other ([combat] friendlyfire=0): the engine never sees such a hit, so there is no damage, no OnHit and no
+    // assault for the victim's allies and the people around to react to (a stray shot at a friend used to turn friendly NPCs on the players).
+    ++g_thunkCalls;
+    if (!g_set.friendlyFire && hd && victim && (!g_mainThread || GetCurrentThreadId() == g_mainThread)) {
+        if (IsPlayerChar(victim)) ++g_playerVictimHits;
+        uint32_t source = 0;
+        if (Rd32(hd, addr::hit::kSource, &source) && source && reinterpret_cast<void*>(source) != victim &&
+            IsPlayerChar(reinterpret_cast<void*>(source)) && IsPlayerChar(victim)) {
+            if (++g_pvpBlocked <= 20) nvcoop::Log("combat: player %08X hit player %08X: blocked (friendly fire is off)", FormIdOf(reinterpret_cast<void*>(source)), FormIdOf(victim));
+            return 0;
+        }
+    }
     CombatSync* cs = g_rt ? g_rt->sync() : nullptr;
     if (cs && g_mainThread && GetCurrentThreadId() != g_mainThread) { ++g_gateOffThread; cs = nullptr; }   // CombatSync is main-thread only: other threads pass through
     if (cs && hd && victim) {
@@ -556,6 +578,8 @@ void Init() {
     InstallListeners();
     nvcoop::Log("combat: enabled gate=%d native=%d (pins %s) friendlyfire=%d crime=%d", g_set.gate ? 1 : 0, g_set.native ? 1 : 0, g_nativeOk ? "ok" : "MISMATCH",
                 g_set.friendlyFire ? 1 : 0, g_set.crime ? 1 : 0);
+    // The gate goes in now, not with the live layer's first combat frame: under NV:MP that layer is off and friendly fire must still be blocked.
+    if (g_set.gate && g_nativeOk && !g_set.friendlyFire) InstallGate();
 }
 
 void Uninit() {
@@ -676,7 +700,7 @@ std::string glueStatusJson() {
     const Stats* s = cs ? &cs->stats() : nullptr;
     auto u = [&](uint64_t Stats::*m) { return static_cast<unsigned long long>(s ? s->*m : 0); };
     std::snprintf(b, sizeof b,
-                  "{\"enabled\":%s,\"running\":%s,"
+                  "{\"enabled\":%s,\"running\":%s,\"pvpBlocked\":%llu,\"thunkCalls\":%llu,\"playerVictimHits\":%llu,"
                   "\"gate\":{\"sites\":%d,\"calls\":%llu,\"errors\":%llu,\"offThread\":%llu},"
                   "\"native\":{\"pinsOk\":%s,\"faults\":%ld,\"replays\":%llu,\"consoleDamage\":%llu,\"consoleLines\":%llu,\"consoleFailed\":%llu},"
                   "\"stats\":{\"engineHits\":%llu,\"proceeded\":%llu,\"clamped\":%llu,\"neutralized\":%llu,\"ghostHitsNeutralized\":%llu,"
@@ -685,7 +709,8 @@ std::string glueStatusJson() {
                   "\"deathsDeclared\":%llu,\"deathsAccepted\":%llu,\"xpAwards\":%llu,"
                   "\"deathsRejected\":%llu,\"deathsDeferred\":%llu,\"deathsRefusedLocal\":%llu,\"undecodable\":%llu,\"spoofed\":%llu,\"unroutable\":%llu,"
                   "\"rebuilds\":%llu,\"droppedUnknownPeer\":%llu}}",
-                  g_set.enabled ? "true" : "false", cs ? "true" : "false",
+                  g_set.enabled ? "true" : "false", cs ? "true" : "false", (unsigned long long)g_pvpBlocked, (unsigned long long)g_thunkCalls,
+                  (unsigned long long)g_playerVictimHits,
                   g_patches ? g_patches->installed() : 0, (unsigned long long)g_gateCalls, (unsigned long long)g_gateErrors, (unsigned long long)g_gateOffThread,
                   g_nativeOk ? "true" : "false", (long)g_nativeFaults, (unsigned long long)g_nativeReplays, (unsigned long long)g_consoleDamage,
                   (unsigned long long)g_consoleLines, (unsigned long long)g_consoleFailed,

@@ -25,6 +25,7 @@ struct Mutations {
     bool sidecarLosesLedger = false;   // the client save sidecar forgets which rewards were delivered (restart re-delivers them)
     bool spawnResurrects = false;      // a replayed SpawnRef recreates a ref that was despawned
     bool stickyObjectsReset = false;   // destroyed / activate-once object flags can be un-set
+    bool closeOnlyOnChange = false;    // a close of an object the shadow does not hold open is dropped (the world may still hold it open)
     bool refInvNoClear = false;        // RemoveAllItems does not clear a ref inventory
     bool activeQuestShared = false;    // ForceActiveQuest (UI focus) is broadcast to everyone instead of the initiator
     bool ignoreFollowerCaps = false;   // recruits beyond the per-owner / party follower caps are accepted

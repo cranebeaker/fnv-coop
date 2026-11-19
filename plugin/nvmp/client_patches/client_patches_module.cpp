@@ -30,6 +30,7 @@
 #include "client_patcher.h"
 #include "players.h"
 #include "../ghost_ref.h"
+#include "../sigscan.h"
 
 namespace nvmp::client {
 
@@ -183,6 +184,9 @@ bool RpcBindSlot(const std::string& paramsJson, std::string& out) {
 }
 
 // ---- module -------------------------------------------------------------------------------------
+uint8_t* g_rdCallRel = nullptr;   // the redirected call's rel32 in client.dll (friendly-fire patch below)
+uint64_t g_rdBlocked = 0, g_rdPassed = 0;
+
 void OnLoad(void*) {
     const std::string ini = IniPath();
     ConfigGetter get = [&](const char* key, const char* def) {
@@ -219,6 +223,11 @@ void OnLoad(void*) {
     nvcoop::RegisterMethod("nvmp.patches", RpcPatches, true);
     nvcoop::RegisterMethod("nvmp.players", RpcPlayers, true);
     nvcoop::RegisterMethod("nvmp.bindslot", RpcBindSlot, true);
+    nvcoop::RegisterMethod("nvmp.friendlyfire", [](const std::string&, std::string& out) {
+        out = "{\"patched\":" + std::string(g_rdCallRel ? "true" : "false") + ",\"blocked\":" + std::to_string(g_rdBlocked) + ",\"passed\":" +
+              std::to_string(g_rdPassed) + "}";
+        return true;
+    }, true);
 }
 
 // Last line of defence: an access violation while scanning/patching the foreign module must never take the game down.
@@ -234,7 +243,95 @@ bool GuardedFrame(ClientPatcher* p) {
 
 bool g_faulted = false;
 
+// ---- friendly fire: NV:MP's received damage ------------------------------------------------------------------------------
+// A player's hit on another player is sent by NV:MP itself and applied on the victim's machine ("[RD] applying %.3f health damage to
+// %s from %s"), past the engine's hit function where nvcoop's hit gate stops it on the attacker's side. In that handler (9.43 RVA
+// 0x3E935) NV:MP checks that attacker (ecx) and victim ([esp+0x14]) are alive, then calls the applier (RVA 0x3E4A0) with the event on
+// the stack and attacker / victim in ecx / edx. That call is redirected to RdApplyThunk: damage from one player to another is dropped
+// (unless [combat] friendlyfire=1), everything else goes on to NV:MP's applier untouched.
+const char* const kRdApplySig =
+    "8B 81 08 01 00 00 83 F8 02 74 ?? 83 F8 01 74 ?? 8B 54 24 14 8B 82 08 01 00 00 83 F8 02 74 ?? 83 F8 01 74 ?? 56 E8";
+uint32_t g_rdOrig = 0;          // NV:MP's applier
+int32_t g_rdOldRel = 0;
+bool g_rdTried = false;
+
+bool IsPlayerActorSEH(const void* actor) {
+    __try {
+        if (!actor) return false;
+        if (actor == *reinterpret_cast<void* const*>(kThePlayerGlobal_1_4_0_525)) return true;
+        return nvmp::IsRemotePlayerRef(*reinterpret_cast<const uint32_t*>(static_cast<const char*>(actor) + 0x0C));
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+bool __cdecl RdAllowed(const void* attacker, const void* victim) {
+    if (attacker != victim && IsPlayerActorSEH(attacker) && IsPlayerActorSEH(victim)) {
+        if (++g_rdBlocked <= 20) nvcoop::Log("nvmp: damage from player to player dropped (friendly fire is off)");
+        return false;
+    }
+    ++g_rdPassed;
+    return true;
+}
+__declspec(naked) void RdApplyThunk() {
+    __asm {
+        push ecx
+        push edx
+        push edx
+        push ecx
+        call RdAllowed
+        add esp, 8
+        pop edx
+        pop ecx
+        test al, al
+        jz blocked
+        jmp dword ptr [g_rdOrig]
+    blocked:
+        ret
+    }
+}
+void InstallRdPatch() {
+    g_rdTried = true;
+    if (GetPrivateProfileIntA("combat", "friendlyfire", 0, IniPath().c_str()) != 0) { nvcoop::Log("nvmp: friendly fire on: received damage untouched"); return; }
+    ModuleView mv;
+    if (!g_mods.Find("client.dll", mv)) { g_rdTried = false; return; }   // not loaded yet: try again later
+    const ScanResult r = ScanImage(mv.base, mv.size, kRdApplySig);
+    if (!r.ok()) { nvcoop::Log("nvmp: friendly-fire patch: received-damage call not found (%s): players can still hurt each other", ToString(r.status)); return; }
+    uint8_t* rel = mv.base + r.offset + 38;   // after the E8
+    const int32_t old = *reinterpret_cast<int32_t*>(rel);
+    const uint32_t target = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(rel + 4)) + static_cast<uint32_t>(old);
+    const uint32_t thunk = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&RdApplyThunk));
+    DWORD prot = 0;
+    if (!VirtualProtect(rel, 4, PAGE_EXECUTE_READWRITE, &prot)) return;
+    g_rdOrig = target;
+    g_rdOldRel = old;
+    *reinterpret_cast<int32_t*>(rel) = static_cast<int32_t>(thunk - static_cast<uint32_t>(reinterpret_cast<uintptr_t>(rel + 4)));
+    VirtualProtect(rel, 4, prot, &prot);
+    FlushInstructionCache(GetCurrentProcess(), rel - 1, 5);
+    g_rdCallRel = rel;
+    nvcoop::Log("nvmp: friendly-fire patch on: client.dll+%X calls the received-damage filter (applier client.dll+%X)", (unsigned)(r.offset + 37),
+                (unsigned)(target - static_cast<uint32_t>(reinterpret_cast<uintptr_t>(mv.base))));
+}
+void RemoveRdPatch() {
+    if (!g_rdCallRel) return;
+    DWORD prot = 0;
+    if (VirtualProtect(g_rdCallRel, 4, PAGE_EXECUTE_READWRITE, &prot)) {
+        *reinterpret_cast<int32_t*>(g_rdCallRel) = g_rdOldRel;
+        VirtualProtect(g_rdCallRel, 4, prot, &prot);
+        FlushInstructionCache(GetCurrentProcess(), g_rdCallRel - 1, 5);
+    }
+    g_rdCallRel = nullptr;
+}
+bool GuardedRdInstall() {
+    __try {
+        InstallRdPatch();
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 void OnFrame() {
+    if (!g_rdTried && !GuardedRdInstall()) nvcoop::Log("nvmp: exception while installing the friendly-fire patch");
     if (!g_patcher || g_faulted) return;
     if (!GuardedFrame(g_patcher.get())) {
         g_faulted = true;   // never touch NV:MP again this session
@@ -252,7 +349,29 @@ ClientPatcher* ActivePatcher() { return g_patcher.get(); }
 
 namespace nvmp {
 
+namespace {
+const std::vector<uint32_t>& RemoteRefs();   // below: the other players' characters in NV:MP's list order
+std::vector<uint8_t> g_guestSlots;   // the co-op slots of the guests connected right now, ascending (the host's session tells us)
+}
+void SetConnectedGuestSlots(const std::vector<uint8_t>& slots) { g_guestSlots = slots; }
+
 uint32_t GhostRefOfPlayer(uint8_t coopSlot) {
+    // A reconnecting guest gets a NEW co-op slot (2, 3, ...) while NV:MP lists only the characters there are now: slot k is the k-th
+    // connected guest, matched to the k-th other character in NV:MP's list (both in join order). Measured 2026-10-28: one friend on slot 3
+    // found no character by its slot number, and their conversations ran with the host's own player as the actor.
+    {
+        std::lock_guard<std::mutex> g(client::g_bindMu);
+        bool bound = false;
+        for (const auto& b : client::g_bindings) if (b.slot == coopSlot) bound = true;
+        if (!bound) {
+            for (size_t i = 0; i < g_guestSlots.size(); ++i) {
+                if (g_guestSlots[i] != coopSlot) continue;
+                const auto& rs = RemoteRefs();
+                if (i < rs.size()) return rs[i];
+                break;
+            }
+        }
+    }
     std::vector<client::PlayerInfo> ps;
     std::string err;
     if (!client::Snapshot(ps, err)) return 0;
@@ -277,6 +396,34 @@ uint32_t NetIdByName(const std::string& name) {
     for (const auto& p : ps)
         if (!p.isLocal && low(p.name) == want) return p.netId;
     return 0;
+}
+
+namespace {
+std::vector<uint32_t> g_remoteRefs;   // other players' characters, in list order
+ULONGLONG g_remoteAt = 0;
+const std::vector<uint32_t>& RemoteRefs() {
+    const ULONGLONG now = GetTickCount64();
+    if (g_remoteAt && now - g_remoteAt < 500) return g_remoteRefs;
+    g_remoteAt = now;
+    g_remoteRefs.clear();
+    std::vector<client::PlayerInfo> ps;
+    std::string err;
+    if (client::Snapshot(ps, err))
+        for (const auto& p : ps)
+            if (!p.isLocal && p.hasRef && p.refId) g_remoteRefs.push_back(p.refId);
+    return g_remoteRefs;
+}
+}  // namespace
+
+bool IsRemotePlayerRef(uint32_t ref) {
+    if (!ref) return false;
+    for (uint32_t r : RemoteRefs()) if (r == ref) return true;
+    return false;
+}
+
+uint32_t FirstRemotePlayerRef() {
+    const auto& rs = RemoteRefs();
+    return rs.empty() ? 0 : rs.front();
 }
 
 namespace client {
@@ -313,6 +460,7 @@ NVCOOP_RELOAD_STATE(nvmp_client_patches, "nvmp_client_patches", 1, 70, nullptr,
                 if (auto unreg = (LdrUnregFn)GetProcAddress(nt, "LdrUnregisterDllNotification")) unreg(g_cookie);
             g_cookie = nullptr;
         }
+        RemoveRdPatch();
         if (g_patcher) {
             int bad = g_patcher->RevertAll();
             if (bad) nvcoop::Log("nvmp patches: %d patch(es) could not be reverted for the reload", bad);

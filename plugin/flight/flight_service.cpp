@@ -1,7 +1,9 @@
 #include "flight_service.h"
 #include <windows.h>
+#include <algorithm>
 #include <cstdlib>
 #include <ctime>
+#include <vector>
 #include "common/minijson.h"
 
 namespace nvcoop::flight {
@@ -41,16 +43,42 @@ bool parseServiceConfig(const std::string& text, ServiceConfig* out) {
         else if (k == "dir") c.dir = v;
         else if (k == "label") c.label = v;
         else if (k == "crash") c.crashDump = v != "0";
+        else if (k == "keepMb") { char* end = nullptr; long n = std::strtol(v.c_str(), &end, 10); if (end != v.c_str() && n >= 0 && n <= 1000000) c.keepMb = static_cast<uint32_t>(n); }
         else if (k == "ringMb") { int n = std::atoi(v.c_str()); if (n >= 1 && n <= 256) c.ringMb = static_cast<uint32_t>(n); }
     }
     *out = c;
     return true;
 }
 
+int pruneDumps(const std::string& dir, uint32_t keepMb) {
+    if (dir.empty() || keepMb == 0) return 0;
+    struct Dump { uint64_t written, bytes; std::string path; };
+    std::vector<Dump> dumps;
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA((dir + "\\*.nvfr").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        dumps.push_back({(uint64_t(fd.ftLastWriteTime.dwHighDateTime) << 32) | fd.ftLastWriteTime.dwLowDateTime,
+                         (uint64_t(fd.nFileSizeHigh) << 32) | fd.nFileSizeLow, dir + "\\" + fd.cFileName});
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    std::sort(dumps.begin(), dumps.end(), [](const Dump& a, const Dump& b) { return a.written > b.written; });   // newest first
+    const uint64_t budget = uint64_t(keepMb) << 20;
+    uint64_t kept = 0;
+    int deleted = 0;
+    for (const Dump& d : dumps) {
+        if (kept + d.bytes <= budget) { kept += d.bytes; continue; }
+        if (DeleteFileA(d.path.c_str())) ++deleted;
+    }
+    return deleted;
+}
+
 bool Service::init(const ServiceConfig& cfg, uint8_t slot, uint8_t role) {
     if (rec_) return true;
     cfg_ = cfg;
     if (!cfg_.enable) return false;
+    pruneDumps(cfg_.dir, cfg_.keepMb);
     fnvcoop::flight::Config fc;
     fc.ringBytes = static_cast<size_t>(cfg_.ringMb) << 20;
     fc.slot = slot;

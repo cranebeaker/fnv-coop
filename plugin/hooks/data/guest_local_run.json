@@ -85,6 +85,11 @@
    "script": "FalloutNV.esm:07161B"
   },
   {
+   "quest": "TTWPreorderMenuQuest",
+   "script": "TaleOfTwoWastelands.esm:001BFA",
+   "reason": "pre-order pack choice and item grant for each machine own player (TTW stash pack menu -> VPreorder* item scripts)"
+  },
+  {
    "quest": "TopsRadioQuest",
    "script": "FalloutNV.esm:16B672"
   },
@@ -108,6 +113,26 @@
   {
    "quest": "VEndingBinks",
    "script": "FalloutNV.esm:15FF6F"
+  },
+  {
+   "quest": "VPreorderCaravan",
+   "script": "FalloutNV.esm:172A25",
+   "reason": "pre-order pack choice and item grant for each machine own player (TTW stash pack menu -> VPreorder* item scripts)"
+  },
+  {
+   "quest": "VPreorderClassic",
+   "script": "FalloutNV.esm:172A27",
+   "reason": "pre-order pack choice and item grant for each machine own player (TTW stash pack menu -> VPreorder* item scripts)"
+  },
+  {
+   "quest": "VPreorderMercenary",
+   "script": "FalloutNV.esm:172A24",
+   "reason": "pre-order pack choice and item grant for each machine own player (TTW stash pack menu -> VPreorder* item scripts)"
+  },
+  {
+   "quest": "VPreorderTribal",
+   "script": "FalloutNV.esm:172A26",
+   "reason": "pre-order pack choice and item grant for each machine own player (TTW stash pack menu -> VPreorder* item scripts)"
   },
   {
    "quest": "VStreetLighting",

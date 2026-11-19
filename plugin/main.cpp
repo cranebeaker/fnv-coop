@@ -14,6 +14,7 @@
 #include "common/nvse_opcode_base.h"
 #include "common/registry.h"
 #include "bridge/screenshot.h"
+#include "lobby/lobby.h"
 #ifdef NVCOOP_WITH_FOCUS_GUARD
 #include "splitscreen/focus_guard.h"
 #endif
@@ -68,6 +69,211 @@ std::string EnvOr(const char* name, const std::string& fallback) {
     DWORD n = GetEnvironmentVariableA(name, buf, sizeof buf);
     return (n > 0 && n < sizeof buf) ? std::string(buf) : fallback;
 }
+
+void DispatchToModules(uint32_t type, void* data, uint32_t len);
+
+// ---- in-game lobby ([coop] menu=1, plugin/lobby/lobby.h) ----
+// The modules read [coop] role once, when they install (DeferredInit / first frame). With the lobby on, DeferredInit and the frames
+// are held back from them at the main menu until the player picks Host / Join / Play alone (message box) or types coophost /
+// coopjoin <address> / coopsolo in the console. Loading a save or starting a new game without a pick keeps nvcoop.ini as it is.
+typedef bool (*ShowMessageBoxFn)(const char* msg, UInt32, UInt32, void (*callback)(), UInt32, UInt32 type, float, float, ...);
+typedef bool (*QueueUIMessageFn)(const char* msg, UInt32 emotion, const char* dds, const char* sound, float seconds, bool next);
+constexpr UInt32 kShowMessageBox = 0x00703E80;        // NVSE GameAPI.cpp ShowMessageBox
+constexpr UInt32 kShowMessageBoxButton = 0x0118C684;  // NVSE GameAPI.cpp ShowMessageBox_button: index of the pressed button, 0xFF = none
+constexpr UInt32 kQueueUIMessage = 0x007052F0;        // NVSE GameAPI.cpp QueueUIMessage (corner message)
+
+bool g_lobbyOn = false;     // [coop] menu=1
+bool g_lobbyHeld = false;   // DeferredInit held back from the modules, frames not forwarded
+int g_lobbyWait = 0;        // frames since the main menu, before the box opens
+bool g_lobbyBoxOpen = false;
+nvlobby::Menu g_lobbyMenu;
+bool g_lobbyPicked = false;   // a console command or a button chose; applied on the next frame
+nvlobby::Action g_lobbyPick;
+uint64_t g_noticeSeq = 0;     // events already turned into corner messages
+
+void Notice(const std::string& text) {
+    Log("lobby: %s", text.c_str());
+    if (g_console) g_console->RunScriptLine2(("PrintC \"" + text + "\"").c_str(), nullptr, false);
+}
+
+void CornerMessage(const std::string& text) {
+    Log("lobby: %s", text.c_str());
+    reinterpret_cast<QueueUIMessageFn>(kQueueUIMessage)(text.c_str(), 0, nullptr, nullptr, 4.0f, false);
+}
+
+void LobbyBoxClosed() {
+    if (!g_lobbyBoxOpen) return;   // callback and frame poll both land here; once is enough
+    const UInt8 b = *reinterpret_cast<UInt8*>(kShowMessageBoxButton);
+    g_lobbyBoxOpen = false;
+    Log("lobby: box closed, button %u", (unsigned)b);
+    if (g_lobbyHeld && b < g_lobbyMenu.actions.size()) {   // a console pick already started the modules: a late click changes nothing
+        g_lobbyPick = g_lobbyMenu.actions[b];
+        g_lobbyPicked = true;
+    }
+}
+
+void ShowLobbyBox() {
+    std::string role = ReadIni("coop", "role", "host"), host = ReadIni("coop", "host", "");
+    const bool enabled = ReadIni("coop", "enable", "0") != "0";
+    uint16_t port = static_cast<uint16_t>(std::atoi(ReadIni("coop", "port", "27960").c_str()));
+    std::string ini;
+    if (FILE* f = std::fopen(IniPath().c_str(), "rb")) {
+        char buf[4096];
+        size_t n;
+        while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) ini.append(buf, n);
+        std::fclose(f);
+    }
+    g_lobbyMenu = nvlobby::BuildMenu(nvlobby::ParseServers(ini), role == "client" ? host : "", port, role == "client" ? "client" : "host", enabled);
+    const char* b[nvlobby::kMaxButtons] = {nullptr};
+    for (size_t i = 0; i < g_lobbyMenu.buttons.size() && i < nvlobby::kMaxButtons; ++i) b[i] = g_lobbyMenu.buttons[i].c_str();
+    *reinterpret_cast<UInt8*>(kShowMessageBoxButton) = 0xFF;
+    g_lobbyBoxOpen = reinterpret_cast<ShowMessageBoxFn>(kShowMessageBox)(g_lobbyMenu.text.c_str(), 0, 0, LobbyBoxClosed, 0, 0x17, 0.0f, 0.0f,
+                                                                         b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], nullptr);
+    Log("lobby: menu %s (%u buttons)", g_lobbyBoxOpen ? "shown" : "NOT shown", (unsigned)g_lobbyMenu.buttons.size());
+}
+
+// Let the modules start with what nvcoop.ini says now.
+void ReleaseLobby(const char* why) {
+    if (!g_lobbyHeld) return;
+    g_lobbyHeld = false;
+    Log("lobby: modules start (%s) role=%s enable=%s host=%s", why, ReadIni("coop", "role", "host").c_str(), ReadIni("coop", "enable", "0").c_str(),
+        ReadIni("coop", "host", "").c_str());
+    DispatchToModules(NVSEMessagingInterface::kMessage_DeferredInit, nullptr, 0);
+}
+
+uint64_t NewToken() {
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    uint64_t v = (static_cast<uint64_t>(t.QuadPart) ^ (static_cast<uint64_t>(GetCurrentProcessId()) << 32) ^ GetTickCount64()) & 0x7FFFFFFFFFFFFFFFull;
+    return v ? v : 1;
+}
+
+void WriteCoopKeys(const nvlobby::Action& a) {
+    const uint64_t token = std::strtoull(ReadIni("coop", "token", "0").c_str(), nullptr, 10);
+    for (auto& kv : nvlobby::CoopKeysFor(a, token, NewToken()))
+        WritePrivateProfileStringA("coop", kv.first.c_str(), kv.second.c_str(), IniPath().c_str());
+}
+
+void ApplyLobbyPick(const nvlobby::Action& a) {
+    if (a.kind == nvlobby::Kind::Direct) {
+        Notice("Direct connect: open the console (~) and type  coopjoin <address>");
+        const char* ok = "Ok";
+        *reinterpret_cast<UInt8*>(kShowMessageBoxButton) = 0xFF;
+        reinterpret_cast<ShowMessageBoxFn>(kShowMessageBox)("Direct connect\n\nOpen the console with ~ and type\n\ncoopjoin <address>\n\nfor example  coopjoin 203.0.113.5",
+                                                            0, 0, nullptr, 0, 0x17, 0.0f, 0.0f, ok, nullptr);
+        return;
+    }
+    WriteCoopKeys(a);
+    Notice(a.kind == nvlobby::Kind::Host ? "Co-op: you host. Load a save and your friends can join."
+           : a.kind == nvlobby::Kind::Join ? "Co-op: joining " + a.address + ". Load your own save to connect."
+                                           : "Co-op: off. Playing alone.");
+    ReleaseLobby(a.kind == nvlobby::Kind::Host ? "host" : a.kind == nvlobby::Kind::Join ? "join" : "solo");
+}
+
+void LobbyFrame() {
+    if (g_lobbyPicked) {
+        g_lobbyPicked = false;
+        ApplyLobbyPick(g_lobbyPick);
+        return;
+    }
+    if (!g_lobbyBoxOpen && g_lobbyMenu.buttons.empty() && ++g_lobbyWait == 30) ShowLobbyBox();   // a moment after the main menu appears
+    if (g_lobbyBoxOpen && *reinterpret_cast<UInt8*>(kShowMessageBoxButton) != 0xFF) LobbyBoxClosed();   // in case the callback is not called
+}
+
+// Session events -> corner messages, so a player sees that co-op is up without reading nvcoop.log.
+void PumpNotices() {
+    auto page = nvcoop::registry::ReadEvents(g_noticeSeq, 16);
+    g_noticeSeq = page.next;
+    for (auto& e : page.events) {
+        if (e.type == "coop.started") {
+            const bool host = e.dataJson.find("\"role\":\"host\"") != std::string::npos;
+            const size_t p = e.dataJson.find("\"port\":");
+            const std::string port = p == std::string::npos ? "" : std::to_string(std::atoi(e.dataJson.c_str() + p + 7));
+            CornerMessage(host ? "Co-op: hosting on port " + port + ". Friends can join." : "Co-op: connecting to the host...");
+        } else if (e.type == "coop.joined") {
+            CornerMessage("Co-op: connected to the host.");
+        } else if (e.type == "coop.left") {
+            CornerMessage("Co-op: left the session.");
+        } else if (e.type == "coop.joining") {
+            CornerMessage("Co-op: connecting to the host...");
+        }
+    }
+}
+
+// ---- console commands: coophost, coopjoin <address>, coopsolo, coopstatus ----
+// Opcodes from nvcoop's base (nvse_opcode_base.h). At the main menu they pick the role; afterwards coopjoin on a client leaves
+// the session and joins the new address, and coopstatus prints the session state.
+NVSEScriptInterface* g_script = nullptr;
+ParamInfo kLobbyAddressParam[1] = {{"address", kParamType_String, 1}};
+
+bool CallMethod(const char* name, const std::string& params, std::string& out) {
+    nvcoop::registry::MethodEntry m;
+    if (!nvcoop::registry::FindMethod(name, m)) { out = "unavailable"; return false; }
+    return m.fn(params, out);
+}
+
+bool RunLobbyCommand(const char* name, const std::string& arg) {
+    nvlobby::Action a;
+    std::string why;
+    if (!nvlobby::ParseCommand(name, arg, &a, &why)) { Notice("Co-op: " + why); return true; }
+    if (g_lobbyHeld) {
+        g_lobbyPick = a;
+        g_lobbyPicked = true;
+        return true;
+    }
+    // the modules already started: the role is fixed for this run
+    const std::string role = ReadIni("coop", "role", "host");
+    if (a.kind == nvlobby::Kind::Join && role == "client") {
+        std::string h, out;
+        uint16_t p = nvlobby::kDefaultPort;
+        nvlobby::ParseAddress(a.address, &h, &p, &why);
+        CallMethod("coop.leave", "{}", out);
+        const bool ok = CallMethod("coop.join", "{\"host\":\"" + h + "\",\"port\":" + std::to_string(p) + "}", out);
+        if (ok) {
+            WritePrivateProfileStringA("coop", "host", h.c_str(), IniPath().c_str());
+            WritePrivateProfileStringA("coop", "port", std::to_string(p).c_str(), IniPath().c_str());
+        }
+        Notice(ok ? "Co-op: joining " + a.address + "..." : "Co-op: could not join: " + out);
+        return true;
+    }
+    WriteCoopKeys(a);
+    Notice("Co-op: saved. Restart the game to switch: this game already started as " + role + ".");
+    return true;
+}
+
+bool Cmd_CoopHost_Execute(COMMAND_ARGS) { *result = 0; return RunLobbyCommand("coophost", ""); }
+bool Cmd_CoopSolo_Execute(COMMAND_ARGS) { *result = 0; return RunLobbyCommand("coopsolo", ""); }
+bool Cmd_CoopJoin_Execute(COMMAND_ARGS) {
+    *result = 0;
+    char addr[512] = {0};
+    if (!g_script || !g_script->ExtractArgsEx(paramInfo, scriptData, opcodeOffsetPtr, scriptObj, eventList, addr)) addr[0] = 0;
+    return RunLobbyCommand("coopjoin", addr);
+}
+bool Cmd_CoopStatus_Execute(COMMAND_ARGS) {
+    *result = 0;
+    if (g_lobbyHeld) { Notice("Co-op: waiting for a pick at the main menu (coophost, coopjoin <address>, coopsolo)."); return true; }
+    std::string out;
+    if (!CallMethod("coop.status", "", out)) { Notice("Co-op: not running (" + out + ")"); return true; }
+    auto field = [&](const char* k) {
+        const std::string key = std::string("\"") + k + "\":";
+        size_t p = out.find(key);
+        if (p == std::string::npos) return std::string("?");
+        p += key.size();
+        size_t e = out.find_first_of(",}", p);
+        std::string v = out.substr(p, e - p);
+        if (v.size() >= 2 && v.front() == '"') v = v.substr(1, v.size() - 2);
+        return v;
+    };
+    const std::string err = field("error");
+    Notice("Co-op: role=" + field("role") + " running=" + field("running") + " port=" + field("port") + (err.empty() || err == "?" ? "" : " error=" + err));
+    return true;
+}
+CommandInfo kLobbyCommands[] = {
+    {"CoopHost", "", 0, "co-op: host a game (pick at the main menu)", 0, 0, nullptr, Cmd_CoopHost_Execute, nullptr, nullptr, 0},
+    {"CoopJoin", "", 0, "co-op: join a host by address, e.g. coopjoin 203.0.113.5", 0, 1, kLobbyAddressParam, Cmd_CoopJoin_Execute, nullptr, nullptr, 0},
+    {"CoopSolo", "", 0, "co-op: play alone (pick at the main menu)", 0, 0, nullptr, Cmd_CoopSolo_Execute, nullptr, nullptr, 0},
+    {"CoopStatus", "", 0, "co-op: print the session state", 0, 0, nullptr, Cmd_CoopStatus_Execute, nullptr, nullptr, 0},
+};
 
 // --- multiInstance: per-process name for the game's single-instance mutex (own process only) ---
 // FalloutNV.exe calls CreateMutexA("FalloutNVGameMutex") and refuses to start if it already exists. With
@@ -219,10 +425,26 @@ void InstallMutexDiagHooks() {
 // thisObj = the console's CALLING REFERENCE (nullptr = none). The game's console script compiler accepts "player.X" but
 // not "<hexFormID>.X" (Script command "00103E61.GetOpenState" not found) nor the EditorID of a non-persistent ref, so
 // bridge exec {cmd, ref} passes the reference here instead (as plugin/hooks/apply_lines.h does for Track A).
+DWORD g_lineFaultCode = 0;
+void* g_lineFaultAddr = nullptr;
+UInt32 g_lineFaultFrames[9] = {};
+int LineFaultFilter(EXCEPTION_POINTERS* ep) {
+    g_lineFaultCode = ep->ExceptionRecord->ExceptionCode;
+    g_lineFaultAddr = ep->ExceptionRecord->ExceptionAddress;
+    // Return addresses along the EBP chain (the engine is built with frame pointers), so the log can name the caller.
+    g_lineFaultFrames[0] = 0;
+    UInt32 ebp = ep->ContextRecord->Ebp;
+    for (int i = 0; i < 8 && ebp && !IsBadReadPtr(reinterpret_cast<void*>(ebp), 8); ++i) {
+        g_lineFaultFrames[i] = reinterpret_cast<UInt32*>(ebp)[1];
+        g_lineFaultFrames[i + 1] = 0;
+        ebp = reinterpret_cast<UInt32*>(ebp)[0];
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
 int RunLineSEH(const char* line, TESObjectREFR* thisObj) {
     __try {
         return g_console->RunScriptLine2(line, thisObj, false) ? 1 : 0;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (LineFaultFilter(GetExceptionInformation())) {
         return -1;
     }
 }
@@ -230,7 +452,12 @@ int RunLineLogged(const char* line, TESObjectREFR* thisObj) {
     const int rc = RunLineSEH(line, thisObj);
     // A fault swallowed here skips the engine's cleanup (the temporary Script on xNVSE's stack is never destroyed), so it can set up a
     // later crash far away from this line (issue #33). Name it in the log.
-    if (rc < 0) Log("console line faulted and was abandoned: %.200s", line);
+    if (rc < 0) {
+        Log("console line faulted (code %08lX at %p) and was abandoned: %.200s", g_lineFaultCode, g_lineFaultAddr, line);
+        char frames[128] = {0};
+        for (int i = 0, n = 0; i < 8 && g_lineFaultFrames[i] && n < 110; ++i) n += std::snprintf(frames + n, sizeof frames - n, " %08X", g_lineFaultFrames[i]);
+        Log("  callers:%s", frames);
+    }
     return rc;
 }
 
@@ -591,9 +818,19 @@ void OnMessage(NVSEMessagingInterface::Message* msg) {
     switch (msg->type) {
     case NVSEMessagingInterface::kMessage_DeferredInit:
         g_bridge.NotifyMainMenuReady();
+        if (g_lobbyOn) {   // the modules get it once the player picks (ReleaseLobby)
+            g_lobbyHeld = true;
+            Log("lobby: holding the modules at the main menu");
+            return;
+        }
         break;
     case NVSEMessagingInterface::kMessage_MainGameLoop:
         g_bridge.Pump(g_host);
+        if (g_lobbyHeld) {
+            LobbyFrame();
+            if (g_lobbyHeld) return;
+        }
+        if (g_lobbyOn) PumpNotices();
         for (auto& m : nvcoop::registry::Modules())
             if (m.onFrame) m.onFrame();
 #ifdef NVCOOP_LOADER
@@ -605,7 +842,11 @@ void OnMessage(NVSEMessagingInterface::Message* msg) {
         else nvcoop::PushEvent("game.loadFailed");
         break;
     case NVSEMessagingInterface::kMessage_PreLoadGame:
+        ReleaseLobby("save loaded without a pick");   // the hooks must be in before the save loads
         nvcoop::PushEvent("game.preLoad");
+        break;
+    case NVSEMessagingInterface::kMessage_NewGame:
+        ReleaseLobby("new game without a pick");
         break;
     case NVSEMessagingInterface::kMessage_SaveGame:
         g_bridge.NotifySaved(msg->data ? static_cast<const char*>(msg->data) : "");
@@ -622,10 +863,14 @@ void OnMessage(NVSEMessagingInterface::Message* msg) {
     default:
         break;
     }
+    DispatchToModules(msg->type, msg->data, msg->dataLen);
+}
+
+void DispatchToModules(uint32_t type, void* data, uint32_t len) {
     for (auto& m : nvcoop::registry::Modules())
-        if (m.onMessage) m.onMessage(msg->type, msg->data, msg->dataLen);
+        if (m.onMessage) m.onMessage(type, data, len);
 #ifdef NVCOOP_LOADER
-    if (g_coreHost) g_coreHost->OnMessage(msg->type, msg->data, msg->dataLen);
+    if (g_coreHost) g_coreHost->OnMessage(type, data, len);
 #endif
 }
 
@@ -647,12 +892,22 @@ __declspec(dllexport) bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInf
 __declspec(dllexport) bool NVSEPlugin_Load(NVSEInterface* nvse) {
     g_nvse = nvse;
     nvse->SetOpcodeBase(nvcoop::opcodeBaseToRegister());   // without a base NVSE never calls our save callback: no cosave record (nvse_opcode_base.h)
+    int lobbyCommands = 0;   // the lobby's console commands take the first opcodes of that base
+    for (CommandInfo& c : kLobbyCommands) lobbyCommands += nvse->RegisterCommand(&c) ? 1 : 0;
     g_pluginHandle = nvse->GetPluginHandle();
     const char* rd = nvse->GetRuntimeDirectory();
     g_gameDir = rd ? rd : "";
     if (!g_gameDir.empty() && g_gameDir.back() != '\\' && g_gameDir.back() != '/') g_gameDir += '\\';
     nvcoop::registry::SetLogFile(g_gameDir + "Data\\NVSE\\Plugins\\nvcoop.log");
     Log("nvcoop %d loading (NVSE %08X, runtime %08X)", 1, nvse->nvseVersion, nvse->runtimeVersion);
+    g_script = static_cast<NVSEScriptInterface*>(nvse->QueryInterface(kInterface_Script));
+    g_lobbyOn = EnvOr("NVCOOP_MENU", ReadIni("coop", "menu", "0")) == "1";
+    // Under NV:MP the player already chose host / join in the launcher (TTW-CoOp.cmd passes NVCOOP_ROLE and NVCOOP_HOST): no second box.
+    if (g_lobbyOn && (!EnvOr("NVCOOP_ROLE", "").empty() || GetFileAttributesA((g_gameDir + "nvmp\\client.dll").c_str()) != INVALID_FILE_ATTRIBUTES)) {
+        g_lobbyOn = false;
+        Log("lobby: off (NV:MP install or launcher role %s)", EnvOr("NVCOOP_ROLE", "-").c_str());
+    }
+    Log("lobby: menu=%d, %d of %u console commands registered", g_lobbyOn ? 1 : 0, lobbyCommands, (unsigned)(sizeof kLobbyCommands / sizeof kLobbyCommands[0]));
 
     g_msg = static_cast<NVSEMessagingInterface*>(nvse->QueryInterface(kInterface_Messaging));
     g_console = static_cast<NVSEConsoleInterface*>(nvse->QueryInterface(kInterface_Console));
@@ -689,7 +944,12 @@ __declspec(dllexport) bool NVSEPlugin_Load(NVSEInterface* nvse) {
 #endif
     g_d3dShot = ReadIni("bridge", "screenshotD3D9", "0") == "1";
     g_consoleEcho = EnvOr("NVCOOP_CONSOLE_ECHO", ReadIni("bridge", "consoleEcho", "1")) != "0";
-    if (!g_bridge.Start(cfg)) Log("nvbridge failed to start");
+    // The bridge is the test tools' remote control (named pipe nvcoop-<instance>: console lines, quit, ...). A player's game has no use for it,
+    // and two games on one PC share the pipe name (2026-10-28 a test "quit" closed the owner's game): off unless this is a test copy
+    // ([bridge] multiInstance=1, set by the test runner) or [bridge] enabled=1 / NVCOOP_BRIDGE=1 asks for it.
+    const std::string bridgeDefault = EnvOr("NVCOOP_MULTI_INSTANCE", ReadIni("bridge", "multiInstance", "0")) == "1" ? "1" : "0";
+    if (EnvOr("NVCOOP_BRIDGE", ReadIni("bridge", "enabled", bridgeDefault.c_str())) != "1") Log("nvbridge: off (a player's game; [bridge] enabled=1 turns it on)");
+    else if (!g_bridge.Start(cfg)) Log("nvbridge failed to start");
 #ifdef NVCOOP_WITH_SNAPSHOT
     nvcoop::SetStateProvider(StateProviderImpl);
 #endif

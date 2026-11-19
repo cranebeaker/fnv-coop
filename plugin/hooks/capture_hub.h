@@ -41,6 +41,7 @@ public:
         uint64_t weakFlushes = 0;     // weak effects flushed because an explicit scope opened inside the script
         uint64_t droppedLocal = 0;    // effects dropped because a GuestLocalRun script (per-machine) produced them
         uint64_t staleScopes = 0;     // scopes force-closed by reapStale() (their closing end() never ran)
+        uint64_t retracted = 0;       // effects taken back because the engine refused the mutation (retract)
     };
 
     // Sinks are called, in registration order, for every outermost txn. setSink() replaces slot 0 only.
@@ -86,6 +87,14 @@ public:
 
     // Returns true if the effect was captured.
     bool record(const fnvcoop::Effect& e);
+    // The engine refused a mutation that was recorded on entry (SetStage of a stage the quest does not have): take it back so no
+    // machine is asked to replay something that never happened here. True if it was still buffered.
+    bool retract(const fnvcoop::Effect& e) {
+        if (!cap_.retractLast(e)) return false;
+        last_.reset();
+        ++stats_.retracted;
+        return true;
+    }
 
     // Hold an EchoGuard on this while applying a remote txn so the applied mutations are not re-captured.
     fnvcoop::EffectCapture& echo() { return cap_; }

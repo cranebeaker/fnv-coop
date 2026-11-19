@@ -74,6 +74,7 @@ Config readActorsConfig(const IniGetter& get, Config c, std::string* notes) {
     r.flag("stopCombatOnRestrain", c.stopCombatOnRestrain);
     r.flag("startCombatOnTakeover", c.startCombatOnTakeover);
     if (!FNV_MUT(63)) r.flag("persistLedger", c.persistLedger);   // MUTANT 63: persistLedger is never read (a save/load could leave actors frozen)
+    r.flag("standIns", c.standIns);
     r.u32("maxStandIns", c.maxStandIns, 0, 400);
     r.flag("swapLeveled", c.swapLeveled);
     r.u32("saveGraceMs", c.saveGraceMs, 0, 60000);

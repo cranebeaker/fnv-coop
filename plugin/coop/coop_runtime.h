@@ -45,6 +45,15 @@ struct Config {
     bool applyEnabled = true;       // client: wire sink -> world
     uint32_t maxPlayers = 4;
     bool forwardActivate = false;   // [coop] forward_activate=1: guest Activate -> submitAction to the host (suppresses the local call)
+    bool forwardScripted = true;    // [coop] forward_scripted=0 turns it off: a guest's scripted activator (water pipes, switches) runs on the host for them
+    bool sharedXp = true;           // [coop] sharedxp=0 turns it off: XP the engine pays one player (kills, locks, terminals, places) goes to every player
+    bool containerSync = true;      // [coop] containers=0 turns it off: what a player takes from / puts into a container or corpse happens on the others' copies too
+    bool respawnRestore = true;     // [coop] respawn=0 turns it off: after an NV:MP respawn (the character back at its last save) the items and XP from before the death return
+    int autosaveMinutes = 5;        // [coop] autosave=N: save every N minutes at a calm moment (CoopAutosave1..3); 0 = off
+    bool talkSubtitles = true;      // [coop] subtitles=0 turns it off: the lines of a player's conversation show as HUD messages for the others near the NPC
+    bool guestChargen = true;       // [coop] guest_chargen=0 turns it off: a guest opens its own character-creation menus (name, face, traits,
+                                    // SPECIAL, tag skills) when the shared story reaches them; the host's quest scripts open them only for the host
+    bool deathWatch = true;         // [coop] deaths=0 turns it off: the host reports loaded actors it saw die (combat kills) as KillActor
     bool clientLoadBlock = false;   // [coop] clientload=block: host policy, guests may not load saves while joined (default rejoin)
     std::string rulesFile;          // [coop] rules=<path to rules.json>: quest rules engine on the host (empty = off)
     uint8_t compareClasses = 0xDF;  // desync digest: entry classes the dump really covers (0..4 quest/stage/obj/vars/globals, 6 factions, 7 flags; 5 refs only with watch refs)
@@ -129,11 +138,18 @@ public:
     // Host: reads one quest's stage / completed / failed from the engine (false = unknown). Feeds HostSession::hostQuestState; before start().
     using QuestStateReader = std::function<bool(const fnvcoop::FormRef& quest, int32_t& stage, bool& completed, bool& failed)>;
     void setQuestStateReader(QuestStateReader f) { questState_ = std::move(f); }
+    // Host: reads one quest's running flag from the engine (false = unknown). Without a world baseline (no dump to read it from) it settles
+    // the quest-running keys only a client has; without it they defaulted to "not running" and a guest's quest the HOST also runs was
+    // stopped (MS11 in Megaton, TTW 2026-10-27). Before start().
+    using QuestRunningReader = std::function<bool(const fnvcoop::FormRef& quest, bool& running)>;
+    void setQuestRunningReader(QuestRunningReader f) { questRunning_ = std::move(f); }
     void setActionExecutor(ActionExecutor f) { executor_ = std::move(f); }
     // "Acting player" context (docs/protocol.md section 12): while the host runs a guest's interaction, the engine layer must resolve
     // `player` inside the target's script block to that guest. The hook is called (slot, true) before and (slot, false) after the executor.
     void setActingHook(std::function<void(fnvcoop::PlayerId slot, bool on)> f) { actingHook_ = std::move(f); }
     fnvcoop::PlayerId actingSlot() const { return actionOrigin_; }   // kNoPlayer outside an executor call
+    // Host, inside the action executor: the cause the guest sent with the action (DialogueResult: speaker + phase).
+    fnvcoop::Cause actionCause() const { return host_ ? host_->actionCause() : fnvcoop::Cause(); }
     // plugin/intents: run `body` as the acting guest `slot` exactly like the story-channel executor does (txn origin forced to the slot, the
     // acting hook on/off around it). Nesting-safe. Host only: returns false (body not run) without a host session.
     bool runAsGuest(fnvcoop::PlayerId slot, const std::function<void()>& body);
@@ -157,7 +173,7 @@ public:
     fnvcoop_dlg::DialogueNode* dialogue() { return dlg_.get(); }  // null until the session is joined
     fnvcoop::MuxTransport* mux() { return mux_.get(); }
     // Client: ask the host to run an activation. Returns 0 (and does nothing) while syncing or not joined.
-    uint32_t submitAction(fnvcoop::IntentKind kind, const fnvcoop::FormRef& ref);
+    uint32_t submitAction(fnvcoop::IntentKind kind, const fnvcoop::FormRef& ref, const fnvcoop::Cause& cause = fnvcoop::Cause());
     // ---- quest rules engine (L4): host side. Configure BEFORE start().
     bool setRules(const std::string& jsonText, std::string* err);    // or Config::rulesFile
     // Build identity for the join handshake (build number/hash/name, mod load order). rulesHash/volatileHash are filled by the runtime.
@@ -230,6 +246,10 @@ public:
 
     const Config& config() const { return cfg_; }
     fnvcoop::HostSession* host() { return host_.get(); }
+    // Host: commit effects the engine glue observed outside any capture scope (a death in combat). 0 = not committed.
+    uint64_t commitHostEffects(const fnvcoop::Cause& cause, std::vector<fnvcoop::Effect> effects) {
+        return host_ && running_ ? host_->commit(fnvcoop::kHostPlayer, cause, std::move(effects)) : 0;
+    }
     fnvcoop::ClientSession* client() { return client_.get(); }
     // T1a flight recorder: call before start(). Every datagram and every applied/committed effect is then recorded (null = off).
     void setFlight(fnvcoop::flight::FlightRecorder* r) { flight_ = r; }
@@ -295,6 +315,7 @@ private:
     std::unique_ptr<fnvcoop::MuxTransport> mux_;
     IWorldDumper* dumper_ = nullptr;
     QuestStateReader questState_;
+    QuestRunningReader questRunning_;
     std::unique_ptr<fnvcoop::ShadowState> usedBaseline_;
     uint64_t usedHash_ = 0;
     ActionExecutor executor_;

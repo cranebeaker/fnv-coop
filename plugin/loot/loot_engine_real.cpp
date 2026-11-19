@@ -208,8 +208,20 @@ bool RealLootEngine::readContents(NetId net, Items& out, bool& exact) {
     if (!pinsOk_) { exact = false; return false; }
     const RefId ref = refOfContainer(net);
     if (!ref) return false;
+    return readRefContents(ref, out, exact);
+}
+
+bool readRefContents(uint32_t ref, Items& out, bool& exact) {
+    static const bool pins = PinOk(kGetContainerData, kPinGetContainerData) && PinOk(kItemTotal, kPinItemTotal) && PinOk(kBaseContainer, kPinBaseContainer);
+    out.clear();
+    exact = true;
+    if (!pins || !ref) { exact = false; return false; }
+    // the engine call takes the reference OBJECT (TESObjectREFR*), not its form id: a form id there is a wild pointer that the call may write to
+    void* obj = nvhooks::resolver().lookup(ref);
+    uint8_t type = 0;
+    if (!obj || !Rd8(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(obj)) + 4, &type) || (type != 0x3A && type != 0x3B && type != 0x3C)) return false;   // REFR / ACHR / ACRE
     uint32_t data = 0;
-    if (!CallGetContainerData(ref, &data) || !data) return false;
+    if (!CallGetContainerData(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(obj)), &data) || !data) return false;
     std::set<uint32_t> forms;
     // changes: ExtraContainerChanges::Data.objList (a tList<EntryData>*), EntryData { extendData, countDelta, type }
     uint32_t objList = 0;

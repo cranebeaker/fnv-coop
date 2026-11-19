@@ -110,6 +110,10 @@ ApplyStatus RemoteApplier::apply(const Effect& e) {
         void* q = form(x->quest);
         if (!q) return ApplyStatus::FormMissing;
         bool ok = tc<bool, UInt8>(addr::SetStage.target, q, static_cast<UInt8>(x->stage));
+        // A quest with no entry for this stage refuses it, yet may already be at it: the host's per-frame quest poll sends the stage of
+        // every quest that starts, and TTW starts hundreds whose current stage 0 has no stage-list entry (in game 2026-10-27: 662 such
+        // refusals per load on the guest). Already there = nothing to do.
+        if (!ok && *reinterpret_cast<UInt8*>(static_cast<char*>(q) + 0x60) == static_cast<UInt8>(x->stage)) return ApplyStatus::Ok;   // TESQuest::currentStage
         if (!ok) err_ = "engine SetStage returned false (stage not defined in this quest, or quest data missing)";
         return ok ? ApplyStatus::Ok : ApplyStatus::EngineRejected;
     }
@@ -445,6 +449,7 @@ ApplyStatus RemoteApplier::applyRefCommand(const RefCommand& x, const ExecFn& ex
     if (s->flags & kRoActivate) {
         const TESObjectREFR* target = lr.callingRef ? static_cast<TESObjectREFR*>(res_.lookup(lr.callingRef)) : nullptr;
         if (!target || !target->baseForm || !activateTypeSafe(target->baseForm->typeID)) return ApplyStatus::NotForMe;   // a menu / conversation belongs to its player
+        if (activatedByPlayer(x.a)) return ApplyStatus::NotForMe;   // the host player used it: its box / choice is theirs
     }
     if (gate) gate->reset();   // the console line is a script: the ScriptGate must be open for it
     ApplierExecScope scope;

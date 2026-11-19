@@ -24,6 +24,17 @@ REASONS = {
     'NVDLC03RadioBroadcast': 'Old World Blues radio broadcast: playback state of the local radio (running flag), like NVDLC02RadioMessage; '
                              'seen in the two-copy fight test 2026-10-21 (running on the host only)',
 }
+# Quests out/questdata (the vanilla dump) does not have, with their script: TTW's pre-order pack menu asks each player which packs to take
+# and starts the vanilla VPreorder* quests, whose scripts add the items to the local player. Per machine like VDLCPackQuest: a guest got no
+# menu and no pack items at all (TTW, 2026-10-27).
+PREORDER_WHY = 'pre-order pack choice and item grant for each machine own player (TTW stash pack menu -> VPreorder* item scripts)'
+EXPLICIT = {
+    'TTWPreorderMenuQuest': ('TaleOfTwoWastelands.esm:001BFA', PREORDER_WHY),
+    'VPreorderCaravan': ('FalloutNV.esm:172A25', PREORDER_WHY),
+    'VPreorderClassic': ('FalloutNV.esm:172A27', PREORDER_WHY),
+    'VPreorderMercenary': ('FalloutNV.esm:172A24', PREORDER_WHY),
+    'VPreorderTribal': ('FalloutNV.esm:172A26', PREORDER_WHY),
+}
 # Faction ranks that per-machine DLC setup scripts give the local player; their membership is per-machine by definition, so the
 # shared snapshot compare leaves them out (plugin/snapshot/tools/snaplib.py load_local_allowlist reads "factionRanks").
 FACTION_RANKS = {
@@ -43,16 +54,23 @@ def main():
     for e in EXTRA_QUESTS:
         if e not in want:
             want.append(e)
+    for e in EXPLICIT:
+        if e not in want:
+            want.append(e)
     scripts, no_script = [], []
     for edid in sorted(want):
         q = quests.get(edid)
         ref = q.get('script') if q else None
+        if not ref and edid in EXPLICIT:
+            ref = EXPLICIT[edid][0]
         if not ref:
             no_script.append(edid)
             continue
         entry = {'quest': edid, 'script': ref}
         if edid in REASONS:
             entry['reason'] = REASONS[edid]
+        elif edid in EXPLICIT:
+            entry['reason'] = EXPLICIT[edid][1]
         scripts.append(entry)
     out = {'schema': 1, 'note': 'GuestLocalRun allow-list: quest scripts that keep running on guests. script = "plugin:hexLocalId".',
            'scripts': scripts, 'no_script': no_script,

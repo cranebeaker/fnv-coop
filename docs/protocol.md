@@ -38,6 +38,9 @@ game hooks (L5)  ->  effects  ->  HostSession / ClientSession (synccore)  ->  IT
 | `0x8D` | guest intents: Intent (guest -> host) and Verdict (host -> guest) for activations, pickups, triggers, container locks, terminal entries (section 19) | guest-intents `plugin/intents/intent_wire.h` |
 | `0xB7` | real-time VATS: host settings, a player's VATS mode, queued VATS actions, the party slow-mo grant (section 20) | vats `plugin/vats/vats_wire.h` |
 | `0xB1` | loot: container / corpse open, take, put, close, register; dropped items, pickup claims, physics clutter (section 22) | loot `synccore/loot/loot_wire.h`, `plugin/loot` |
+| `0xD5` | conversation subtitles: a player's NPC lines and picked replies, voiced again for the players near the NPC; the host relays a guest's line | coop `plugin/coop/talk_subs.h` |
+| `0xD6` | shared XP: what the engine paid one player (kills, locks, terminals, places), added for every other player; the host relays a guest's share | coop `plugin/coop/shared_xp.h` |
+| `0xD7` | container contents: what a player took from / put into a container or corpse (counted on the player's own inventory), applied to every other copy, later if not loaded; the host relays | coop `plugin/coop/container_sync.h` |
 
 New channels must pick an unused first byte that is not 0xFC and is not 0xA1 (see 3.2), and be registered here and in
 `transport_util.h`. Datagrams with an unknown first byte are dropped by the mux. `AppData` (type 8) is an alternative for small
@@ -139,8 +142,10 @@ Hello's HandshakeInfo: `varu32 protocol` (<= 0xFFFF), `varu32 buildNumber`, `u64
 `str buildName` (<= 64), `count plugins (<= 1024)` of `str` (<= 255). Zero/empty fields mean "not set" and are not checked.
 
 IntentKind: 0 AppliedEffects (client already applied; host records), 1 ActivateRef, 2 TriggerEnter, 3 PickUp, 4 ScenePass,
-5 ReportCell, 6 ReportNear, 7 ReportFar. Kinds 1..7 are **requests**: the guest did not execute anything, the host runs the real action and commits the
-resulting effects. Intent `ref` is the target form (or quest for ScenePass, cell for ReportCell, tether anchor ref for ReportNear / ReportFar).
+5 ReportCell, 6 ReportNear, 7 ReportFar, 8 ReportKill, 9 DialogueResult. Kinds 1..9 are **requests**: the guest did not execute anything, the host runs the
+real action and commits the resulting effects. Intent `ref` is the target form (or quest for ScenePass, cell for ReportCell, tether anchor ref for
+ReportNear / ReportFar, the killed actor for ReportKill, the INFO for DialogueResult). The intent's `cause` travels with every kind; DialogueResult uses
+it: `source` = the speaker NPC, `aux` = 0 begin / 1 end result script (the host reads it as `HostSession::actionCause()` inside `onAction`).
 
 Reject reasons: 1 full, 2 content (plugin hash differs while wantBaseline), 3 no baseline, 4 protocol, 5 build, 6 rules,
 7 volatile list, 8 mod list. `text` is always filled so a client that does not know a reason id can still show it.

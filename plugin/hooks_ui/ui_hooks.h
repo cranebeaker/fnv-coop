@@ -51,6 +51,12 @@ struct RecentBox {
 constexpr size_t kRecentBoxes = 16;
 std::vector<RecentBox> recentBoxes();
 
+// Host: what runs between beginActingFor(slot) and endActingFor() runs FOR that guest (their conversation's result script, their
+// activation): a message box or a service menu it opens (ShowBarterMenu: "Let's trade") goes to that guest's screen, not the host's.
+// Before, nothing in the game set this: a friend's "Let's trade" opened the barter menu for the host and the friend got nothing.
+void beginActingFor(uint8_t slot);
+void endActingFor();
+
 // ---- origin-player side: what L8's EngineGlue stubs (openMenu / closeMenu / forceCloseDialog / resumeTalk) call -----------------
 namespace ops {
 using Answer = std::function<void(uint32_t menu, int32_t choice)>;
@@ -71,6 +77,9 @@ bool answerShowing(int button, uint32_t* menuId);
 // L8 engine glue stubs (unproven in-game until internal lane notes says so):
 uint32_t topicOfInfo(uint32_t infoAddr);                    // TESTopicInfo* -> TESTopic* learned from GetTopicInfo (0 = never resolved)
 bool sayTopic(uint32_t npcRefID, const FormRef& topic);     // `<npc>.Say <topic>`: plays the NPC's line for that topic (voice + lip sync)
+// `<npc>.Say <topic> 1` with GetTopicInfo forced to return `info`: the NPC speaks exactly that INFO here (voice, lips, subtitle), the
+// line another player's conversation is playing. False when a form is not loaded or the console line failed.
+bool sayInfo(uint32_t npcRefID, const FormRef& topic, const FormRef& info);
 bool resumeTalk(uint32_t npcRefID);                         // deferred vanilla talk -> `<npc>.StartConversation player GREETING`
 void setControlsLocked(bool locked);                        // player controls (all-or-nothing, L5's SetPlayerControlsLocked)
 bool nearPlayer(uint32_t refID, float maxDist);             // same cell (or both exterior) and within maxDist game units of the local player

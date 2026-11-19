@@ -3,6 +3,7 @@
 // txn is being applied the session holds an EchoGuard, so those mutations are NOT recorded and can never be
 // re-sent (applying a remote txn must not re-emit it).
 #pragma once
+#include <cstddef>
 #include <vector>
 #include "fnvcoop/effect.h"
 #include "fnvcoop/mutations.h"
@@ -27,6 +28,13 @@ public:
     size_t guestBlockedCount() const { return guestBlocked_; }
     bool empty() const { return buf_.empty(); }
     std::vector<Effect> take() { std::vector<Effect> r; r.swap(buf_); return r; }
+    // Take back the most recent recording of `e` (the engine refused the mutation after the hook recorded it on entry). False if
+    // nothing equal is buffered (already emitted, or never recorded).
+    bool retractLast(const Effect& e) {
+        for (size_t i = buf_.size(); i-- > 0;)
+            if (buf_[i] == e) { buf_.erase(buf_.begin() + static_cast<std::ptrdiff_t>(i)); return true; }
+        return false;
+    }
     size_t suppressedCount() const { return suppressed_; }
 
 private:

@@ -94,8 +94,15 @@ void InstallSelftestBridge(nvui::Bridge& b) {
 void InitUi() {
     if (g_inited) return;
     g_inited = true;
+    // Test copies only: NVCOOP_NO_UI_HOOKS=1 installs none of these hooks (A/B: is a dialogue bug ours or the game's?).
+    char off[8] = {};
+    if (GetEnvironmentVariableA("NVCOOP_NO_UI_HOOKS", off, sizeof off) && off[0] == '1') { nvcoop::Log("hooks_ui: NOT installed (NVCOOP_NO_UI_HOOKS=1)"); return; }
     char role[32] = {};
     GetPrivateProfileStringA("coop", "role", "host", role, sizeof role, IniPath().c_str());
+    // the NV:MP launcher (TTW-CoOp.cmd) passes the role: it wins over the ini, like in coop_module.cpp LoadConfig
+    char envRole[32] = {};
+    const DWORD envN = GetEnvironmentVariableA("NVCOOP_ROLE", envRole, sizeof envRole);
+    if (envN > 0 && envN < sizeof envRole) std::snprintf(role, sizeof role, "%s", std::string(envRole) == "join" ? "client" : envRole);
     std::string r = role;
     g_host = !(r == "client" || r == "guest");
     g_selftest = GetPrivateProfileIntA("ui", "selftest", 0, IniPath().c_str()) != 0;
@@ -151,6 +158,7 @@ bool MStatus(const std::string&, std::string& out) {
 }
 
 nvui::OriginScope* g_testScope = nullptr;
+std::vector<nvui::OriginScope*> g_actingScopes;   // beginActingFor: what the host runs for a guest right now (innermost last)
 bool MOrigin(const std::string& params, std::string& out) {
     Value p;
     if (!Parse(params, p, out)) return false;
@@ -230,6 +238,17 @@ bool MDialogOpen(const std::string&, std::string& out) {
     out = nvui::ops::dialogOpen() ? "{\"open\":true}" : "{\"open\":false}";
     return true;
 }
+// ui.sayinfo {npc, topic, info}: the NPC says exactly that INFO on this machine (test of the subtitle/voice path).
+bool MSayInfo(const std::string& params, std::string& out) {
+    Value p;
+    if (!Parse(params, p, out)) return false;
+    fnvcoop::FormRef npc, topic, info;
+    if (!nvhooks::strToRef(p.get("npc").asString(""), &npc) || !nvhooks::strToRef(p.get("topic").asString(""), &topic) ||
+        !nvhooks::strToRef(p.get("info").asString(""), &info)) { out = "npc, topic and info are form refs"; return false; }
+    const bool ok = nvui::ops::sayInfo(nvhooks::resolver().fromRef(npc), topic, info);
+    out = ok ? "{\"said\":true}" : "{\"said\":false}";
+    return true;
+}
 bool MCloseDialog(const std::string&, std::string& out) {
     bool r = nvui::ops::forceCloseDialog();
     out = r ? "{\"closed\":true}" : "{\"closed\":false}";
@@ -299,6 +318,7 @@ void OnLoad(void*) {
     nvcoop::RegisterMethod("ui.actor", MActor, true);
     nvcoop::RegisterMethod("ui.dialogopen", MDialogOpen, true);
     nvcoop::RegisterMethod("ui.closedialog", MCloseDialog, true);
+    nvcoop::RegisterMethod("ui.sayinfo", MSayInfo, true);
     nvcoop::RegisterMethod("ui.open", MOpen, true);
     nvcoop::RegisterMethod("ui.closemenu", MCloseMenu, true);
     nvcoop::RegisterMethod("ui.slides", MSlides, true);
@@ -313,6 +333,17 @@ void OnFrame() {
 }
 
 }  // namespace
+
+namespace nvui {
+void beginActingFor(uint8_t slot) {
+    g_actingScopes.push_back(g_router ? new OriginScope(g_router->origin(), OriginContext::Kind::Acting, PlayerId(slot)) : nullptr);
+}
+void endActingFor() {
+    if (g_actingScopes.empty()) return;
+    delete g_actingScopes.back();
+    g_actingScopes.pop_back();
+}
+}  // namespace nvui
 
 NVCOOP_MODULE(l11_hooks_ui, "l11_hooks_ui", OnLoad, OnMessage, OnFrame);
 

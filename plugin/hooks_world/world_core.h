@@ -209,6 +209,20 @@ std::string avLine(const SetActorValueRef& e);                       // on the a
 std::string placeAtMeLine(uint32_t baseID, int count);               // on a reference in the target cell
 std::string setPosLine(char axis, float v);
 
+// Host: actors the host saw alive and then dead (a kill in combat, a fall, a trap: deaths no script command reports). A corpse that was
+// already dead when first seen is not reported (the save has it dead on every machine). An actor that is not seen in a pass keeps its
+// last state (it unloaded; it may die out of sight and is reported when it is seen dead). Game-free: the plugin feeds the loaded actors.
+class DeathWatch {
+public:
+    // `seen`: (refID, dead) for the actors loaded now. Returns the refIDs that died since a pass saw them alive.
+    std::vector<uint32_t> update(const std::vector<std::pair<uint32_t, bool>>& seen);
+    void reset() { alive_.clear(); }
+    size_t tracked() const { return alive_.size(); }
+
+private:
+    std::unordered_map<uint32_t, bool> alive_;
+};
+
 // ---------------------------------------------------------------------------------------------------------------------
 // 7. WorldLog: lane-local effect buffer for the effects L4 has no type for yet (host drains, clients apply)
 // ---------------------------------------------------------------------------------------------------------------------
@@ -217,9 +231,12 @@ public:
     void push(const WorldEffect& e);       // coalesces: a second write to the same (actor, av, Set) / essential / restrained replaces the first
     std::vector<WorldEffect> drain();
     size_t size() const { return q_.size(); }
+    uint64_t repeats() const { return repeats_; }   // state writes dropped because they repeated the last value pushed
 
 private:
     std::vector<WorldEffect> q_;
+    std::vector<WorldEffect> sent_;   // the last value pushed per state key (never actor values)
+    uint64_t repeats_ = 0;
 };
 
 // ---------------------------------------------------------------------------------------------------------------------

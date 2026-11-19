@@ -43,6 +43,9 @@ bool objectStateHolds() {
     open.open = false;
     applyAll(s, 0, {open});
     if (!s.objects.empty()) return false;                                                           // closed == default: canonical, not stored
+    if (applyAll(s, 0, {open}).size() != 1) return false;   // a close the shadow cannot tell from "never seen" still reaches the world
+    ObjectState unseen; unseen.ref = Q(9); unseen.mask = kObjOpen; unseen.open = false;
+    if (applyAll(s, 0, {unseen}).size() != 1 || !s.objects.empty()) return false;
     ObjectState d; d.ref = Q(7); d.mask = kObjDestroyed | kObjActivated; d.destroyed = true; d.activatedOnce = true;
     applyAll(s, 0, {d});
     d.destroyed = false; d.activatedOnce = false;
@@ -301,6 +304,10 @@ TEST(twin, round3_spawn_resurrects) {
 }
 TEST(twin, round3_sticky_objects_reset) {
     MutationScope m([] { Mutations x; x.stickyObjectsReset = true; return x; }());
+    CHECK(!objectStateHolds());
+}
+TEST(twin, round3_close_only_on_change) {
+    MutationScope m([] { Mutations x; x.closeOnlyOnChange = true; return x; }());
     CHECK(!objectStateHolds());
 }
 TEST(twin, round3_ref_inv_no_clear) {

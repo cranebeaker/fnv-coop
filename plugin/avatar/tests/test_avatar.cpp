@@ -775,12 +775,22 @@ static void t_spawn_retry() {
     CHECK(r.pm.PhaseOf(1) == Phase::Driving);
     CHECK(r.pm.stats().spawnFailures == 3 && r.eng.spawnCalls == 4);
 
-    Rig q;
+    Rig q([](Config& c) { c.failedRetryMs = 0; });   // no retry: Failed for good
     q.eng.spawnFailuresLeft = 1000000;
     q.Add(1, MkPose(kCellA, 100, 200));
     q.Run(120000, 100);
     CHECK(q.pm.PhaseOf(1) == Phase::Failed);
     CHECK(q.eng.spawnCalls == q.cfg.maxSpawnAttempts);
+
+    // gave up while this machine was loading: a fresh round after failedRetryMs brings the puppet in once spawning works again
+    Rig g;
+    g.eng.spawnFailuresLeft = g.cfg.maxSpawnAttempts;
+    g.Add(1, MkPose(kCellA, 100, 200));
+    g.Run(40000, 100);
+    CHECK(g.pm.PhaseOf(1) == Phase::Failed);
+    g.Run(g.cfg.failedRetryMs + 5000, 100);
+    CHECK(g.pm.PhaseOf(1) == Phase::Driving);
+    CHECK(g.eng.spawnCalls == g.cfg.maxSpawnAttempts + 1);
 
     // no template at all
     Rig t([](Config& c) { c.templates.clear(); c.defaultTemplate = 0; });
@@ -1458,7 +1468,7 @@ static const Twin kTwins[] = {
     TWIN(noJumpLand), TWIN(ignoreBudget), TWIN(staleMapEntries), TWIN(noPostMenuSnap), TWIN(noSaveWait),
     TWIN(noWeaponMods), TWIN(modsIgnoredInSet), TWIN(modsRetryForever), TWIN(appearanceUpdateRespawns), TWIN(noPuppetHeal),
     TWIN(noPuppetDeathRespawn), TWIN(apiLocalGetsPuppet), TWIN(apiPlayerIsPuppet), TWIN(apiActingNeedsPuppet), TWIN(hitsForwardEmpty),
-    TWIN(puppetHitProceeds), TWIN(adoptPhysicsPush),
+    TWIN(puppetHitProceeds), TWIN(adoptPhysicsPush), TWIN(noFailedRetry),
 };
 
 int main(int argc, char** argv) {

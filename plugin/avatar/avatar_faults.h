@@ -42,6 +42,7 @@ struct AvatarFaults {
     bool noPuppetHeal = false;           // a damaged puppet is never topped up (it dies from a few stray hits)
     bool noPuppetDeathRespawn = false;   // a puppet that died stays in the world as a corpse
     bool appearanceUpdateRespawns = false;   // a look change that keeps race and sex still deletes and respawns the puppet
+    bool noFailedRetry = false;          // a slot that gave up stays Failed for the whole session
     bool adoptPhysicsPush = false;       // ActualPose reports the pushed place, so the buffer eases the puppet back from it (teleport out and back)
 };
 

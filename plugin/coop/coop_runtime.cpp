@@ -99,6 +99,14 @@ bool ParseConfig(const std::string& text, Config* out, std::string* err) {
         else if (k == "port") { if (!parseU64(v, &u) || u == 0 || u > 65535) return bad("port out of range"); c.port = static_cast<uint16_t>(u); }
         else if (k == "transport") { std::string t = lower(v); if (t != "enet" && t != "udp") return bad("transport must be enet|udp"); c.transport = t; }
         else if (k == "forward_activate") { if (!parseBool(v, &c.forwardActivate)) return bad("forward_activate must be 0/1"); }
+        else if (k == "forward_scripted") { if (!parseBool(v, &c.forwardScripted)) return bad("forward_scripted must be 0/1"); }
+        else if (k == "subtitles") { if (!parseBool(v, &c.talkSubtitles)) return bad("subtitles must be 0/1"); }
+        else if (k == "sharedxp") { if (!parseBool(v, &c.sharedXp)) return bad("sharedxp must be 0/1"); }
+        else if (k == "containers") { if (!parseBool(v, &c.containerSync)) return bad("containers must be 0/1"); }
+        else if (k == "respawn") { if (!parseBool(v, &c.respawnRestore)) return bad("respawn must be 0/1"); }
+        else if (k == "autosave") { if (!parseU64(v, &u) || u > 600) return bad("autosave must be 0..600 minutes"); c.autosaveMinutes = static_cast<int>(u); }
+        else if (k == "guest_chargen") { if (!parseBool(v, &c.guestChargen)) return bad("guest_chargen must be 0/1"); }
+        else if (k == "deaths") { if (!parseBool(v, &c.deathWatch)) return bad("deaths must be 0/1"); }
         else if (k == "clientload") { std::string t = lower(v); if (t != "rejoin" && t != "block") return bad("clientload must be rejoin|block"); c.clientLoadBlock = t == "block"; }
         else if (k == "rules") c.rulesFile = v;
         else if (k == "handshake") { if (!parseBool(v, &c.handshake)) return bad("handshake must be 0/1"); }
@@ -142,8 +150,9 @@ public:
             std::string key = std::string(ctx.repair ? "repair " : ctx.baseline ? "baseline " : ctx.seq == 0 ? "snapshot " : "live ") + effectName(e) + ":" + r.status.substr(0, r.status.find(':'));
             ++rt_.tally_[key];
             if (!r.ok && rt_.firstErrors_.size() < 12 && r.status.find("Unsupported") == std::string::npos) {
-                FormRef q;
-                rt_.firstErrors_.push_back(key + " | " + r.status + " | " + effectName(e));
+                // the effect itself (quest, stage, ref) - a repeat of an entry already listed is not added again
+                std::string line = key + " | " + r.status + " | " + nvhooks::effectToJson(e).dump();
+                if (std::find(rt_.firstErrors_.begin(), rt_.firstErrors_.end(), line) == rt_.firstErrors_.end()) rt_.firstErrors_.push_back(line);
             }
         }
         if (r.ok) ++rt_.counters_.applied; else ++rt_.counters_.applyFailed;
@@ -272,6 +281,13 @@ bool Runtime::start(std::string* err) {
                 return true;
             };
         }
+        if (!host_->hostQuestRunning && questRunning_) {   // no baseline: read the running flag from the engine directly
+            QuestRunningReader rd = questRunning_;
+            host_->hostQuestRunning = [rd](const std::vector<FormRef>& qs, std::map<FormRef, bool>& out) {
+                for (auto& q : qs) { bool r = false; if (rd(q, r)) out[q] = r; }
+                return true;
+            };
+        }
         if (questState_) {
             // Desync repair: client-only quest state (non-zero stage, completed, failed) is settled only where THIS engine confirms it.
             // Works with or without a world baseline (a baseline-less host never recorded what both copies loaded from the same save).
@@ -327,7 +343,8 @@ bool Runtime::start(std::string* err) {
             // Only interactions are run on the host. Presence reports (ReportCell / ReportNear / ReportFar) and ScenePass only feed the
             // rules engine: without one (or when it does not consume them) they are dropped. Their ref is a cell, an anchor or a quest,
             // and running "Activate" on a cell hung the host (two-copy fight test 2026-10-21).
-            if (!FNV_MUT(7) && kind != IntentKind::ActivateRef && kind != IntentKind::PickUp && kind != IntentKind::TriggerEnter) {
+            if (!FNV_MUT(7) && kind != IntentKind::ActivateRef && kind != IntentKind::PickUp && kind != IntentKind::TriggerEnter &&
+                kind != IntentKind::ReportKill && kind != IntentKind::DialogueResult) {
                 ++counters_.reportsDropped;
                 return;
             }
@@ -607,9 +624,9 @@ void Runtime::scenePass(const FormRef& quest) {
 
 bool Runtime::saveSuppressed() const { return client_ && client_->state().saveSuppress; }
 
-uint32_t Runtime::submitAction(IntentKind kind, const FormRef& ref) {
+uint32_t Runtime::submitAction(IntentKind kind, const FormRef& ref, const Cause& cause) {
     if (!client_ || !client_->joined() || client_->baselineActive()) return 0;
-    return client_->submitAction(kind, ref);
+    return client_->submitAction(kind, ref, cause);
 }
 
 void Runtime::tickDialogue() {

@@ -3,6 +3,7 @@
 #include "world_hooks.h"
 
 #include <Windows.h>
+#include <intrin.h>
 
 #include <algorithm>
 #include <cmath>
@@ -65,6 +66,15 @@ inline void* thePlayer() { return *reinterpret_cast<void**>(kThePlayerPtr); }
 inline bool capturing() { return g_hub && g_hub->active(); }
 inline uint32_t refIdOf(const void* f) { return f ? static_cast<const TESForm*>(f)->refID : 0; }
 inline bool isPlayer(const void* r) { return r && refIdOf(r) == kPlayerRefID; }
+uint64_t g_doorsNotLoaded = 0;   // door open states not applied: the door is not loaded here (WorldApplier::run)
+bool has3DSEH(void* ref) {
+    __try {
+        auto* r = static_cast<TESObjectREFR*>(ref);
+        return r && r->renderState && r->renderState->niNode;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
 
 // Guest suppression: L5's policy decides (script-driven shared-state mutators are dropped on a client; applier runs pass).
 bool blockedNow() { return nvhooks::blockMutationNow(); }
@@ -111,7 +121,19 @@ void emitLocal(const WorldEffect& e) {
     if (g_sink) g_sink(e);
 }
 
+// NV:MP removes the other player's copy of an object one player picked up by running MarkForDelete on it, also on references placed by a
+// plugin. The game supports that only for created references (PlaceAtMe): a plugin's reference marked for delete is freed while its cell
+// still points at it. Tests 2026-11-17 (the host takes the Notice From Winthrop 10005041 in the Museum of History Offices): the guest froze
+// or crashed on its next cell load in 5 of 6 runs; real crashes 2026-11-16 21:58 / 22:00 on that note. Such a call disables the
+// reference instead, which hides it for this player just the same and is saved like any disabled reference.
+uint32_t g_nvmpDeletesDisabled = 0;
 bool __cdecl h_MarkForDelete(CMD_ARGS) {
+    const uint32_t self = refIdOf(thisObj);
+    if (thisObj && (self >> 24) != 0xFFu && !isPlayer(thisObj) && nvhooks::isNvmpCaller(_ReturnAddress())) {
+        if (++g_nvmpDeletesDisabled <= 20) nvcoop::Log("world: NV:MP's MarkForDelete on plugin reference %08X: disabled instead", self);
+        reinterpret_cast<void(__thiscall*)(void*, bool)>(nvhooks::addr::RefSetDisabled.target)(thisObj, true);
+        return true;
+    }
     if (blockedNow()) return true;
     FormRef rr;
     uint32_t id = refIdOf(thisObj);
@@ -422,7 +444,8 @@ InitReport Init(nvhooks::CaptureHub& hub, nvhooks::Role role) {
     }
     // L5 detours these commands; it reports non-player AV changes and script packages through observers.
     nvhooks::setNonPlayerAvObserver([](const FormRef& actor, uint32_t av, uint8_t kind, float before, float after) {
-        if (kind <= static_cast<uint8_t>(AvCmdKind::Damage)) recordNonPlayerAv(actor, av, static_cast<AvCmdKind>(kind), before, after);
+        // Restore too: L5 now owns the RestoreActorValue detour (the player's side, a doctor's cure), so this one reports AlreadyHooked
+        if (kind <= static_cast<uint8_t>(AvCmdKind::Restore)) recordNonPlayerAv(actor, av, static_cast<AvCmdKind>(kind), before, after);
     });
     nvhooks::setScriptPackageObserver([](const FormRef& actor, const FormRef& package, bool add) {
         if (capturing()) emitLocal(SetScriptPackage{actor, package, add});
@@ -699,8 +722,17 @@ nvhooks::ApplyStatus WorldApplier::run(const Plan& p) {
             case StepKind::ConsoleGlobal: {
                 if (!exec_) { err_ = "no console executor"; return ApplyStatus::Unsupported; }
                 nvhooks::ApplierExecScope scope;
+                nvhooks::ScriptGateLift lift;   // applyAny / tick / applyBaseline hold a ScriptGate: the console line must still run
                 {
                     void* t = s.refID ? res_.lookup(s.refID) : nullptr;
+                    // A door's open state on a door that is not loaded here: twice the guest died silently right after "SetOpenState 1" on two
+                    // Citadel doors far away while it was loading another cell (2026-11-12). Not loaded, the door is left to its own scripts
+                    // and to NV:MP when somebody gets there.
+                    if (s.kind == StepKind::ConsoleOnRef && s.line.compare(0, 12, "SetOpenState") == 0 && !has3DSEH(t)) {
+                        ++g_doorsNotLoaded;
+                        nvcoop::Log("world: '%s' on %08X skipped: the door is not loaded here", s.line.c_str(), s.refID);
+                        break;
+                    }
                     nvcoop::Log("world: apply '%s' on %08X (resolves=%d)", s.line.c_str(), s.refID, t ? 1 : 0);
                 }
                 if (!exec_(s.line, s.kind == StepKind::ConsoleOnRef ? s.refID : 0)) {

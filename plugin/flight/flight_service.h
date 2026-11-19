@@ -14,10 +14,14 @@ struct ServiceConfig {
     std::string label = "nvcoop";  // file name prefix, e.g. host / guest
     uint32_t ringMb = 16;          // [flight] ringMb=
     bool crashDump = true;         // [flight] crash=1: dump from an unhandled exception, then pass it on
+    uint32_t keepMb = 300;         // [flight] keepMb=: at startup the oldest .nvfr files in dir go until the rest fit (0 keeps all)
 };
 
 // Parses the text of an ini file's [flight] section. Unknown keys are ignored; bad values keep the default.
 bool parseServiceConfig(const std::string& iniText, ServiceConfig* out);
+// Deletes the oldest *.nvfr files in `dir` until the rest total at most keepMb (each session writes one of up to ringMb, so without
+// this the folder grew without limit: 8.7 GB, 1461 files in a test copy, 2026-11-18). Returns the number deleted.
+int pruneDumps(const std::string& dir, uint32_t keepMb);
 
 class Service {
 public:
