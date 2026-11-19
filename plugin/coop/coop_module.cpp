@@ -2229,7 +2229,7 @@ bool PlayerInCombat() {
 // Two real games ran out of address space (2026-11-16, 22:11 / 22:18): flat at 2.95 GB for minutes, then 15-30 MB a second until the
 // 4 GB were gone, with the game's own heap (heap replacer) not growing. Every 2 s: the address space in use and the biggest Win32 heaps;
 // once it grows 48 MB+ within 4 s, a line every 2 s with this session's counters, to tell which part keeps allocating.
-struct MemWatch { uint64_t nextMs = 0, lastLogMs = 0; uint64_t prevUsed = 0, prev2Used = 0; uint32_t spikes = 0; } g_mem;
+struct MemWatch { uint64_t nextMs = 0, lastLogMs = 0; uint64_t prevUsed = 0, prev2Used = 0; uint32_t spikes = 0; uint64_t backlogDrops = 0; uint32_t run = 0; bool dumped = false; } g_mem;
 void TickMemoryWatch() {
     const uint64_t now = GetTickCount64();
     if (now < g_mem.nextMs) return;
@@ -2239,6 +2239,21 @@ void TickMemoryWatch() {
     if (!GlobalMemoryStatusEx(&ms)) return;
     const uint64_t used = ms.ullTotalVirtual - ms.ullAvailVirtual;
     const bool spike = g_mem.prev2Used && used > g_mem.prev2Used + (48ull << 20);
+    if (g_rt && g_rt->backlogDrops() > g_mem.backlogDrops) {
+        g_mem.backlogDrops = g_rt->backlogDrops();
+        nvcoop::Log("coop: memory: a player's network send queue passed %u MB: dropped that link to stop it eating memory (it reconnects). "
+                    "Session: %s", (unsigned)(fnvcoop::EnetTransport::kDefaultMaxBacklogBytes >> 20), g_rt->statusJson().substr(0, 1500).c_str());
+    }
+    // The first sustained climb (3 fast checks in a row, 6 s; a cell load makes 1-2) gets a flight recording: the per-session desync
+    // dumps stop after 8, so the real out-of-memory sessions (2026-11-16 22:11 / 22:18) left none of the minutes before the crash.
+    g_mem.run = spike ? g_mem.run + 1 : 0;
+    if (g_mem.run >= 3 && !g_mem.dumped && g_rt && g_rt->running()) {
+        g_mem.dumped = true;
+        if (auto* fr = nvcoop::flight::service().recorder()) {
+            const std::string path = fr->dumpToDir(fnvcoop::flight::kDumpManual);
+            nvcoop::Log("coop: memory: still growing fast after 6 s: flight recording %s", path.empty() ? "FAILED" : path.c_str());
+        }
+    }
     g_mem.prev2Used = g_mem.prevUsed;
     g_mem.prevUsed = used;
     if (!spike && now - g_mem.lastLogMs < 60000) return;

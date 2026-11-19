@@ -1052,7 +1052,22 @@ std::string Runtime::statusJson() const {
         const auto& s = enet_->stats();
         Value t = Value::object();
         t.set("kind", "enet").set("datagramsIn", (int64_t)s.datagramsIn).set("datagramsOut", (int64_t)s.datagramsOut)
-            .set("bytesIn", (int64_t)s.bytesIn).set("bytesOut", (int64_t)s.bytesOut).set("connected", enet_->connected());
+            .set("bytesIn", (int64_t)s.bytesIn).set("bytesOut", (int64_t)s.bytesOut).set("connected", enet_->connected())
+            .set("maxBacklog", (int64_t)s.maxBacklog).set("backlogDrops", (int64_t)s.backlogDrops);
+        // The three channels (first datagram byte) that sent the most, as "FC:123456,E5:...": names the sender of a traffic flood.
+        int top[3] = {-1, -1, -1};
+        for (int m = 0; m < 256; ++m) {
+            if (!s.bytesOutByMux[m]) continue;
+            for (int k = 0; k < 3; ++k)
+                if (top[k] < 0 || s.bytesOutByMux[m] > s.bytesOutByMux[top[k]]) { for (int j = 2; j > k; --j) top[j] = top[j - 1]; top[k] = m; break; }
+        }
+        std::string by;
+        char b[32];
+        for (int k = 0; k < 3 && top[k] >= 0; ++k) {
+            std::snprintf(b, sizeof b, "%s%02X:%llu", k ? "," : "", top[k], (unsigned long long)s.bytesOutByMux[top[k]]);
+            by += b;
+        }
+        t.set("outByChannel", by);
         o.set("transport", t);
     }
     if (hub_) {

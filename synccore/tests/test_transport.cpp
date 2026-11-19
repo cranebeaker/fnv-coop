@@ -105,6 +105,39 @@ TEST(transport, enet_client_reconnects_after_the_link_drops_and_resumes) {
     CHECK(client.connected());
 }
 
+// A sender that outruns the link must not grow ENet's queue without limit (2026-11-17: a 126 KB Welcome every frame ran the host out of
+// memory): past the cap the peer is dropped, reported as Disconnected, and the queued packets are freed.
+TEST(transport, enet_drops_a_peer_whose_send_queue_passes_the_cap) {
+    EnetTransport server, client;
+    REQUIRE(server.listen(0, 4, true));
+    REQUIRE(client.connect("127.0.0.1", server.port()));
+    server.setMaxBacklogBytes(1u << 20);
+    auto t0 = std::chrono::steady_clock::now();
+    auto ms = [&] { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count(); };
+    bool up = false;
+    PeerId peer = 0;
+    while (ms() < 5000 && !(up && server.connected())) {
+        EnetTransport::Event ev;
+        while (client.nextEvent(ev)) if (ev.type == EnetTransport::Event::Connected) up = true;
+        while (server.nextEvent(ev)) if (ev.type == EnetTransport::Event::Connected) peer = ev.peer;
+        PeerId from; Bytes d;
+        server.poll(from, d); client.poll(from, d);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE(up && server.connected() && peer != 0);
+    Bytes big(64 * 1024, 0xAB);
+    for (int i = 0; i < 100 && server.connected(); ++i) server.send(peer, big);   // 6.4 MB, the client never reads
+    CHECK(server.stats().backlogDrops == 1);
+    CHECK(!server.connected());
+    CHECK(server.stats().maxBacklog > (1u << 20));
+    CHECK(server.stats().bytesOutByMux[0xAB] >= (1u << 20));
+    bool reported = false;
+    EnetTransport::Event ev;
+    while (server.nextEvent(ev)) if (ev.type == EnetTransport::Event::Disconnected && ev.peer == peer) reported = true;
+    CHECK(reported);
+    CHECK(server.backlogBytes(peer) == 0);   // the queue is gone
+}
+
 TEST(transport, enet_peer_timeouts_tolerate_a_long_load) {
     // A loading screen can block the game's main loop (which services the socket) for tens of seconds.
     CHECK(EnetTransport::kPeerTimeoutMinMs >= 60000);

@@ -14,7 +14,16 @@ void enetRelease() {
     if (g_enetUsers.fetch_sub(1) == 1) enet_deinitialize();
 }
 constexpr size_t kChannels = 2;
+// ENetPacket::userData points at the owning peer's counter in EnetTransport::queued_.
+void onPacketFree(ENetPacket* p) {
+    if (auto* n = static_cast<uint64_t*>(p->userData)) *n = *n >= p->dataLength ? *n - p->dataLength : 0;
+}
 }  // namespace
+
+void EnetTransport::createQueued(size_t slots) {
+    queued_.reset(new uint64_t[slots ? slots : 1]());
+    queuedSlots_ = slots;
+}
 
 EnetTransport::~EnetTransport() {
     if (host_) {
@@ -31,6 +40,7 @@ bool EnetTransport::listen(uint16_t port, size_t maxPeers, bool loopbackOnly) {
     a.port = port;
     host_ = enet_host_create(&a, maxPeers, kChannels, 0, 0);
     if (!host_) { enetRelease(); return false; }
+    createQueued(host_->peerCount);
     server_ = true;
     port_ = host_->address.port ? host_->address.port : port;
     return true;
@@ -40,6 +50,7 @@ bool EnetTransport::connect(const std::string& hostName, uint16_t port) {
     if (host_ || !enetAcquire()) return false;
     host_ = enet_host_create(nullptr, 1, kChannels, 0, 0);
     if (!host_) { enetRelease(); return false; }
+    createQueued(host_->peerCount);
     ENetAddress a;
     if (enet_address_set_host(&a, hostName.c_str()) != 0) {
         enet_host_destroy(host_); host_ = nullptr; enetRelease(); return false;
@@ -93,11 +104,27 @@ void EnetTransport::sendEx(PeerId to, Bytes data, Channel ch) {
     if (!p || p->state != ENET_PEER_STATE_CONNECTED) return;
     stats_.datagramsOut++;
     stats_.bytesOut += data.size();
+    if (!data.empty()) stats_.bytesOutByMux[data[0]] += data.size();
     ENetPacket* pk = enet_packet_create(data.data(), data.size(),
                                         ch == Channel::Reliable ? ENET_PACKET_FLAG_RELIABLE : 0);
     if (!pk) return;
+    const size_t slot = static_cast<size_t>(p - host_->peers);
+    if (slot < queuedSlots_) {
+        queued_[slot] += pk->dataLength;
+        pk->userData = &queued_[slot];
+        pk->freeCallback = &onPacketFree;
+    }
     if (enet_peer_send(p, ch == Channel::Reliable ? 0 : 1, pk) != 0) enet_packet_destroy(pk);
     enet_host_flush(host_);
+    const uint64_t backlog = slot < queuedSlots_ ? queued_[slot] : 0;
+    if (backlog > stats_.maxBacklog) stats_.maxBacklog = backlog;
+    if (maxBacklogBytes_ && backlog > maxBacklogBytes_ && p->state == ENET_PEER_STATE_CONNECTED) {
+        ++stats_.backlogDrops;
+        const PeerId id = idOf(p);
+        enet_peer_disconnect_now(p, 0);   // frees the queue now; ENet raises no local event for this, so report it ourselves
+        if (connectedPeers_ > 0) --connectedPeers_;
+        events_.push_back({Event::Disconnected, id});
+    }
 }
 
 void EnetTransport::service() {
@@ -136,7 +163,9 @@ bool EnetTransport::poll(PeerId& from, Bytes& data) {
 
 size_t EnetTransport::backlogBytes(PeerId to) const {
     ENetPeer* p = peerFor(to);
-    return p ? static_cast<size_t>(p->totalWaitingData) + p->reliableDataInTransit : 0;
+    if (!p) return 0;
+    const size_t slot = static_cast<size_t>(p - host_->peers);
+    return slot < queuedSlots_ ? static_cast<size_t>(queued_[slot]) : 0;
 }
 
 bool EnetTransport::nextEvent(Event& e) {

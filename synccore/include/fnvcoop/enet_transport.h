@@ -2,6 +2,7 @@
 // PeerId mapping: a client sees its server as peer 0; a server numbers clients by ENet peer slot + 1.
 #pragma once
 #include <deque>
+#include <memory>
 #include <string>
 #include <vector>
 #include "fnvcoop/transport.h"
@@ -40,8 +41,18 @@ public:
     uint16_t port() const { return port_; }
     bool isServer() const { return server_; }
     bool connected() const { return connectedPeers_ > 0; }
-    struct Stats { uint64_t datagramsIn = 0, datagramsOut = 0, bytesIn = 0, bytesOut = 0; };
+    struct Stats {
+        uint64_t datagramsIn = 0, datagramsOut = 0, bytesIn = 0, bytesOut = 0;
+        uint64_t backlogDrops = 0;      // peers dropped because their send queue passed maxBacklogBytes
+        uint64_t maxBacklog = 0;        // largest send queue towards one peer seen at a send
+        uint64_t bytesOutByMux[256] = {};   // bytes sent, by the datagram's first byte (the MuxTransport channel)
+    };
     const Stats& stats() const { return stats_; }
+    // ENet keeps every reliable packet until the peer acknowledges it. A sender that outruns the link (2026-11-17: 126 KB per frame)
+    // would grow that queue until the game runs out of address space; past this many bytes the peer is dropped instead (the client
+    // reconnects and rejoins). 0 = no limit.
+    static constexpr size_t kDefaultMaxBacklogBytes = 64u << 20;
+    void setMaxBacklogBytes(size_t n) { maxBacklogBytes_ = n; }
 
 private:
     void service();
@@ -57,6 +68,13 @@ private:
     std::deque<std::pair<PeerId, Bytes>> inbox_;
     std::deque<Event> events_;
     Stats stats_;
+    size_t maxBacklogBytes_ = kDefaultMaxBacklogBytes;
+    // Bytes of our packets ENet still holds, per ENet peer slot: added at send, taken off by the packet's free callback (after the
+    // ack for a reliable one, after sending for an unreliable one, or when the peer is reset). ENet has no outgoing byte count of its
+    // own (totalWaitingData is RECEIVED data waiting to be read). Heap-allocated so the callbacks of a destroyed host never dangle.
+    std::unique_ptr<uint64_t[]> queued_;
+    size_t queuedSlots_ = 0;
+    void createQueued(size_t slots);
 };
 
 }  // namespace fnvcoop

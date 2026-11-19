@@ -172,6 +172,8 @@ public:
     const WorldStats& worldStats() const { return worldStats_; }
     fnvcoop_dlg::DialogueNode* dialogue() { return dlg_.get(); }  // null until the session is joined
     fnvcoop::MuxTransport* mux() { return mux_.get(); }
+    // Peers the ENet transport dropped because their send queue passed its limit (EnetTransport::kDefaultMaxBacklogBytes).
+    uint64_t backlogDrops() const { return enet_ ? enet_->stats().backlogDrops : 0; }
     // Client: ask the host to run an activation. Returns 0 (and does nothing) while syncing or not joined.
     uint32_t submitAction(fnvcoop::IntentKind kind, const fnvcoop::FormRef& ref, const fnvcoop::Cause& cause = fnvcoop::Cause());
     // ---- quest rules engine (L4): host side. Configure BEFORE start().
