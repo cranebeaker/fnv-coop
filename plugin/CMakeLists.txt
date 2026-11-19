@@ -70,6 +70,7 @@ else()
   set_target_properties(nvcoop PROPERTIES PREFIX "" OUTPUT_NAME "nvcoop")
   target_link_libraries(nvcoop PRIVATE nvcoop_core)
 endif()
+target_sources(nvcoop PRIVATE common/alloc_count.cpp)   # counts this dll's own heap use (the "coop: memory" log lines)
 target_include_directories(nvcoop PUBLIC
   "${CMAKE_CURRENT_LIST_DIR}" "${CMAKE_CURRENT_LIST_DIR}/../tools/mut"
   "${FNVCOOP_NVSE_DIR}" "${FNVCOOP_NVSE_DIR}/nvse" "${FNVCOOP_NVSE_DIR}/nvse/nvse")

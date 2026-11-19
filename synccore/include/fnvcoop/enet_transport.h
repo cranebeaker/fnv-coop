@@ -53,6 +53,8 @@ public:
     // reconnects and rejoins). 0 = no limit.
     static constexpr size_t kDefaultMaxBacklogBytes = 64u << 20;
     void setMaxBacklogBytes(size_t n) { maxBacklogBytes_ = n; }
+    // ENet's malloc / free (enet_initialize_with_callbacks), e.g. to count its memory. Set before the first transport opens; null = ENet's own.
+    static void setAllocator(void* (*mallocFn)(size_t), void (*freeFn)(void*));
 
 private:
     void service();

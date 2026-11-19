@@ -1,5 +1,7 @@
 // Transport decorators + ENet in a single process (two-process loopback lives in loopback.cpp / ctest loopback_*).
+#include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <thread>
 #include <tuple>
 #include "fnvcoop/enet_transport.h"
@@ -136,6 +138,38 @@ TEST(transport, enet_drops_a_peer_whose_send_queue_passes_the_cap) {
     while (server.nextEvent(ev)) if (ev.type == EnetTransport::Event::Disconnected && ev.peer == peer) reported = true;
     CHECK(reported);
     CHECK(server.backlogBytes(peer) == 0);   // the queue is gone
+}
+
+namespace {
+std::atomic<long long> g_testEnetBytes{0};
+std::atomic<int> g_testEnetCalls{0};
+void* testEnetMalloc(size_t n) { ++g_testEnetCalls; g_testEnetBytes += (long long)n; return std::malloc(n); }
+void testEnetFree(void* p) { std::free(p); }
+}  // namespace
+
+// The plugin counts ENet's memory through these callbacks (the "network buffers" figure in nvcoop.log).
+TEST(transport, enet_runs_on_the_allocator_it_was_given) {
+    EnetTransport::setAllocator(&testEnetMalloc, &testEnetFree);
+    {
+        EnetTransport server, client;
+        REQUIRE(server.listen(0, 4, true));
+        REQUIRE(client.connect("127.0.0.1", server.port()));
+        auto t0 = std::chrono::steady_clock::now();
+        bool got = false;
+        while (!got && std::chrono::steady_clock::now() - t0 < std::chrono::seconds(5)) {
+            EnetTransport::Event ev;
+            while (server.nextEvent(ev)) if (ev.type == EnetTransport::Event::Connected) server.send(ev.peer, Bytes(1000, 7));
+            while (client.nextEvent(ev)) {}
+            PeerId from; Bytes d;
+            if (client.poll(from, d) && d.size() == 1000) got = true;
+            server.poll(from, d);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        CHECK(got);
+        CHECK(g_testEnetCalls.load() > 0);
+        CHECK(g_testEnetBytes.load() >= 1000);
+    }
+    EnetTransport::setAllocator(nullptr, nullptr);   // back to ENet's own for the tests that follow
 }
 
 TEST(transport, enet_peer_timeouts_tolerate_a_long_load) {

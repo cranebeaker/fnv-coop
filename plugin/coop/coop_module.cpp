@@ -28,6 +28,7 @@
 #include "coop_runtime.h"
 #ifdef NVCOOP_WITH_FLIGHT
 #include "flight/flight_service.h"
+#include "common/alloc_count.h"
 #endif
 #include "effect_json.h"
 #ifdef NVCOOP_WITH_UI
@@ -1029,6 +1030,7 @@ bool MInject(const std::string& params, std::string& out) {
 }
 
 void OnLoad(void*) {
+    fnvcoop::EnetTransport::setAllocator(&nvcoop::enetCountedMalloc, &nvcoop::enetCountedFree);   // before any transport opens
     LoadConfig();
 #ifdef NVCOOP_WITH_LIVE
     nvcoop::livewire::glueLoad();   // main.cpp already ran glueConfigure() (before any module loaded)
@@ -2276,8 +2278,10 @@ void TickMemoryWatch() {
     for (size_t i = 0; i < sizes.size() && i < 3; ++i)
         at += std::snprintf(top + at, sizeof top - at, "%s%p%s %.0f MB", i ? ", " : "", sizes[i].second, sizes[i].second == GetProcessHeap() ? " (process)" : "",
                             sizes[i].first / 1048576.0);
-    nvcoop::Log("coop: memory t=%llu s: %.0f MB of %.0f MB address space in use%s; %u Win32 heaps %.0f MB (%s)", now / 1000, used / 1048576.0,
-                ms.ullTotalVirtual / 1048576.0, spike ? " GROWING FAST" : "", (unsigned)nh, heapTotal / 1048576.0, top);
+    const nvcoop::AllocStats mine = nvcoop::allocStats();
+    nvcoop::Log("coop: memory t=%llu s: %.0f MB of %.0f MB address space in use%s; %u Win32 heaps %.0f MB (%s); nvcoop itself %.1f MB (peak %.1f), "
+                "its network buffers %.1f MB", now / 1000, used / 1048576.0, ms.ullTotalVirtual / 1048576.0, spike ? " GROWING FAST" : "", (unsigned)nh,
+                heapTotal / 1048576.0, top, mine.live / 1048576.0, mine.peak / 1048576.0, mine.enetLive / 1048576.0);
     if (spike && g_rt && g_mem.spikes <= 40) nvcoop::Log("coop: memory: session %s", g_rt->statusJson().substr(0, 1500).c_str());
 }
 void TickAutosave() {

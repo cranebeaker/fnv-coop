@@ -6,8 +6,17 @@ namespace fnvcoop {
 
 namespace {
 std::atomic<int> g_enetUsers{0};
+void* (*g_enetMalloc)(size_t) = nullptr;
+void (*g_enetFree)(void*) = nullptr;
+int enetInit() {
+    if (!g_enetMalloc || !g_enetFree) return enet_initialize();
+    ENetCallbacks cb{};
+    cb.malloc = g_enetMalloc;
+    cb.free = g_enetFree;
+    return enet_initialize_with_callbacks(ENET_VERSION, &cb);
+}
 bool enetAcquire() {
-    if (g_enetUsers.fetch_add(1) == 0 && enet_initialize() != 0) { g_enetUsers.fetch_sub(1); return false; }
+    if (g_enetUsers.fetch_add(1) == 0 && enetInit() != 0) { g_enetUsers.fetch_sub(1); return false; }
     return true;
 }
 void enetRelease() {
@@ -19,6 +28,12 @@ void onPacketFree(ENetPacket* p) {
     if (auto* n = static_cast<uint64_t*>(p->userData)) *n = *n >= p->dataLength ? *n - p->dataLength : 0;
 }
 }  // namespace
+
+void EnetTransport::setAllocator(void* (*mallocFn)(size_t), void (*freeFn)(void*)) {
+    if (g_enetUsers.load() != 0) return;   // ENet is running with the old pair: blocks must go back to the allocator that made them
+    g_enetMalloc = mallocFn;
+    g_enetFree = freeFn;
+}
 
 void EnetTransport::createQueued(size_t slots) {
     queued_.reset(new uint64_t[slots ? slots : 1]());
